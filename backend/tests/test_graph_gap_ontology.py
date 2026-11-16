@@ -47,7 +47,11 @@ def test_load_ontology_merges_the_gap_file_beside_the_build_and_plan_files() -> 
         None,
         False,
     )
-    assert {ontology.relation(name).origin for name in ("ABOUT", "REFERS_TO")} == {"agent"}
+    # ABOUT is declared once, with the gap pairs (origin analysis) and the first-slice finding pairs.
+    assert (
+        ontology.relation("ABOUT").origin,
+        ontology.relation("REFERS_TO").origin,
+    ) == ("analysis", "agent")
     assert {ontology.relation(name).tier for name in ("ABOUT", "REFERS_TO")} == {"governance"}
 
 
@@ -188,3 +192,93 @@ async def test_a_gap_writer_writes_its_own_types_and_refuses_a_spec_label_or_rel
     with pytest.raises(ConformanceError):  # an ABOUT edge from a finding to a task is not a legal pair
         await writer.upsert_relationship("ABOUT", NodeRef("Finding", "u1"), NodeRef("Task", "t1"), "k", {})
     assert recorder.seen == ["upsert_node_Finding", "upsert_relationship_ABOUT"]
+
+
+# The gap types of docs/graph/gap/ontology.md (Gap, Clarification and their eight relations).
+
+GAP_RELATIONS = (
+    "ABOUT",
+    "IMPACTS",
+    "CITES",
+    "FOLLOWS_UP",
+    "ANSWERS",
+    "PLACED_IN",
+    "GROUNDED_IN",
+    "REPLACES",
+)
+
+
+def test_fr_gont_01_the_merged_ontology_holds_gap_and_clarification_owned_by_gap() -> None:
+    ontology = load_ontology()
+
+    assert {name: ontology.owner_of(name) for name in ("Gap", "Clarification", *GAP_RELATIONS)} == dict.fromkeys(
+        ("Gap", "Clarification", *GAP_RELATIONS), "gap"
+    )
+    gap, clarification = ontology.node_type("Gap"), ontology.node_type("Clarification")
+    assert (gap.origin, gap.tier, gap.role, gap.id_prefix) == (
+        "analysis",
+        "governance",
+        None,
+        "GAP::",
+    )
+    assert (
+        clarification.origin,
+        clarification.tier,
+        clarification.role,
+        clarification.id_prefix,
+    ) == (
+        "human",
+        "governance",
+        None,
+        "CLR::",
+    )
+    assert {name: ontology.relation(name).origin for name in GAP_RELATIONS} == {
+        "ABOUT": "analysis",
+        "IMPACTS": "analysis",
+        "CITES": "analysis",
+        "FOLLOWS_UP": "analysis",
+        "ANSWERS": "human",
+        "PLACED_IN": "human",
+        "GROUNDED_IN": "human",
+        "REPLACES": "human",
+    }
+    assert gap.attributes["blocking"].values == ("yes", "no")
+    assert ontology.is_legal("ABOUT", "Gap", "OpenQuestion") and ontology.is_legal("IMPACTS", "Gap", "Interface")
+    assert not ontology.is_legal("ABOUT", "Gap", "Fragment") and not ontology.is_legal("ABOUT", "Gap", "Task")
+    assert ontology.is_legal("CITES", "Gap", "Fragment") and ontology.is_legal("FOLLOWS_UP", "Gap", "Gap")
+    assert ontology.is_legal("ANSWERS", "Clarification", "Gap")
+    assert ontology.is_legal("PLACED_IN", "Clarification", "Document")
+    assert ontology.is_legal("GROUNDED_IN", "Clarification", "Fragment")
+    assert ontology.is_legal("REPLACES", "Clarification", "Clarification")
+    # SUPERSEDES stays the plan's.
+    assert ontology.owner_of("SUPERSEDES") == "plan"
+
+
+def test_fr_gont_01_no_build_or_plan_type_relation_or_vocabulary_differs_with_the_gap_file() -> None:
+    plan = files("graph.plan") / "ontology.yaml"
+    without_gap, with_gap = load_ontology(submodule_files=[plan]), load_ontology()
+
+    for label in without_gap.labels:
+        assert with_gap.node_type(label) == without_gap.node_type(label), label
+    for name in without_gap.relations:
+        assert with_gap.relation(name) == without_gap.relation(name), name
+    assert {name: group.labels for name, group in with_gap.node_groups.items()} == {
+        name: group.labels for name, group in without_gap.node_groups.items()
+    }
+    gap_only = set(with_gap.labels) - set(without_gap.labels)
+    assert gap_only == {"Gap", "Clarification", "Finding", "ExternalRef"}
+
+
+def test_fr_gont_05_default_schema_objects_hold_every_graph_gap_object() -> None:
+    names = {item.name for item in schema_objects(load_ontology())}
+
+    assert {
+        "graph_gap_id",
+        "graph_clarification_id",
+        "graph_gap_status",
+        "graph_gap_signature",
+        "graph_foreign_uuid_gap",
+        "graph_foreign_uuid_clarification",
+        *(f"graph_edge_key_{name.lower()}" for name in GAP_RELATIONS),
+    } <= names
+    assert {"Gap", "Clarification"} <= set(foreign_labels(load_ontology()))

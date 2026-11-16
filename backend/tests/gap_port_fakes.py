@@ -1,0 +1,237 @@
+"""In-memory fakes of the ``graph.gap`` ports for offline tests (test support, not shipped code).
+
+``MemoryGapRecords`` and ``MemoryAmendments`` keep rows per project id, so a test can show that one project never
+sees another's rows (FR-GOWN-02). ``ScriptedInvestigator`` returns prepared results per site, ``MemoryStoryHolds``,
+``MemoryBuildRequests`` and ``MemoryPlanView`` record what the run asked of the plan and the build runner.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+from graph.core.errors import GraphError
+from graph.gap.models import (
+    AmendmentRow,
+    EventRow,
+    HoldResult,
+    InvestigationResult,
+    NoiseRuleRow,
+    NoteRow,
+    OptionRow,
+    RelevanceRow,
+    RunRow,
+    SectionKey,
+    SeedRow,
+    SiteBudget,
+    SitePack,
+    SiteRow,
+    SuppressionRow,
+    TaskRef,
+    VerdictRow,
+)
+from graph.gap.ports import SiteReads
+
+
+class MemoryGapRecords:
+    """``GapRecords`` over dictionaries keyed by project id."""
+
+    def __init__(self) -> None:
+        self.option_rows: dict[str, dict[str, tuple[OptionRow, ...]]] = defaultdict(dict)
+        self.runs: dict[str, dict[str, RunRow]] = defaultdict(dict)
+        self.seeds: dict[str, list[SeedRow]] = defaultdict(list)
+        self.sites: dict[str, list[SiteRow]] = defaultdict(list)
+        self.verdicts: dict[str, dict[str, VerdictRow]] = defaultdict(dict)
+        self.relevance_rows: dict[str, dict[SectionKey, RelevanceRow]] = defaultdict(dict)
+        self.noise: dict[str, list[NoiseRuleRow]] = defaultdict(list)
+        self.suppressions: dict[str, dict[str, SuppressionRow]] = defaultdict(dict)
+        self.notes: dict[str, list[NoteRow]] = defaultdict(list)
+        self.events: dict[str, list[EventRow]] = defaultdict(list)
+
+    async def options(self, project_id: str, gap_id: str) -> Sequence[OptionRow]:
+        return self.option_rows[project_id].get(gap_id, ())
+
+    async def put_options(self, project_id: str, gap_id: str, rows: Sequence[OptionRow]) -> None:
+        self.option_rows[project_id][gap_id] = tuple(sorted(rows, key=lambda row: row.rank))
+
+    async def start_run(self, project_id: str, run: RunRow) -> None:
+        self.runs[project_id][run.run_id] = run
+
+    async def finish_run(
+        self,
+        project_id: str,
+        run_id: str,
+        counts: Mapping[str, Any],
+        cost: Mapping[str, Any],
+    ) -> None:
+        run = self.runs[project_id][run_id]
+        self.runs[project_id][run_id] = run.model_copy(update={"status": "completed", "counts": counts, "cost": cost})
+
+    async def put_seeds(self, project_id: str, run_id: str, seeds: Sequence[SeedRow]) -> None:
+        self.seeds[project_id].extend(seed for seed in seeds if seed.run_id == run_id)
+
+    async def put_sites(self, project_id: str, run_id: str, sites: Sequence[SiteRow]) -> None:
+        self.sites[project_id].extend(site for site in sites if site.run_id == run_id)
+
+    async def verdict(self, project_id: str, input_hash: str) -> VerdictRow | None:
+        return self.verdicts[project_id].get(input_hash)
+
+    async def put_verdict(self, project_id: str, row: VerdictRow) -> None:
+        self.verdicts[project_id][row.input_hash] = row
+
+    async def relevance(self, project_id: str, keys: Sequence[SectionKey]) -> Mapping[SectionKey, RelevanceRow]:
+        rows = self.relevance_rows[project_id]
+        return {key: rows[key] for key in keys if key in rows}
+
+    async def put_relevance(self, project_id: str, rows: Sequence[RelevanceRow]) -> None:
+        for row in rows:
+            self.relevance_rows[project_id][row.key] = row
+
+    async def noise_rules(self, project_id: str) -> Sequence[NoiseRuleRow]:
+        return tuple(self.noise[project_id])
+
+    async def suppressed(self, project_id: str, signatures: Sequence[str]) -> frozenset[str]:
+        return frozenset(signature for signature in signatures if signature in self.suppressions[project_id])
+
+    async def suppress(self, project_id: str, row: SuppressionRow) -> None:
+        self.suppressions[project_id][row.signature] = row
+
+    async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None:
+        self.notes[project_id].extend(note.model_copy(update={"run_id": run_id}) for note in notes)
+
+    async def log(self, project_id: str, events: Sequence[EventRow]) -> None:
+        self.events[project_id].extend(events)
+
+
+class MemoryAmendments:
+    """``Amendments`` over dictionaries keyed by project id."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, AmendmentRow]] = defaultdict(dict)
+
+    async def for_lineage(
+        self, project_id: str, lineage: str, *, statuses: Sequence[str] = ("active",)
+    ) -> Sequence[AmendmentRow]:
+        return tuple(row for row in self.rows[project_id].values() if row.lineage == lineage and row.status in statuses)
+
+    async def for_clarification(self, project_id: str, clr_id: str) -> Sequence[AmendmentRow]:
+        return tuple(row for row in self.rows[project_id].values() if row.clr_id == clr_id)
+
+    async def put(self, project_id: str, rows: Sequence[AmendmentRow]) -> None:
+        for row in rows:
+            self.rows[project_id][row.amendment_id] = row
+
+    async def set_status(
+        self,
+        project_id: str,
+        amendment_ids: Sequence[str],
+        status: str,
+        *,
+        revision_id: str | None = None,
+    ) -> None:
+        for amendment_id in amendment_ids:
+            row = self.rows[project_id][amendment_id]
+            update: dict[str, Any] = {"status": status}
+            if revision_id is not None:
+                update["last_revision_id"] = revision_id
+            self.rows[project_id][amendment_id] = row.model_copy(update=update)
+
+    async def pending_lineages(self, project_id: str) -> Sequence[str]:
+        return tuple(sorted({row.lineage for row in self.rows[project_id].values() if row.status == "active"}))
+
+
+class ScriptedInvestigator:
+    """``Investigator`` that returns the prepared result of each site (by site id), or a failure code."""
+
+    def __init__(self, results: Mapping[str, InvestigationResult] | None = None) -> None:
+        self.results = dict(results or {})
+        self.seen: list[tuple[str, SiteBudget]] = []
+
+    async def investigate(self, pack: SitePack, reads: SiteReads, budget: SiteBudget) -> InvestigationResult:
+        del reads
+        self.seen.append((pack.site_id, budget))
+        return self.results.get(pack.site_id, InvestigationResult(error="no_script"))
+
+
+class MemoryStoryHolds:
+    """``StoryHolds`` that holds the tasks of ``tasks`` (spec id to task ids); ``in_progress`` tasks are left alone."""
+
+    def __init__(
+        self,
+        tasks: Mapping[str, Sequence[str]] | None = None,
+        in_progress: Sequence[str] = (),
+    ) -> None:
+        self.tasks = {spec_id: tuple(ids) for spec_id, ids in (tasks or {}).items()}
+        self.in_progress = frozenset(in_progress)
+        self.holds: dict[tuple[str, str], tuple[str, ...]] = {}
+        self.blocks: list[tuple[str, str, str, str]] = []
+        self.refuse: GraphError | None = None
+
+    async def hold_tasks(self, project_id: str, gap_id: str, spec_ids: Sequence[str]) -> HoldResult:
+        found = sorted({task for spec_id in spec_ids for task in self.tasks.get(spec_id, ())})
+        held = tuple(task for task in found if task not in self.in_progress)
+        self.holds[(project_id, gap_id)] = held
+        return HoldResult(
+            held=held,
+            in_progress=tuple(task for task in found if task in self.in_progress),
+        )
+
+    async def release_gap(self, project_id: str, gap_id: str) -> Sequence[str]:
+        return self.holds.pop((project_id, gap_id), ())
+
+    async def check_block(
+        self,
+        project_id: str,
+        story_id: str,
+        *,
+        claimed_by: str,
+        claim_token: str,
+        spec_ids: Sequence[str],
+    ) -> None:
+        del project_id, story_id, claimed_by, claim_token, spec_ids
+        if self.refuse is not None:
+            raise self.refuse
+
+    async def block_story(
+        self,
+        project_id: str,
+        story_id: str,
+        *,
+        claim_token: str,
+        reason: str,
+        finding_id: str,
+    ) -> Any:
+        del claim_token
+        self.blocks.append((project_id, story_id, reason, finding_id))
+        return story_id
+
+
+class MemoryBuildRequests:
+    """``BuildRequests`` that records each request and returns a build id."""
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str, bool]] = []
+
+    async def request_update_build(self, project_id: str, reason: str, *, immediate: bool) -> str:
+        self.requests.append((project_id, reason, immediate))
+        return f"build-{len(self.requests)}"
+
+
+class MemoryPlanView:
+    """``PlanView`` over prepared tasks per spec id (one plan for every project)."""
+
+    def __init__(self, tasks: Mapping[str, Sequence[TaskRef]] | None = None) -> None:
+        self.tasks = {spec_id: tuple(refs) for spec_id, refs in (tasks or {}).items()}
+
+    async def tasks_for(self, project_id: str, spec_ids: Sequence[str]) -> Mapping[str, Sequence[TaskRef]]:
+        del project_id
+        return {spec_id: self.tasks[spec_id] for spec_id in spec_ids if spec_id in self.tasks}
+
+    async def stories_for(self, project_id: str, spec_ids: Sequence[str]) -> Mapping[str, Sequence[str]]:
+        del project_id
+        return {
+            spec_id: tuple(sorted({ref.story_id for ref in self.tasks[spec_id] if ref.story_id}))
+            for spec_id in spec_ids
+            if spec_id in self.tasks
+        }
