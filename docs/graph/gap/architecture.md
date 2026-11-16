@@ -24,6 +24,7 @@ graph/gap/
     relevance.py       relevance filter: rules, cache, batched model call
     detect.py          detectors from the rules file -> seeds
     sites.py           corroboration, grouping, ranking, known-site skip, limits
+    snapshot.py        the graph detection reads once: nodes, edges, documents, active fragments, sections
     investigate.py     the Investigator port and the default structured loop
     check.py           report validation, duplicates, the second check
     route.py           severity, gates, ask or ai
@@ -66,8 +67,8 @@ starts; a run interrupted by a shutdown resumes at the first unfinished step wit
 | `scope` | `ctx.changes`, gap nodes, last run | Touched ids, alias map | No |
 | `close` | Applying and reconciled gaps, change reports, fragments | Status, `GROUNDED_IN`, follow-ups, moved relations, released holds | Contradiction re-check only (cached) |
 | `relevance` | Sections of touched documents (all in `full`), relevance cache, noise rules | Relevance rows, noise report | `gap_relevance`, uncertain sections only |
-| `detect` | Graph, fragments, rules, suppressions | Seed rows | No |
-| `sites` | Seeds, plan view, verdict cache | Site rows (`deferred` beyond limits) | No |
+| `detect` | Graph snapshot, fragments, rules, build facts, section relevance | Nothing (seeds and info notes go to `sites`) | No |
+| `sites` | Seeds, suppressions, plan view, trace, verdict cache | Seed rows (append-only, with their site), site rows of `skipped` and `deferred` sites, info notes | No |
 | `investigate` | Sites, graph reads | Reports | `gap_investigate` |
 | `check` | Reports, gaps, fragments | Checked reports, duplicates | `gap_judge` for AI candidates |
 | `route` | Checked reports, rules | Route and severity | No |

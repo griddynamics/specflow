@@ -75,7 +75,11 @@ they are not spec at all: release names, sprint scopes, ticket references, roadm
 
 Classification, in order, stops at the first answer:
 1. **Noise rules.** A `gap_noise_rule` that matches the document, the section or a pattern decides
-   `tracking` (by `person`).
+   `tracking` (by `person`). A `document` rule's value is the lineage or the document path; a `section`
+   rule's value is the lineage and the heading path joined by ` › ` (`upload:roadmap › Shop roadmap › Release
+   plan`) and also covers the sections below it; a `pattern` rule is a regular expression searched in the
+   document path, the document title and the heading path. A noise-rule decision is not cached, so removing
+   the rule ends it.
 2. **Cache.** A `gap_section_relevance` row with the same lineage, heading path and text hash is reused.
 3. **Rules.** From `relevance` in the rules file: a title word of `tracking_titles` in the heading path or the
    document title; hits of `tracking_patterns` (ticket key, version, release name, quarter, date) in the
@@ -86,7 +90,9 @@ Classification, in order, stops at the first answer:
 4. **Model.** When `classify_with_model` is true, every uncertain section of the run goes into one batched
    structured call (gateway role `gap_relevance`, at most 40 sections per call), each section as an untrusted
    data block with its heading path and at most 1,500 characters. The answer is one relevance per section
-   with the signal it relied on. A failed call leaves the sections `mixed`.
+   with the signal it relied on. A failed call (or a section the answer skips) leaves the sections `mixed`
+   without caching them, so the next run asks again. When `classify_with_model` is false, uncertain sections
+   are `mixed` by `rules` and cached.
 
 The result is written to `gap_section_relevance` with `by` = `rules`, `model` or `person`.
 
@@ -116,12 +122,12 @@ measured on the test corpus.
 
 | Code | Kind | Strength | Rule | Witness | Slice |
 |---|---|---|---|---|---|
-| MS-OWNER | `missing` | weak | `no_spine_owner`: a node of the `types` groups that reaches no internal module along the spine after inference, with `in_scope` not `no` | Graph fact and the node's evidence line | 1 |
+| MS-OWNER | `missing` | weak | `no_spine_owner`: a node of the `types` groups that reaches no internal module along the spine after inference, with `in_scope` not `no` (spine roots matching `exclude`, `external` `yes`, are not internal) | Graph fact and the node's evidence line | 1 |
 | MS-PROVIDER | `missing` | strong | `missing_relation`: a node of `types` with no outgoing `relation` (`PROVIDED_BY`) | Graph fact | 1 |
 | MS-STORE | `missing` | strong | `missing_relation`: a node of `types` with no outgoing `relation` (`STORED_IN`) | Graph fact | 1 |
-| MS-CONTRACT | `missing` | strong | `integration_without_interface`: two internal modules joined by one of `relations` (`INTEGRATES_WITH`, or a requirement of one `RELATES_TO` the other) with no interface provided by one and consumed by the other | Graph fact and the naming line | 1 |
+| MS-CONTRACT | `missing` | strong | `integration_without_interface`: two internal modules (of `types`, not matching `exclude`) joined by one of `relations` (`INTEGRATES_WITH`, or a requirement of `members` owned by one, along spine paths without those relations, that `RELATES_TO` the other) with no node of `interfaces` that `provided_by` one and `consumed_by` the other | Graph fact and the naming line | 1 |
 | MS-CRITERIA | `missing` | weak | `empty_attribute`: a node of `types` whose `attribute` (`acceptance_criteria`) is empty | Graph fact | 1 |
-| MS-COVERAGE | `missing` | strong | `checklist`: a topic of `checklist` (security, performance, availability, observability, data protection, accessibility) with no node of `types` whose name or text contains one of its cues; one seed per missing topic, about the project | Absence over the declared checklist | 1 |
+| MS-COVERAGE | `missing` | strong | `checklist`: a topic of `topics` (security, performance, availability, observability, data protection, accessibility; cues from `checklist`) with no node of `types` outside `tracking` sections whose name or text contains one of its cues; one seed per missing topic, about the project | Absence over the declared checklist | 1 |
 | MS-REF | `missing` | strong | `dangling_reference`: a fragment line citing an explicit spec id, a numbered section or a document name that resolves to no node, heading or document of the project | The line | 1 |
 | MS-CONSUMER | `missing` | weak | `missing_relation`: a node of `types` with no outgoing `relation` (`CONSUMED_BY`) and no integration requirement `RELATES_TO` it | Graph fact | 2 |
 | MS-ERROR | `missing` | weak | `checklist_topic`: a node of `types` with no related node matching the cues of `topic` (`failure`) | Absence | 2 |
@@ -132,20 +138,30 @@ measured on the test corpus.
 | CT-VALUE | `contradiction` | strong | `refused_merge`: a pair of nodes of `types` the build kept apart although near-duplicate, because a number, a negation or the modality differs (the build's dedup refusals) | Both lines | 1 |
 | CT-CROSS | `contradiction` | weak | `similar_across_documents`: pairs of `types` from different documents with similarity at least 0.85 and no relation between them | Both lines | 2 |
 | CT-RULE | `contradiction` | weak | `overlapping_conditions`: business rules about the same data entity or feature whose conditions overlap with different outcomes | Both lines | 2 |
-| IN-SCOPE | `inconsistency` | strong | `in_scope_uses_out_of_scope`: a node of `types` with `in_scope` not `no` that reaches, along an impact role `uses`, a node with `in_scope` `no` | Graph fact | 1 |
+| IN-SCOPE | `inconsistency` | strong | `in_scope_uses_out_of_scope`: a node of `types` whose `attribute` (`in_scope`) is not `value` (`no`) that uses (one edge of impact role `uses`, or `used_by` read backwards) a node whose `attribute` is `value` | Graph fact | 1 |
 | IN-CYCLE | `inconsistency` | strong | `cycle`: a cycle of `relation` (`DEPENDS_ON`) among nodes of `types`, including cycles the build cut | Graph fact and the relations' evidence lines | 1 |
 | IN-TERM | `inconsistency` | weak | `near_names`: two nodes of `types` with near-identical names (normalised edit distance at most 0.2, or embedding similarity at least 0.9) and different labels or owners | Both lines | 2 |
 | IN-PAYLOAD | `inconsistency` | weak | `carries_differ`: one node of `types` whose `relation` (`CARRIES`) targets differ between the documents that describe it | Both lines | 2 |
 | OQ-STATED | `open_question` | strong | `present`: every node of `types` (`open_question`) still in the graph | The question line | 1 |
-| OQ-TBD | `open_question` | strong | `placeholder_markers`: a fragment line holding a marker of `placeholder_markers` whose evidence range grounds no `open_question` node | The line | 1 |
+| OQ-TBD | `open_question` | strong | `placeholder_markers`: a fragment line holding a marker of `placeholder_markers` whose evidence range grounds no node of `types` (`open_question`) | The line | 1 |
 | AS-FLAG | `assumption` | strong | `attribute_value`: a node of `types` whose `attribute` (`is_assumption`) is `value` (`yes`) | The line | 1 |
 | DV-AGENT | any | strong | Not a detector query: a coding agent's report through MCP becomes a seed of its own site ([lifecycle.md](lifecycle.md) "Development gaps") | The agent's quoted lines and spec ids | 5 |
 | DV-PLAN | any | weak | A plan review issue that names a requirement no task can build | Plan artifact | later |
 | AG-FLOW | `missing` | weak | Agent hypothesis: a flow across modules misses a step; the agent must return a re-checked path and quotes | Path and quotes | later |
 
 Rule parameters not named above are fixed by the rule: `no_spine_owner` uses the spine of the merged
-ontology; `refused_merge` reads the refusals the build persisted with the build result; `cycle` and
-`dangling_reference` use the core reads.
+ontology (its roots, paths and `exclude`); `refused_merge` reads the refusals the build persisted with the
+build result, and `cycle` also reads the edges the build cut out of a cycle (quarantined `cycle_broken`): the
+host converts both from the build result into `GapContext.build` (`BuildFacts`), so `graph.gap` never imports
+`graph.build`; `dangling_reference` resolves explicit ids (the id families of the merged ontology), numbered
+sections (the word section or chapter, or the section sign, before a dotted number, against headings that
+start with that number) and document names (against document paths and titles).
+
+Detectors read one in-memory snapshot of the persisted graph (spec nodes, domain edges with inferred ones,
+documents, active fragments), read once per run through the core reader, so detection time grows with the
+graph and not with the number of detector questions (NFR-GPERF-01). Detector slices: the run executes the
+detectors of slice 1; a slice 2 entry enabled by an override whose rule has no implementation yet is reported
+in `detector_failures` as `detector_not_shipped`.
 
 A detector returns, per hit, a **seed**: detector code, kind, strength, the spec ids it is about (the
 `ABOUT` candidates), optional context ids (`IMPACTS` candidates), and a witness. A witness is either a quote
@@ -163,7 +179,9 @@ shows. These are the most direct seeds the gap module gets:
    `RELATES_TO` as `ABOUT` candidates (with the question itself).
 2. The seed is strong: no corroboration, and the relevance filter does not apply.
 3. Questions that relate to the same node merge into one site; two documents asking the same question
-   (question similarity at least 0.9) become one gap `ABOUT` both question nodes.
+   (equal words after normalisation) become one site and one gap `ABOUT` both question nodes. Questions
+   worded differently (question similarity at least 0.9) are found by the duplicate check of the check
+   step ([investigation.md](investigation.md) "Checks").
 4. Investigation reads the question's stated default and owner, if any, and searches for an answer the
    build missed ([investigation.md](investigation.md) "Pointer answers").
 5. The answer replaces the question line, so the next build removes the question node, and the close check
@@ -190,7 +208,7 @@ Corroboration signals:
 | Signal | Holds when |
 |---|---|
 | `obligation_wording` | The node's text holds a cue of `relevance.obligation_cues` |
-| `names_system_part` | The node's text names an internal module, an interface or a data entity of the project (core name index) |
+| `names_system_part` | The node's text names another node of `seeds.system_parts` (module, interface, data entity), a plural `s` allowed |
 | `planned_dependency` | A plan task implements the node, or a node it is related to (`PlanView`) |
 
 A weak seed from a `mixed` section needs `obligation_wording` and one more signal. Uncorroborated weak seeds

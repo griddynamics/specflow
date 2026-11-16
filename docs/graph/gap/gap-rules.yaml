@@ -39,14 +39,15 @@ seeds:                          # detection.md "Seeds and corroboration"
     - obligation_wording
     - names_system_part         # the node's text names a module, interface or data entity
     - planned_dependency        # a plan task implements the node or one it relates to
+  system_parts: [module, interface, data_entity]   # names_system_part: the types whose names count as system parts
 
 detectors:                      # detection.md "Detector catalogue"; one entry per detector
-  MS-OWNER:     {kind: missing,       family: structure, strength: weak,   types: [requirement], rule: no_spine_owner}
+  MS-OWNER:     {kind: missing,       family: structure, strength: weak,   types: [requirement], rule: no_spine_owner, exclude: {external: ["yes"]}}
   MS-PROVIDER:  {kind: missing,       family: structure, strength: strong, types: [interface], rule: missing_relation, relation: PROVIDED_BY, direction: out}
   MS-STORE:     {kind: missing,       family: structure, strength: strong, types: [data_entity], rule: missing_relation, relation: STORED_IN, direction: out}
-  MS-CONTRACT:  {kind: missing,       family: structure, strength: strong, types: [module], rule: integration_without_interface, relations: [INTEGRATES_WITH, RELATES_TO]}
+  MS-CONTRACT:  {kind: missing,       family: structure, strength: strong, types: [module], rule: integration_without_interface, relations: [INTEGRATES_WITH, RELATES_TO], members: [requirement], interfaces: [interface], provided_by: PROVIDED_BY, consumed_by: CONSUMED_BY, exclude: {external: ["yes"]}}
   MS-CRITERIA:  {kind: missing,       family: structure, strength: weak,   types: [functional_requirement], rule: empty_attribute, attribute: acceptance_criteria}
-  MS-COVERAGE:  {kind: missing,       family: structure, strength: strong, types: [quality_requirement, constraint], rule: checklist}
+  MS-COVERAGE:  {kind: missing,       family: structure, strength: strong, types: [quality_requirement, constraint], rule: checklist, topics: [security, performance, availability, observability, data_protection, accessibility]}
   MS-REF:       {kind: missing,       family: text,      strength: strong, rule: dangling_reference}
   MS-CONSUMER:  {kind: missing,       family: structure, strength: weak,   types: [interface], rule: missing_relation, relation: CONSUMED_BY, direction: out, slice: 2}
   MS-ERROR:     {kind: missing,       family: structure, strength: weak,   types: [interface, integration_requirement], rule: checklist_topic, topic: failure, slice: 2}
@@ -57,12 +58,12 @@ detectors:                      # detection.md "Detector catalogue"; one entry p
   CT-VALUE:     {kind: contradiction, family: text,      strength: strong, types: [requirement], rule: refused_merge}
   CT-CROSS:     {kind: contradiction, family: text,      strength: weak,   types: [requirement], rule: similar_across_documents, slice: 2}
   CT-RULE:      {kind: contradiction, family: text,      strength: weak,   types: [business_rule], rule: overlapping_conditions, slice: 2}
-  IN-SCOPE:     {kind: inconsistency, family: structure, strength: strong, types: [requirement, feature, interface], rule: in_scope_uses_out_of_scope, attribute: in_scope}
+  IN-SCOPE:     {kind: inconsistency, family: structure, strength: strong, types: [requirement, feature, interface], rule: in_scope_uses_out_of_scope, attribute: in_scope, value: "no"}
   IN-CYCLE:     {kind: inconsistency, family: structure, strength: strong, types: [feature, requirement], rule: cycle, relation: DEPENDS_ON}
   IN-TERM:      {kind: inconsistency, family: text,      strength: weak,   types: [data_entity, interface, module], rule: near_names, slice: 2}
   IN-PAYLOAD:   {kind: inconsistency, family: text,      strength: weak,   types: [interface], rule: carries_differ, relation: CARRIES, slice: 2}
   OQ-STATED:    {kind: open_question, family: text,      strength: strong, types: [open_question], rule: present}
-  OQ-TBD:       {kind: open_question, family: text,      strength: strong, rule: placeholder_markers}
+  OQ-TBD:       {kind: open_question, family: text,      strength: strong, types: [open_question], rule: placeholder_markers}
   AS-FLAG:      {kind: assumption,    family: structure, strength: strong, types: [requirement], rule: attribute_value, attribute: is_assumption, value: "yes"}
 
 placeholder_markers: [TBD, TODO, TBC, "to be defined", "to be decided", "to be confirmed", "???"]
