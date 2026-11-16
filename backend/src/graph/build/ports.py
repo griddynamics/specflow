@@ -122,6 +122,11 @@ class BuildStore(Protocol):
         """One build record."""
         ...
 
+    async def list_builds(self, project_id: str) -> tuple[BuildRecord, ...]:
+        """Every build record of the project in build order: by ``started_at``, then ``build_id`` (the order
+        ``latest_build`` picks from); the host derives the build chain of change reports from it."""
+        ...
+
     async def put_progress(self, project_id: str, build_id: str, step: StepName, state: StepState) -> None:
         """Set one step's state in the build's ``progress``."""
         ...
