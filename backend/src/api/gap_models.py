@@ -29,6 +29,7 @@ class GapListQuery(BaseModel):
     about: list[str] | None = Field(default=None, max_length=MAX_FILTER_VALUES)
     story_id: str | None = Field(default=None, min_length=1, max_length=MAX_ID)
     document: str | None = Field(default=None, min_length=1, max_length=MAX_ID)
+    held_back: bool | None = None
     cursor: str | None = Field(default=None, min_length=1, max_length=MAX_CURSOR)
     limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT)
 

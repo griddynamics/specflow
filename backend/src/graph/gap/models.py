@@ -560,6 +560,7 @@ class GapView(GapModel):
     detector: str
     signature: str
     blocking: bool = False
+    held_back: bool = False
     run_id: str | None = None
     created_by: str
     created_at: AwareDatetime

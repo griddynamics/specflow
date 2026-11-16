@@ -2903,6 +2903,11 @@
             "title": "Gap Id",
             "type": "string"
           },
+          "held_back": {
+            "default": false,
+            "title": "Held Back",
+            "type": "boolean"
+          },
           "history": {
             "anyOf": [
               {
@@ -10465,7 +10470,7 @@
     },
     "/api/v1/projects/{pid}/gaps": {
       "get": {
-        "description": "The project's gaps: open, answered and applying ones unless ``status`` says otherwise; blockers first, then\nnewest first. ``about`` keeps gaps about the spec ids (aliases resolve), ``story_id`` those about the nodes the\nstory's tasks implement, ``document`` those citing or about the document lineage.",
+        "description": "The project's gaps: open, answered and applying ones unless ``status`` says otherwise; blockers first, then\nnewest first. ``about`` keeps gaps about the spec ids (aliases resolve), ``story_id`` those about the nodes the\nstory's tasks implement, ``document`` those citing or about the document lineage. ``held_back=false`` is the\ninbox's default view: it leaves out the new questions a run held back beyond its limit until the next run.",
         "operationId": "list_gaps_api_v1_projects__pid__gaps_get",
         "parameters": [
           {
@@ -10660,6 +10665,22 @@
                 }
               ],
               "title": "Document"
+            }
+          },
+          {
+            "in": "query",
+            "name": "held_back",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Held Back"
             }
           },
           {

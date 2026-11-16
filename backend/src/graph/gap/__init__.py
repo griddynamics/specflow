@@ -128,7 +128,8 @@ from graph.gap.run_store import FileGapRunStore, GapRunRecord, GapRunStore, Memo
 from graph.gap.schema import ensure_gap_schema
 from graph.gap.service import GapService
 from graph.gap.settings import GapLimits, GapSettings, gap_settings_from_env
-from graph.gap.steps.investigate import SeedInvestigator
+from graph.gap.steps.investigate import LoopInvestigator
+from graph.gap.steps.reads import GraphSiteReads
 
 __all__ = [
     "BLOCK_REASONS",
@@ -192,9 +193,11 @@ __all__ = [
     "GapStatus",
     "GapView",
     "Gates",
+    "GraphSiteReads",
     "HoldResult",
     "InvestigationResult",
     "Investigator",
+    "LoopInvestigator",
     "MemoryGapRunStore",
     "NewFinding",
     "NewGap",
@@ -219,7 +222,6 @@ __all__ = [
     "RoutingRules",
     "RunRow",
     "SectionKey",
-    "SeedInvestigator",
     "SeedRow",
     "SiteBudget",
     "SitePack",

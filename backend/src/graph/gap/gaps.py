@@ -32,6 +32,18 @@ def gap_uuid(project_id: str, gap: str) -> str:
     return str(uuid.uuid5(NAMESPACE, f"{project_id}|gap|{gap}"))
 
 
+def clarification_uuid(project_id: str, clr: str) -> str:
+    """The storage key (``uuid``) of a clarification node: uuid5 of the project and the clarification id."""
+
+    return str(uuid.uuid5(NAMESPACE, f"{project_id}|clarification|{clr}"))
+
+
+def answer_key(clr: str, relation: str, end: str) -> str:
+    """The edge key of a clarification's relation (``ANSWERS`` to its gap, ``GROUNDED_IN`` to a fragment)."""
+
+    return f"{clr}|{relation}|{end}"
+
+
 def link_key(gap: str, relation: str, spec_id: str) -> str:
     """The edge key of an ``ABOUT`` or ``IMPACTS`` relation: the gap, the relation and the current spec id."""
 

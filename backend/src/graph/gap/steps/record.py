@@ -13,7 +13,17 @@ For each investigated site, by its checked outcome:
   signature, re-checks that gap: an open gap gets the relations it lacks (and a new ``updated_at`` when it got any);
   nothing is duplicated (``gaps_updated``, a ``rechecked`` event).
 - ``gap`` of severity ``info``: a ``gap_note`` row only (site outcome ``not_a_gap``: nothing to decide).
-- ``not_a_gap``, ``not_spec``, ``duplicate``: the site row only. ``deferred``: the site row, no verdict.
+- A new or re-checked open gap gets its checked options as ``gap_option`` rows (rank by report order, replacing the
+  rows a re-check finds); a new ``ask`` gap held back from the inbox (route step) carries ``held_back`` ``yes`` until
+  the next run's record step clears it (FR-GRTE-06). A ``routed`` event keeps the route and its reasons.
+- A confirmed pointer (route ``ai``, mode ``pointer``): the gap is written ``resolved`` with resolution ``pointer``,
+  with a ``Clarification`` (mode ``pointer``, placement ``none``, status ``applied``, answered by ``ai``, the pointer
+  line as basis, the second check's confidence), ``ANSWERS`` to the gap and ``GROUNDED_IN`` the answering fragment,
+  in the gap's transaction; no option, no amendment (FR-GINV-07, answers.md "Pointer answers").
+- ``duplicate``: the site row with the gap it repeats, and a ``duplicate`` event on that gap; nothing else is written
+  (FR-GINV-06). A rejected report (outcome ``not_a_gap`` with failed checks): the site row and a ``report_rejected``
+  event naming the checks. ``not_a_gap``, ``not_spec``: the site row only (the run lists a ``not_spec`` site's nodes in
+  the noise report). ``deferred``: the site row, no verdict.
 
 Every investigated site with a checked outcome stores its report in the verdict cache under its input hash, so a
 later run with the same inputs makes no call (FR-GRUN-03). The step writes only ``Gap`` nodes and the gap relations:
@@ -23,19 +33,35 @@ or alias through the core read queries, and only pairs of the gap ontology are w
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
 
+from graph.core.errors import ConformanceError
 from graph.core.ontology import Ontology
 from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.writer import FRAGMENT, NodeRef, OwnedWriter
-from graph.gap.gaps import StoredGap, cite_key, gap_uuid, link_key, quote_hash
-from graph.gap.identity import gap_id, gap_signature, normalise_quote, witness_entry
-from graph.gap.models import EventRow, GapReport, NoteRow, SiteRow, VerdictRow, Witness
-from graph.gap.names import ABOUT, CITES, GAP, IMPACTS, OWNER, RUN_ACTOR, GapRoute, ReportSeverity, SiteOutcome
+from graph.gap.gaps import StoredGap, answer_key, cite_key, clarification_uuid, gap_uuid, link_key, quote_hash
+from graph.gap.identity import clr_id, gap_id, gap_signature, normalise_quote, witness_entry
+from graph.gap.models import EventRow, GapReport, NoteRow, OptionRow, SiteRow, VerdictRow, Witness
+from graph.gap.names import (
+    ABOUT,
+    AI_ACTOR,
+    ANSWERS,
+    CITES,
+    CLARIFICATION,
+    GAP,
+    GROUNDED_IN,
+    IMPACTS,
+    OWNER,
+    RUN_ACTOR,
+    GapRoute,
+    ReportSeverity,
+    SiteOutcome,
+)
 from graph.gap.ports import GapRecords
 from graph.gap.resolve import SpecRef, resolve_spec_ids
 from graph.gap.steps.investigate import primary_seed
@@ -47,7 +73,11 @@ logger = get_logger(__name__)
 
 ORIGIN: Final = "analysis"
 OPEN: Final = "open"
+RESOLVED: Final = "resolved"
+POINTER: Final = "pointer"
 NOT_BLOCKING: Final = "no"
+YES: Final = "yes"
+NO: Final = "no"
 
 
 @dataclass(frozen=True)
@@ -59,6 +89,12 @@ class SiteDecision:
     report: GapReport | None = None
     severity: ReportSeverity | None = None
     route: GapRoute | None = None
+    mode: str | None = None
+    reasons: tuple[str, ...] = ()
+    held_back: bool = False
+    gap_id: str | None = None
+    rejected: tuple[str, ...] = ()
+    judge: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +111,7 @@ class RecordRun:
     model: str = ""
     prompt_version: str = ""
     database: str | None = None
+    build_id: str | None = None
 
 
 @dataclass
@@ -87,6 +124,10 @@ class RecordOutcome:
     routes: Counter[str] = field(default_factory=Counter)
     notes: int = 0
     skipped_nodes: int = 0
+    pointers: int = 0
+    held_back: int = 0
+    rejected: int = 0
+    not_spec: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -96,6 +137,10 @@ class RecordOutcome:
             "routes": dict(sorted(self.routes.items())),
             "notes": self.notes,
             "skipped_nodes": self.skipped_nodes,
+            "pointers": self.pointers,
+            "held_back": self.held_back,
+            "rejected": self.rejected,
+            "not_spec": {site_id: list(ids) for site_id, ids in sorted(self.not_spec.items())},
         }
 
 
@@ -156,9 +201,25 @@ class Recorder:
         self.verdicts: list[VerdictRow] = []
         self.notes: list[NoteRow] = []
         self.events: list[EventRow] = []
+        self.options: dict[str, list[OptionRow]] = {}
+
+    async def _release_holds(self) -> None:
+        """Clear ``held_back`` on the gaps an earlier run held back (they show from this run on, FR-GRTE-06)."""
+
+        held = [
+            gap
+            for gap in self.by_id.values()
+            if gap.props.get("held_back") == YES and gap.props.get("run_id") != self.run.run_id
+        ]
+        if not held:
+            return
+        async with self._writer().transaction() as tx:
+            for gap in held:
+                await tx.upsert_node(GAP, gap_uuid(self.run.project_id, gap.gap_id), {"held_back": NO})
 
     async def record(self, decisions: Sequence[SiteDecision]) -> RecordOutcome:
         run = self.run
+        await self._release_holds()
         for decision in decisions:
             outcome, gap = await self._one(decision)
             self.outcome.outcomes[decision.site.site_id] = (outcome, gap)
@@ -173,10 +234,19 @@ class Recorder:
                 )
             )
             if outcome != "deferred" and decision.report is not None:
+                cached: dict[str, Any] = {"outcome": outcome, "gap_id": gap}
+                if outcome == "gap" and not decision.rejected:
+                    cached["report"] = decision.report.model_dump(mode="json")  # checked: what was written
+                elif decision.report.not_spec_reason:
+                    cached["not_spec_reason"] = decision.report.not_spec_reason
+                if decision.judge is not None:
+                    cached["judge"] = dict(decision.judge)
+                if decision.rejected:
+                    cached["rejected"] = list(decision.rejected)
                 self.verdicts.append(
                     VerdictRow(
                         input_hash=decision.site.input_hash,
-                        report={"outcome": outcome, "gap_id": gap, "report": decision.report.model_dump(mode="json")},
+                        report=cached,
                         model=run.model,
                         prompt_version=run.prompt_version,
                         created_at=run.now(),
@@ -200,6 +270,8 @@ class Recorder:
         run, records = self.run, self.run.records
         if self.site_rows:
             await records.put_sites(run.project_id, run.run_id, self.site_rows)
+        for gap, rows in sorted(self.options.items()):
+            await records.put_options(run.project_id, gap, rows)
         for row in self.verdicts:
             await records.put_verdict(run.project_id, row)
         if self.notes:
@@ -207,21 +279,50 @@ class Recorder:
         if self.events:
             await records.log(run.project_id, self.events)
 
+    def _event(self, gap: str | None, event: str, **detail: Any) -> None:
+        self.events.append(
+            EventRow(
+                gap_id=gap,
+                at=self.run.now(),
+                actor=RUN_ACTOR,
+                event=event,
+                detail={"run_id": self.run.run_id, **detail},
+            )
+        )
+
+    def _no_gap(self, decision: SiteDecision) -> tuple[SiteOutcome, str | None]:
+        """The rows of a site that writes no gap: a duplicate, a rejected report, ``not_spec`` and the rest."""
+
+        site_id = decision.site.site_id
+        if decision.outcome == "duplicate":
+            if decision.gap_id is not None:
+                self._event(decision.gap_id, "duplicate", site_id=site_id)
+            return "duplicate", decision.gap_id
+        if decision.rejected:
+            self.outcome.rejected += 1
+            self._event(None, "report_rejected", site_id=site_id, checks=list(decision.rejected))
+        elif decision.outcome == "not_spec":
+            self.outcome.not_spec[site_id] = tuple(sorted(decision.site.about))
+        return decision.outcome, None
+
+    def _note(self, decision: SiteDecision, report: GapReport) -> tuple[SiteOutcome, str | None]:
+        self.notes.append(
+            NoteRow(
+                run_id=self.run.run_id,
+                detector=primary_seed(decision.site.seeds).detector,
+                spec_ids=report.about,
+                text=report.title or f"info: {report.kind}",
+            )
+        )
+        self.outcome.notes += 1
+        return "not_a_gap", None
+
     async def _one(self, decision: SiteDecision) -> tuple[SiteOutcome, str | None]:
         report = decision.report
-        if decision.outcome != "gap" or report is None:
-            return decision.outcome, None
+        if decision.outcome != "gap" or report is None or decision.rejected:
+            return self._no_gap(decision)
         if decision.severity == "info" or decision.route is None:
-            self.notes.append(
-                NoteRow(
-                    run_id=self.run.run_id,
-                    detector=primary_seed(decision.site.seeds).detector,
-                    spec_ids=report.about,
-                    text=f"info: {report.kind} about nodes outside the spine only",
-                )
-            )
-            self.outcome.notes += 1
-            return "not_a_gap", None
+            return self._note(decision, report)
         signature = report_signature(decision.site, report)
         known = self.by_signature.get(signature) or (
             self.by_id.get(decision.site.gap_id) if decision.site.gap_id else None
@@ -230,6 +331,21 @@ class Recorder:
             await self._recheck(known, decision, report)
             return "gap", known.gap_id
         return await self._create(decision, report, signature)
+
+    def _option_rows(self, gap: str, report: GapReport) -> list[OptionRow]:
+        return [
+            OptionRow(
+                gap_id=gap,
+                rank=rank,
+                label=option.label,
+                detail=option.detail,
+                recommended=option.recommended,
+                edits=option.edits,
+                basis=option.basis,
+                created_run=self.run.run_id,
+            )
+            for rank, option in enumerate(report.options, start=1)
+        ]
 
     async def _nodes(self, ids: Collection[str], relation: str) -> list[SpecRef]:
         resolved = await resolve_spec_ids(self.run.executor, self.run.project_id, list(ids), self.labels)
@@ -254,13 +370,15 @@ class Recorder:
         if not about and not quotes:
             return "deferred", None
         new_id = gap_id(signature, self.taken)
-        now = run.now().isoformat(timespec="milliseconds")
+        instant = run.now()
+        now = instant.isoformat(timespec="milliseconds")
         severity = decision.severity or "major"
+        pointer = decision.mode == POINTER and report.pointer is not None
         props: dict[str, Any] = {
             "gap_id": new_id,
             "kind": report.kind,
             "severity": severity,
-            "status": OPEN,
+            "status": RESOLVED if pointer else OPEN,
             "origin": ORIGIN,
             "route": decision.route,
             "title": report.title,
@@ -273,38 +391,102 @@ class Recorder:
             "created_by": RUN_ACTOR,
             "created_at": now,
             "updated_at": now,
+            "held_back": YES if decision.held_back else NO,
         }
+        if pointer:
+            props |= {"resolution": POINTER, "resolved_at": now}
         owner = NodeRef(GAP, gap_uuid(run.project_id, new_id))
+        clarification: str | None = None
         async with self._writer().transaction() as tx:
             await tx.upsert_node(GAP, owner.key, props)
             await self._links(tx, owner, new_id, ABOUT, nodes=about, keys=set())
             await self._links(tx, owner, new_id, IMPACTS, nodes=impacts, keys=set())
             await self._cites(tx, owner, new_id, quotes, set())
+            if pointer:
+                clarification = await self._pointer(
+                    tx, owner, new_id, decision=decision, report=report, instant=instant
+                )
         self.taken[new_id] = signature
         stored = StoredGap(gap_id=new_id, props=props)
         self.by_id[new_id] = stored
         self.by_signature[signature] = stored
         self.outcome.gaps_new[(str(report.kind), severity)] += 1
         self.outcome.routes[str(decision.route)] += 1
-        self.events.append(
-            EventRow(
-                gap_id=new_id,
-                at=run.now(),
-                actor=RUN_ACTOR,
-                event="created",
-                detail={
-                    "run_id": run.run_id,
-                    "site_id": decision.site.site_id,
-                    "kind": report.kind,
-                    "severity": severity,
-                    "route": decision.route,
-                    "about": len(about),
-                    "impacts": len(impacts),
-                    "cites": len(quotes),
-                },
-            )
+        self._event(
+            new_id,
+            "created",
+            site_id=decision.site.site_id,
+            kind=report.kind,
+            severity=severity,
+            route=decision.route,
+            about=len(about),
+            impacts=len(impacts),
+            cites=len(quotes),
+            options=0 if pointer else len(report.options),
         )
+        self._event(
+            new_id,
+            "routed",
+            route=decision.route,
+            mode=decision.mode,
+            reasons=list(decision.reasons),
+            held_back=decision.held_back,
+        )
+        if pointer:
+            self.outcome.pointers += 1
+            self.events.append(
+                EventRow(
+                    gap_id=new_id,
+                    clr_id=clarification,
+                    at=run.now(),
+                    actor=AI_ACTOR,
+                    event="answered",
+                    detail={"run_id": run.run_id, "mode": POINTER},
+                )
+            )
+        elif report.options:
+            self.options[new_id] = self._option_rows(new_id, report)
+        if decision.held_back:
+            self.outcome.held_back += 1
         return "gap", new_id
+
+    async def _pointer(
+        self, tx: OwnedWriter, owner: NodeRef, gap: str, *, decision: SiteDecision, report: GapReport, instant: datetime
+    ) -> str:
+        """The pointer clarification of a new gap, ``ANSWERS`` it and ``GROUNDED_IN`` the answering fragment."""
+
+        pointer = report.pointer
+        if pointer is None:
+            raise ConformanceError("gap_pointer_missing", gap_id=gap)
+        clr = clr_id(gap, pointer.quote, instant)
+        key = clarification_uuid(self.run.project_id, clr)
+        judge = decision.judge or {}
+        props: dict[str, Any] = {
+            "clr_id": clr,
+            "mode": POINTER,
+            "placement": "none",
+            "status": "applied",
+            "option_label": "",
+            "text": "",
+            "answered_by": AI_ACTOR,
+            "answered_at": instant.isoformat(timespec="milliseconds"),
+            "basis": json.dumps([pointer.model_dump(mode="json")], ensure_ascii=False),
+            "confidence": judge.get("confidence"),
+        }
+        if self.run.build_id is not None:
+            props["applied_build_id"] = self.run.build_id
+        await tx.upsert_node(CLARIFICATION, key, props)
+        node = NodeRef(CLARIFICATION, key)
+        await tx.upsert_relationship(ANSWERS, node, owner, answer_key(clr, ANSWERS, gap), {})
+        grounded: dict[str, Any] = {} if self.run.build_id is None else {"build_id": self.run.build_id}
+        await tx.upsert_relationship(
+            GROUNDED_IN,
+            node,
+            NodeRef(FRAGMENT, pointer.fragment_id),
+            answer_key(clr, GROUNDED_IN, pointer.fragment_id),
+            grounded,
+        )
+        return clr
 
     async def _recheck(self, known: StoredGap, decision: SiteDecision, report: GapReport) -> None:
         run = self.run
@@ -329,6 +511,8 @@ class Recorder:
                 added += await self._cites(tx, owner, known.gap_id, quotes, keys)
                 if added:
                     await tx.upsert_node(GAP, owner.key, {"updated_at": run.now().isoformat(timespec="milliseconds")})
+        if known.status == OPEN and report.options and decision.mode != POINTER:
+            self.options[known.gap_id] = self._option_rows(known.gap_id, report)
         kind = str(known.props.get("kind") or report.kind)
         self.outcome.gaps_updated[(kind, str(known.props.get("severity") or decision.severity))] += 1
         self.events.append(

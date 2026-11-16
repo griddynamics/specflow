@@ -3,8 +3,9 @@
 Wired like the plan runner (docs/graph/gap/api.md "Host runner"): the run artifact store under ``GRAPH_STATE_DIR``
 (``open_gap_run_store``, beside the build and plan stores), the runtime's graph store, ``load_ontology()`` (the gap
 ontology is merged in), ``load_gap_rules`` (``GAP_RULES_PATH`` or the shipped rules), the PostgreSQL ``GapRecords``
-and ``Amendments`` on the application database, the slice-1 ``SeedInvestigator``, the plan as ``PlanView``
-(``api.gap.plan_view``), one ``Gateway`` per run and ``ensure_gap_schema`` once per process, then ``run_gap``.
+and ``Amendments`` on the application database, the ``LoopInvestigator`` over the run's gateway, the plan as
+``PlanView`` (``api.gap.plan_view``), one ``Gateway`` per run and ``ensure_gap_schema`` once per process, then
+``run_gap``.
 
 Runs of one project never overlap: each project has a queue and one task that drains it; runs of different projects
 wait for the process's run slot. Triggers:
@@ -64,8 +65,8 @@ from graph.gap import (
     GapRunStore,
     GapService,
     GapSettings,
+    LoopInvestigator,
     NoiseReport,
-    SeedInvestigator,
     ensure_gap_schema,
     load_gap_rules,
     open_gap_run_store,
@@ -127,7 +128,7 @@ class GapRunnerDependencies:
     ensure: Callable[..., Awaitable[Any]] = ensure_gap_schema
     gateway_factory: Callable[[LLMConfig], Any] = Gateway
     ports: PortsFactory = postgres_ports
-    investigator: Callable[[], Any] = SeedInvestigator
+    investigator: Callable[[Any], Any] = LoopInvestigator  # called with the run's gateway
     executor: Callable[[GraphStore], Any] = as_executor
     reader: ReaderFactory = graph_reader
     plan: PlanViewFactory = plan_view
@@ -460,7 +461,7 @@ class GapRunner:
                 rules=rules,
                 records=records,
                 amendments=amendments,
-                investigator=self._deps.investigator(),
+                investigator=self._deps.investigator(gateway),
                 settings=self._gap,
                 changes=changes,
                 build=facts,

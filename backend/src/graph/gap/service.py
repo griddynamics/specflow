@@ -117,6 +117,10 @@ def _blocking(gap: StoredGap) -> bool:
     return flag is True or flag == YES
 
 
+def _held_back(gap: StoredGap) -> bool:
+    return gap.props.get("held_back") == YES
+
+
 def _clarification(gap: StoredGap) -> ClarificationView | None:
     """The current clarification (pending or applied; the latest answered one), None when none reads."""
 
@@ -172,6 +176,7 @@ def gap_view(
         detector=str(props.get("detector") or ""),
         signature=str(props.get("signature") or ""),
         blocking=_blocking(gap),
+        held_back=_held_back(gap),
         run_id=props.get("run_id"),
         created_by=str(props.get("created_by") or RUN_ACTOR),
         created_at=_instant(props["created_at"]),
@@ -220,6 +225,7 @@ class GapFilters(TypedDict, total=False):
     about: Sequence[str] | None
     story_id: str | None
     document: str | None
+    held_back: bool | None
 
 
 @dataclass
@@ -266,8 +272,9 @@ class GapService:
         newest first, then gap id. Filters combine; ``status`` defaults to the open statuses (open, answered,
         applying); ``about`` matches the gaps ``ABOUT`` any of the ids (aliases resolved); ``story_id`` the gaps
         ``ABOUT`` a node the story's tasks implement (an empty page without a plan); ``document`` (a document id)
-        the gaps citing a fragment of it or ``ABOUT`` a node with evidence in it. ``AnswerInvalidError`` names a bad
-        filter value, ``limit`` (1 to 200) or ``cursor``."""
+        the gaps citing a fragment of it or ``ABOUT`` a node with evidence in it; ``held_back`` ``False`` is the inbox's
+        default view (the new questions of the latest run beyond its limit are left out, FR-GRTE-06), ``True`` only
+        those, None both. ``AnswerInvalidError`` names a bad filter value, ``limit`` (1 to 200) or ``cursor``."""
 
         project_id = validate_project_id(project_id)
         if not PAGE_LIMITS[0] <= limit <= PAGE_LIMITS[1]:
@@ -279,6 +286,7 @@ class GapService:
         origins = _filter(filters.get("origin"), "origin", get_args(GapOrigin))
         routes = _filter(filters.get("route"), "route", get_args(GapRoute))
         about, story_id, document = filters.get("about"), filters.get("story_id"), filters.get("document")
+        held = filters.get("held_back")
         gaps = [
             gap
             for gap in await read_gaps(self._executor, project_id, self._ontology, statuses=sorted(statuses))
@@ -287,6 +295,7 @@ class GapService:
             and (origins is None or gap.origin in origins)
             and (routes is None or gap.props.get("route") in routes)
             and (document is None or document in gap.documents)
+            and (held is None or _held_back(gap) == held)
         ]
         if about is not None:
             wanted = await self._current(project_id, about)

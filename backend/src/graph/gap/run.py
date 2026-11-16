@@ -19,8 +19,12 @@ rules or settings raise ``ConfigurationError``. A ``ConfigurationError`` or ``Co
 finishes the run ``failed`` (so it never blocks later runs) and is raised again; other store errors pass through and
 leave the run resumable.
 
-Slice 1 (session 05): ``close`` is a no-op (session 09), ``investigate`` uses the ``SeedInvestigator`` stub when the
-host passes it, ``check`` validates minimally and ``route`` routes every gap ``ask`` without options (session 06).
+Investigation (investigation.md): ``investigate`` builds each site's context pack and read menu and calls
+``ctx.investigator`` (the structured loop ``LoopInvestigator`` by default); ``check`` validates every report, finds
+duplicates and runs the second check of pointers; ``route`` decides severity and route and holds back new questions
+beyond the run's limit; ``record`` writes gaps, options and pointer clarifications. A ``not_spec`` report turns the
+sections of its nodes ``mixed`` and lists the nodes in the run's noise report (FR-GREL-07). ``close`` is a no-op until
+session 09; the AI route (gates, valve) comes with session 11.
 """
 
 from __future__ import annotations
@@ -40,34 +44,35 @@ from graph.gap.context import GapContext
 from graph.gap.gaps import StoredGap, read_gaps
 from graph.gap.models import (
     GapEstimate,
-    GapReport,
     GapRunResult,
     InvestigationResult,
     NoiseReport,
+    NoiseSection,
     NoteRow,
     RunRow,
     VerdictRow,
     Witness,
 )
 from graph.gap.names import GATEWAY_ROLES, RunMode
+from graph.gap.prompts import INVESTIGATE_PROMPT, JUDGE_PROMPT, RELEVANCE_PROMPT
 from graph.gap.run_store import GapRunRecord, GapRunStore
 from graph.gap.settings import GapLimits
-from graph.gap.steps.check import check_result
+from graph.gap.steps.check import Checked, Checker, CheckRun
 from graph.gap.steps.detect import DetectOutcome, Seed, detect
-from graph.gap.steps.investigate import SEED_STUB_VERSION, investigate_sites
-from graph.gap.steps.record import RecordRun, SiteDecision, counted, outcome_counts, record_sites
+from graph.gap.steps.investigate import Investigated, InvestigateRun, investigate_sites
+from graph.gap.steps.record import RecordRun, SiteDecision, counted, outcome_counts, record_sites, report_signature
 from graph.gap.steps.relevance import (
     BATCH_SECTIONS,
-    GATEWAY_PROMPT,
     MIXED,
     SECTION_CHARS,
     RelevanceOutcome,
     SectionRelevance,
     classify_sections,
     cue_pattern,
+    mark_not_spec,
     noise_report,
 )
-from graph.gap.steps.route import route_report
+from graph.gap.steps.route import Candidate, hold_back, route_report, routed_payload
 from graph.gap.steps.scope import scope
 from graph.gap.steps.sites import ExistingGap, Site, SiteRun, SitesOutcome, form_sites
 from graph.gap.steps.snapshot import GraphSnapshot, read_snapshot
@@ -81,6 +86,7 @@ RUN_MODES: Final[tuple[str, ...]] = get_args(RunMode)
 ESTIMATE_MODES: Final = ("update", "full")
 RELEVANCE_ROLE: Final = "gap_relevance"
 INVESTIGATE_ROLE: Final = "gap_investigate"
+JUDGE_ROLE: Final = "gap_judge"
 UNCERTAIN: Final = "obligation"
 """The last signal of a section the rules could not decide (``classify_sections``)."""
 RUN_ID_PREFIX: Final = "gaprun-"
@@ -102,7 +108,11 @@ def prompt_versions(ctx: GapContext) -> dict[str, str]:
     """The prompt versions of the run's model steps (part of every site's input hash)."""
 
     version = getattr(ctx.investigator, "prompt_version", None)
-    return {RELEVANCE_ROLE: GATEWAY_PROMPT, INVESTIGATE_ROLE: str(version or SEED_STUB_VERSION)}
+    return {
+        RELEVANCE_ROLE: RELEVANCE_PROMPT,
+        INVESTIGATE_ROLE: str(version or INVESTIGATE_PROMPT),
+        JUDGE_ROLE: JUDGE_PROMPT,
+    }
 
 
 # Artifacts: seeds, sites and relevance as JSON payloads
@@ -397,50 +407,87 @@ class _Run:
         return {"sites": [site_payload(site) for site in outcome.sites], "counts": dict(outcome.counts)}
 
     async def _investigate(self) -> Payload:
-        results = await investigate_sites(
+        found = await investigate_sites(
             await self.investigated(),
             self.ctx.investigator,
-            project_id=self.project_id,
-            run_id=self.run_id,
-            mode=self.mode,
-            limits=self.limits,
+            await self.snapshot(),
+            InvestigateRun(
+                project_id=self.project_id,
+                run_id=self.run_id,
+                mode=self.mode,
+                limits=self.limits,
+                reader=self.ctx.reader,
+                gaps=await self.gaps(),
+                plan=self.ctx.plan,
+            ),
         )
-        return {"results": {site_id: result.model_dump(mode="json") for site_id, result in results.items()}}
+        return {"results": {site_id: item.payload() for site_id, item in found.items()}}
 
     async def _check(self) -> Payload:
         results = (await self.artifact("investigate"))["results"]
-        snapshot = await self.snapshot()
+        checker = Checker(
+            CheckRun(
+                project_id=self.project_id,
+                run_id=self.run_id,
+                snapshot=await self.snapshot(),
+                limits=self.limits,
+                records=self.ctx.records,
+                gateway=self.ctx.gateway,
+                reader=self.ctx.reader,
+                gaps=await self.gaps(),
+                min_confidence=self.ctx.rules.routing.gates.min_confidence,
+                signature=report_signature,
+            )
+        )
         checked: Payload = {}
         for site in await self.investigated():
             stored = results.get(site.site_id)
-            result = (
-                InvestigationResult(error="no_result") if stored is None else InvestigationResult.model_validate(stored)
+            investigated = (
+                Investigated(InvestigationResult(error="no_result"))
+                if stored is None
+                else Investigated.from_payload(stored)
             )
-            found = check_result(result, snapshot, seeds=len(site.seeds))
-            checked[site.site_id] = {
-                "outcome": found.outcome,
-                "report": None if found.report is None else found.report.model_dump(mode="json"),
-                "warnings": list(found.warnings),
-            }
-        return {"checked": checked}
+            checked[site.site_id] = (await checker.check(site, investigated)).payload()
+        usage = {"calls": checker.usage.calls, "tokens": checker.usage.tokens}
+        return {"checked": checked, "usage": usage}
 
     async def _route(self) -> Payload:
-        checked = (await self.artifact("check"))["checked"]
-        reports = {
-            site_id: GapReport.model_validate(item["report"])
-            for site_id, item in checked.items()
-            if item["outcome"] == "gap" and item["report"] is not None
+        checked = {
+            site_id: Checked.from_payload(item) for site_id, item in (await self.artifact("check"))["checked"].items()
         }
+        gaps = [item for item in checked.values() if item.outcome == "gap" and item.report is not None]
         planned: frozenset[str] | None = None
-        if self.ctx.plan is not None and reports:
-            ids = sorted({spec_id for report in reports.values() for spec_id in (*report.about, *report.impacts)})
+        if self.ctx.plan is not None and gaps:
+            ids = sorted(
+                {spec_id for item in gaps if item.report for spec_id in (*item.report.about, *item.report.impacts)}
+            )
             tasks = await self.ctx.plan.tasks_for(self.project_id, ids)
             planned = frozenset(spec_id for spec_id, found in tasks.items() if found)
         snapshot = await self.snapshot()
-        routed: Payload = {}
-        for site_id, report in reports.items():
-            decision = route_report(report, snapshot, planned=planned)
-            routed[site_id] = {"severity": decision.severity, "route": decision.route}
+        known = {gap.signature for gap in await self.gaps() if gap.signature}
+        sites = {site.site_id: site for site in await self.investigated()}
+        decided = {}
+        candidates: list[Candidate] = []
+        for site_id, item in checked.items():
+            if item.outcome != "gap" or item.report is None:
+                continue
+            decision = route_report(
+                item.report,
+                snapshot,
+                planned=planned,
+                pointer=item.pointer,
+                ai_answers=self.ctx.settings.ai_answers,
+                ai_kinds=self.ctx.rules.routing.ai_kinds,
+            )
+            decided[site_id] = decision
+            site = sites[site_id]
+            new = site.gap_id is None and report_signature(site, item.report) not in known
+            if decision.route == "ask" and new:
+                candidates.append(Candidate(site_id, decision.severity, site.reach, site.rank_score))
+        held = hold_back(candidates, self.limits.new_questions_per_run)
+        routed: Payload = {
+            site_id: dict(routed_payload(decision, held_back=site_id in held)) for site_id, decision in decided.items()
+        }
         return {"routed": routed}
 
     async def _record(self) -> Payload:
@@ -448,15 +495,21 @@ class _Run:
         routed = (await self.artifact("route"))["routed"]
         decisions: list[SiteDecision] = []
         for site in await self.investigated():
-            item = checked[site.site_id]
+            item = Checked.from_payload(checked[site.site_id])
             decided = routed.get(site.site_id, {})
             decisions.append(
                 SiteDecision(
                     site=site,
-                    outcome=item["outcome"],
-                    report=None if item["report"] is None else GapReport.model_validate(item["report"]),
+                    outcome=item.outcome,
+                    report=item.report,
                     severity=decided.get("severity"),
                     route=decided.get("route"),
+                    mode=decided.get("mode"),
+                    reasons=tuple(decided.get("reasons", ())),
+                    held_back=bool(decided.get("held_back", False)),
+                    gap_id=item.gap_id,
+                    rejected=item.rejected,
+                    judge=item.judge,
                 )
             )
         outcome = await record_sites(
@@ -470,12 +523,33 @@ class _Run:
                 now=_now,
                 model=self.versions[INVESTIGATE_ROLE],
                 prompt_version=self.versions[INVESTIGATE_ROLE],
+                build_id=self.record.build_id,
             ),
             await self.snapshot(),
             await self.gaps(),
             decisions,
         )
-        return outcome.payload()
+        payload = outcome.payload()
+        payload["noise"] = await self._not_spec(outcome.not_spec)
+        return payload
+
+    async def _not_spec(self, sites: Mapping[str, Sequence[str]]) -> list[Payload]:
+        """FR-GREL-07: the sections of a ``not_spec`` site's nodes become ``mixed`` (``mark_not_spec``); the nodes are
+        listed in the run's noise report under their sections."""
+
+        ids = sorted({spec_id for found in sites.values() for spec_id in found})
+        if not ids:
+            return []
+        snapshot = await self.snapshot()
+        await mark_not_spec(snapshot, await self.relevance(), ids, project_id=self.project_id, records=self.ctx.records)
+        by_section: dict[tuple[str, tuple[str, ...]], set[str]] = {}
+        for spec_id in ids:
+            for section in snapshot.node_sections.get(spec_id, ()):
+                by_section.setdefault(section.ident, set()).add(spec_id)
+        return [
+            {"lineage": lineage, "heading_path": list(path), "spec_ids": sorted(found)}
+            for (lineage, path), found in sorted(by_section.items())
+        ]
 
     # The result
 
@@ -487,15 +561,15 @@ class _Run:
         )
         sites, investigated = await self.artifact("sites"), await self.artifact("investigate")
         checked, recorded = (await self.artifact("check"))["checked"], await self.artifact("record")
-        results = [InvestigationResult.model_validate(item) for item in investigated["results"].values()]
+        results = [Investigated.from_payload(item).result for item in investigated["results"].values()]
         failed = sum(1 for result in results if result.report is None or result.error is not None)
         outcomes = recorded["outcomes"]
         deferred = sorted(
             {item["site_id"] for item in sites["sites"] if item["state"] == "deferred"}
             | {site_id for site_id, value in outcomes.items() if value[0] == "deferred"}
         )
-        cost = _cost(relevance, results)
-        noise = NoiseReport.model_validate(detection["noise"])
+        cost = _cost(relevance, results, (await self.artifact("check")).get("usage", {}))
+        noise = _with_not_spec(NoiseReport.model_validate(detection["noise"]), recorded.get("noise", ()))
         site_counts = dict(sites["counts"].get("sites", {}))
         counts: Payload = {
             "scope": _scope_counts(scoped),
@@ -512,6 +586,9 @@ class _Run:
             "gaps_new": counted(recorded["gaps_new"]),
             "gaps_updated": counted(recorded["gaps_updated"]),
             "routes": {"ask": recorded["routes"].get("ask", 0), "ai": recorded["routes"].get("ai", 0)},
+            "pointers": int(recorded.get("pointers", 0)),
+            "held_back": int(recorded.get("held_back", 0)),
+            "rejected": int(recorded.get("rejected", 0)),
             "notes": int(sites["counts"].get("notes", 0)) + int(recorded["notes"]),
             "model_calls": {role: value["calls"] for role, value in cost.items()},
             "tokens": {role: value["tokens"] for role, value in cost.items()},
@@ -554,9 +631,11 @@ def _sections_by_relevance(payload: Mapping[str, Any]) -> dict[str, dict[str, in
     return {relevance: dict(sorted(by.items())) for relevance, by in sorted(found.items())}
 
 
-def _cost(relevance: Mapping[str, Any], results: Sequence[InvestigationResult]) -> dict[str, dict[str, int]]:
-    """Calls and tokens per gateway role: the relevance step's calls and the investigations' (judge and edits calls
-    come with session 06)."""
+def _cost(
+    relevance: Mapping[str, Any], results: Sequence[InvestigationResult], checked: Mapping[str, Any]
+) -> dict[str, dict[str, int]]:
+    """Calls and tokens per gateway role: the relevance step's calls, the investigations', and the check step's repair
+    (``gap_investigate``) and second-check (``gap_judge``) calls; ``gap_edits`` is a service call, not a run's."""
 
     cost: dict[str, dict[str, int]] = {role: {"calls": 0, "tokens": 0} for role in GATEWAY_ROLES}
     cost[RELEVANCE_ROLE] = {"calls": int(relevance["model_calls"]), "tokens": int(relevance["tokens"])}
@@ -564,7 +643,35 @@ def _cost(relevance: Mapping[str, Any], results: Sequence[InvestigationResult]) 
         "calls": sum(result.model_calls for result in results),
         "tokens": sum(result.tokens for result in results),
     }
+    for role in GATEWAY_ROLES:
+        cost[role]["calls"] += int(checked.get("calls", {}).get(role, 0))
+        cost[role]["tokens"] += int(checked.get("tokens", {}).get(role, 0))
     return cost
+
+
+def _with_not_spec(noise: NoiseReport, extra: Sequence[Mapping[str, Any]]) -> NoiseReport:
+    """The noise report with the nodes of ``not_spec`` sites (FR-GREL-07): their section turns ``mixed`` (by model)
+    and lists them as removed."""
+
+    if not extra:
+        return noise
+    sections = {(item.lineage, item.heading_path): item for item in noise.sections}
+    for entry in extra:
+        key = (entry["lineage"], tuple(entry["heading_path"]))
+        current = sections.get(key)
+        removed = tuple(sorted({*(current.removed if current else ()), *entry["spec_ids"]}))
+        if current is None:
+            sections[key] = NoiseSection(
+                lineage=key[0],
+                heading_path=key[1],
+                relevance="mixed",
+                signals=("not_spec",),
+                by="model",
+                removed=removed,
+            )
+        else:
+            sections[key] = current.model_copy(update={"removed": removed})
+    return NoiseReport(sections=tuple(sections[key] for key in sorted(sections)))
 
 
 def _store(ctx: GapContext) -> GapRunStore:
@@ -749,7 +856,7 @@ async def estimate_gap(ctx: GapContext, *, mode: Literal["update", "full"] = "up
     tokens: dict[str, int] = dict.fromkeys(GATEWAY_ROLES, 0)
     calls[RELEVANCE_ROLE] = math.ceil(len(uncertain) / BATCH_SECTIONS)
     tokens[RELEVANCE_ROLE] = sum(estimate_tokens(item.section.text[:SECTION_CHARS]) for item in uncertain)
-    calls[INVESTIGATE_ROLE] = investigate * limits.rounds_per_site
+    calls[INVESTIGATE_ROLE] = investigate * (limits.rounds_per_site + 1)
     tokens[INVESTIGATE_ROLE] = calls[INVESTIGATE_ROLE] * limits.context_tokens
     log_event(
         logger,
