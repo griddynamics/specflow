@@ -64,6 +64,8 @@ class GapWorld:
     investigator: Any = field(default_factory=CountingInvestigator)  # an Investigator; counted by default
     plan: PlanView | None = None
     project_id: str = PROJECT
+    corpus_data: dict[str, Any] | None = None
+    """The fixture data a simulated build left (``gap_close_support.apply_build``); ``graph.yaml`` before one."""
 
     def context(
         self,

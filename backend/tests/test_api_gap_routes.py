@@ -14,6 +14,7 @@ import pytest
 
 from api.gap.state import GapRunState
 from api.plan.state import NoGraphBuildError
+from db.sources import GraphCorpusRow
 from graph.gap import (
     AnswerInput,
     AnswerInvalidError,
@@ -227,15 +228,39 @@ async def test_the_list_passes_every_filter_and_answers_the_page(harness):
     }
 
 
-async def test_the_document_filter_takes_an_uploaded_documents_id_as_its_lineage(harness):
+async def test_the_document_filter_takes_a_documents_id_as_its_corpus_lineage(harness, monkeypatch):
     runner, pid = await gap_project(harness)
-    document = "11111111-2222-4333-8444-555555555555"
+    upload, drive = "11111111-2222-4333-8444-555555555555", "11111111-2222-4333-8444-666666666666"
+    connection = uuid.UUID(int=9)
 
-    response = await harness.client.get(url(pid, f"/gaps?document={document}"), headers=bearer())
+    async def corpus_rows(_session, project_id, document_id):
+        assert project_id == pid
+        if str(document_id) != drive:
+            return []  # not in the corpus yet: its lineage is still doc:<id>
+        values = {
+            "document_id": document_id,
+            "origin": "connection",
+            "content_hash": "a" * 64,
+            "original_filename": "spec.md",
+            "created_at": datetime.now(UTC),
+            "source_id": connection,
+            "holder_name": "Drive",
+            "drive_connection_id": connection,
+            "drive_external_id": "file-1",
+            "drive_source_name": "Drive",
+            "markdown": "# Spec",
+            "parser": None,
+        }
+        return [GraphCorpusRow(**values)]
 
-    assert response.status_code == 200
-    [(_, _, filters)] = runner.gap_service.calls
-    assert filters["document"] == f"doc:{document}"  # the graph's document id of an uploaded document
+    monkeypatch.setattr("api.routers.gaps.sources_repo.graph_corpus_document", corpus_rows)
+
+    for document in (upload, drive):
+        response = await harness.client.get(url(pid, f"/gaps?document={document}"), headers=bearer())
+        assert response.status_code == 200
+    [(_, _, uploaded), (_, _, synced)] = runner.gap_service.calls
+    assert uploaded["document"] == f"doc:{upload}"  # the graph's document id of an uploaded document
+    assert synced["document"] == f"drive:{connection}:file-1"  # a Drive document's lineage
 
 
 async def test_the_list_defaults_to_no_filter(harness):

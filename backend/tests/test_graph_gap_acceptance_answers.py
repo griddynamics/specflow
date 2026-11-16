@@ -20,8 +20,19 @@ from gap_answer_support import (
     amend,
     answer_world,
 )
+from gap_close_support import (
+    REVIEW_HEADING,
+    answer_and_apply,
+    apply_build,
+    effective_corpus,
+    option_text,
+    sections,
+    update_run,
+)
 from gap_run_support import CountingInvestigator
 from graph.gap import run_gap
+from graph.gap.answers import marker
+from graph.gap.corpus import clarifications_lineage
 from graph.gap.errors import StaleGapError
 from graph.gap.models import AnswerInput, NewGap
 from graph.gap.prompts import EDITS_PROMPT
@@ -131,21 +142,66 @@ async def test_fr_gans_04_every_edit_is_one_amendment() -> None:
     assert not await rig.world.amendments.for_lineage(rig.project_id, "upload:payments-spec", statuses=("pending",))
 
 
-@pending("09")
-def test_fr_gans_05_contradiction_answered_amend_placement_replace_losing_line() -> None:
-    """Given the review-limit answer applied, then the build's graph holds one review-limit rule of 500 EUR."""
+async def test_fr_gans_05_contradiction_answered_amend_placement_replace_losing_line() -> None:
+    """Given the review-limit answer applied, then the build's graph holds one review-limit rule of 500 EUR.
+
+    The losing line "Orders over 1,000 EUR are reviewed." is replaced in the text the build reads; the simulated
+    build (``apply_build``) merges the two rules, as dedup does once both say 500 EUR, and the close check resolves
+    the contradiction.
+    """
+
+    rig = await answer_world()
+    gap = await rig.review_gap()
+    await answer_and_apply(rig, gap, option_rank=1)
+    line = option_text(gap, 1)
+    orders = next(item for item in await effective_corpus(rig.world) if item.lineage_id == ORDERS_LINEAGE)
+    rebuilt = await apply_build(
+        rig.world,
+        keep={Planted.REVIEW_LIMIT_ORDERS: (ORDERS_LINEAGE, REVIEW_HEADING, line)},
+        merge={Planted.REVIEW_LIMIT_ORDERS: Planted.REVIEW_LIMIT_PAYMENTS},
+        refused=(),
+    )
+
+    await update_run(rig.world, rebuilt)
+
+    assert "Orders over 500 EUR are reviewed." in orders.markdown
+    assert Planted.REVIEW_LIMIT_ORDERS_LINE not in orders.markdown
+    rules = [node.spec_id for node in await rig.world.reader.nodes(rig.project_id) if node.label == "BusinessRule"]
+    assert [spec_id for spec_id in rules if spec_id.startswith("REQ::BR::")] == [Planted.REVIEW_LIMIT_PAYMENTS]
+    after = await rig.service.get_gap(rig.project_id, gap.gap_id)
+    assert (after.status, after.resolution) == ("resolved", "answered")
 
 
-@pending("09")
-def test_fr_gans_06_answer_no_single_home_go_project_clarifications() -> None:
+async def test_fr_gans_06_answer_no_single_home_go_project_clarifications() -> None:
     """Given an answer with placement `document`, then the next corpus read lists the clarifications document with
     that section.
     """
 
+    rig = await answer_world()
+    gap = await rig.cancel_gap()
+    text = "Support decides each cancellation of a paid order."
 
-@pending("09")
-def test_fr_gans_07_applied_text_carry_answer_marker_naming_gap() -> None:
+    await answer_and_apply(rig, gap, own_text=text, placement="document")
+    (document,) = [
+        item for item in await effective_corpus(rig.world) if item.lineage_id == clarifications_lineage(rig.project_id)
+    ]
+
+    (section,) = sections(document.markdown)
+    assert section.heading_path == ("Clarifications", f"{gap.title} ({gap.gap_id})")
+    assert text in section.text and f"Answers: {gap.question}" in section.text
+
+
+async def test_fr_gans_07_applied_text_carry_answer_marker_naming_gap() -> None:
     """Given an applied amendment, then the effective text contains the marker line with the gap id."""
+
+    rig = await answer_world()
+    gap = await rig.cancel_gap()
+
+    await answer_and_apply(rig, gap, option_rank=1)
+    orders = next(item for item in await effective_corpus(rig.world) if item.lineage_id == ORDERS_LINEAGE)
+
+    assert f"> Clarified by {gap.gap_id}" == marker(gap.gap_id)
+    assert marker(gap.gap_id) in orders.markdown.split("\n")
 
 
 async def test_fr_gans_08_answers_applied_after_quiet_period_apply_now() -> None:
