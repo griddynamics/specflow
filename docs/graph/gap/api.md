@@ -348,9 +348,9 @@ dismiss for one release, then go.
 | Tool | Change |
 |---|---|
 | `add_finding` | Kept with its arguments; mapped to `raise_gap` with origin `development` ([lifecycle.md](lifecycle.md) "Development gaps"); the answer returns the gap id |
-| `list_gaps` (new, read-only) | Open gaps about a story's nodes or about given spec ids: id, kind, severity, question, status, and the applied answer's text once resolved |
-| `get_story_brief`, `get_task_brief`, `preview_story` | Unchanged calls; their findings now come from gaps (severity, question, `ABOUT` ids), blocking first |
-| `get_node` | Lists open gaps about the node |
+| `list_gaps` (new, read-only) | Open gaps about a story's nodes (`story_id`, through `PlanService.story_nodes`) or about given spec ids (`spec_ids`, exactly one of the two): id, kind, severity, question, status, blocking, `ABOUT` ids, and the answer's text once a clarification exists (its text, else the chosen option's label); `status` adds `resolved` gaps. Served by the agent route `GET /agent/gaps` over `GapService.list_gaps(about=...)` with `held_back=None` (agents see the questions held back from the inbox too); an empty list while the gap runner is not configured ([../../mcp-server/tools.md](../../mcp-server/tools.md) "list_gaps") |
+| `get_story_brief`, `get_task_brief`, `preview_story` | Unchanged calls; their findings now come from gaps through the plan's findings port (question, `ABOUT` ids, blocking first) and the host adds each gap's `severity`; `get_task_brief` gains `findings` (the open findings about the nodes the task implements), which the host reads through the same port because the plan's `TaskBrief` has none |
+| `get_node` | Lists open gaps about the node, with severity |
 | `claim_story` | Unchanged call; refused, naming the gap, when a task of the story is held by a blocker gap |
 
 ## User interface

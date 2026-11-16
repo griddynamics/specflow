@@ -276,6 +276,7 @@ argument is a repeated parameter (`spec_ids=A&spec_ids=B`).
 | `get_evidence` | `/evidence` | `project_id`, `spec_id`, `context_lines` 0–5 (2) | `Evidence` | `project_not_found`, `node_not_found` → 404 |
 | `path` | `/node-path` | `project_id`, `from`, `to`, `max_hops` 1–4 (4) | `NodePaths` | `project_not_found`, `node_not_found` → 404 |
 | `expand_brief` | `/brief-expansion` | `project_id`, `story_id`, `budget_tokens` 500–8000 (3000) | `BriefExpansion` | `project_not_found`, `no_plan`, `story_not_found` → 404 |
+| `list_gaps` | `/gaps` | `project_id`, `story_id`?, `spec_ids`* 1–20, `status`*, `limit` 1–100 (50), `cursor` | `GapList` | `project_not_found`, `story_not_found`, `no_plan` → 404; `invalid_arguments`, `invalid_cursor` → 400 |
 
 `*` a list parameter. Schema-bound as for the earlier routes (`422` if violated; MCP's input schema makes it
 unreachable): every range, length and enum above. Checked in the handler: `story_id` xor `spec_ids`, `relations`

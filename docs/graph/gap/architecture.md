@@ -150,6 +150,6 @@ The build and plan ontologies do not change. These changes are needed elsewhere:
 | Corpus reader (host) | Apply amendments, add the clarifications document, call reconcile, report the effective revision id ([api.md](api.md) "Host runner") |
 | Relational store (host) | One migration adding the tables of [data-model.md](data-model.md) |
 | Gap runner (host, new) | `api/gap/runner.py`, the routes and their models |
-| MCP server (host) | `add_finding` mapped to `raise_gap`; new read `list_gaps`; briefs show gaps |
+| MCP server (host) | `add_finding` mapped to `raise_gap`; new read `list_gaps` (agent route `api/routers/agent_gaps.py`); briefs and `get_node` show gaps through the plan's findings port, filled by `api/gap/findings.py` (`OpenGaps`) |
 | Frontend | The Gaps screen from the decision components, with a recommended mark on option cards; plan screens and the document view link to it |
 | First slice of `graph.gap` | `Finding`, `ExternalRef`, `FindingFlow` and their routes are replaced; existing data is migrated ([lifecycle.md](lifecycle.md) "Migration of first-slice findings") |

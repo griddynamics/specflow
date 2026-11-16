@@ -146,7 +146,12 @@ failure is logged and never stops the plan run.
 | `orphaned` | `yes` when the gap has no `ABOUT` relation left |
 
 Task and story briefs, story lists and previews therefore show open gaps on their nodes, blocking first,
-with no change to `graph.plan`. `IMPACTS` nodes are not counted as "about"; briefs list them under the
+with no change to `graph.plan`. The host fills the port with `api.gap.findings.OpenGaps`: the gap runner's
+`GapService` (read on each call; none while gap runs are not configured, and a service that cannot be built for a
+configuration fault is logged and left out) merged with the first-slice findings store, which keeps serving
+development findings until the first-slice migration; counts add up and findings are united by id in the port's
+order. The plan's `OpenFinding` has no severity, so the host's agent views look the severities of the shown gaps up
+with one `list_gaps(about=...)` read. `IMPACTS` nodes are not counted as "about"; briefs list them under the
 gap as "an answer will change".
 
 **Blocker holds (decision GD2).** A task that implements a node an open blocker gap is `ABOUT` cannot be
