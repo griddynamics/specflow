@@ -35,7 +35,7 @@ other node.
 
 | Label | Key | Properties |
 |---|---|---|
-| `Gap` | `gap_id` (`GAP::<12 hex>`) | `kind`, `severity`, `status`, `origin`, `route`, `resolution` (when resolved), `title`, `question`, `why`, `detector` (code, or `development`, `person`), `signature`, `blocking` (`yes` when a development gap holds the reporting agent's claimed story), `run_id`, `created_by`, `created_at`, `updated_at`, `resolved_at` |
+| `Gap` | `gap_id` (`GAP::<12 hex>`) | `kind`, `severity`, `status`, `origin`, `route`, `resolution` (when resolved), `title`, `question`, `why`, `detector` (code, or `development`, `person`), `signature`, `blocking` (`yes` when a development gap holds the reporting agent's claimed story), `held_back` (`yes` while a new question its run held back beyond `new_questions_per_run` waits for the next run), `run_id`, `created_by`, `created_at`, `updated_at`, `resolved_at` |
 | `Clarification` | `clr_id` (`CLR::<12 hex>`) | `mode`, `placement`, `status`, `option_label`, `text`, `answered_by` (a user id, or `ai`), `answered_at`, `applied_build_id`, `basis` (JSON: quoted lines behind an AI or pointer answer), `confidence` (AI answers) |
 
 Vocabularies are those of [gap-ontology.yaml](gap-ontology.yaml). `severity` `info` is not a graph value:

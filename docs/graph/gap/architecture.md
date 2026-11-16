@@ -27,13 +27,18 @@ graph/gap/
     detect.py          detectors from the rules file -> seeds
     sites.py           corroboration, grouping, ranking, known-site skip, limits
     snapshot.py        the graph detection reads once: nodes, edges, documents, active fragments, sections
-    investigate.py     the Investigator port and the default structured loop
+    pack.py            the context pack of a site (no model call)
+    reads.py           GraphSiteReads: the read menu bound to the project, and the ids it showed
+    investigate.py     the investigate step and the default structured loop (LoopInvestigator)
     check.py           report validation, duplicates, the second check
     route.py           severity, gates, ask or ai
     record.py          Gap and Clarification nodes and relations, relational rows, holds
   answers.py           answers, edits, placement, apply, revert, AI answers
   reconcile.py         reconcile_document: amendments against a new source revision
   service.py           GapService: inbox reads, answers, dismissals, raise, the plan's findings port
+  prompts.py           prompt revisions and gateway prompt names (gap.<name>.<revision>)
+  services/
+    vector_similarity.py  cosine of vectors no store holds (question embeddings of the duplicate check)
   prompts/             relevance, investigate, judge and edits prompts <name>.md (revisions in prompts.py)
   ddl/                 gap_schema.cypher: the graph_gap_* constraints and indexes
   queries/             one canonical .cypher file per gap query
@@ -72,7 +77,7 @@ starts; a run interrupted by a shutdown resumes at the first unfinished step wit
 | `detect` | Graph snapshot, fragments, rules, build facts, section relevance | Nothing (seeds and info notes go to `sites`) | No |
 | `sites` | Seeds, suppressions, plan view, trace, verdict cache | Seed rows (append-only, with their site), site rows of `skipped` and `deferred` sites, info notes | No |
 | `investigate` | Sites, graph reads | Reports | `gap_investigate` |
-| `check` | Reports, gaps, fragments | Checked reports, duplicates | `gap_judge` for AI candidates |
+| `check` | Reports, gaps, fragments, suppressions | Checked reports, duplicates | `gap_investigate` repair (once per report), `gap_judge` for pointers and AI candidates, embeddings for similar questions |
 | `route` | Checked reports, rules | Route and severity | No |
 | `record` | Routed reports | Gap and Clarification nodes, relations, option rows, notes, events, holds | No |
 

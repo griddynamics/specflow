@@ -79,19 +79,21 @@ How a run uses it:
 - The sites the last finished run deferred come first (`deferred_first`); limits are
   `settings.effective_limits(rules.limits)`; `settings.ignore_cache` investigates sites with a cached verdict too.
 - Cost per gateway role comes from the steps: the relevance step's calls and tokens, the investigations' (the
-  `InvestigationResult` counts); `gap_judge` and `gap_edits` are 0 until their steps exist.
+  `InvestigationResult` counts), and the check step's repair calls (`gap_investigate`) and second-check calls
+  (`gap_judge`); `gap_edits` is a service call, never a run's. Embedding calls of the duplicate check are not a
+  gateway role and are not in the cost.
 
-Slice 1 (until the investigator, check and route of investigation.md and answers.md are built): the step `close`
-is a no-op; the host passes `SeedInvestigator` (exported), which makes no model call and reports one `gap` per site
-from its seeds (kind and detector of the primary seed: strong first, then contradiction, open question, missing,
-inconsistency, assumption, ambiguous; `ABOUT` every seed node, `IMPACTS` their context nodes, every quote and fact as
-witness; severity `major` for a strong seed or a contradiction or stated question, else `minor`, and `info` when
-the site names no node and quotes no line); the read menu answers every read empty (`reads_unavailable`); `check`
-keeps the nodes and quotes that still resolve, cuts the texts to their limits and defers a gap with no `ABOUT` node
-and no quote; `route` applies the code rules of [answers.md](answers.md) "Severity" (info for out-of-scope nodes
-only, at least `major` for a contradiction, `blocker` to `major` without a planned node) and routes every gap `ask`
-without options. An `info` report is a `gap_note` (site outcome `not_a_gap`). Every checked site's report is cached
-in `gap_verdict` under its input hash by the `record` step, so the next run with the same inputs skips it.
+Investigation ([investigation.md](investigation.md)): the step `investigate` builds each site's context pack
+(`steps/pack.py`) and its read menu `GraphSiteReads` (`steps/reads.py`, bound to the project and the run) and calls
+`ctx.investigator`; the host passes `LoopInvestigator(gateway)` (exported), the structured loop over the run's
+gateway. The step's artifact keeps, per site, the `InvestigationResult` and the spec ids and fragment ids the pack and
+the reads showed (the check step's "No new ids"). `check` validates every report, repairs it once when only its
+options failed, finds duplicates and runs the second check of a pointer; `route` applies [answers.md](answers.md)
+"Severity" and "Routing" (AI route: pointers only until the gates and the valve are built) and holds back the new
+`ask` gaps beyond `limits.new_questions_per_run`; `record` writes the gaps, their option rows and pointer
+clarifications. The step `close` is a no-op until the close check is built. An `info` report is a `gap_note` (site
+outcome `not_a_gap`). Every checked site's report is cached in `gap_verdict` under its input hash by the `record`
+step (a rejected report as its outcome and failed checks), so the next run with the same inputs skips it.
 
 The step `record` writes each gap with `ABOUT`, `IMPACTS` and `CITES` (`quote`, `line_start`, `line_end`,
 `quote_hash`) in one owned-writer transaction; relations carry `added_by_run`. Keys: the gap node's `uuid` is uuid5
@@ -112,10 +114,10 @@ site joined to an existing gap, re-checks that gap: an open gap gets the relatio
 | `BuildFacts` | `build_id`, `refused_pairs` (`RefusedPair`: `first_spec_id`, `second_spec_id`, `label`, `guard`: the build result's dedup refusals) and `cut_edges` (`CutEdge`: `relation`, `source_spec_id`, `target_spec_id`, `fragment_ids`: the build result's quarantined `cycle_broken` edges). The host converts them from the build result; CT-VALUE and IN-CYCLE read them ([detection.md](detection.md) "Detector catalogue") |
 | `GapRunResult` | `run_id`, `mode`, `build_id`, `status` (`completed`, `degraded` when every investigation failed, `failed`), `counts` (the run metrics of [detection.md](detection.md) "Run metrics": seeds by detector, sites investigated, cached, deferred, gaps new, follow-ups, AI answered, resolved, obsolete, notes), `cost` (calls and tokens per gateway role), `noise` (`NoiseReport`), `deferred_sites`, `held_tasks`, `warnings` |
 | `NoiseReport` | Per section: lineage, heading path, relevance, signals, how it was decided (`rules`, `model`, `person`), and the node ids it removed from structural seeds |
-| `GapEstimate` | `sites`, `cached`, `calls` and `tokens` per role (expected investigation calls are the loop's bound: `rounds_per_site` per site, each of at most `context_tokens`) |
+| `GapEstimate` | `sites`, `cached`, `calls` and `tokens` per role (expected investigation calls are the loop's bound: `rounds_per_site` plus the forced report call per site, each of at most `context_tokens`) |
 | `GapRunRecord` | The run store's record of one run ("Gap runs" above) |
 | `GapFinding`, `GapFindingPage` | What `GapService.findings` returns: an open gap as the plan's `FindingLike` (`finding_id`, `kind`, `text`, `blocking`, `about_spec_ids`, `story_id`, `created_by`, `created_at`, `orphaned`) and the page of them |
-| `GapView` | What reads return: the gap's properties, `about` and `impacts` (id, type, name), `witness` (fragment id, quote, lines), `options` (from `gap_option`), `clarification` (current one), `history` (events, follow-up chain), `reach` (stories and tasks found by trace and the plan, computed at read time) |
+| `GapView` | What reads return: the gap's properties (`held_back` true while the gap is a new question its run held back from the inbox's default view), `about` and `impacts` (id, type, name), `witness` (fragment id, quote, lines), `options` (from `gap_option`), `clarification` (current one), `history` (events, follow-up chain), `reach` (stories and tasks found by trace and the plan, computed at read time) |
 | `AnswerInput` | `gap_id`, `option_rank` or `own_text` (exactly one), `placement` (`amend`, `document`; default from the option's edits), `edits` (optional: edits confirmed from `preview_edits`), `answered_by` |
 | `NewGap` | `kind`, `question`, `about` (spec ids), `quotes` (fragment id and quote, optional), `severity` (optional), `origin` (`person` or `development`), `blocking`, `story_id` and `claim_token` (development), `created_by` |
 | `ReconcileResult` | Per amendment: `amendment_id`, outcome (`applied`, `reanchored`, `absorbed`, `conflict`, `orphaned`), the new anchor when re-anchored; and the effective text the build must read |
@@ -130,7 +132,7 @@ serves the inbox, the routes and the MCP tools. `plan` gives the story filter an
 
 | Call | Returns | Errors |
 |---|---|---|
-| `list_gaps(project_id, *, status=None, kind=None, severity=None, origin=None, route=None, about=None, story_id=None, document=None, cursor=None, limit=50)` | A page of `GapView` (no options, history or reach) and the next cursor, by severity (blocker, major, minor), newest first, then gap id; `status` (default `open`, `answered`, `applying`), `kind`, `severity`, `origin` and `route` take one value or several; `about` filters by spec ids (aliases resolved), `story_id` by the nodes the story's tasks implement (an empty page without a plan), `document` (a document id) by the gaps citing a fragment of it or `ABOUT` a node with evidence in it | `AnswerInvalidError` (`field` `limit` outside 1 to 200, `cursor`, or a filter value outside its vocabulary) |
+| `list_gaps(project_id, *, status=None, kind=None, severity=None, origin=None, route=None, about=None, story_id=None, document=None, held_back=None, cursor=None, limit=50)` | A page of `GapView` (no options, history or reach) and the next cursor, by severity (blocker, major, minor), newest first, then gap id; `status` (default `open`, `answered`, `applying`), `kind`, `severity`, `origin` and `route` take one value or several; `about` filters by spec ids (aliases resolved), `story_id` by the nodes the story's tasks implement (an empty page without a plan), `document` (a document id) by the gaps citing a fragment of it or `ABOUT` a node with evidence in it; `held_back=False` is the inbox's default view (the new questions a run held back are left out until the next run, FR-GRTE-06), `True` lists only those, `None` both | `AnswerInvalidError` (`field` `limit` outside 1 to 200, `cursor`, or a filter value outside its vocabulary) |
 | `get_gap(project_id, gap_id)` | `GapView` with options, history (events of `GapRecords.events`, follow-up chain) and reach (trace from the `ABOUT` and `IMPACTS` nodes along `affects`, depth 2; the plan's tasks of all of them and their stories; empty without a plan) | `GapNotFoundError` |
 | `preview_edits(project_id, gap_id, *, option_rank=None, own_text=None, placement=None)` | The edits an answer would make, with the target section's current text and the text after; for own text, AI drafts the edits (role `gap_edits`) | `GapNotFoundError`, `AnswerInvalidError` (empty text, too long, anchor not found) |
 | `answer_gap(project_id, answer: AnswerInput)` | The clarification id and the scheduled apply time | `GapNotFoundError`, `GapStateError` (gap not `open` or `answered`), `AnswerInvalidError`, `StaleGapError` (the gap's witness changed since it was shown: the person must reload) |
@@ -290,6 +292,8 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
   persisted and distinct) and `cycle_broken` cuts of the build's stored result. `plan`: the persisted plan through
   `PlanReader` (tasks per spec node by `IMPLEMENTS`, aliases resolved, closed tasks included). `fragments_changed`
   and `documents` stay empty: the build's change report names neither.
+  `gateway`: one `Gateway` per run on the host's graph-build model settings; `investigator`:
+  `GapRunnerDependencies.investigator(gateway)`, by default `LoopInvestigator` over that gateway.
 - **Resume.** A project's unfinished run (interrupted by a shutdown, or failed) is resumed by the project's next
   run, with its own mode, build and sites, before the requested run (which is skipped when the resumed run covers
   it: an update of the same build, or a full run).
@@ -315,7 +319,7 @@ Under `/projects/{pid}`, in the style of the existing project routers. Project m
 
 | Method and path | Call |
 |---|---|
-| `GET /projects/{pid}/gaps` | `list_gaps` (query: status, kind, severity, origin, route, about, story_id, document, cursor, limit; a list filter repeats its parameter) |
+| `GET /projects/{pid}/gaps` | `list_gaps` (query: status, kind, severity, origin, route, about, story_id, document, held_back, cursor, limit; a list filter repeats its parameter) |
 | `GET /projects/{pid}/gaps/{gap_id}` | `get_gap` |
 | `POST /projects/{pid}/gaps` | `raise_gap` (origin `person`) |
 | `POST /projects/{pid}/gaps/{gap_id}/edits_preview` | `preview_edits` |

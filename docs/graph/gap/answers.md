@@ -73,7 +73,8 @@ decided ("Pointer answers" below).
 | Confident | The second check agrees with confidence of at least `min_confidence` (0.85) | The second check's answer |
 
 Every gate result is stored on the gap's `gap_event` "routed" entry, so a person can see why AI answered or
-why it did not.
+why it did not. Until the gates are built the entry holds the route, its mode (`pointer`), the reasons
+(`severity`, `kind`, `ai_answers_off`, `ai_branch_off`, `pointer_confirmed`) and whether the gap is held back.
 
 ### The valve
 
@@ -86,7 +87,10 @@ run that would rewrite much of its spec without anyone looking.
 
 The Gaps inbox shows one card per open gap with route `ask`, ordered by severity, then reach (the number of
 plan tasks behind the `ABOUT` and `IMPACTS` nodes), then age. At most `new_questions_per_run` (25) new cards
-per run are shown as new; the rest are listed under "More found in this run".
+per run are shown as new; the rest are listed under "More found in this run". The route step ranks a run's new
+`ask` gaps by severity, then reach (plan tasks behind the site), then the site's rank score; the gaps beyond the
+limit are written with `held_back` `yes` and left out of the default view (`list_gaps(held_back=False)`) until the
+next run's record step clears the mark.
 
 | Part | Content | Source |
 |---|---|---|

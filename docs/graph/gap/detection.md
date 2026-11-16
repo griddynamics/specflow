@@ -253,7 +253,7 @@ From `limits` in the rules file; all are starting values for the test corpus.
 | `reads_per_round` | 4 | Reads one round may request |
 | `context_tokens` | 24,000 | Context of one investigation call |
 | `pack_tokens` | 3,000 | Nearby nodes in the context pack |
-| `new_questions_per_run` | 25 | New gaps with route `ask` shown in the inbox per run; the rest are written but marked deferred in the inbox order |
+| `new_questions_per_run` | 25 | New gaps with route `ask` shown in the inbox per run; the rest are written with `held_back` `yes` and shown from the next run on |
 | `ai_answers_per_run` | 20 | AI answers per run |
 | `ai_answers_max_node_share` | 0.05 | Share of spec nodes AI answers of one run may touch |
 | `options_min`, `options_max` | 2, 4 | Options per gap |
