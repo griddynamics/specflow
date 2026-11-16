@@ -896,10 +896,10 @@ class GapService:
                     )
         except BaseException:
             by_status: dict[str, list[str]] = defaultdict(list)
-            for key, value in changed.items():
-                by_status[value].append(key)
-            for value, keys in by_status.items():
-                await self.amendments.set_status(project_id, keys, value)
+            for key, was in changed.items():
+                by_status[was].append(key)
+            for earlier, keys in by_status.items():
+                await self.amendments.set_status(project_id, keys, earlier)
             raise
         # The build first: once the graph says reverted, a retry is refused, so the text must leave the corpus now.
         build = (
