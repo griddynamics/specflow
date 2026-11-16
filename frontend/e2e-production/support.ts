@@ -270,9 +270,23 @@ export async function seedWork(
   await control("POST", "/seed-work", { pid, work });
 }
 
-/** Seeds the gaps (full `GapView` rows, plus stub-only `stories` and `documents` id lists) and the latest gap run of a project in the stub. */
-export async function seedGaps(pid: string, seed: { gaps?: Record<string, unknown>[]; run?: Record<string, unknown> }): Promise<void> {
+/** Seeds the gaps (full `GapView` rows, plus stub-only `stories` and `documents` id lists), the latest gap run, the noise rules and the
+ *  corpus documents (`{document_id, lineage, path, title, markdown}`, the Documents tab) of a project in the stub. */
+export async function seedGaps(
+  pid: string,
+  seed: {
+    gaps?: Record<string, unknown>[];
+    run?: Record<string, unknown>;
+    rules?: Record<string, unknown>[];
+    corpus?: Record<string, unknown>[];
+  },
+): Promise<void> {
   await control("POST", "/seed-gaps", { pid, ...seed });
+}
+
+/** The update build of the applied answers finished (stub): every applying gap of the project resolves with its answer applied. */
+export async function settleGaps(pid: string): Promise<void> {
+  await control("POST", "/settle-gaps", { pid });
 }
 
 /** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */

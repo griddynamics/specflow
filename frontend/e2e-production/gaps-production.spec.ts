@@ -1,9 +1,11 @@
 // FR-GWEB-04 (read part), FR-GRTE-06: the Gaps screen on the PRODUCTION routes against the stub API through the real BFF, with shop-corpus
 // gaps seeded through the stub's control port (no paid model call): the inbox (held_back=false) and "More found in this run" (held_back=true),
-// the filters going to the server, the question card with its recommended option, quotes and ABOUT/IMPACTS chips, the noise report tab, the
-// "not available" state of `503 gap_unavailable`, and no answering control anywhere (the read-only screen sends GETs only).
+// the filters going to the server, the question card with its recommended option preselected, quotes and ABOUT/IMPACTS chips, the noise
+// report tab and the "not available" state of `503 gap_unavailable`. Opening the screen and a card only reads (GETs); the writes are in
+// gaps-write-production.spec.ts.
 import { randomBytes } from "node:crypto";
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { CANCEL_TITLE, CORPUS, NOISE_RUN, shopGaps } from "./gaps-fixtures";
 import {
   allowConsoleErrors,
   bff,
@@ -23,153 +25,6 @@ import {
 
 const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
 
-const REQUIREMENT = "Requirement";
-const CANCEL_TITLE = "Cancelling a paid order is not specified";
-const node = (specId: string, label: string, name: string) => ({ spec_id: specId, label, name });
-const option = (gapId: string, rank: number, label: string, detail: string, recommended = false) => ({
-  gap_id: gapId,
-  rank,
-  label,
-  detail,
-  recommended,
-  basis: [],
-  edits: [{ target: { kind: "section" }, text: detail }],
-  created_run: "run-7",
-});
-const gap = (id: string, over: Record<string, unknown>) => ({
-  gap_id: id,
-  kind: "missing",
-  severity: "major",
-  status: "open",
-  origin: "analysis",
-  route: "ask",
-  title: "",
-  question: "",
-  why: "",
-  detector: "ST-MISSING",
-  signature: `sig-${id}`,
-  created_by: "gap-run",
-  created_at: "2026-11-10T10:00:00Z",
-  updated_at: "2026-11-10T10:00:00Z",
-  blocking: false,
-  held_back: false,
-  about: [],
-  impacts: [],
-  witness: [],
-  options: [],
-  clarification: null,
-  history: { events: [], follow_ups: [] },
-  reach: { stories: [], tasks: [] },
-  resolution: null,
-  resolved_at: null,
-  run_id: "run-7",
-  ...over,
-});
-
-/** The shop corpus: the cancel-paid-order gap (3 options, A recommended), a blocker contradiction, a person's minor gap, a coding agent's
- *  blocking question, an AI-routed gap (not in the inbox) and one question the run held back (FR-GRTE-06). */
-function shopGaps(documentId: string) {
-  return [
-    gap("GAP::CANCEL_PAID", {
-      title: CANCEL_TITLE,
-      question: "What happens when a customer cancels an order that is already paid?",
-      why: "Checkout and refunds both depend on it: without an answer the refund flow cannot be built.",
-      about: [node("REQ::FR::PLACE_ORDER", REQUIREMENT, "Place order"), node("FEAT::CHECKOUT", "Feature", "Checkout")],
-      impacts: [node("REQ::FR::REFUND", REQUIREMENT, "Refund a payment")],
-      witness: [
-        { fragment_id: "FRAG::orders::4", quote: "A customer may cancel an order before it ships.", line_start: 41, line_end: 42 },
-        { fragment_id: "FRAG::payments::2", quote: "Payment is captured when the order is placed.", line_start: 12, line_end: 12 },
-      ],
-      options: [
-        option("GAP::CANCEL_PAID", 1, "Refund in full and cancel", "The payment is refunded and the order is cancelled.", true),
-        option("GAP::CANCEL_PAID", 2, "Cancel only before shipping", "After shipping the customer must return the goods."),
-        option("GAP::CANCEL_PAID", 3, "No cancellation after payment", "A paid order can no longer be cancelled."),
-      ],
-      reach: { stories: ["STORY::CHECKOUT"], tasks: ["TASK::PAY", "TASK::ORDER_API"] },
-      stories: ["STORY::CHECKOUT"],
-      documents: [documentId],
-    }),
-    gap("GAP::TOTAL_ROUNDING", {
-      kind: "contradiction",
-      severity: "blocker",
-      title: "Order totals are rounded differently",
-      question: "Are order totals rounded per line or on the total?",
-      created_at: "2026-11-09T10:00:00Z",
-      about: [node("REQ::FR::ORDER_TOTAL", REQUIREMENT, "Order total")],
-    }),
-    gap("GAP::DELIVERY_WINDOW", {
-      kind: "ambiguous",
-      severity: "minor",
-      origin: "person",
-      title: '"Next day" delivery has no cut-off time',
-      question: "Until what time does an order still ship the next day?",
-      about: [node("REQ::FR::DELIVERY", REQUIREMENT, "Delivery")],
-    }),
-    gap("GAP::PAYMENT_PROVIDER", {
-      kind: "open_question",
-      severity: "major",
-      origin: "development",
-      blocking: true,
-      title: "Which payment provider takes the payment?",
-      question: "Which payment provider should the order API call?",
-      created_at: "2026-11-01T10:00:00Z",
-      about: [node("REQ::FR::PAY", REQUIREMENT, "Take the payment")],
-    }),
-    gap("GAP::AI_CURRENCY", {
-      route: "ai",
-      status: "answered",
-      severity: "minor",
-      title: "Prices are shown in euro",
-      question: "Which currency are prices shown in?",
-    }),
-    gap("GAP::GUEST_CHECKOUT", {
-      kind: "assumption",
-      severity: "minor",
-      held_back: true,
-      title: "Guest checkout is assumed",
-      question: "May a customer order without an account?",
-    }),
-  ];
-}
-
-const NOISE_RUN = {
-  status: "completed",
-  run_id: "run-7",
-  build_id: "gb-1",
-  mode: "full",
-  result: {
-    run_id: "run-7",
-    mode: "full",
-    build_id: "gb-1",
-    status: "completed",
-    counts: {},
-    cost: {},
-    noise: {
-      sections: [
-        {
-          lineage: "LIN::meeting-notes",
-          heading_path: ["Meeting notes", "2026-03-02 sync"],
-          relevance: "tracking",
-          by: "rules",
-          signals: ["dated heading", "attendee list"],
-          removed: ["REQ::FR::SYNC_1", "REQ::FR::SYNC_2"],
-        },
-        {
-          lineage: "LIN::release",
-          heading_path: ["Release plan"],
-          relevance: "mixed",
-          by: "model",
-          signals: ["status words"],
-          removed: [],
-        },
-      ],
-    },
-    deferred_sites: [],
-    held_tasks: [],
-    warnings: [],
-  },
-};
-
 const screen = (page: Page) => page.getByTestId("screen-gaps");
 const inboxRows = (page: Page) => page.getByRole("list", { name: "Gaps" }).getByRole("listitem");
 const row = (page: Page, title: string) => inboxRows(page).filter({ hasText: title });
@@ -177,25 +32,6 @@ const row = (page: Page, title: string) => inboxRows(page).filter({ hasText: tit
 async function pick(page: Page, filter: string, choice: string) {
   await page.getByTestId(`select-${filter}`).getByRole("button").click();
   await page.getByRole("menu", { name: filter }).getByRole("menuitemradio", { name: choice, exact: true }).click();
-}
-
-/** No control that would write: answering, own text, preview, placement, dismissal, revert, noise marking, runs or apply. */
-async function expectNoWriteControls(scope: Locator) {
-  for (const name of [
-    /submit/i,
-    /^other\b/i,
-    /not a gap/i,
-    /dismiss/i,
-    /revert/i,
-    /mark as not spec/i,
-    /^apply/i,
-    /preview/i,
-    /^(start|run)\b/i,
-    /^answer\b/i,
-  ]) {
-    await expect(scope.getByRole("button", { name })).toHaveCount(0);
-  }
-  await expect(scope.getByRole("textbox")).toHaveCount(0);
 }
 
 test.describe("Gaps on production routes", { tag: "@production" }, () => {
@@ -214,7 +50,7 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     const docs = (await bff(page, "GET", `/projects/${pid}/documents`)).json as { items: { id: string }[] };
     const documentId = docs.items[0].id;
     if (opts.plan === true) await buildGraphAndPlan(page, pid);
-    await seedGaps(pid, { gaps: shopGaps(documentId), run: NOISE_RUN });
+    await seedGaps(pid, { gaps: shopGaps(documentId), run: NOISE_RUN, corpus: CORPUS });
     return { pid, documentId };
   }
 
@@ -247,7 +83,9 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     expect(made.map((r) => r.path + r.search)).toContain(`/api/backend/projects/${pid}/gaps?route=ask&held_back=false`);
     expect(made.map((r) => r.path + r.search)).toContain(`/api/backend/projects/${pid}/gaps?route=ask&held_back=true`);
     expect(made.filter((r) => r.method !== "GET")).toEqual([]);
-    await expectNoWriteControls(screen(page));
+    await expect(page.getByTestId("gaps-apply-now")).toBeVisible();
+    await expect(page.getByTestId("gaps-raise")).toBeVisible();
+    for (const tab of ["inbox", "ai", "noise", "documents"]) await expect(page.getByTestId(`gaps-tab-${tab}`)).toBeVisible();
   });
 
   test("FR-GWEB-04: the filters (status, kind, severity, origin, story, document) go to the server and narrow the inbox", async ({
@@ -281,6 +119,10 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(inboxRows(page)).toHaveCount(1);
     await pick(page, "Document", "All");
     await pick(page, "Status", "Resolved");
+    await expect(inboxRows(page)).toHaveCount(1);
+    await expect(inboxRows(page)).toContainText("The return window is not stated");
+    await pick(page, "Status", "Not resolved");
+    await pick(page, "Kind", "Assumption");
     await expect(page.getByTestId("gaps-empty").getByRole("heading", { name: "No gaps match these filters" })).toBeVisible();
     await expect(page.getByTestId("gap-count")).toHaveText("");
 
@@ -294,7 +136,7 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     expect(paths).toContain(`${base}status=resolved&route=ask&held_back=false`);
   });
 
-  test("FR-GWEB-04: the question card shows the question, why, ABOUT and IMPACTS chips, quotes, reach and the options with A recommended; no answering control", async ({
+  test("FR-GWEB-04: the question card shows the question, why, ABOUT and IMPACTS chips, quotes with their document and section, reach and the options with A recommended and preselected (major); opening it only reads", async ({
     page,
     requests,
   }) => {
@@ -314,20 +156,24 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(card.getByRole("list", { name: "Impacts" }).getByRole("listitem")).toHaveText([/REQ::FR::REFUND/]);
     await expect(card.getByTestId("gap-quotes").getByRole("listitem")).toHaveCount(2);
     await expect(card.getByTestId("gap-quotes")).toContainText("A customer may cancel an order before it ships.");
-    await expect(card.getByTestId("gap-quotes")).toContainText("FRAG::orders::4 · lines 41–42");
+    await expect(card.getByTestId("gap-quotes")).toContainText("Orders service specification › Orders › Cancel an order · lines 41–42");
+    await expect(card.getByTestId("gap-quotes")).toContainText("FRAG::payments::2 · line 12"); // no document named: the fragment form
     await expect(card.getByTestId("gap-reach")).toContainText("1 story, 2 tasks");
 
     const radios = card
       .getByRole("radiogroup", { name: "What happens when a customer cancels an order that is already paid?" })
       .getByRole("radio");
-    await expect(radios).toHaveCount(3);
+    await expect(radios).toHaveCount(4); // three options and "Other"
     await expect(radios.nth(0)).toContainText("Refund in full and cancel");
     await expect(radios.nth(0)).toContainText("Recommended");
+    await expect(radios.nth(0)).toHaveAttribute("aria-checked", "true"); // preselected: the gap is major
     await expect(radios.nth(1)).not.toContainText("Recommended");
     await expect(radios.nth(2)).not.toContainText("Recommended");
+    await expect(radios.nth(3)).toContainText("Other");
     await expect(card.getByTestId("option-recommended")).toHaveCount(1);
-    for (let i = 0; i < 3; i++) await expect(radios.nth(i)).toBeDisabled();
-    await expectNoWriteControls(card);
+    for (let i = 0; i < 4; i++) await expect(radios.nth(i)).toBeEnabled();
+    await expect(card.getByTestId("gap-submit")).toBeEnabled();
+    await expect(card.getByTestId("gap-dismiss")).toBeVisible();
     await expect(card.getByRole("button", { name: "Add comment" })).toHaveCount(0);
 
     await card.getByRole("button", { name: "Close" }).last().click();
@@ -344,9 +190,8 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     const { pid } = await shopProject(page);
     await page.goto(`/projects/${pid}/gaps?gap=${encodeURIComponent("GAP::GUEST_CHECKOUT")}`);
     await expect(page.getByRole("dialog", { name: "Guest checkout is assumed" })).toBeVisible();
-    await expect(
-      page.getByRole("dialog").getByTestId("gap-no-options").getByRole("heading", { name: "Options are being prepared" }),
-    ).toBeVisible();
+    await expect(page.getByRole("dialog").getByTestId("gap-no-options")).toContainText("Options are being prepared");
+    await expect(page.getByRole("dialog").getByRole("radio", { name: /Other/ })).toBeEnabled(); // an own answer is accepted at once
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.goto(`/projects/${pid}/gaps?gap=GAP%3A%3ANOPE`);
@@ -370,7 +215,7 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(notes.getByRole("list", { name: "Signals" }).getByRole("listitem")).toHaveText(["dated heading", "attendee list"]);
     await expect(report.getByTestId("noise-section").filter({ hasText: "Release plan" })).toContainText("Mixed");
     await expect(page.getByTestId("gap-filters")).toHaveCount(0);
-    await expectNoWriteControls(screen(page));
+    await expect(notes.getByTestId("noise-mark-not-spec")).toBeVisible();
   });
 
   test("FR-GWEB-04: before any finished gap run the noise report says so; with gap runs not configured (503 gap_unavailable) both tabs say Gaps are not available", async ({

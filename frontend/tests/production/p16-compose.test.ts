@@ -53,7 +53,24 @@ const http: HttpPorts = {
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
   work: { findings: never, close: never, claims: never, release: never },
-  gaps: { list: never, get: never, noise: never, documents: never },
+  gaps: {
+    list: never,
+    get: never,
+    noise: never,
+    documents: never,
+    previewEdits: never,
+    answer: never,
+    dismiss: never,
+    raise: never,
+    applyNow: never,
+    aiAnswers: never,
+    revert: never,
+    noiseRules: never,
+    addNoiseRule: never,
+    removeNoiseRule: never,
+    answerDocuments: never,
+    exportUrl: () => "",
+  },
 };
 const ports = composeProductionPorts(http);
 

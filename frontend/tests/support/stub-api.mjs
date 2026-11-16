@@ -416,43 +416,168 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
-  // Gaps (FR-GWEB-04, read-only): per project, seeded through the control port (`seedGaps`: full `GapView` rows plus stub-only `stories` and
-  // `documents` id lists for the story and document filters, and the latest `GapRunStatus`). `GET /gaps` filters as `list_gaps` does
-  // (status default open, answered, applying; kind, severity, origin, route repeat; story_id; document; held_back), sorts blockers first
-  // then newest, and drops options, history and reach from the items; `cursor` is an offset. `state.gapFail` (an API code) makes every
-  // gap route answer 503 with it (`gap_unavailable`: gap runs not configured). An unseeded project has no gaps and an idle run.
-  const gapSets = new Map(); // pid -> {gaps: [...], run: GapRunStatus}
-  const gapsOf = (pid) => gapSets.get(pid) ?? gapSets.set(pid, { gaps: [], run: { status: "idle", result: null } }).get(pid);
+  // Gaps (FR-GWEB-04, FR-GWEB-05): per project, seeded through the control port (`seedGaps`: full `GapView` rows plus stub-only `stories`
+  // and `documents` id lists for the story and document filters, the latest `GapRunStatus`, the noise rules and the `corpus` documents of
+  // the Documents tab: `{document_id, lineage, path, title, markdown}`). Reads: `GET /gaps` filters as `list_gaps` does (status default
+  // open, answered, applying; kind, severity, origin, route repeat; story_id; document; held_back when sent; limit), sorts by severity, reach
+  // (tasks), then newest, and drops options, history and reach from the items; `cursor` is an offset. Writes, in memory, with the API's
+  // checks and codes: `edits_preview` (edits made from the option or the own text: `amend` after the first witness line, or a
+  // clarifications-document section; own text containing "FALLBACK" falls back to the document), `answer` (409 gap_stale unless
+  // `updated_at` is the gap's; the gap moves to answered with a pending clarification and a new `updated_at`), `dismiss` (204), raise
+  // (`POST /gaps`, 201), `apply` (answered -> applying; 409 gap_wrong_state when nothing waits), `ai_answers`, revert (an applied answer of a
+  // resolved gap opens a follow-up gap, linked both ways in `history.follow_ups`; a pending one sends the gap back open), the noise rules,
+  // `GET /gaps/documents` (each corpus document with its applied amendments, then the generated clarifications document) and
+  // `GET /documents/{id}/export` (Markdown with the answers and their marker lines, as an attachment). `settleGaps` (control) settles the
+  // applying gaps: resolved, clarification applied. `state.gapFail` (an API code) makes every gap route answer 503 with it. An unseeded
+  // project has no gaps and an idle run.
+  const gapSets = new Map(); // pid -> {gaps, run, rules, corpus, edits: Map<clr_id, Edit[]>, reverted: AiAnswer[], seq}
+  const gapsOf = (pid) =>
+    gapSets.get(pid) ??
+    gapSets
+      .set(pid, { gaps: [], run: { status: "idle", result: null }, rules: [], corpus: [], edits: new Map(), reverted: [], seq: 0 })
+      .get(pid);
   const SEVERITY_RANK = { blocker: 0, major: 1, minor: 2 };
+  const STUB_FIELDS = new Set(["stories", "documents"]);
   const publicGap = (g, full) => {
-    const view = Object.fromEntries(Object.entries(g).filter(([k]) => k !== "stories" && k !== "documents"));
-    return full ? view : { ...view, options: [], history: null, reach: null };
+    const view = Object.fromEntries(Object.entries(g).filter(([k]) => !STUB_FIELDS.has(k)));
+    return full ? { history: { events: [], follow_ups: [] }, ...view } : { ...view, options: [], history: null, reach: null };
   };
-  async function gapRoute({ req, res, url, pid, b, did, action }) {
-    for await (const c of req) void c;
-    if (req.method !== "GET") return err(res, 405, "method_not_allowed");
-    if (state.gapFail) return err(res, 503, state.gapFail);
-    const set = gapsOf(pid);
-    if (b === "gap") {
-      if (did !== "runs") return err(res, 404, "not_found");
-      if (action === "latest") return json(res, 200, set.run);
-      const rest = url.pathname.split("/").filter(Boolean)[7];
-      if (rest === "noise" && set.run.result && set.run.result.run_id === decodeURIComponent(action))
-        return json(res, 200, set.run.result.noise);
-      return err(res, 404, "gap_run_not_found");
+  let clock = Date.now();
+  /** A timestamp strictly later than the previous one (an answer always changes `updated_at`). */
+  const tick = () => {
+    clock = Math.max(clock + 1, Date.now());
+    return new Date(clock).toISOString();
+  };
+  const invalid = (res, field, reason) => err(res, 400, "answer_invalid", { field, reason });
+  const wrongState = (res, status, allowed) => err(res, 409, "gap_wrong_state", { status, allowed });
+  const historyOf = (g) => (g.history ??= { events: [], follow_ups: [] });
+  const event = (g, name, detail = {}, clrId = null, actor = "u1") =>
+    historyOf(g).events.push({ gap_id: g.gap_id, clr_id: clrId, at: tick(), actor, event: name, detail });
+  const textLength = (v, min, max) => typeof v === "string" && v.trim().length >= min && v.length <= max;
+  async function readJsonBody(req) {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const text = Buffer.concat(chunks).toString();
+    if (text.trim() === "") return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
     }
-    if (did) {
-      const g = set.gaps.find((x) => x.gap_id === decodeURIComponent(did));
-      return g ? json(res, 200, publicGap(g, true)) : err(res, 404, "gap_not_found");
+  }
+  /** The edits and preview sections of an answer (see the header). */
+  function draftEdits(g, text, placement, fallback) {
+    const w = (g.witness ?? [])[0];
+    const amend = placement === "amend" || (placement === undefined && w !== undefined && !fallback);
+    if (amend && w !== undefined && !fallback) {
+      return {
+        placement: "amend",
+        edits: [{ placement: "amend", target: { fragment_id: w.fragment_id, anchor_quote: w.quote }, operation: "insert_after", text }],
+        sections: [
+          {
+            fragment_id: w.fragment_id,
+            lineage: w.document_id ?? null,
+            heading_path: w.heading_path ?? [],
+            before: w.quote,
+            after: `${w.quote}\n${text}\n> Clarified by ${g.gap_id}`,
+          },
+        ],
+        fallback: null,
+      };
     }
-    const q = url.searchParams;
+    return {
+      placement: "document",
+      edits: [{ placement: "document", target: { heading: g.title }, operation: "append_section", text }],
+      sections: [{ fragment_id: null, lineage: null, heading_path: [`${g.gap_id} ${g.title}`], before: "", after: text }],
+      fallback: fallback ? "edits_failed" : null,
+    };
+  }
+  /** Checks an answer or preview body against the gap; returns the error responder or the drafted edits. */
+  function checkAnswer(g, body) {
+    if (!["open", "answered"].includes(g.status)) return (res) => wrongState(res, g.status, ["open", "answered"]);
+    const hasRank = body.option_rank !== undefined && body.option_rank !== null;
+    const hasText = body.own_text !== undefined && body.own_text !== null;
+    if (hasRank === hasText) return (res) => invalid(res, "answer", "one_of_option_or_text");
+    if (body.placement !== undefined && body.placement !== null && !["amend", "document"].includes(body.placement))
+      return (res) => err(res, 422, "validation_failed");
+    if (g.kind === "contradiction" && body.placement === "document") return (res) => invalid(res, "placement", "contradiction_amends");
+    if (hasText && !textLength(body.own_text, 1, 4000)) return (res) => invalid(res, "own_text", "length");
+    const option = hasRank ? (g.options ?? []).find((o) => o.rank === body.option_rank) : null;
+    if (hasRank && !option) return (res) => invalid(res, "option_rank", "unknown");
+    const text = hasText ? body.own_text.trim() : option.detail || option.label;
+    const fallback = hasText && text.includes("FALLBACK");
+    const placement = g.kind === "contradiction" ? "amend" : (body.placement ?? undefined);
+    return { draft: draftEdits(g, text, placement, fallback), option, text };
+  }
+  const lineageOfFragment = (set, fragmentId) => {
+    for (const g of set.gaps) for (const w of g.witness ?? []) if (w.fragment_id === fragmentId && w.document_id) return w.document_id;
+    return null;
+  };
+  /** The applied answers of each corpus document (its amendments) and of the generated clarifications document. */
+  function answerDocuments(set) {
+    const live = set.gaps.filter((g) => g.clarification && ["applied", "pending"].includes(g.clarification.status));
+    const amendmentsOf = (g) => (set.edits.get(g.clarification.clr_id) ?? []).filter((e) => e.placement === "amend");
+    const rows = set.corpus.map((d) => ({
+      document_id: d.document_id,
+      lineage: d.lineage,
+      path: d.path,
+      title: d.title,
+      generated: false,
+      answers: live
+        .filter((g) => g.clarification.status === "applied")
+        .map((g) => ({ g, edits: amendmentsOf(g).filter((e) => lineageOfFragment(set, e.target.fragment_id) === d.lineage) }))
+        .filter(({ edits }) => edits.length > 0)
+        .map(({ g, edits }) => ({
+          clr_id: g.clarification.clr_id,
+          gap_id: g.gap_id,
+          title: g.title,
+          status: "active",
+          amendments: edits.length,
+        })),
+    }));
+    const doc = live.filter((g) => (set.edits.get(g.clarification.clr_id) ?? []).some((e) => e.placement === "document"));
+    if (doc.length > 0) {
+      rows.push({
+        document_id: "00000000-0000-4000-8000-00000000c1a1",
+        lineage: "specflow:clarifications",
+        path: "Specflow/Clarifications.md",
+        title: "Clarifications",
+        generated: true,
+        answers: doc.map((g) => ({
+          clr_id: g.clarification.clr_id,
+          gap_id: g.gap_id,
+          title: g.title,
+          status: g.clarification.status,
+          amendments: 0,
+        })),
+      });
+    }
+    return rows;
+  }
+  /** "Download with answers": the effective Markdown of a corpus document or of the generated document; null when unknown. */
+  function exportDocument(pid, did) {
+    const set = gapSets.get(pid);
+    if (!set) return null;
+    const row = answerDocuments(set).find((d) => d.document_id === did);
+    if (!row) return null;
+    const textOf = (clr) => (set.edits.get(clr) ?? []).map((e) => e.text).join("\n");
+    if (row.generated) {
+      const sections = row.answers.map((a) => `## ${a.gap_id} ${a.title}\n\n${textOf(a.clr_id)}\n`);
+      return { name: "Clarifications.md", markdown: `# Clarifications\n\n${sections.join("\n")}` };
+    }
+    const source = set.corpus.find((d) => d.document_id === did);
+    const added = row.answers.map((a) => `${textOf(a.clr_id)}\n> Clarified by ${a.gap_id}\n`);
+    return { name: source.path.split("/").at(-1), markdown: [source.markdown ?? `# ${source.title}\n`, ...added].join("\n") };
+  }
+  function listGaps(set, q) {
     const many = (name, fallback) => (q.getAll(name).length ? q.getAll(name) : fallback);
     const statuses = many("status", ["open", "answered", "applying"]);
     const keep = (name, value) => many(name, null) === null || many(name, null).includes(value);
     const held = q.get("held_back");
     const story = q.get("story_id");
     const document = q.get("document");
-    const rows = set.gaps
+    const reach = (g) => (g.reach?.tasks ?? []).length;
+    return set.gaps
       .filter(
         (g) =>
           statuses.includes(g.status) &&
@@ -467,14 +592,278 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       .sort(
         (x, y) =>
           SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] ||
+          reach(y) - reach(x) ||
           y.created_at.localeCompare(x.created_at) ||
           x.gap_id.localeCompare(y.gap_id),
       );
+  }
+  function aiAnswers(set) {
+    const live = set.gaps
+      .filter(
+        (g) =>
+          g.clarification && g.clarification.status !== "reverted" && (g.clarification.mode === "ai" || g.clarification.mode === "pointer"),
+      )
+      .map((g) => ({
+        gap_id: g.gap_id,
+        title: g.title,
+        question: g.question,
+        gap_status: g.status,
+        clarification: g.clarification,
+        follow_up: null,
+      }));
+    return [...live, ...set.reverted].sort((x, y) => y.clarification.answered_at.localeCompare(x.clarification.answered_at));
+  }
+  function revert(set, clrId, reason, res) {
+    const g = set.gaps.find((x) => x.clarification?.clr_id === clrId);
+    if (!g) return err(res, 404, "gap_not_found");
+    if (!textLength(reason, 1, 500)) return invalid(res, "reason", "length");
+    const c = g.clarification;
+    const resolved = g.status === "resolved" && (c.status === "applied" || c.status === "absorbed");
+    const pending = ["answered", "applying"].includes(g.status) && c.status === "pending";
+    if (!resolved && !pending) return wrongState(res, g.status, ["answered", "applying", "resolved"]);
+    const reverted = { ...c, status: "reverted" };
+    const built = resolved ? `gb-revert-${String(++set.seq)}` : null;
+    event(g, "reverted", { reason, mode: c.mode }, clrId);
+    if (resolved) {
+      const id = `${g.gap_id}-R${String(++set.seq)}`;
+      const now = tick();
+      const follow = {
+        ...structuredClone(g),
+        gap_id: id,
+        status: "open",
+        route: "ask",
+        resolution: null,
+        resolved_at: null,
+        clarification: null,
+        created_by: "u1",
+        created_at: now,
+        updated_at: now,
+        signature: `${g.signature}|reverted|${clrId}`,
+        history: { events: [], follow_ups: [{ gap_id: g.gap_id, reason: "reverted", direction: "continues" }] },
+      };
+      event(follow, "follow_up", { reason: "reverted", of: g.gap_id });
+      historyOf(g).follow_ups.push({ gap_id: id, reason: "reverted", direction: "continued_by" });
+      g.clarification = reverted;
+      g.updated_at = tick();
+      set.gaps.push(follow);
+      if (c.mode === "ai" || c.mode === "pointer")
+        set.reverted.push({
+          gap_id: g.gap_id,
+          title: g.title,
+          question: g.question,
+          gap_status: g.status,
+          clarification: reverted,
+          follow_up: id,
+        });
+      return json(res, 200, { clr_id: clrId, gap_id: id, follow_up: true, amendments: [], build: built });
+    }
+    if (c.mode === "ai" || c.mode === "pointer")
+      set.reverted.push({
+        gap_id: g.gap_id,
+        title: g.title,
+        question: g.question,
+        gap_status: "open",
+        clarification: reverted,
+        follow_up: null,
+      });
+    g.status = "open";
+    g.route = "ask";
+    g.clarification = null;
+    g.updated_at = tick();
+    return json(res, 200, { clr_id: clrId, gap_id: g.gap_id, follow_up: false, amendments: [], build: null });
+  }
+  function raise(set, body, res) {
+    if (!textLength(body.question, 10, 1000)) return invalid(res, "question", "length");
+    const about = Array.isArray(body.about) ? body.about : [];
+    if (about.length < 1 || about.length > 20) return invalid(res, "about", "count");
+    if (about.some((id) => typeof id !== "string" || id.startsWith("UNKNOWN"))) return invalid(res, "about", "unknown");
+    const question = body.question.trim();
+    const same = set.gaps.find(
+      (g) =>
+        g.origin === "person" &&
+        g.status === "open" &&
+        g.question === question &&
+        JSON.stringify(g.about.map((n) => n.spec_id).sort()) === JSON.stringify([...about].sort()),
+    );
+    if (same) return json(res, 201, { gap_id: same.gap_id, created: false });
+    const id = `GAP::PERSON${String(++set.seq)}`;
+    const now = tick();
+    const g = {
+      gap_id: id,
+      kind: body.kind ?? "missing",
+      severity: body.severity ?? "major",
+      status: "open",
+      origin: "person",
+      route: "ask",
+      resolution: null,
+      title: question.split("\n")[0].slice(0, 160),
+      question,
+      why: "",
+      detector: "person",
+      signature: `person|${id}`,
+      blocking: false,
+      held_back: false,
+      run_id: null,
+      created_by: "u1",
+      created_at: now,
+      updated_at: now,
+      resolved_at: null,
+      about: about.map((spec_id) => ({ spec_id, label: "", name: "" })),
+      impacts: [],
+      witness: [],
+      options: [],
+      clarification: null,
+      history: { events: [], follow_ups: [] },
+      reach: { stories: [], tasks: [] },
+    };
+    event(g, "raised");
+    set.gaps.push(g);
+    return json(res, 201, { gap_id: id, created: true });
+  }
+  async function gapWrite({ req, res, set, did, action, rest }) {
+    const body = await readJsonBody(req);
+    if (body === null || typeof body !== "object" || Array.isArray(body)) return err(res, 422, "validation_failed");
+    if (!did) return raise(set, body, res);
+    if (did === "apply") {
+      const waiting = set.gaps.filter((g) => g.status === "answered" && g.clarification?.status === "pending");
+      if (waiting.length === 0) return wrongState(res, "open", ["answered"]);
+      const build = `gb-apply-${String(++set.seq)}`;
+      for (const g of waiting) {
+        g.status = "applying";
+        g.updated_at = tick();
+        g.applying_build = build;
+        event(g, "applying", { build }, g.clarification.clr_id, "apply");
+      }
+      return json(res, 200, {
+        gap_ids: waiting.map((g) => g.gap_id),
+        clr_ids: waiting.map((g) => g.clarification.clr_id),
+        amendments: [],
+        build,
+      });
+    }
+    if (did === "noise_rules") {
+      if (!["document", "section", "pattern"].includes(body.scope)) return err(res, 422, "validation_failed");
+      if (!textLength(body.value, 1, 500)) return invalid(res, "value", "length");
+      if (!textLength(body.reason, 1, 500)) return invalid(res, "reason", "length");
+      const same = set.rules.find((r) => r.scope === body.scope && r.value === body.value);
+      if (same) return json(res, 201, { rule_id: same.rule_id });
+      const rule = {
+        rule_id: `rule-${String(++set.seq)}`,
+        scope: body.scope,
+        value: body.value,
+        reason: body.reason,
+        created_by: "u1",
+        created_at: tick(),
+      };
+      set.rules.push(rule);
+      return json(res, 201, { rule_id: rule.rule_id });
+    }
+    if (did === "clarifications" && rest === "revert") return revert(set, decodeURIComponent(action), body.reason, res);
+    const g = set.gaps.find((x) => x.gap_id === decodeURIComponent(did));
+    if (!g) return err(res, 404, "gap_not_found");
+    if (action === "dismiss") {
+      if (!textLength(body.reason, 1, 500)) return invalid(res, "reason", "length");
+      if (!["open", "answered"].includes(g.status)) return wrongState(res, g.status, ["open", "answered"]);
+      set.gaps = set.gaps.filter((x) => x !== g);
+      res.writeHead(204);
+      return res.end();
+    }
+    if (action !== "edits_preview" && action !== "answer") return err(res, 404, "not_found");
+    const checked = checkAnswer(g, body);
+    if (typeof checked === "function") return checked(res);
+    if (action === "edits_preview") return json(res, 200, { gap_id: g.gap_id, ...checked.draft, drafted: body.own_text != null });
+    if (typeof body.updated_at !== "string") return err(res, 422, "validation_failed");
+    if (body.updated_at !== g.updated_at) return err(res, 409, "gap_stale");
+    if (body.edits !== undefined && (!Array.isArray(body.edits) || body.edits.length < 1 || body.edits.length > 12))
+      return invalid(res, "edits", "edits_count");
+    const edits = body.edits ?? checked.draft.edits;
+    const placement = edits[0]?.placement ?? checked.draft.placement;
+    const replaced = g.clarification?.status === "pending" ? g.clarification.clr_id : null;
+    if (replaced) event(g, "replaced", {}, replaced);
+    const clrId = `CLR::${String(++set.seq)}`;
+    g.status = "answered";
+    g.route = "ask";
+    g.clarification = {
+      clr_id: clrId,
+      mode: checked.option ? "option" : "own",
+      placement,
+      status: "pending",
+      option_label: checked.option ? checked.option.label : null,
+      text: checked.text,
+      answered_by: "u1",
+      answered_at: tick(),
+      applied_build_id: null,
+      basis: [],
+      confidence: null,
+    };
+    set.edits.set(clrId, edits);
+    g.updated_at = tick();
+    event(g, "answered", { mode: g.clarification.mode }, clrId);
+    return json(res, 200, {
+      gap_id: g.gap_id,
+      clr_id: clrId,
+      replaced,
+      placement,
+      amendments: edits.filter((e) => e.placement === "amend").map((_, i) => `AMD::${clrId}::${String(i + 1)}`),
+      apply_at: new Date(Date.now() + 120_000).toISOString(),
+      immediate: false,
+    });
+  }
+  async function gapRoute({ req, res, url, pid, b, did, action }) {
+    const rest = url.pathname.split("/").filter(Boolean)[7];
+    if (state.gapFail) {
+      for await (const c of req) void c;
+      return err(res, 503, state.gapFail);
+    }
+    const set = gapsOf(pid);
+    if (b === "gap") {
+      for await (const c of req) void c;
+      if (req.method !== "GET" || did !== "runs") return err(res, 404, "not_found");
+      if (action === "latest") return json(res, 200, set.run);
+      if (rest === "noise" && set.run.result && set.run.result.run_id === decodeURIComponent(action))
+        return json(res, 200, set.run.result.noise);
+      return err(res, 404, "gap_run_not_found");
+    }
+    if (req.method === "POST") return gapWrite({ req, res, set, did, action, rest });
+    for await (const c of req) void c;
+    if (req.method === "DELETE") {
+      if (did !== "noise_rules" || !action) return err(res, 405, "method_not_allowed");
+      const before = set.rules.length;
+      set.rules = set.rules.filter((r) => r.rule_id !== decodeURIComponent(action));
+      if (before === set.rules.length) return err(res, 404, "noise_rule_not_found");
+      res.writeHead(204);
+      return res.end();
+    }
+    if (req.method !== "GET") return err(res, 405, "method_not_allowed");
+    if (did === "noise_rules") return json(res, 200, { rules: set.rules });
+    if (did === "ai_answers") return json(res, 200, { answers: aiAnswers(set).slice(0, Number(url.searchParams.get("limit") ?? 50)) });
+    if (did === "documents") return json(res, 200, { documents: answerDocuments(set) });
+    if (did) {
+      const g = set.gaps.find((x) => x.gap_id === decodeURIComponent(did));
+      return g ? json(res, 200, publicGap(g, true)) : err(res, 404, "gap_not_found");
+    }
+    const q = url.searchParams;
+    const rows = listGaps(set, q);
     const limit = Number(q.get("limit") ?? 50);
     const from = Number(q.get("cursor") ?? 0);
     if (!Number.isInteger(from) || from < 0) return err(res, 400, "invalid_cursor");
     const page = rows.slice(from, from + limit);
     return json(res, 200, { gaps: page.map((g) => publicGap(g, false)), next: from + limit < rows.length ? String(from + limit) : null });
+  }
+  /** Test control: the update build of the applied answers finished; every applying gap resolves with its clarification applied. */
+  function settleGaps(pid) {
+    const set = gapsOf(pid);
+    for (const g of set.gaps.filter((x) => x.status === "applying")) {
+      g.status = "resolved";
+      g.resolution = g.clarification?.mode === "ai" ? "ai_answered" : "answered";
+      g.resolved_at = tick();
+      g.updated_at = g.resolved_at;
+      if (g.clarification) {
+        g.clarification = { ...g.clarification, status: "applied", applied_build_id: g.applying_build ?? "gb-apply" };
+        event(g, "reconciled", { outcome: "applied" }, g.clarification.clr_id, "reconcile");
+      }
+      delete g.applying_build;
+    }
   }
 
   async function sourcesRoute({ req, res, url, pid, did, action, entry }) {
@@ -758,6 +1147,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       return json(res, 201, { document: publicDoc(r.doc) });
     }
 
+    if (action === "export" && req.method === "GET") {
+      for await (const c of req) void c;
+      const out = exportDocument(pid, did);
+      if (!out) return err(res, 404, "document_not_found");
+      res.writeHead(200, {
+        "content-type": "text/markdown; charset=utf-8",
+        "content-disposition": `attachment; filename="${out.name}"`,
+      });
+      return res.end(out.markdown);
+    }
     const d = docs.get(did);
     if (!d || d.pid !== pid) {
       for await (const c of req) void c;
@@ -805,7 +1204,17 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       const mine = gapsOf(pid);
       if (seed.gaps) mine.gaps = seed.gaps;
       if (seed.run) mine.run = seed.run;
+      if (seed.rules) mine.rules = seed.rules;
+      if (seed.corpus) mine.corpus = seed.corpus;
+      // A seeded clarification's edits (`edits` beside it, stub-only) say where its text went; the Documents tab counts them.
+      for (const g of mine.gaps) {
+        if (g.clarification?.edits) {
+          mine.edits.set(g.clarification.clr_id, g.clarification.edits);
+          delete g.clarification.edits;
+        }
+      }
     },
+    settleGaps,
     setTiming: (t) => Object.assign(state, t),
     close: () => close(server),
   };
