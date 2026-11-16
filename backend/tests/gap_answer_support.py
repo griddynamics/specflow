@@ -103,11 +103,12 @@ def service_of(world: GapWorld, **overrides: Any) -> tuple[GapService, MemoryBui
     return service, builds, holds, clock
 
 
-async def answer_world(*, gateway: Any = None, **overrides: Any) -> AnswerWorld:
-    """The corpus after one full gap run (8 open gaps with options) and a service over its stores."""
+async def answer_world(*, gateway: Any = None, ai_answers: bool = False, **overrides: Any) -> AnswerWorld:
+    """The corpus after one full gap run (8 open gaps with options) and a service over its stores. AI answers are off
+    unless asked for (with them, the CSV export gap is answered by AI and waits in the next apply batch)."""
 
     world = await loop_world()
-    await run_gap(world.context(), mode="full")
+    await run_gap(world.context(settings=GapSettings(ai_answers=ai_answers)), mode="full")
     service, builds, holds, clock = service_of(world, gateway=gateway, **overrides)
     return AnswerWorld(world, service, builds, holds, clock, gateway)
 

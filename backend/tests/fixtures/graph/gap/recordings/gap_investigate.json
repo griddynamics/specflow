@@ -107,9 +107,9 @@
           "duplicate_of": null,
           "kind": "missing",
           "severity": "minor",
-          "title": "CSV order export has no owner",
-          "question": "Which service provides the CSV export of a customer's orders?",
-          "why": "The export is required but no module owns it.",
+          "title": "CSV order export does not say whose orders it holds",
+          "question": "Which orders does a customer's CSV export contain?",
+          "why": "The export requirement states no acceptance criteria; a builder has to decide what the file holds.",
           "about": [
             "REQ::FR::EXPORT_ORDERS_CSV"
           ],
@@ -123,8 +123,8 @@
           ],
           "options": [
             {
-              "label": "A: The Orders service",
-              "detail": "",
+              "label": "A: The customer's own orders",
+              "detail": "The file holds every order of the signed-in customer and nothing else.",
               "recommended": true,
               "edits": [
                 {
@@ -135,14 +135,19 @@
                     "heading": null
                   },
                   "operation": "insert_after",
-                  "text": "The Orders service provides the CSV export of a customer's orders."
+                  "text": "The CSV export contains the orders of the customer who exports them, and no other customer's orders."
                 }
               ],
-              "basis": []
+              "basis": [
+                {
+                  "fragment_id": "upload:account-spec#account-specification/order-export#145ce11f",
+                  "quote": "Customers can export their orders as CSV."
+                }
+              ]
             },
             {
-              "label": "B: The Account service",
-              "detail": "",
+              "label": "B: Orders of a chosen period",
+              "detail": "The customer picks a date range; a new rule the text does not state.",
               "recommended": false,
               "edits": [
                 {
@@ -153,15 +158,15 @@
                     "heading": null
                   },
                   "operation": "insert_after",
-                  "text": "The Account service provides the CSV export of a customer's orders."
+                  "text": "The CSV export contains the customer's orders placed in a date range the customer chooses."
                 }
               ],
               "basis": []
             }
           ],
           "pointer": null,
-          "ai_answerable": false,
-          "ai_reason": "",
+          "ai_answerable": true,
+          "ai_reason": "\"their orders\" already says whose orders the export holds.",
           "not_spec_reason": null
         }
       }

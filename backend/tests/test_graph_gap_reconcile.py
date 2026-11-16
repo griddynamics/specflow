@@ -8,12 +8,13 @@ from typing import Any
 
 import pytest
 
-from gap_acceptance_support import REUPLOADS, corpus_text
+from gap_acceptance_support import REUPLOADS, RecordedGapGateway, assert_all_recorded, corpus_text
 from gap_port_fakes import MemoryAmendments, MemoryGapRecords
 from graph.core.errors import LLMError
 from graph.gap.corpus import apply_amendments, effective_revision_id
 from graph.gap.models import AmendmentRow
 from graph.gap.reconcile import (
+    AnswerDecision,
     LineageText,
     ReconcileInputs,
     SameMeaningAnswer,
@@ -162,6 +163,34 @@ async def test_partial_adoption_is_a_conflict_the_judge_sees() -> None:
     result = await reconcile(text, judge=judge)
 
     assert result.amendments[0].outcome == "conflict" and judge.seen == ["AMD::1"]
+
+
+async def test_a_partial_adoption_recorded_as_same_is_different_by_its_missing_decision() -> None:
+    """Extra item of session 10: a real model judged an owner who copied half of the answer as ``same`` in two of
+    three runs. The judge lists the answer's decisions first; code reads ``same`` with a missing decision as
+    ``different`` (the recorded answer keeps the model's ``same``)."""
+
+    text = ORDERS.replace(QUESTION, "A customer can cancel a paid order within 30 minutes of payment.")
+    gateway = RecordedGapGateway()
+
+    result = await reconcile(text, judge=gateway_judge(gateway, None, PROJECT, lambda: AT))
+
+    (outcome,) = result.amendments
+    assert (outcome.outcome, outcome.verdict) == ("conflict", "different")
+    assert len(gateway.calls_of("gap_judge")) == 1
+    assert_all_recorded(gateway)
+
+
+def test_a_same_verdict_holds_only_when_every_listed_decision_is_stated() -> None:
+    stated = AnswerDecision(decision="cancel within 30 minutes", in_section="stated")
+    missing = AnswerDecision(decision="full refund", in_section="missing")
+    contradicted = AnswerDecision(decision="full refund", in_section="contradicted")
+
+    assert SameMeaningAnswer(decisions=[stated], verdict="same").decided() == "same"
+    assert SameMeaningAnswer(verdict="same").decided() == "same"
+    assert SameMeaningAnswer(decisions=[stated, missing], verdict="same").decided() == "different"
+    assert SameMeaningAnswer(decisions=[contradicted], verdict="same").decided() == "different"
+    assert SameMeaningAnswer(decisions=[missing], verdict="unrelated").decided() == "unrelated"
 
 
 async def test_an_unrelated_section_orphans_the_answer() -> None:

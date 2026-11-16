@@ -76,8 +76,14 @@ swallowed the error. A file stays empty until the session that adds its prompt r
 `gap_investigate.json` holds one hand-written answer per site of a full run on the corpus (19 sites, one report
 round each), noted `site <site id> round <n> (<detectors> <spec ids>)`. The answers are what the session-06 tests
 expect: the cancel-paid-order open question with three options (A recommended), the review-limit contradiction
-about both rules, the refund store, the Reporting API provider, the vague admin speed, the email assumption, the CSV
-export owner and the review-queue rejection as gaps; two coverage topics as `info` notes; the release-plan rule as
-`not_spec`; the rest `not_a_gap`. A prompt, pack-format or corpus change changes every input hash; re-key the file
-with `tests/gap_investigation_support.py` (`rerecord_investigations`, command in its docstring), which keeps each
-answer by its site and round. Tests that need other answers script them with gateway handlers.
+about both rules, the refund store, the Reporting API provider, the vague admin speed, the email assumption, the
+CSV export's missing acceptance criteria (a `minor` gap whose recommended option, "the customer's own orders", rests on
+the line "Customers can export their orders as CSV.": the AI-answer case of session 11) and the review-queue
+rejection as gaps; two coverage topics as `info` notes; the release-plan rule as `not_spec`; the rest `not_a_gap`. A
+prompt, pack-format or corpus change changes every input hash; re-key the file with
+`tests/gap_investigation_support.py` (`rerecord_investigations`, command in its docstring), which keeps each answer
+by its site and round. Tests that need other answers script them with gateway handlers.
+
+`gap_judge.json` holds reconcile's same-meaning answers (own words `same`, changed rule `different`, and a partial
+adoption the model calls `same` while its decision list marks the refund `missing`, so code reads `different`) and
+the AI-answer second check of the CSV export option (entailed, consistent, 0.92).

@@ -17,6 +17,7 @@ from api.graph_build.corpus import CorpusAnswersRead
 from api.plan.state import NoGraphBuildError
 from db.sources import GraphCorpusRow
 from graph.gap import (
+    AiAnswerList,
     AnswerInput,
     AnswerInvalidError,
     AnswerResult,
@@ -32,6 +33,7 @@ from graph.gap import (
     NoiseRuleRow,
     NoiseSection,
     RaisedGap,
+    RevertResult,
     StaleGapError,
 )
 from graph.gap.models import AmendmentRow
@@ -127,6 +129,14 @@ class FakeService:
     async def remove_noise_rule(self, project_id: str, *args: Any) -> bool:
         self._call("remove_noise_rule", project_id, *args)
         return self.removed
+
+    async def ai_answers(self, project_id: str, **kwargs: Any) -> AiAnswerList:
+        self._call("ai_answers", project_id, **kwargs)
+        return AiAnswerList()
+
+    async def revert_clarification(self, project_id: str, clr_id: str, **kwargs: Any) -> RevertResult:
+        self._call("revert_clarification", project_id, clr_id, **kwargs)
+        return RevertResult(clr_id=clr_id, gap_id="GAP::FOLLOW", follow_up=True, build="queued")
 
 
 class FakeGapRunner:
@@ -397,6 +407,8 @@ WRITE_ROUTES = (
     ("GET", "/gaps/noise_rules", None, 200, "noise_rules"),
     ("POST", "/gaps/noise_rules", {"scope": "section", "value": "Status", "reason": "tracking"}, 201, "add_noise_rule"),
     ("DELETE", f"/gaps/noise_rules/{RULE_ID}", None, 204, "remove_noise_rule"),
+    ("GET", "/gaps/ai_answers", None, 200, "ai_answers"),
+    ("POST", "/gaps/clarifications/CLR::1/revert", {"reason": "wrong"}, 200, "revert_clarification"),
 )
 WRITE_IDS = [call for *_, call in WRITE_ROUTES]
 
@@ -555,8 +567,9 @@ async def test_an_answer_needs_exactly_one_of_option_and_text(harness, path, ans
         ("/gaps/GAP::A/edits_preview", {"option_rank": 1}, "preview_edits"),
         ("/gaps/GAP::A/answer", ANSWER, "answer_gap"),
         ("/gaps/GAP::A/dismiss", {"reason": "not a gap"}, "dismiss_gap"),
+        ("/gaps/clarifications/CLR::1/revert", {"reason": "wrong"}, "revert_clarification"),
     ],
-    ids=["preview", "answer", "dismiss"],
+    ids=["preview", "answer", "dismiss", "revert"],
 )
 @pytest.mark.parametrize(
     "refusal",
@@ -646,6 +659,23 @@ async def test_removing_an_unknown_noise_rule_gets_404(harness):
 
     assert response.status_code == 404 and response.json()["error"]["code"] == "noise_rule_not_found"
     assert malformed.status_code == 422
+
+
+async def test_the_review_list_and_a_revert_name_the_member_and_the_limit(harness):
+    runner, pid = await gap_project(harness)
+
+    listed = await harness.client.get(url(pid, "/gaps/ai_answers?limit=7"), headers=bearer())
+    reverted = await harness.client.post(
+        url(pid, "/gaps/clarifications/CLR::1/revert"), json={"reason": "wrong"}, headers=bearer()
+    )
+    too_many = await harness.client.get(url(pid, "/gaps/ai_answers?limit=500"), headers=bearer())
+
+    assert listed.status_code == 200 and listed.json() == {"answers": []}
+    assert reverted.status_code == 200 and reverted.json()["gap_id"] == "GAP::FOLLOW"
+    assert too_many.status_code == 422
+    [(_, _, list_kwargs), (_, revert_args, revert_kwargs)] = runner.gap_service.calls
+    assert list_kwargs == {"limit": 7}
+    assert revert_args == (str(pid), "CLR::1") and revert_kwargs == {"by": user_id(harness), "reason": "wrong"}
 
 
 async def test_the_noise_rules_route_is_not_read_as_a_gap_id(harness):

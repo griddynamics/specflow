@@ -80,6 +80,7 @@ class StubGapRun:
     (or raises ``fail``). Records every call and the most runs that ever ran at once."""
 
     def __init__(self, *, block: bool = False, fail: Exception | None = None, log: list[str] | None = None) -> None:
+        self.counts: dict[str, Any] = {"gaps_new": 1}
         self.contexts: list[Any] = []
         self.modes: list[str] = []
         self.site_ids: list[tuple[str, ...]] = []
@@ -122,7 +123,7 @@ class StubGapRun:
         if self.fail is not None:
             raise self.fail
         result = GapRunResult(
-            run_id=run_id, mode=mode, build_id=build_id, status="completed", counts={"gaps_new": 1}, noise=NOISE
+            run_id=run_id, mode=mode, build_id=build_id, status="completed", counts=self.counts, noise=NOISE
         )
         await store.finish_run(ctx.project_id, result)
         return result
@@ -178,6 +179,7 @@ def make_gap_runner(
     ensured: list[Any] | None = None,
     builds: Any = None,
     service: Any = None,
+    rules: Any = None,
 ) -> GapRunner:
     """A runner on ``tmp_path`` (build store) and a memory run store, with stub ports, readers and gateway; its
     ``service()`` is ``service`` when given, else the (args, kwargs) the service was built with."""
@@ -193,7 +195,7 @@ def make_gap_runner(
         runs=runs if runs is not None else MemoryGapRunStore(),
         builds=builds if builds is not None else open_file_stores(tmp_path).builds,
         ontology=object(),
-        rules=object(),
+        rules=rules if rules is not None else object(),
         ensure=ensure,
         gateway_factory=StubGateway,
         ports=lambda _transaction: ("records", "amendments"),

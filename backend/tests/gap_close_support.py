@@ -287,7 +287,8 @@ class Extraction:
     """What the simulated build extracts (``apply_build``): ``remove`` drops nodes, ``add`` extracts new ones, ``edges``
     adds relations (fixture format), ``merge`` merges a node into another (the survivor takes its evidence and
     relations), ``keep`` moves a node's evidence to a quoted line ``(lineage, heading, quote)`` of a changed section,
-    ``refused`` replaces the build's dedup refusals (``graph.yaml``'s of the nodes left when None)."""
+    ``refused`` replaces the build's dedup refusals (``graph.yaml``'s of the nodes left when None), ``attributes`` sets
+    attributes of kept nodes (``None`` removes one)."""
 
     remove: Sequence[str] = ()
     add: Sequence[NewNode] = ()
@@ -295,6 +296,7 @@ class Extraction:
     merge: Mapping[str, str] = field(default_factory=dict)
     keep: Mapping[str, tuple[str, str, str]] = field(default_factory=dict)
     refused: Sequence[RefusedPair] | None = None
+    attributes: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -351,6 +353,13 @@ class _Build:
         data["edges"] += [dict(edge) for edge in extraction.edges]
         for old, survivor in extraction.merge.items():
             self.merge(old, survivor)
+        for spec_id, values in extraction.attributes.items():
+            attributes = self.node(spec_id).setdefault("attributes", {})
+            for name, value in values.items():
+                if value is None:
+                    attributes.pop(name, None)
+                else:
+                    attributes[name] = value
         data["build_id"] = self.build_id
         return sorted((moved | set(extraction.keep)) - gone)
 

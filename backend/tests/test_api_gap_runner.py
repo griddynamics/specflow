@@ -26,9 +26,10 @@ from gap_host_support import (
     store_build,
 )
 from graph.build.models import ChangedNode, ChangeReport, DedupRefusal, QuarantinedEdge, Settlement
-from graph.core import ConfigurationError
+from graph.core import ConfigurationError, load_ontology
 from graph.core.reader import GraphNode
 from graph.gap import ApplyResult, GapRunResult, GapSettings, GapStateError, TaskRef
+from graph.gap.rules import load_gap_rules
 from graph.gap.run_store import GapRunRecord, MemoryGapRunStore
 from logger_harness import events, fields
 
@@ -525,6 +526,35 @@ async def test_an_apply_with_nothing_pending_is_logged_as_skipped(tmp_path, capl
     [skipped] = events(caplog, "api.gap.apply_skipped")
     assert fields(skipped)["error_code"] == "gap_wrong_state"
     assert events(caplog, "api.gap.apply_failed") == []
+    await runner.aclose()
+
+
+async def test_a_run_with_ai_answers_schedules_their_apply_after_the_quiet_period(tmp_path):
+    await store_build(tmp_path, "build-1", minutes=0)
+    run = StubGapRun()
+    run.counts = {"gaps_new": 2, "ai_answered": 2}
+    rules = load_gap_rules(ontology=load_ontology())
+    runner = make_gap_runner(
+        tmp_path, run, rules=rules, gap=GapSettings(apply_quiet_seconds=300), service=ApplyService()
+    )
+    before = datetime.now(UTC)
+
+    await runner.start_full(PROJECT)
+    await drained(runner)
+
+    due = runner._projects[PROJECT].apply_at
+    assert due is not None and before + timedelta(seconds=299) <= due <= datetime.now(UTC) + timedelta(seconds=300)
+    await runner.aclose()
+
+
+async def test_a_run_without_ai_answers_schedules_no_apply(tmp_path):
+    await store_build(tmp_path, "build-1", minutes=0)
+    runner = make_gap_runner(tmp_path)
+
+    await runner.start_full(PROJECT)
+    await drained(runner)
+
+    assert runner._projects[PROJECT].apply_at is None
     await runner.aclose()
 
 

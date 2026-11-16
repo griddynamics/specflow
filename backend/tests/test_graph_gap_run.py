@@ -448,7 +448,7 @@ def test_the_prompt_versions_name_the_investigator() -> None:
         investigator=Bare(),
     )
     assert prompt_versions(world_ctx)["gap_investigate"] == INVESTIGATE_PROMPT == "gap.investigate.1"
-    assert prompt_versions(world_ctx)["gap_judge"] == "gap.judge.1"
+    assert prompt_versions(world_ctx)["gap_judge"] == "gap.judge.1+gap.judge.1.ai_answer.1"
     assert SeedInvestigator().prompt_version == SEED_STUB_VERSION
 
 

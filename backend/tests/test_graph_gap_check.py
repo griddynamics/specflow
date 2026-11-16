@@ -430,5 +430,7 @@ def test_hold_back_ranks_new_questions_by_severity_reach_and_score() -> None:
         "route": None,
         "mode": None,
         "reasons": ["info"],
+        "gates": {},
+        "confidence": None,
         "held_back": False,
     }

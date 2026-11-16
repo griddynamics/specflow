@@ -10,7 +10,7 @@ from datetime import timedelta
 
 import pytest
 
-from gap_acceptance_support import Planted, pending
+from gap_acceptance_support import Planted
 from gap_answer_support import (
     MEMBER,
     ORDERS_LINEAGE,
@@ -35,7 +35,7 @@ from graph.gap.answers import marker
 from graph.gap.corpus import clarifications_lineage
 from graph.gap.errors import StaleGapError
 from graph.gap.models import AnswerInput, NewGap
-from graph.gap.prompts import EDITS_PROMPT
+from graph.gap.prompts import EDITS_PROMPT, RELEVANCE_PROMPT
 
 ANSWERS = "ANSWERS"
 REPLACES = "REPLACES"
@@ -300,11 +300,69 @@ async def test_fr_gans_09_answer_changed_before_applied_replace_pending_clarific
     }
 
 
-@pending("11")
-def test_fr_gans_10_ai_answers_listed_review_revert_clarification_mark() -> None:
+ACCOUNT_LINEAGE = "upload:account-spec"
+
+
+async def account_text(rig) -> str:
+    """The account spec's text as the next build reads it (the corpus reader with the stored answers)."""
+
+    return next(item.markdown for item in await effective_corpus(rig.world) if item.lineage_id == ACCOUNT_LINEAGE)
+
+
+async def test_fr_gans_10_ai_answers_listed_review_revert_clarification_mark() -> None:
     """Given an AI answer reverted, then after the build its text is gone from the graph and a follow-up gap
     `FOLLOWS_UP` the old one.
+
+    The CSV export gap is answered by AI in the full run, listed for review, applied by the quiet-period apply and an
+    update build (which fills the requirement's acceptance criteria), then resolved ``ai_answered`` by the close
+    check. A member reverts it: the clarification and its amendment are ``reverted``, one update build is requested,
+    and a follow-up routed ``ask`` opens with the old gap's question and options. The next build reads the account
+    spec without the answer, and the follow-up stays open for a person.
     """
+
+    rig = await answer_world(ai_answers=True)
+    spec = {"sections": [{"section": "S1", "relevance": "spec", "signal": "states behaviour"}]}
+    rig.world.gateway.handle(RELEVANCE_PROMPT, lambda _request: spec)  # the changed "Order export" section
+    (listed,) = (await rig.service.ai_answers(rig.project_id)).answers
+    clr, text = listed.clarification.clr_id, str(listed.clarification.text)
+    old = await rig.service.get_gap(rig.project_id, listed.gap_id)
+    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    assert text in await account_text(rig)
+    built = await apply_build(rig.world, attributes={Planted.OWNERLESS_CSV_EXPORT: {"acceptance_criteria": text}})
+    await update_run(rig.world, built)
+    resolved = await rig.service.get_gap(rig.project_id, listed.gap_id)
+    assert (resolved.status, resolved.resolution) == ("resolved", "ai_answered")
+    (applied,) = (await rig.service.ai_answers(rig.project_id)).answers
+    assert (applied.clarification.status, applied.clarification.applied_build_id) == ("applied", "build-2")
+    assert any(text in fragment.text for fragment in await rig.world.reader.fragments(rig.project_id))
+
+    result = await rig.service.revert_clarification(rig.project_id, clr, by=MEMBER, reason="A person decides this.")
+
+    assert result.follow_up and result.clr_id == clr and len(result.amendments) == 1
+    assert rig.builds.requests[-1] == (rig.project_id, "gap_revert", False) and result.build is not None
+    assert {row.status for row in await rig.world.amendments.for_clarification(rig.project_id, clr)} == {"reverted"}
+    assert text not in await account_text(rig)
+    rebuilt = await apply_build(
+        rig.world, build_id="build-3", attributes={Planted.OWNERLESS_CSV_EXPORT: {"acceptance_criteria": None}}
+    )
+    await update_run(rig.world, rebuilt)
+
+    assert not any(text in fragment.text for fragment in await rig.world.reader.fragments(rig.project_id))
+    follow_up = await rig.service.get_gap(rig.project_id, result.gap_id)
+    assert (follow_up.status, follow_up.route, follow_up.question) == ("open", "ask", old.question)
+    assert [option.label for option in follow_up.options] == [option.label for option in old.options]
+    assert {node.spec_id for node in follow_up.about} == {Planted.OWNERLESS_CSV_EXPORT}
+    assert follow_up.history is not None
+    assert [(item.gap_id, item.reason, item.direction) for item in follow_up.history.follow_ups] == [
+        (listed.gap_id, "reverted", "continues")
+    ]
+    before = await rig.service.get_gap(rig.project_id, listed.gap_id)
+    assert (before.status, before.resolution, before.clarification) == ("resolved", "ai_answered", None)
+    (reverted,) = (await rig.service.ai_answers(rig.project_id)).answers
+    assert (reverted.clarification.status, reverted.follow_up) == ("reverted", result.gap_id)
+    events = await rig.world.records.events(rig.project_id, listed.gap_id)
+    (event,) = [item for item in events if item.event == "reverted"]
+    assert (event.actor, event.clr_id, event.detail["reason"]) == (MEMBER, clr, "A person decides this.")
 
 
 async def test_fr_gans_11_dismiss_gap_require_reason_delete_gap_node() -> None:
