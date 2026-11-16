@@ -68,7 +68,7 @@ The corpus reader stores `changed` through the `Amendments` port and records eve
 Nothing is handed over in memory: the gap run that follows the build reads the amendment statuses in its close
 step and moves the clarifications on and opens the follow-ups ([lifecycle.md](lifecycle.md) "Close check"). The
 judge calls happen inside `reconcile_document` through the gateway role `gap_judge` (prompt
-`gap.judge.1.reconcile.1`, system text `prompts/reconcile.md`), cached in `gap_verdict` by input hash; the host
+`gap.judge.1.reconcile.2`, system text `prompts/reconcile.md`), cached in `gap_verdict` by input hash; the host
 opens the gateway only when a question needs it. When no judge is given (a dry run, an estimate), the "same
 meaning" question is skipped: the outcome is `undecided` and nothing is stored.
 
@@ -90,8 +90,11 @@ as its source said it (the amendment's text taken out, its anchor line back in).
    contained in the section with the same heading path, or anywhere in the document when that heading is
    gone. Then the owner adopted it literally.
 3. **Is the section there but saying something else?** The section exists. The `gap_judge` call compares the
-   answer (and the line it replaced) with the section's text: `same`, `different` or `unrelated`, with a
-   confidence. Same meaning with at least `judge_min_confidence`: adopted by meaning (below it: different).
+   answer (and the line it replaced) with the section's text: first the answer's `decisions` (each rule, limit,
+   number, actor, time, scope and consequence, marked `stated`, `missing` or `contradicted` in the section), then
+   `same`, `different` or `unrelated`, with a confidence. Code holds the verdict to the list: `same` with any
+   decision not `stated` is `different`, so a section that copies part of the answer (a partial adoption) is a
+   conflict. Same meaning with at least `judge_min_confidence`: adopted by meaning (below it: different).
    Different meaning: conflict. Unrelated: go to question 4. The call fails: undecided.
 4. **Is the section gone?** No section matches. The answer has lost its place: orphaned.
 

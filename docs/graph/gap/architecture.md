@@ -42,7 +42,7 @@ graph/gap/
   prompts.py           prompt revisions and gateway prompt names (gap.<name>.<revision>)
   services/
     vector_similarity.py  cosine of vectors no store holds (question embeddings of the duplicate check)
-  prompts/             relevance, investigate, judge, edits and reconcile prompts <name>.md (revisions in prompts.py)
+  prompts/             relevance, investigate, judge, ai_answer, edits and reconcile prompts <name>.md (revisions in prompts.py)
   ddl/                 gap_schema.cypher: the graph_gap_* constraints and indexes
   queries/             one canonical .cypher file per gap query
 ```

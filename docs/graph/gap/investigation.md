@@ -232,6 +232,16 @@ AI may answer only when `entailed` and `consistent` are true and `confidence` is
 `routing.gates.min_confidence` (0.85). Otherwise the route is `ask`. The judge result is stored with the
 verdict.
 
+Two prompts share the role and the answer: the pointer check (`gap.judge.<revision>`, system text
+`prompts/judge.md`: the question, the witness quotes, the pointer line as basis and answer) and the check of an AI
+answer (`gap.judge.<revision>.ai_answer.<revision>`, `prompts/ai_answer.md`: the question, the witness quotes, the
+recommended option's basis quotes and each of its edits as a data block named by placement and operation; never
+the option's label, detail or the investigator's `ai_reason`). The AI-answer prompt has the judge list every
+statement the edits make (rule, limit, number, actor, time, scope, consequence) and find each in the basis lines; an
+edit that adds one or picks one reading of several is not entailed. Who is asked, and how code decides on the
+answer, is in [answers.md](answers.md) "Gates". A failed AI-answer check routes the gap `ask` (it is not deferred:
+the gap stands without an AI answer); a failed pointer check defers the site.
+
 ## Pointer answers
 
 When the investigator finds a stated line that already answers the gap (the build missed it, or the coding
@@ -266,11 +276,14 @@ every site again.
 
 ## Prompts
 
-Prompts live in `graph/gap/prompts/<name>.md` (`relevance`, `investigate`, `judge`, `edits`, `reconcile`), each
-with a revision in `graph/gap/prompts.py`; the gateway records a call under `gap.<name>.<revision>` (the repair call
-under `gap.investigate.<revision>.repair`, reconcile's same-meaning call, role `gap_judge`, under
-`gap.judge.<revision>.reconcile.<revision>`; it is not a run's call, so not part of the run's prompt versions). The run's prompt versions (`gap_relevance`, `gap_investigate` named by
-the investigator's `prompt_version`, `gap_judge`) are stored on the `gap_run` row. The prompt version is part of every site's input hash, so a prompt change
+Prompts live in `graph/gap/prompts/<name>.md` (`relevance`, `investigate`, `judge`, `edits`, `reconcile`,
+`ai_answer`), each with a revision in `graph/gap/prompts.py`; the gateway records a call under
+`gap.<name>.<revision>` (the repair call under `gap.investigate.<revision>.repair`; the second check of an AI answer,
+role `gap_judge`, under `gap.judge.<revision>.ai_answer.<revision>`; reconcile's same-meaning call, role `gap_judge`,
+under `gap.judge.<revision>.reconcile.<revision>`, which is not a run's call, so not part of the run's prompt
+versions). The run's prompt versions (`gap_relevance`, `gap_investigate` named by the investigator's
+`prompt_version`, `gap_judge` naming both judge prompts of a run, `gap.judge.1+gap.judge.1.ai_answer.1`) are stored
+on the `gap_run` row. The prompt version is part of every site's input hash, so a prompt change
 re-investigates on the next `full` run, not on `update` runs. The gateway roles are `gap_relevance`,
 `gap_investigate`, `gap_judge` and `gap_edits` (the last turns a person's own answer into edits,
 [answers.md](answers.md) "Own answers become edits").

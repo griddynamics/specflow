@@ -49,7 +49,8 @@ route(gap):
   if severity == info:                      -> gap_note (no route)
   if severity in (blocker, major):          -> ask
   if kind not in routing.ai_kinds:          -> ask
-  if origin == development:                 -> ask      # a person sees what an agent asked
+  if origin != analysis:                    -> ask      # a person sees what an agent or a person asked
+  if the gap is already in the graph:       -> ask      # only a run's new gap is answered by AI
   if any gate fails:                        -> ask
   if run.ai_answers >= limits.ai_answers_per_run
      or run.ai_touched_nodes / spec_nodes >= limits.ai_answers_max_node_share:
@@ -73,14 +74,29 @@ decided ("Pointer answers" below).
 | Confident | The second check agrees with confidence of at least `min_confidence` (0.85) | The second check's answer |
 
 Every gate result is stored on the gap's `gap_event` "routed" entry, so a person can see why AI answered or
-why it did not. Until the gates are built the entry holds the route, its mode (`pointer`), the reasons
-(`severity`, `kind`, `ai_answers_off`, `ai_branch_off`, `pointer_confirmed`) and whether the gap is held back.
+why it did not: the route, its mode (`pointer` or `ai`), the reasons, `gates` (each gate's result) with the second
+check's `confidence`, and whether the gap is held back. The reasons a gap went to a person: `severity`, `kind`,
+`origin`, `existing`, `ai_answers_off`, `gate_entailed`, `gate_local`, `gate_consistent`, `gate_confident`,
+`ai_judge_failed` (the second check's call failed; the gap is asked, never deferred), `ai_limit` (the valve),
+`gates_off` (no gates were looked at), `amendments_unavailable` (the run had no `Amendments` port to write the
+answer); an AI answer has `gates_hold`, a pointer `pointer_confirmed`.
+
+How the shipped route step decides (`steps/route.py`):
+
+| Rule | Detail |
+|---|---|
+| Who gets a second check | The check step asks the second check of an AI answer (prompt `gap.judge.1.ai_answer.1`) only for a new gap (no gap in the graph has its signature, and the site joined none) of severity `minor` and a kind of `routing.ai_kinds`, while `GapSettings.ai_answers` is on, whose recommended option has a basis quote and whose local gate holds; every other gap is routed without a model call |
+| Entailed | The recommended option kept at least one basis quote through the checks (a quote not found in its shown, active fragment is dropped) and the second check answered `entailed` |
+| Local | `ABOUT` and `IMPACTS` together at most `local_max_nodes`; their spine owners (the roots of the ontology's spine paths) at most `local_max_areas`; a node with no owner adds no area |
+| Order under the valve | By the site's rank score, then site id; pointers are not counted |
+| Share | Checked before each AI answer: the nodes the run's earlier AI answers touch, over the project's spec nodes (the snapshot's), must be below `ai_answers_max_node_share`. The answer that crosses the share is the last; a run's first AI answer is never stopped by the share |
 
 ### The valve
 
 Per run, AI answers at most `ai_answers_per_run` gaps (20), and the nodes those answers touch (`ABOUT` and
 `IMPACTS`) are at most `ai_answers_max_node_share` (5 %) of the project's spec nodes. Gaps over the valve are
-routed `ask`, with the reason "AI answer limit reached" in their event. The valve protects a project from a
+routed `ask`, with the reason "AI answer limit reached" (`ai_limit`) in their event; they count as new questions
+for the inbox limit. The valve protects a project from a
 run that would rewrite much of its spec without anyone looking.
 
 ## The question card
@@ -307,25 +323,44 @@ A gap routed `ai` is answered by the gap run that created it, with the recommend
 2. Its edits become amendments or a clarifications document section, as for a person's answer.
 3. The gap moves to `answered`, then `applying` with the next batch; AI answers never use `immediate`.
 
+As built: the record step writes the gap `answered` with route `ai` and its clarification (status `pending`,
+placement by the edits as in "Placement rules", `ANSWERS`, `PLACED_IN` each source document it amends) in one
+transaction; the amendment rows (`pending`) go first through `Amendments` and are deleted again when the graph write
+fails. The gap's option rows are stored as for any gap, so a revert hands them to a person. The events are
+`created`, `routed` (gates and confidence) and `answered` (actor `ai`, mode `ai`). A run that recorded AI answers
+(run metric `ai_answered`) makes the host schedule the apply at the end of the quiet period, as an answer of a person
+does; from there the apply, the update build and the close check are the same (resolution `ai_answered`). A gap that
+a run answered by AI and that is still `answered` is not part of the input hash of the sites on its nodes (as an open
+gap of origin `analysis` is not), so the next run on an unchanged graph investigates nothing again.
+
 ### Review list
 
 The inbox has a tab "Answered by AI" listing every clarification with mode `ai` or `pointer`: the gap's
 title, the answer, the basis quotes, the confidence and the build that applied it. Nothing waits for a
-review; the list exists so a person can check and undo.
+review; the list exists so a person can check and undo. `GapService.ai_answers(project_id, *, limit=50)` reads it
+(`AiAnswerList`: per clarification the gap id, title, question and status, the `ClarificationView`, and for a
+reverted one the follow-up gap its revert opened), newest first, every status included.
 
 ### Revert
 
-`GapService.revert_clarification(project_id, clr_id, reason)` withdraws an answer, from a person's or AI's:
+`GapService.revert_clarification(project_id, clr_id, *, by, reason)` withdraws an answer, from a person's or AI's,
+and returns a `RevertResult` (the clarification, the gap a person answers next, whether it is a follow-up, the
+amendments reverted, the build request's answer):
 
 | Step | Effect |
 |---|---|
-| Clarification | Status `reverted`; the event log records who and why |
-| Amendments | Status `reverted`; the clarifications document drops its section at the next rebuild |
-| Build | An update build is requested (quiet period applies); it removes the text and the nodes it made |
-| Gap | If `resolved`: a follow-up gap opens (`FOLLOWS_UP` reason `reverted`) with the same question and options, route `ask`; the old gap stays `resolved` as history. If still `answered` or `applying`: the gap returns to `open` |
+| Which answers | An `applied` or `absorbed` clarification of a `resolved` gap, or the `pending` one of an `answered` or `applying` gap; any other is `GapStateError`; an unknown id `GapNotFoundError`; the reason is 1 to 500 characters (`AnswerInvalidError`, `reason`) |
+| Clarification | Status `reverted` (with `reverted_at`, `reverted_by`); the event `reverted` records who, why, the mode and the follow-up |
+| Amendments | Status `reverted` (all of its rows); the clarifications document drops its section at the next rebuild |
+| Build | An update build is requested at once (reason `gap_revert`, never `immediate`: a running build makes it wait) when text the build reads leaves the corpus: an `active` or `undecided` amendment, or a document section of an applied (or sent) answer. A pending answer's text never reached the corpus: no build |
+| Gap | If `resolved`: a follow-up gap opens (`FOLLOWS_UP` reason `reverted`) with the old gap's kind, severity, origin, title, question, why, detector, seed signatures, `ABOUT`, `IMPACTS`, `CITES` and option rows, route `ask`; the old gap stays `resolved` as history. If still `answered` or `applying`: the gap returns to `open` with route `ask` and keeps its options |
+| Order of writes | Amendment statuses first, then the graph in one transaction (set back when it fails), then the follow-up's option rows, the events and the build request |
 
 A reverted AI answer always goes to a person: its follow-up gap has route `ask`, and the same signature
-never routes `ai` again unless the person sends it back.
+never routes `ai` again unless the person sends it back. A follow-up's signature is new (`follow_up_signature` of the
+old gap and `reverted`), and a later run's report with the old signature re-checks the existing gap instead of making
+one; only a run's new gap is ever routed `ai`. A revert follow-up waits for a person: it never becomes obsolete
+(the text the revert removes may still be in the graph until its build).
 
 ## Pointer answers
 

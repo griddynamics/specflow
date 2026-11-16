@@ -88,10 +88,10 @@ Investigation ([investigation.md](investigation.md)): the step `investigate` bui
 `ctx.investigator`; the host passes `LoopInvestigator(gateway)` (exported), the structured loop over the run's
 gateway. The step's artifact keeps, per site, the `InvestigationResult` and the spec ids and fragment ids the pack and
 the reads showed (the check step's "No new ids"). `check` validates every report, repairs it once when only its
-options failed, finds duplicates and runs the second check of a pointer; `route` applies [answers.md](answers.md)
-"Severity" and "Routing" (AI route: pointers only until the gates and the valve are built) and holds back the new
-`ask` gaps beyond `limits.new_questions_per_run`; `record` writes the gaps, their option rows and pointer
-clarifications. The step `close` is the close check ([lifecycle.md](lifecycle.md) "Close check"; `steps/close.py`):
+options failed, finds duplicates and runs the second check of a pointer and of an AI-answer candidate; `route`
+applies [answers.md](answers.md) "Severity", "Routing", "Gates" and "The valve" and holds back the new `ask` gaps
+beyond `limits.new_questions_per_run`; `record` writes the gaps, their option rows, pointer clarifications and AI
+answers (a `pending` clarification of mode `ai` and its `pending` amendment rows, through `ctx.amendments`). The step `close` is the close check ([lifecycle.md](lifecycle.md) "Close check"; `steps/close.py`):
 it settles `applying` gaps, takes out obsolete open gaps and deletes stale `CITES`, and the follow-up gaps it opens
 get a site in the same run (`SiteRun.follow_ups`). Its counts are the run metric `close` (`resolved`, `follow_ups`,
 `waiting`, `obsolete`, `cites_removed`). An `info` report is a `gap_note` (site
@@ -123,6 +123,8 @@ site joined to an existing gap, re-checks that gap: an open gap gets the relatio
 | `GapView` | What reads return: the gap's properties (`held_back` true while the gap is a new question its run held back from the inbox's default view), `about` and `impacts` (id, type, name), `witness` (fragment id, quote, lines), `options` (from `gap_option`), `clarification` (current one), `history` (events, follow-up chain), `reach` (stories and tasks found by trace and the plan, computed at read time) |
 | `AnswerInput` | `gap_id`, `option_rank` or `own_text` (exactly one), `placement` (`amend`, `document`; default from the option's edits), `edits` (optional: edits confirmed from `preview_edits`), `answered_by`, `updated_at` (the gap's as the caller read it; None skips the stale check) |
 | `AnswerResult`, `ApplyResult`, `EditPreview` (with `SectionPreview`), `RaisedGap` | What `answer_gap`, `apply_now`, `preview_edits` and `raise_gap` return ("Gap service" below) |
+| `AiAnswerList`, `AiAnswer` | The review list: per AI or pointer clarification, `gap_id`, `title`, `question`, `gap_status`, `clarification` (`ClarificationView`) and `follow_up` (the gap a revert opened) |
+| `RevertResult` | What `revert_clarification` returns: `clr_id`, `gap_id` (the gap a person answers next: the follow-up, or the gap itself back `open`), `follow_up`, `amendments` (reverted), `build` (the build request's answer, None when no text left the corpus) |
 | `NewGap` | `kind`, `question`, `about` (spec ids), `quotes` (fragment id and quote, optional), `severity` (optional), `origin` (`person` or `development`), `blocking`, `story_id` and `claim_token` (development), `created_by` |
 | `ReconcileResult` | `amendments`: per amendment an `AmendmentResult` (`amendment_id`, `clr_id`, outcome `applied`, `reanchored`, `absorbed`, `conflict`, `orphaned` or `undecided`, the new anchor when re-anchored or suspended on the owner's line, the deciding line, similarity, judge verdict and confidence); `text` (the effective text the build must read); `changed` (rows to store); `applied` (rows applied to `text`); `follow_ups` (clarifications whose amendments became `suspended` or `orphaned`) |
 | Rows of the ports | `OptionRow`, `AmendmentRow`, `RunRow`, `SeedRow`, `SiteRow`, `VerdictRow`, `SectionKey`, `RelevanceRow`, `NoiseRuleRow`, `SuppressionRow`, `NoteRow`, `EventRow`: one model per table of [data-model.md](data-model.md) "Relational store" (without `project_id`, which every port call takes); `TaskRef` (`task_id`, `story_id`, `status`) and `HoldResult` (`held`, `in_progress`) of the plan ports |
@@ -141,7 +143,8 @@ serves the inbox, the routes and the MCP tools. `plan` gives the story filter an
 | `preview_edits(project_id, gap_id, *, option_rank=None, own_text=None, placement=None)` | An `EditPreview`: the checked edits an answer would make and each target section before and after (`SectionPreview`); for own text, one `gap_edits` call drafts the edits (`drafted`), and when it fails or its edits do not check the text goes to the clarifications document as written (`fallback` names why); nothing is stored | `GapNotFoundError`, `GapStateError`, `AnswerInvalidError` (as for `answer_gap`) |
 | `answer_gap(project_id, answer: AnswerInput)` | An `AnswerResult`: the clarification id, the pending one it replaced, placement, amendment ids, the apply time (now plus the quiet period) and `immediate` (a blocking development gap, applied at once) | `GapNotFoundError`, `GapStateError` (gap not `open` or `answered`, or `resolved` without an applied clarification), `AnswerInvalidError` ([answers.md](answers.md) "Answering"), `StaleGapError` (its `updated_at` differs from `AnswerInput.updated_at`: the person must reload) |
 | `dismiss_gap(project_id, gap_id, *, reason, by)` | Nothing | `GapNotFoundError`, `GapStateError` (not `open`) |
-| `revert_clarification(project_id, clr_id, *, by, reason)` | The follow-up gap id | `GapNotFoundError`, `GapStateError` (not `applied` or `absorbed`) |
+| `ai_answers(project_id, *, limit=50)` | The review list "Answered by AI" (`AiAnswerList`): every clarification of mode `ai` or `pointer`, every status, newest first | `AnswerInvalidError` (`limit` outside 1 to 200) |
+| `revert_clarification(project_id, clr_id, *, by, reason)` | A `RevertResult` ([answers.md](answers.md) "Revert") | `GapNotFoundError` (`clr_id`), `GapStateError` (not `applied` or `absorbed` on a resolved gap, nor `pending` on an `answered` or `applying` one), `AnswerInvalidError` (`reason` outside 1 to 500 characters), `ConfigurationError` (`gap_builds_missing`) when a build is needed and there is no `builds` |
 | `raise_gap(project_id, new: NewGap)` | A `RaisedGap` (gap id, `created` false when the same question about the same ids is open); the host then queues a `site` run on it ([answers.md](answers.md) "Raising a gap by hand"); the hold of a blocking development gap comes with the development gaps | `AnswerInvalidError` (`question`, `about` unknown ids or count, `quotes` not found), plan errors of the hold (`TaskStateError`) pass through |
 | `apply_now(project_id, *, by, immediate=False)` | An `ApplyResult`: the gaps of the pending clarifications, the clarifications and amendments applied, and the build request's answer ([answers.md](answers.md) "Applying answers") | `GapStateError` (`status` `nothing_pending`) when nothing is pending; `ConfigurationError` (`gap_builds_missing`) without `builds` |
 | `open_counts(project_id, spec_ids)` | Open gaps per spec id | Satisfies the plan's `FindingsReads` |
@@ -335,7 +338,9 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
   ports, settings, plan view, the build runner as `BuildRequests` (`use_builds`) and one `Gateway` for `gap_edits`
   (closed with the runner).
 - **Answers.** `schedule_apply(project_id, at)` keeps the project's apply time (a later answer moves it); when it
-  passes, `apply_now(by="gap-apply")` runs (nothing pending is logged as skipped). The time lives in the process.
+  passes, `apply_now(by="gap-apply")` runs (nothing pending is logged as skipped). The time lives in the process. A
+  gap run whose result counts `ai_answered` schedules the apply at the end of the quiet period too (AI answers are
+  never applied at once).
 
 The host also:
 - adds the relational tables of [data-model.md](data-model.md) "Relational store" in one migration;
@@ -366,7 +371,8 @@ Under `/projects/{pid}`, in the style of the existing project routers. Project m
 | `POST /projects/{pid}/gaps/{gap_id}/edits_preview` | `preview_edits` |
 | `POST /projects/{pid}/gaps/{gap_id}/answer` | `answer_gap` |
 | `POST /projects/{pid}/gaps/{gap_id}/dismiss` | `dismiss_gap` |
-| `POST /projects/{pid}/gaps/clarifications/{clr_id}/revert` | `revert_clarification` |
+| `GET /projects/{pid}/gaps/ai_answers` | `ai_answers` (query `limit`, 1 to 200); registered before `GET .../gaps/{gap_id}` |
+| `POST /projects/{pid}/gaps/clarifications/{clr_id}/revert` | `revert_clarification` (body `reason`), the member as `by`; `RevertResult` |
 | `POST /projects/{pid}/gaps/apply` | `apply_now` |
 | `POST /projects/{pid}/gap/runs` | Start a full run (202, run status) |
 | `GET /projects/{pid}/gap/runs/latest` | Run status and the last `GapRunResult` |

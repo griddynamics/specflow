@@ -22,7 +22,7 @@ answer does not hold, a follow-up gap opens and points back to it, so the histor
 | (none) | `open` | Coding agent, `add_finding` over MCP | A gap with origin `development` ("Development gaps" below) |
 | `open` | `answered` | Person, `answer_gap` | A `Clarification` (mode `option` or `own`) with status `pending`; amendments are stored |
 | `open` | `resolved` | Person or AI, pointer answer | The spec already answers it: a `pointer` clarification is `GROUNDED_IN` the answering fragment at once; resolution `pointer` |
-| `answered` | `open` | Person, withdraws the answer before it is applied | The clarification becomes `superseded` without a successor; its amendments are deleted |
+| `answered`, `applying` | `open` | Person, `revert_clarification` of the pending answer | The clarification becomes `reverted`, its amendments are reverted, the gap's route becomes `ask` (an AI answer goes to a person); an update build is requested when its amendments were already active |
 | `answered` | `answered` | Person, answers again before it is applied | The new pending clarification replaces the old one, which is deleted with its amendments (answers.md "Changing an answer") |
 | `resolved` | `resolved` | Person, answers again after it is applied | A new pending clarification `REPLACES` the applied one, which becomes `superseded` when the answers are applied |
 | `answered` | `applying` | Apply (quiet period ends, `apply_now`, or an immediate development answer) | Amendments become active, the clarifications document holds the answer from the next corpus read, `BuildRequests.request_update_build` is called |
@@ -31,7 +31,7 @@ answer does not hold, a follow-up gap opens and points back to it, so the histor
 | `resolved` | `resolved` | Reconcile, conflict or orphaned (read by the next run's close step) | The clarification becomes `conflict` or `orphaned`; a follow-up gap opens with fixed options ([reconcile.md](reconcile.md)) |
 | `resolved` | `resolved` | Reconcile, applied again or re-anchored, and the detector fires again | Resolution `follow_up`; a follow-up gap with reason `not_fixed` opens (once) |
 | `open` | `resolved` | Person, an option without edits on a reconcile follow-up ("Keep the upload", "Drop it") | Resolves at once without a build: a clarification `applied` with placement `none` (mode `pointer` grounded in the owner's line for "Keep the upload", resolution `pointer`; else mode `option`, resolution `answered`) |
-| `resolved` | `resolved` | Person, `revert_clarification` | The clarification becomes `reverted`, its amendments are reverted, an update build is requested, and a follow-up gap with reason `reverted` opens for a person |
+| `resolved` | `resolved` | Person, `revert_clarification` | The clarification becomes `reverted`, its amendments are reverted, an update build is requested when its text was in the corpus, and a follow-up gap with reason `reverted` (route `ask`, the old question, nodes, quotes and options) opens for a person |
 | `open` | dismissed | Person, `dismiss_gap` with a reason | The node and its relations are deleted; the signature goes to `gap_suppression` |
 | `open` | obsolete | Gap run | Every node the gap was `ABOUT` left the graph, or its detector no longer fires on unchanged witness ids, before anyone answered; the node is deleted |
 
@@ -47,7 +47,8 @@ A gap with status `answered` or `applying` is never dismissed; the answer is wit
 | `applied` | `absorbed` | Reconcile: the owner's new revision holds the text or the same meaning |
 | `applied` | `conflict` | Reconcile: the owner's new revision says something else (decision GD3) |
 | `applied` | `orphaned` | Reconcile: the anchor and its section are gone |
-| `applied` | `reverted` | `revert_clarification` |
+| `applied`, `absorbed` | `reverted` | `revert_clarification` (the gap stays `resolved`; a follow-up opens) |
+| `pending` | `reverted` | `revert_clarification` while the gap is `answered` or `applying` (the gap returns to `open`) |
 | `conflict` | `superseded` | The follow-up gap is answered: "keep the upload" at once (its clarification `REPLACES` this one); "restore the earlier answer" (a new amendment on the owner's line) or a new answer when it is applied. The suspended amendment becomes `reverted` |
 | `conflict`, `orphaned` | (kept) | The follow-up gap is dismissed: the clarification stays as history, its suspended or orphaned amendment becomes `reverted` |
 | `orphaned` | `superseded` | The follow-up gap is answered: "drop it" at once, "move it to the clarifications document" or another placement when applied; the orphaned amendment becomes `reverted` |
@@ -98,6 +99,7 @@ How the shipped close step (`steps/close.py`) decides:
 | Reconciled answers | Every `resolved` gap whose current clarification is `applied` with placement `amend`: the step reads its amendments and compares their ids, statuses, anchor hashes and revisions with the clarification's `reconcile_state` (written when it was resolved or last looked at); only a changed state is acted on. A `suspended` amendment: clarification `conflict` and the conflict follow-up; an `orphaned` one: clarification `orphaned` and the orphaned follow-up; all `retired`: clarification `absorbed`, `GROUNDED_IN` the fragment holding the answer text, else the fragments under its heading; otherwise (applied again, re-anchored, undecided) the re-check of an applying gap: grounded again, and a `not_fixed` follow-up when the detector fires again and the gap has none yet ([reconcile.md](reconcile.md) "Outcomes") |
 | Reconciled before applied | An `applying` gap whose clarification's amendments an upload in the same build made `suspended`, `orphaned` or all `retired`: the same outcome as for an applied answer, and the gap resolves (resolution `follow_up` with the conflict or orphaned follow-up, or `answered` when absorbed) |
 | Reconcile follow-ups | Have no detector and are never obsolete; get the fixed options of reconcile.md, not a site; are not counted in `follow_ups` (counts `close.reconciled`) |
+| Revert follow-ups | Keep the old gap's detector and seed signatures (a seed of the old gap joins their site, so a run re-checks them) but are never obsolete: they wait for a person (the reverted text may be in the graph until the revert's build) |
 
 ## Rekeys and merges
 

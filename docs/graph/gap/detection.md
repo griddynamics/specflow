@@ -234,7 +234,7 @@ The step `sites` groups corroborated seeds into sites, the entry points of inves
 | Field | Value |
 |---|---|
 | `site_id` | `SITE::` and the first 12 hex digits of SHA-256 of the sorted seed signatures |
-| `input_hash` | SHA-256 of: the seeds, the meaning revisions and evidence hashes of every `ABOUT` and `IMPACTS` candidate and their trace neighbours to depth 2, the gaps on them (id and status) other than open gaps of origin `analysis`, the rules version and the prompt versions. An open analysis gap is left out because it is what an earlier run recorded from the same seeds, which the hash already holds: a run after a run on an unchanged graph finds every verdict cached |
+| `input_hash` | SHA-256 of: the seeds, the meaning revisions and evidence hashes of every `ABOUT` and `IMPACTS` candidate and their trace neighbours to depth 2, the gaps on them (id and status) other than gaps of origin `analysis` in the state their run left them (`open`, or `answered` by the run's AI route), the rules version and the prompt versions. Such a gap is left out because it is what an earlier run recorded from the same seeds, which the hash already holds: a run after a run on an unchanged graph finds every verdict cached |
 | `rank_score` | strength weight (strong 2, weak 1) x `routing.severity_prior` of the kind x reach |
 | Reach | 1 + the number of nodes reached by trace from the candidates along impact roles to depth 2 + 2 x the number of plan tasks implementing them (from `PlanView`, 0 without a plan) |
 
@@ -280,7 +280,8 @@ Every run records in `gap_run.counts` and returns in `GapRunResult.counts`:
 | `sites` | Sites formed, investigated, skipped (cache), deferred |
 | `outcomes` | Sites per outcome: `gap`, `not_a_gap`, `not_spec`, `duplicate` |
 | `gaps_new`, `gaps_updated` | Gaps written or re-checked, per kind and severity |
-| `routes` | New gaps per route: `ask`, `ai` |
+| `routes` | New gaps per route: `ask`, `ai` (pointers and AI answers) |
+| `pointers`, `ai_answered`, `held_back`, `rejected` | New gaps resolved by a pointer, new gaps answered by AI (the host schedules their apply), new questions held back from the inbox, reports the checks rejected |
 | `notes` | Info notes written |
 | `model_calls`, `tokens` | Per gateway role |
 | `noise_nodes` | Nodes listed in the noise report |
