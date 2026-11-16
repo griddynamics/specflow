@@ -3,7 +3,7 @@
 The graph library (`graph`) builds a typed knowledge graph of a software specification in a graph database (Neo4j, ArcadeDB or PostgreSQL) from a
 project's documents and keeps it current. Shared core `graph.core`, build submodule `graph.build`,
 plan submodule `graph.plan` (its own specification in [plan/](plan/INDEX.md)), gap submodule `graph.gap`
-(its first slice, agent findings, in [gap.md](gap.md); gap analysis comes later).
+(its own specification in [gap/](gap/INDEX.md); the first-slice findings spec [gap.md](gap.md) is replaced by it).
 
 # overview.md: purpose, scope, goals, non-goals, actors, boundaries, constraints, key terms
 - [overview.md](overview.md)
@@ -32,7 +32,7 @@ plan submodule `graph.plan` (its own specification in [plan/](plan/INDEX.md)), g
 # trace.md: directed trace over the spec graph: impact roles, the walk, the library call, the plan overlay, the MCP tool
 - [trace.md](trace.md)
 
-# gap.md: graph.gap, first slice: agent findings: ontology file, nodes, limits, dedupe, rebuild, blocking link, library API
+# gap.md: graph.gap, first slice: agent findings (deprecated, replaced by gap/)
 - [gap.md](gap.md)
 
 # requirements.md: requirement units FR-CORE, FR-ONT, FR-READ, FR-LLM, FR-BLD, FR-INF, FR-VER, FR-GAP, NFR
@@ -44,3 +44,6 @@ plan submodule `graph.plan` (its own specification in [plan/](plan/INDEX.md)), g
 # plan/: graph.plan, implementation plans for coding agents on the spec graph
 - [plan/INDEX.md](plan/INDEX.md)
 
+
+# gap/: graph.gap, gap detection, investigation, answers and reconcile on the spec graph
+- [gap/INDEX.md](gap/INDEX.md)

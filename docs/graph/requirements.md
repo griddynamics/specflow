@@ -167,6 +167,8 @@ Verification is by test unless the row says otherwise. Details live in the linke
 
 ## Findings ([gap.md](gap.md))
 
+These units describe the first slice and are replaced by the units of [gap/requirements.md](gap/requirements.md).
+
 | ID | Requirement | Acceptance |
 |---|---|---|
 | FR-GAP-01 | `Findings.add` shall write an open `Finding` with origin `agent`, an `ABOUT` edge per `about` node and a `REFERS_TO` edge per reference, one `ExternalRef` per (project, type, value). | Given two findings citing the same commit, then each is `ABOUT` its nodes and both refer to one `ExternalRef`. |
