@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import asyncio
 
-from gap_acceptance_support import pending
+from agent_contracts import AGENT_ROUTES
+from gap_acceptance_support import Planted, pending
+from gap_agent_support import ALPHA, API_STORY, QUESTION, serve_gaps
 from gap_host_support import StubGapRun, drained, make_gap_runner, store_build
+from specflow_api_agent_support import agent_env
 from specflow_api_support import bearer
 
 
@@ -50,9 +53,37 @@ def test_fr_gweb_02_web_routes_serve_members_only() -> None:
     """Route tests: each route answers for a member and refuses a non-member."""
 
 
-@pending("07")
-def test_fr_gweb_03_mcp_tool_list_gaps_list_open_gaps() -> None:
-    """Given an open gap on a story, then `list_gaps` returns it and the story brief lists it."""
+async def test_fr_gweb_03_mcp_tool_list_gaps_list_open_gaps(monkeypatch, valid_env) -> None:
+    """Given an open gap on a story, then `list_gaps` returns it and the story brief lists it.
+
+    The open gap about ``REQ::FR::PLACE_ORDER`` (the corpus's stated question) and the story ``STORY::A::API`` whose
+    task implements it: the ``list_gaps`` agent route returns it for the story and for the spec id, with severity and
+    question; the story brief route lists it with its severity; ``get_node`` lists it on the node.
+    """
+
+    async with serve_gaps(monkeypatch, agent_env(valid_env)) as gaps:
+        gap_id = gaps.question_gap()
+        by_story = (await gaps.get(AGENT_ROUTES["list_gaps"], project_id=ALPHA, story_id=API_STORY)).json()
+        by_node = (await gaps.get(AGENT_ROUTES["list_gaps"], project_id=ALPHA, spec_ids=[Planted.PLACE_ORDER])).json()
+        brief = (await gaps.get(AGENT_ROUTES["get_story_brief"], project_id=ALPHA, story_id=API_STORY)).json()
+        node = (
+            await gaps.get(
+                AGENT_ROUTES["get_node"], project_id=ALPHA, spec_id=Planted.PLACE_ORDER, include=["findings"]
+            )
+        ).json()
+
+    for page in (by_story, by_node):
+        item = next(item for item in page["items"] if item["gap_id"] == gap_id)
+        assert (item["kind"], item["severity"], item["status"], item["question"]) == (
+            "open_question",
+            "major",
+            "open",
+            QUESTION,
+        )
+        assert Planted.PLACE_ORDER in item["about"] and item["answer"] is None
+    severities = {item["finding_id"]: item["severity"] for item in brief["brief"]["findings"]}
+    assert severities[gap_id] == "major"
+    assert {item["finding_id"]: item["severity"] for item in node["findings"]}[gap_id] == "major"
 
 
 @pending("12", "end-to-end; read part: 07")

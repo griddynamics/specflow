@@ -543,7 +543,9 @@ async def test_the_lazy_reads_hold_the_findings_store_and_no_gateway_without_the
     async with serve_agent(monkeypatch, agent_env(valid_env), lazy=True) as rig:
         reads = await agent_reads(rig.runtime)
 
-    assert reads.findings is not None and reads.plan._findings is reads.findings
+    assert reads.findings is not None and reads.open_findings is not None
+    assert reads.plan._findings is reads.open_findings  # gaps and first-slice findings (FR-GPLN-02)
+    assert reads.open_findings._first is reads.findings
     assert reads.reader._gateway is None
 
 

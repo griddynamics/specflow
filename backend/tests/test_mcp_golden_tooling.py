@@ -1,6 +1,7 @@
 """The contract gate of the MCP tooling tools (MCP-TOOLING D29): ``list_areas``, ``list_stories``, ``preview_story``,
 ``claim_story``, ``release_story``, ``get_story_brief``, ``trace``, ``get_node``, ``search_spec``, ``similar``,
-``get_evidence``, ``path``, ``expand_brief``, ``add_finding``, ``report_task`` and ``complete_story``, frozen as
+``get_evidence``, ``path``, ``expand_brief``, ``list_gaps``, ``add_finding``, ``report_task`` and ``complete_story``,
+and the open gaps the briefs show (scenario ``gaps``), frozen as
 golden files NEXT TO the split's (whose files stay as the split froze them, ``tools/list`` aside).
 
 Read the way a client reads them, over JSON-RPC and HTTP against the in-process MCP app, whose API is the real app over
@@ -114,6 +115,22 @@ CLAIMED_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     "list_stories_open_with_a_holder": ("list_stories", {"project_id": ALPHA}),
     "preview_story_held": ("preview_story", {"project_id": ALPHA, "story_id": CHECKOUT}),
 }
+# Over the shop gap corpus after a gap run (``gaps``): the open gaps of list_gaps and in the briefs (FR-GWEB-03).
+GAP_STORY = "STORY::A::API"
+GAP_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
+    "list_gaps_story": ("list_gaps", {"project_id": ALPHA, "story_id": GAP_STORY}),
+    "list_gaps_spec_ids_first_page": (
+        "list_gaps",
+        {"project_id": ALPHA, "spec_ids": ["REQ::FR::PLACE_ORDER", "QST::CANCEL_PAID_ORDER"], "limit": 1},
+    ),
+    "get_story_brief_with_a_gap": ("get_story_brief", {"project_id": ALPHA, "story_id": GAP_STORY}),
+    "get_task_brief_with_a_gap": ("get_task_brief", {"project_id": ALPHA, "task_id": "TASK::A::API_LOGIC"}),
+    "preview_story_with_a_gap": ("preview_story", {"project_id": ALPHA, "story_id": GAP_STORY}),
+    "get_node_with_a_gap": (
+        "get_node",
+        {"project_id": ALPHA, "spec_id": "REQ::FR::PLACE_ORDER", "include": ["findings"]},
+    ),
+}
 NO_PLAN_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     "get_node_without_a_plan": ("get_node", {"project_id": ALPHA, "spec_id": "MOD::STRIPE"}),
 }
@@ -178,7 +195,12 @@ async def test_every_tool_answers_the_golden_success_results(tooling_double):
 
     results: dict[str, Any] = {}
     names: dict[str, str] = {}
-    for scenario, successes in (("ok", SUCCESSES), ("no_plan", NO_PLAN_SUCCESSES), ("claimed", CLAIMED_SUCCESSES)):
+    for scenario, successes in (
+        ("ok", SUCCESSES),
+        ("no_plan", NO_PLAN_SUCCESSES),
+        ("claimed", CLAIMED_SUCCESSES),
+        ("gaps", GAP_SUCCESSES),
+    ):
         async with tooling_double.serve(scenario) as client:
             for key, (name, arguments) in successes.items():
                 results[key], names[key] = await tool(client, name, **arguments), name

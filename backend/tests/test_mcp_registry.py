@@ -92,13 +92,14 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
         "get_evidence",
         "path",
         "expand_brief",
+        "list_gaps",
         "add_finding",
         "report_task",
         "complete_story",
     ]
     for tool in TOOLS:
         assert ("project_id" in tool.arguments.model_fields) == tool.project_scoped, tool.name
-    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 21)]
+    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 22)]
 
 
 async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_which_owns_the_membership(valid_env):
@@ -130,6 +131,7 @@ async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_w
         "get_evidence": {"spec_id": "FEAT::X"},
         "path": {"from": "FEAT::X", "to": "FEAT::Y"},
         "expand_brief": {"story_id": "STORY::X"},
+        "list_gaps": {"story_id": "STORY::X"},
         "preview_story": {"story_id": "STORY::X"},
         "claim_story": {"story_id": "STORY::X"},
         "release_story": {"story_id": "STORY::X", "claim_token": "t"},
@@ -195,6 +197,7 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         "list_areas",
         "list_feature_tasks",
         "list_features",
+        "list_gaps",
         "list_projects",
         "list_stories",
         "list_tasks",
@@ -228,6 +231,7 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         ("get_evidence", descriptions.EVIDENCE_DESCRIPTION),
         ("path", descriptions.PATH_TOOL_DESCRIPTION),
         ("expand_brief", descriptions.EXPAND_DESCRIPTION),
+        ("list_gaps", descriptions.LIST_GAPS_DESCRIPTION),
         ("list_areas", descriptions.AREAS_DESCRIPTION),
         ("list_stories", descriptions.STORIES_DESCRIPTION),
         ("preview_story", descriptions.PREVIEW_DESCRIPTION),
@@ -276,6 +280,7 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
         "list_feature_tasks",
         "get_task_path",
         "list_stories",
+        "list_gaps",
     }
     for name, schema in paged.items():
         properties = schema["properties"]

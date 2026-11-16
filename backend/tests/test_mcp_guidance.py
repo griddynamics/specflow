@@ -271,6 +271,7 @@ async def test_install_registers_the_tools_and_the_prompt() -> None:
         "list_areas",
         "list_feature_tasks",
         "list_features",
+        "list_gaps",
         "list_projects",
         "list_stories",
         "list_tasks",

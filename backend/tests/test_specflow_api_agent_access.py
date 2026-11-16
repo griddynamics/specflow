@@ -34,6 +34,7 @@ from agent_contracts import (
     ListAreasArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
+    ListGapsArgs,
     ListProjectsArgs,
     ListStoriesArgs,
     ListTasksArgs,
@@ -48,6 +49,7 @@ from agent_contracts import (
 from api.deps import agent_principal, agent_project, current_agent_user, current_user
 from api.routers import (
     agent,
+    agent_gaps,
     agent_spec,
     agent_stories,
     agent_writes,
@@ -83,6 +85,7 @@ TOOL_ARGUMENTS: dict[str, Any] = {
     "get_evidence": GetEvidenceArgs,
     "path": PathArgs,
     "expand_brief": ExpandBriefArgs,
+    "list_gaps": ListGapsArgs,
     "list_areas": ListAreasArgs,
     "list_stories": ListStoriesArgs,
     "preview_story": PreviewStoryArgs,
@@ -122,6 +125,7 @@ ROUTER_MODULES = (
     agent_spec,
     agent_stories,
     agent_writes,
+    agent_gaps,
     projects,
     documents,
     graph_build,
