@@ -35,7 +35,7 @@ class MemoryProbe:
         return tuple(self.records.notes[project_id])
 
     async def events(self, project_id: str) -> Sequence[EventRow]:
-        return tuple(self.records.events[project_id])
+        return tuple(self.records.event_rows[project_id])
 
     async def add_noise_rule(self, project_id: str, row: NoiseRuleRow) -> None:
         self.records.noise[project_id].append(row)

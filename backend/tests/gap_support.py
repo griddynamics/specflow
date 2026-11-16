@@ -46,6 +46,8 @@ class MemoryGapExecutor:
         self.specs: dict[str, dict[str, Any]] = {}
         self.nodes: dict[tuple[str, str], dict[str, Any]] = {}  # (label, uuid) -> properties
         self.edges: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {}  # (type, key) -> ends
+        self.edge_props: dict[tuple[str, str], dict[str, Any]] = {}  # (type, key) -> properties
+        self.fragments: dict[str, str] = {}  # fragment id -> document id
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.fail_on: str | None = None
 
@@ -56,12 +58,29 @@ class MemoryGapExecutor:
         spec_id: str,
         label: str = "FunctionalRequirement",
         aliases: Sequence[str] = (),
+        *,
+        name: str | None = None,
+        documents: Sequence[str] = (),
     ) -> None:
         self.specs[spec_id] = {
             "uuid": f"uuid-{spec_id}",
             "label": label,
             "aliases": list(aliases),
+            "name": spec_id if name is None else name,
+            "documents": list(documents),
         }
+
+    def fragment(self, fragment_id: str, document_id: str) -> None:
+        """An active fragment a ``CITES`` relation may end at."""
+
+        self.fragments[fragment_id] = document_id
+
+    def rekey_spec(self, old: str, new: str) -> None:
+        """A build rekeys ``old`` to ``new``: the node (and its relations) stays, the old id becomes an alias."""
+
+        node = self.specs.pop(old)
+        node["aliases"] = [*node["aliases"], old]
+        self.specs[new] = node
 
     def delete_spec(self, spec_id: str) -> None:
         """A build deletes the node: its relationships go with it."""
@@ -89,6 +108,9 @@ class MemoryGapExecutor:
     def edge_keys(self, relation: str) -> set[str]:
         return {key for (kind, key) in self.edges if kind == relation}
 
+    def gaps(self) -> dict[str, dict[str, Any]]:
+        return {props["gap_id"]: props for (label, _), props in self.nodes.items() if label == "Gap"}
+
     def called(self, name: str) -> int:
         return sum(1 for called, _ in self.calls if called == name)
 
@@ -103,11 +125,11 @@ class MemoryGapExecutor:
     @asynccontextmanager
     async def tx(self, project_id: str) -> AsyncIterator[_Transaction]:
         assert project_id == self.project_id
-        saved = (copy.deepcopy(self.nodes), copy.deepcopy(self.edges))
+        saved = (copy.deepcopy(self.nodes), copy.deepcopy(self.edges), copy.deepcopy(self.edge_props))
         try:
             yield _Transaction(self)
         except BaseException:
-            self.nodes, self.edges = saved
+            self.nodes, self.edges, self.edge_props = saved
             raise
 
     # Statements
@@ -168,13 +190,82 @@ class MemoryGapExecutor:
         if source not in self.nodes or (target not in self.nodes and not self._spec_has(target)):
             return []
         self.edges[(relation, params["key"])] = (source, target)
+        self.edge_props[(relation, params["key"])] = {**params["props"], "edge_key": params["key"]}
         return [{"conflict": False}]
 
     def _delete_edge(self, relation: str, params: Mapping[str, Any]) -> list[dict[str, Any]]:
+        self.edge_props.pop((relation, params["key"]), None)
         return [{"deleted": int(self.edges.pop((relation, params["key"]), None) is not None)}]
 
     def _spec_has(self, target: tuple[str, str]) -> bool:
+        if target[0] == "Fragment":
+            return target[1] in self.fragments
         return any(node["uuid"] == target[1] and node["label"] == target[0] for node in self.specs.values())
+
+    def _spec_by_uuid(self, uuid: str) -> tuple[str, dict[str, Any]] | None:
+        return next(((spec_id, node) for spec_id, node in self.specs.items() if node["uuid"] == uuid), None)
+
+    def _q_gap_read_gaps(self, params: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """``gap_read_gaps``: gaps of the statuses (and ids) with their relations, as the Cypher and SQL return them."""
+
+        rows = []
+        for (label, uuid), props in sorted(self.nodes.items(), key=lambda item: item[1].get("gap_id", "")):
+            if label != "Gap" or props["status"] not in params["statuses"]:
+                continue
+            if params["gap_ids"] and props["gap_id"] not in params["gap_ids"]:
+                continue
+            nodes, cites, follow_ups = [], [], []
+            for (relation, key), (source, target) in self.edges.items():
+                edge = self.edge_props.get((relation, key), {})
+                if source == (label, uuid) and relation in {"ABOUT", "IMPACTS"}:
+                    found = self._spec_by_uuid(target[1])
+                    if found is not None:
+                        spec_id, node = found
+                        nodes.append(
+                            {
+                                "relation": relation,
+                                "spec_id": spec_id,
+                                "uuid": node["uuid"],
+                                "labels": ["SpecNode", node["label"]],
+                                "name": node["name"],
+                                "documents": list(node["documents"]),
+                                "edge_key": key,
+                                "added_by_run": edge.get("added_by_run"),
+                            }
+                        )
+                elif source == (label, uuid) and relation == "CITES" and target[1] in self.fragments:
+                    cites.append(
+                        {
+                            "fragment_id": target[1],
+                            "document_id": self.fragments[target[1]],
+                            **{name: edge.get(name) for name in ("quote", "line_start", "line_end", "quote_hash")},
+                            "edge_key": key,
+                        }
+                    )
+                elif relation == "FOLLOWS_UP" and (label, uuid) in (source, target):
+                    other = target if source == (label, uuid) else source
+                    follow_ups.append(
+                        {
+                            "gap_id": self.nodes[other]["gap_id"],
+                            "reason": edge.get("reason"),
+                            "continues": source == (label, uuid),
+                        }
+                    )
+            clarifications = [
+                copy.deepcopy(self.nodes[source])
+                for (relation, _), (source, target) in self.edges.items()
+                if relation == "ANSWERS" and target == (label, uuid)
+            ]
+            rows.append(
+                {
+                    "gap": copy.deepcopy(props),
+                    "nodes": nodes,
+                    "cites": cites,
+                    "follow_ups": follow_ups,
+                    "clarifications": clarifications,
+                }
+            )
+        return rows
 
     def _q_gap_read_findings(self, params: Mapping[str, Any]) -> list[dict[str, Any]]:
         rows = []

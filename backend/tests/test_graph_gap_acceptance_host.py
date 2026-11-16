@@ -6,14 +6,43 @@ One test per requirement unit; its docstring starts with the unit's acceptance t
 
 from __future__ import annotations
 
+import asyncio
+
 from gap_acceptance_support import pending
+from gap_host_support import StubGapRun, drained, make_gap_runner, store_build
+from specflow_api_support import bearer
 
 
-@pending("05")
-def test_fr_gweb_01_host_run_gap_runs_process_at_time() -> None:
+async def test_fr_gweb_01_host_run_gap_runs_process_at_time(harness, tmp_path) -> None:
     """Given two builds in quick succession, then gap runs do not overlap for the project and the status route
     reports each.
+
+    The host's gap runner (stub ``run_gap``) on the API runtime: the second build returns while the first build's gap
+    run still runs; the status route shows the first running with the second waiting, then the second completed.
     """
+
+    created = await harness.client.post("/api/v1/projects", json={"name": "Shop"}, headers=bearer())
+    project_id = created.json()["id"]
+    await store_build(tmp_path, "build-1", minutes=0, project_id=project_id)
+    await store_build(tmp_path, "build-2", minutes=5, project_id=project_id)
+    run = StubGapRun(block=True)
+    runner = harness.runtime.gaps = make_gap_runner(tmp_path, run)
+    status_url = f"/api/v1/projects/{project_id}/gap/runs/latest"
+
+    await runner.after_build(project_id, "build-1")
+    await asyncio.wait_for(run.started.wait(), 5)
+    await runner.after_build(project_id, "build-2")
+    first = (await harness.client.get(status_url, headers=bearer())).json()
+    run.release.set()
+    await drained(runner, project_id)
+    second = (await harness.client.get(status_url, headers=bearer())).json()
+    await runner.aclose()
+
+    assert run.max_active == 1
+    assert [context.build.build_id for context in run.contexts] == ["build-1", "build-2"]
+    assert (first["status"], first["build_id"], first["queued"]) == ("running", "build-1", 1)
+    assert (second["status"], second["build_id"], second["queued"]) == ("completed", "build-2", 0)
+    assert second["result"]["build_id"] == "build-2"
 
 
 @pending("12", "read routes: 05; answer routes: 08")

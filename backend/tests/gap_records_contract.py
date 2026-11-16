@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Final, Protocol
+from typing import Any, Final, Protocol
 
 import pytest
 
@@ -238,6 +238,14 @@ async def runs_start_and_finish_in_their_project(backend: Backend) -> None:
     await records.start_run(b, run().model_copy(update={"mode": "full"}))
     assert [row.mode for row in await probe.runs(b)] == ["full"]
 
+    # FR-GRUN-08: a run whose every investigation failed finishes degraded; a running status is not a finish.
+    await records.finish_run(b, "run-1", {}, {}, status="degraded")
+    assert [row.status for row in await probe.runs(b)] == ["degraded"]
+    running: Any = "running"
+    with pytest.raises(ConformanceError, match="gap_run_status_invalid"):
+        await records.finish_run(b, "run-1", {}, {}, status=running)
+    assert [row.status for row in await probe.runs(b)] == ["degraded"]
+
 
 async def seeds_and_sites_belong_to_their_run(backend: Backend) -> None:
     records, probe, a, b = backend.records, backend.probe, backend.a, backend.b
@@ -286,6 +294,21 @@ async def notes_take_the_run_and_events_are_logged(backend: Backend) -> None:
     assert sorted(await probe.events(a), key=lambda row: row.at) == events
     assert tuple(await probe.notes(b)) == ()
     assert tuple(await probe.events(b)) == ()
+
+
+async def events_are_read_per_gap_in_time_order(backend: Backend) -> None:
+    """``events`` (GapView history) returns one gap's events of the project, oldest first."""
+
+    records, a, b = backend.records, backend.a, backend.b
+    gap, other = "GAP::A1B2C3D4E5F6", "GAP::0000000000AA"
+    late = EventRow(gap_id=gap, at=LATER, actor="ann", event="answered", detail={"clr_id": "CLR::1"})
+    early = EventRow(gap_id=gap, at=NOW, actor="gap-run", event="created", detail={"run_id": "run-1"})
+    await records.log(a, [late, EventRow(gap_id=other, at=NOW, actor="gap-run", event="created"), early])
+    await records.log(b, [EventRow(gap_id=gap, at=NOW, actor="gap-run", event="created")])
+
+    assert tuple(await records.events(a, gap)) == (early, late)
+    assert [row.actor for row in await records.events(b, gap)] == ["gap-run"]
+    assert tuple(await records.events(a, "GAP::FFFFFFFFFFFF")) == ()
 
 
 # Caches: verdicts, section relevance
@@ -421,6 +444,7 @@ CASES: Final[tuple[Case, ...]] = (
     runs_start_and_finish_in_their_project,
     seeds_and_sites_belong_to_their_run,
     notes_take_the_run_and_events_are_logged,
+    events_are_read_per_gap_in_time_order,
     verdicts_are_cached_per_project,
     relevance_is_read_by_section_key,
     noise_rules_are_listed_per_project,

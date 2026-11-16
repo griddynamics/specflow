@@ -9,11 +9,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from gap_acceptance_support import Planted, assert_all_recorded, pending
-from gap_detection_support import PROJECT, DetectionSetup, corpus_reader, fragment_of, run_detection
+from gap_acceptance_support import Planted, assert_all_recorded
+from gap_detection_support import PROJECT, DetectionSetup, MiniGraph, corpus_reader, fragment_of, run_detection
 from gap_port_fakes import MemoryGapRecords, MemoryPlanView
+from graph.gap import run_gap
 from graph.gap.models import SuppressionRow, TaskRef
 from graph.gap.steps.detect import RULES, facts_of, witness_holds
+from test_graph_gap_run import mini_world
 
 AT = datetime(2026, 11, 1, tzinfo=UTC)
 
@@ -178,11 +180,20 @@ async def test_fr_gdet_08_seeds_sharing_about_node_owner_merge_into() -> None:
     assert order.index(site.site_id) < order.index(provider.site_id)
 
 
-@pending(
-    "05", "steps.sites merges same-question seeds into one site (test_graph_gap_sites); the record step writes the Gap"
-)
-def test_fr_gdet_09_two_openquestion_nodes_asking_question_two_documents() -> None:
+async def test_fr_gdet_09_two_openquestion_nodes_asking_question_two_documents() -> None:
     """Given the same question in two documents, then one `Gap` has `ABOUT` to both question nodes."""
+
+    graph = MiniGraph()
+    graph.section("Orders", "Can a customer cancel a paid order?")
+    graph.node("QST::CANCEL_A", "OpenQuestion", "Cancel?", quote="Can a customer cancel a paid order?")
+    graph.section("Payments", "Can a customer cancel a paid order ?", document="payments.md")
+    graph.node("QST::CANCEL_B", "OpenQuestion", "Cancel?", quote="Can a customer cancel a paid order ?")
+    world = await mini_world(graph)
+
+    await run_gap(world.context(), mode="full")
+
+    (gap_id,) = world.gap_nodes()
+    assert world.about(gap_id) == {"QST::CANCEL_A", "QST::CANCEL_B"}
 
 
 async def test_fr_gdet_10_failing_detector_stop_run_reported_run_metrics() -> None:

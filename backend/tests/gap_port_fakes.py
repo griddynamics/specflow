@@ -34,7 +34,7 @@ from graph.gap.models import (
     TaskRef,
     VerdictRow,
 )
-from graph.gap.names import AmendmentStatus
+from graph.gap.names import AmendmentStatus, FinishedRunStatus
 from graph.gap.ports import SiteReads
 
 
@@ -60,7 +60,7 @@ class MemoryGapRecords:
         self.noise: dict[str, list[NoiseRuleRow]] = defaultdict(list)
         self.suppressions: dict[str, dict[str, SuppressionRow]] = defaultdict(dict)
         self.notes: dict[str, list[NoteRow]] = defaultdict(list)
-        self.events: dict[str, list[EventRow]] = defaultdict(list)
+        self.event_rows: dict[str, list[EventRow]] = defaultdict(list)
 
     async def options(self, project_id: str, gap_id: str) -> Sequence[OptionRow]:
         return self.option_rows[project_id].get(gap_id, ())
@@ -82,12 +82,16 @@ class MemoryGapRecords:
         run_id: str,
         counts: Mapping[str, Any],
         cost: Mapping[str, Any],
+        *,
+        status: FinishedRunStatus = "completed",
     ) -> None:
+        if status not in get_args(FinishedRunStatus):
+            raise ConformanceError("gap_run_status_invalid", status=status)
         run = self.runs[project_id].get(run_id)
         if run is None:
             raise ConformanceError("gap_run_unknown", run_id=run_id)
         self.runs[project_id][run_id] = run.model_copy(
-            update={"status": "completed", "finished_at": datetime.now(UTC), "counts": counts, "cost": cost}
+            update={"status": status, "finished_at": datetime.now(UTC), "counts": counts, "cost": cost}
         )
 
     async def put_seeds(self, project_id: str, run_id: str, seeds: Sequence[SeedRow]) -> None:
@@ -127,7 +131,11 @@ class MemoryGapRecords:
         self.notes[project_id].extend(note.model_copy(update={"run_id": run_id}) for note in notes)
 
     async def log(self, project_id: str, events: Sequence[EventRow]) -> None:
-        self.events[project_id].extend(events)
+        self.event_rows[project_id].extend(events)
+
+    async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]:
+        found = (row for row in self.event_rows[project_id] if row.gap_id == gap_id)
+        return tuple(sorted(found, key=lambda row: row.at))
 
 
 class MemoryAmendments:

@@ -195,7 +195,12 @@ async def test_a_seed_with_an_existing_gaps_signature_joins_its_site() -> None:
     site = next(site for site in outcome.sites if "REQ::FR::EXPORT" in site.about)
     assert site.gap_id == "GAP::1"
     other = next(site for site in first.sites if "REQ::FR::EXPORT" in site.about)
-    assert site.input_hash != other.input_hash
+    # FR-GRUN-03: an open analysis gap is what the same seeds produced; the site's input hash stays the same.
+    assert site.input_hash == other.input_hash
+    for status, origin in (("answered", "analysis"), ("open", "person")):
+        hashed = await sites(graph, existing=[ExistingGap("GAP::1", seed.signature, status, seed.about, origin)])
+        changed = next(site for site in hashed.sites if "REQ::FR::EXPORT" in site.about)
+        assert changed.input_hash != other.input_hash, (status, origin)
 
 
 async def test_a_cached_verdict_skips_the_site_and_limits_defer_the_rest() -> None:
