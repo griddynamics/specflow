@@ -266,9 +266,10 @@ every site again.
 
 ## Prompts
 
-Prompts live in `graph/gap/prompts/<name>.md` (`relevance`, `investigate`, `judge`, `edits`), each with a
-revision in `graph/gap/prompts.py`; the gateway records a call under `gap.<name>.<revision>` (the repair call
-under `gap.investigate.<revision>.repair`). The run's prompt versions (`gap_relevance`, `gap_investigate` named by
+Prompts live in `graph/gap/prompts/<name>.md` (`relevance`, `investigate`, `judge`, `edits`, `reconcile`), each
+with a revision in `graph/gap/prompts.py`; the gateway records a call under `gap.<name>.<revision>` (the repair call
+under `gap.investigate.<revision>.repair`, reconcile's same-meaning call, role `gap_judge`, under
+`gap.judge.<revision>.reconcile.<revision>`; it is not a run's call, so not part of the run's prompt versions). The run's prompt versions (`gap_relevance`, `gap_investigate` named by
 the investigator's `prompt_version`, `gap_judge`) are stored on the `gap_run` row. The prompt version is part of every site's input hash, so a prompt change
 re-investigates on the next `full` run, not on `update` runs. The gateway roles are `gap_relevance`,
 `gap_investigate`, `gap_judge` and `gap_edits` (the last turns a person's own answer into edits,

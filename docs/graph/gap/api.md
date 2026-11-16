@@ -112,7 +112,7 @@ site joined to an existing gap, re-checks that gap: an open gap gets the relatio
 | Model | Fields |
 |---|---|
 | `GapContext` | `project_id`, `executor` (core store executor), `reader` (`GraphReader`), `gateway` (core `Gateway`), `ontology`, `rules` (`GapRules`), `records` (`GapRecords`), `amendments` (`Amendments`), `investigator` (`Investigator`), `changes: tuple[GapChangeReport, ...]`, `build: BuildFacts` (the dedup refusals and cycle cuts of the build the run follows), `plan: PlanView \| None`, `settings: GapSettings`, `store` (run artifact store, for resume), `run_id: str \| None`, `on_progress` (optional callback of step name, done, total) |
-| `GapSettings` | `enabled` (default `True`), `rules_path` (`None`: shipped rules), `investigator` (`"loop"` or `"agents"`, default `"loop"`), `auto_run_after_build` (default `True`), `ai_answers` (default `True`), `limits` (optional overrides of the rules' `limits`, by name), `apply_quiet_seconds` (overrides the rules' value), `ignore_cache` (default `False`: a `full` run reuses cached verdicts). `gap_settings_from_env` maps the `GAP_*` variables of [architecture.md](architecture.md) "Settings"; `effective_limits` applies the overrides to the rules' limits |
+| `GapSettings` | `enabled` (default `True`), `rules_path` (`None`: shipped rules), `investigator` (`"loop"` or `"agents"`, default `"loop"`), `auto_run_after_build` (default `True`), `ai_answers` (default `True`), `limits` (optional overrides of the rules' `limits`, by name), `apply_quiet_seconds` (overrides the rules' value), `ignore_cache` (default `False`: a `full` run reuses cached verdicts), `reconcile` (`ReconcileSettings`: `anchor_similarity` 0.7, `section_similarity` 0.6, `judge_min_confidence` 0.7, [reconcile.md](reconcile.md)). `gap_settings_from_env` maps the `GAP_*` variables of [architecture.md](architecture.md) "Settings"; `effective_limits` applies the overrides to the rules' limits |
 | `GapChangeReport` | The gap-side copy of one build change report: `build_id`, `added`, `removed`, `merged` (old id to new id), `rekeyed` (old id to new id), `changed_meaning`, `changed_links`, `changed_evidence` (spec id tuples), `fragments_changed` (fragment ids by lineage), `documents` (lineage to revision id). The host converts the build's report; `graph.gap` never imports `graph.build` |
 | `BuildFacts` | `build_id`, `refused_pairs` (`RefusedPair`: `first_spec_id`, `second_spec_id`, `label`, `guard`: the build result's dedup refusals) and `cut_edges` (`CutEdge`: `relation`, `source_spec_id`, `target_spec_id`, `fragment_ids`: the build result's quarantined `cycle_broken` edges). The host converts them from the build result; CT-VALUE and IN-CYCLE read them ([detection.md](detection.md) "Detector catalogue") |
 | `GapRunResult` | `run_id`, `mode`, `build_id`, `status` (`completed`, `degraded` when every investigation failed, `failed`), `counts` (the run metrics of [detection.md](detection.md) "Run metrics": seeds by detector, sites investigated, cached, deferred, gaps new, follow-ups, AI answered, resolved, obsolete, notes), `cost` (calls and tokens per gateway role), `noise` (`NoiseReport`), `deferred_sites`, `held_tasks`, `warnings` |
@@ -124,7 +124,7 @@ site joined to an existing gap, re-checks that gap: an open gap gets the relatio
 | `AnswerInput` | `gap_id`, `option_rank` or `own_text` (exactly one), `placement` (`amend`, `document`; default from the option's edits), `edits` (optional: edits confirmed from `preview_edits`), `answered_by`, `updated_at` (the gap's as the caller read it; None skips the stale check) |
 | `AnswerResult`, `ApplyResult`, `EditPreview` (with `SectionPreview`), `RaisedGap` | What `answer_gap`, `apply_now`, `preview_edits` and `raise_gap` return ("Gap service" below) |
 | `NewGap` | `kind`, `question`, `about` (spec ids), `quotes` (fragment id and quote, optional), `severity` (optional), `origin` (`person` or `development`), `blocking`, `story_id` and `claim_token` (development), `created_by` |
-| `ReconcileResult` | Per amendment: `amendment_id`, outcome (`applied`, `reanchored`, `absorbed`, `conflict`, `orphaned`), the new anchor when re-anchored; and the effective text the build must read |
+| `ReconcileResult` | `amendments`: per amendment an `AmendmentResult` (`amendment_id`, `clr_id`, outcome `applied`, `reanchored`, `absorbed`, `conflict`, `orphaned` or `undecided`, the new anchor when re-anchored or suspended on the owner's line, the deciding line, similarity, judge verdict and confidence); `text` (the effective text the build must read); `changed` (rows to store); `applied` (rows applied to `text`); `follow_ups` (clarifications whose amendments became `suspended` or `orphaned`) |
 | Rows of the ports | `OptionRow`, `AmendmentRow`, `RunRow`, `SeedRow`, `SiteRow`, `VerdictRow`, `SectionKey`, `RelevanceRow`, `NoiseRuleRow`, `SuppressionRow`, `NoteRow`, `EventRow`: one model per table of [data-model.md](data-model.md) "Relational store" (without `project_id`, which every port call takes); `TaskRef` (`task_id`, `story_id`, `status`) and `HoldResult` (`held`, `in_progress`) of the plan ports |
 | Investigation | `SitePack`, `SiteBudget`, `InvestigationResult`, `GapReport` (the report, with `ReportOption`, `Edit`, `EditTarget`, `WitnessRef`, `Quote`), `ReadResult` of the read menu `SiteReads` ([investigation.md](investigation.md)) |
 
@@ -162,22 +162,35 @@ dismissal keeps a suppression of the signature that existed before it.
 ## Reconcile
 
 ```python
+# graph.gap.reconcile
 async def reconcile_document(
     project_id: str,
-    lineage: str,
-    revision_text: str,
+    revision: LineageText,                 # lineage, source revision id, text
     amendments: Sequence[AmendmentRow],
     *,
-    gateway: Gateway,
-    rules: GapRules,
+    previous_text: str | None = None,      # the text the last build read (active fragments joined)
+    judge: Judge | None = None,            # None: the same-meaning question is skipped (undecided)
+    settings: ReconcileSettings | None = None,
+    now: datetime | None = None,
 ) -> ReconcileResult
+
+async def reconcile_corpus(
+    project_id: str, revisions: Sequence[LineageText], inputs: ReconcileInputs, *, dry_run: bool = False
+) -> CorpusReconcile                       # rows to apply by lineage, every outcome
+
+def gateway_judge(gateway, records: GapRecords | None, project_id: str, now) -> Judge
 ```
 
-Called by the host's corpus reader when a new revision of a document with active amendments arrives,
-before the build reads it ([reconcile.md](reconcile.md)). It decides every amendment's outcome, returns the
-effective text, and leaves the writes to the caller, which stores the outcomes through `Amendments` and
-then lets the next gap run update the clarifications and open follow-ups. Its only model call is the
-same-meaning judge (role `gap_judge`), cached by input hash.
+Called through the host's corpus reader when a new revision of a document with active amendments arrives,
+before the build reads it ([reconcile.md](reconcile.md)). `reconcile_document` decides every amendment's outcome
+and returns the effective text and the rows to store; `reconcile_corpus` does that for every lineage with `active`
+or `undecided` amendments (`ReconcileInputs`: `amendments`, `records`, `judge`, `previous_text(lineage)`,
+`gap_ids()` (clarification id to gap id, for the events), `settings`, `now`), stores the changed rows through
+`Amendments.put` and the `reconciled` events through `GapRecords.log` (not in a dry run), and orphans the rows of a
+lineage that left the snapshot. The next gap run's close step reads the statuses, moves the clarifications on and
+opens the follow-ups. Its only model call is the same-meaning judge (`gateway_judge`: role `gap_judge`, prompt
+`RECONCILE_PROMPT`, `SameMeaningAnswer` of `verdict` `same`/`different`/`unrelated`, `confidence`, `reason`), cached
+in `gap_verdict` by input hash.
 
 ## Errors
 
@@ -223,7 +236,7 @@ class Amendments(Protocol):
     async def put(self, project_id: str, rows: Sequence[AmendmentRow]) -> None: ...
     async def set_status(self, project_id: str, amendment_ids: Sequence[str], status: str, *, revision_id: str | None = None) -> None: ...
     async def delete(self, project_id: str, amendment_ids: Sequence[str]) -> None: ...
-    async def pending_lineages(self, project_id: str) -> Sequence[str]: ...
+    async def pending_lineages(self, project_id: str) -> Sequence[str]: ...  # lineages with active or undecided rows
 
 class Investigator(Protocol):
     """Reads around one site and returns a report (investigation.md)."""
@@ -328,14 +341,17 @@ The host also:
 - adds the relational tables of [data-model.md](data-model.md) "Relational store" in one migration;
 - changes the corpus reader (`PostgresCorpusSource(session_factory, answers=...)`, `api/graph_build/corpus.py`) to
   apply answers when the gap module is on. `answers` is the gap runner (`CorpusAnswers.corpus_answers(project_id)` ->
-  `CorpusAnswersRead`: the `active` amendments by lineage through `Amendments`, and the clarifications of the
+  `CorpusAnswersRead`: the amendments to apply by lineage through `Amendments`, and the clarifications of the
   clarifications document read from the graph by `graph.gap.corpus.document_clarifications`); the build runner wires
-  it when its gap hooks implement `CorpusAnswers`. `with_answers` applies each lineage's active amendments
+  it when its gap hooks implement `CorpusAnswers`. The snapshot passes its revisions
+  (`corpus_answers(project_id, revisions, dry_run=...)`): the gap runner reconciles them first
+  (`graph.gap.reconcile.reconcile_corpus`, with a `gap_judge` gateway opened only when a question needs it, none in a
+  dry run, and the graph's active fragments as the previous text); without revisions (the export) the stored
+  `active` and `undecided` rows are applied as they are. `with_answers` applies each lineage's active amendments
   (`graph.gap.corpus.apply_amendments`), sets the effective revision id (`effective_revision_id`) and adds the
   generated clarifications document ([answers.md](answers.md) "Clarifications document"); an amendment whose anchor
-  line is missing is left out and logged as `api.graph_build.amendment_unanchored` (ids only). Calling
-  `reconcile_document` when a lineage's newest revision differs from the amendments' `last_revision_id` comes with
-  reconcile;
+  line is missing is left out and logged as `api.graph_build.amendment_unanchored` (ids only);
+  `effective_document(rows, lineage, answers, project_id)` is the export of one lineage;
 - stores each build's change report with the build (the plan prerequisite, [lifecycle.md](lifecycle.md)).
 
 ## Web routes
@@ -358,7 +374,7 @@ Under `/projects/{pid}`, in the style of the existing project routers. Project m
 | `GET /projects/{pid}/gaps/noise_rules` | `noise_rules` |
 | `POST /projects/{pid}/gaps/noise_rules` | `add_noise_rule` |
 | `DELETE /projects/{pid}/gaps/noise_rules/{rule_id}` | `remove_noise_rule` |
-| `GET /projects/{pid}/documents/{document_id}/export?answers=1` | The document's text with its active amendments applied ([reconcile.md](reconcile.md) "Download with answers") |
+| `GET /projects/{pid}/documents/{document_id}/export?answers=1` | The newest text of the document's corpus lineage, with `answers=1` its applied amendments (marker lines included), as the last build read it: `text/markdown` attachment named after the document; `404 document_not_found` outside the corpus; without the gap module the source text ([reconcile.md](reconcile.md) "Download with answers"). Served by `api.routers.gaps` |
 
 A write answers `400 answer_invalid` (`details`: `field`, `reason`), `409 gap_wrong_state` (`details`: `status`,
 `allowed`), `409 gap_stale` (the answer's `updated_at` is not the gap's: reload), `404 gap_not_found` or

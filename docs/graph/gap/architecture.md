@@ -23,6 +23,7 @@ graph/gap/
   steps/
     scope.py           change reports: aliases, touched nodes, the investigation scope
     close.py           close check of applying gaps, obsolete gaps, stale witnesses, follow-ups
+    reconciled.py      close check of answers reconcile changed: absorbed, conflict and orphaned follow-ups
     relevance.py       relevance filter: rules, cache, batched model call
     detect.py          detectors from the rules file -> seeds
     sites.py           corroboration, grouping, ranking, known-site skip, limits
@@ -35,12 +36,13 @@ graph/gap/
     record.py          Gap and Clarification nodes and relations, relational rows, holds
   answers.py           answers, edits, placement, apply, revert, AI answers
   corpus.py            amendments applied to a revision, effective revision id, the clarifications document
-  reconcile.py         reconcile_document: amendments against a new source revision
+  reconcile.py         reconcile_document, reconcile_corpus: amendments against a new source revision
+  follow_ups.py        what answers to follow-up gaps replace (predecessors), options that settle at once
   service.py           GapService: inbox reads, answers, dismissals, raise, the plan's findings port
   prompts.py           prompt revisions and gateway prompt names (gap.<name>.<revision>)
   services/
     vector_similarity.py  cosine of vectors no store holds (question embeddings of the duplicate check)
-  prompts/             relevance, investigate, judge and edits prompts <name>.md (revisions in prompts.py)
+  prompts/             relevance, investigate, judge, edits and reconcile prompts <name>.md (revisions in prompts.py)
   ddl/                 gap_schema.cypher: the graph_gap_* constraints and indexes
   queries/             one canonical .cypher file per gap query
 ```

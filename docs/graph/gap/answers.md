@@ -137,6 +137,8 @@ Checks; nothing is written when one fails:
 | `option_rank` names one of the gap's options | `AnswerInvalidError` (`option_rank`, `unknown`) |
 | `own_text` is 1 to 4000 characters | `AnswerInvalidError` (`own_text`, `length`) |
 | 1 to 12 edits, each passing "Edits" below | `AnswerInvalidError` (`edits`, the failed check: `edit_text_length`, `edit_text_heading`, `edit_document_target`, `edit_operation`, `edit_target`, `edit_anchor`, `edit_replace_outside_gap`, `edit_anchor_twice`, `edits_count`) |
+| An option without edits is answerable only on a reconcile follow-up ("Keep the upload", "Drop it"), where it resolves the gap at once without a build ([reconcile.md](reconcile.md) "Conflict follow-up", "Orphaned follow-up") | Elsewhere `AnswerInvalidError` (`edits`, `edits_count`) |
+| An answer to a follow-up replaces the answer it follows up when that one is `conflict`, `orphaned`, or `pending` and never grounded (`not_fixed`): when it is applied (or settled) the old clarification becomes `superseded` and its amendments `reverted` ([lifecycle.md](lifecycle.md) "Clarification transitions") | — |
 | A placement override fits ("Placement rules") | `AnswerInvalidError` (`placement`, `contradiction_amends` or `no_anchor`) |
 | The caller is a member of the project (host check) | host error |
 

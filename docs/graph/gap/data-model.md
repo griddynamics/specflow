@@ -36,7 +36,7 @@ other node.
 | Label | Key | Properties |
 |---|---|---|
 | `Gap` | `gap_id` (`GAP::<12 hex>`) | `kind`, `severity`, `status`, `origin`, `route`, `resolution` (when resolved), `title`, `question`, `why`, `detector` (code, or `development`, `person`), `signature`, `seed_signatures` (the signatures of the detector seeds of the gap's detector whose sites recorded or re-checked it; what a dismissal suppresses besides `signature`), `blocking` (`yes` when a development gap holds the reporting agent's claimed story), `held_back` (`yes` while a new question its run held back beyond `new_questions_per_run` waits for the next run), `run_id`, `created_by`, `created_at`, `updated_at`, `resolved_at` |
-| `Clarification` | `clr_id` (`CLR::<12 hex>`) | `mode`, `placement`, `status`, `option_label`, `text`, `answered_by` (a user id, or `ai`), `answered_at`, `apply_requested_at` (when its answers were sent to an update build), `applied_build_id`, `basis` (JSON: quoted lines behind an AI or pointer answer), `confidence` (AI answers) |
+| `Clarification` | `clr_id` (`CLR::<12 hex>`) | `mode`, `placement`, `status`, `option_label`, `text`, `answered_by` (a user id, or `ai`), `answered_at`, `apply_requested_at` (when its answers were sent to an update build), `applied_build_id`, `reconcile_state` (hash of its amendments' ids, statuses, anchor hashes and revisions as the close step last saw them), `basis` (JSON: quoted lines behind an AI or pointer answer), `confidence` (AI answers) |
 
 Vocabularies are those of [gap-ontology.yaml](gap-ontology.yaml). `severity` `info` is not a graph value:
 an info finding is a run note in the relational store.
@@ -148,7 +148,7 @@ The tables belong to the host; `graph.gap` reaches them through the ports `GapRe
 | `gap_noise_rule` | `rule_id`, `scope` (`document`, `section`, `pattern`), `value`, `reason`, `created_by`, `created_at` | Sections or patterns a person marked "not spec" |
 | `gap_suppression` | `signature`, `gap_id`, `question`, `reason`, `dismissed_by`, `dismissed_at` | A dismissed signature stays quiet until it changes; one dismissal writes one row for the gap's signature and one for each of its `seed_signatures` |
 | `gap_note` | `run_id`, `detector`, `spec_ids` (JSON), `text` | Info findings: nothing to decide |
-| `gap_event` | `gap_id`, `clr_id`, `at`, `actor`, `event`, `detail` (JSON) | Every transition, quote and reconcile outcome |
+| `gap_event` | `gap_id`, `clr_id`, `at`, `actor`, `event`, `detail` (JSON) | Every transition, quote and reconcile outcome (event `reconciled`, actor `reconcile`) |
 
 Keys (each starts with `project_id`, the project's id in the application database, a foreign key to
 `projects`): `gap_option` (`gap_id`, `rank`), with a unique index keeping one `recommended` row per gap and `rank`
