@@ -101,6 +101,12 @@ class GapDismissBody(_Body):
     reason: str = Field(min_length=1, max_length=MAX_REASON)
 
 
+class GapRevertBody(_Body):
+    """``POST .../gaps/clarifications/{clr_id}/revert``: why the answer is withdrawn (kept in the event log)."""
+
+    reason: str = Field(min_length=1, max_length=MAX_REASON)
+
+
 class GapRaiseBody(_Body):
     """``POST .../gaps``: a person's question about spec ids, with optional quoted lines, kind and severity."""
 

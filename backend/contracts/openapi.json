@@ -104,6 +104,73 @@
         "title": "AddedByOut",
         "type": "object"
       },
+      "AiAnswer": {
+        "additionalProperties": false,
+        "description": "One row of the review list \"Answered by AI\" (answers.md \"Review list\"): a clarification of mode ``ai`` or\n``pointer`` with its gap's title, question and status, and the follow-up gap a revert opened.",
+        "properties": {
+          "clarification": {
+            "$ref": "#/components/schemas/ClarificationView"
+          },
+          "follow_up": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "gap_status": {
+            "enum": [
+              "open",
+              "answered",
+              "applying",
+              "resolved"
+            ],
+            "title": "Gap Status",
+            "type": "string"
+          },
+          "question": {
+            "default": "",
+            "title": "Question",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id",
+          "gap_status",
+          "clarification"
+        ],
+        "title": "AiAnswer",
+        "type": "object"
+      },
+      "AiAnswerList": {
+        "additionalProperties": false,
+        "description": "What ``GapService.ai_answers`` returns: AI and pointer answers, newest first.",
+        "properties": {
+          "answers": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AiAnswer"
+            },
+            "title": "Answers",
+            "type": "array"
+          }
+        },
+        "title": "AiAnswerList",
+        "type": "object"
+      },
       "AnswerResult": {
         "additionalProperties": false,
         "description": "What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and when the\nanswers of the project are applied (``immediate``: at once, for a development gap that blocks its story).",
@@ -3082,6 +3149,23 @@
           "question"
         ],
         "title": "GapRaiseBody",
+        "type": "object"
+      },
+      "GapRevertBody": {
+        "additionalProperties": false,
+        "description": "``POST .../gaps/clarifications/{clr_id}/revert``: why the answer is withdrawn (kept in the event log).",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "GapRevertBody",
         "type": "object"
       },
       "GapRunResult": {
@@ -6198,6 +6282,50 @@
           "planned_by"
         ],
         "title": "ReportedTask",
+        "type": "object"
+      },
+      "RevertResult": {
+        "additionalProperties": false,
+        "description": "What ``revert_clarification`` returns: the reverted clarification, the gap a person answers next (the\nfollow-up of a resolved gap, or the gap itself back ``open``), the amendments reverted and the build request's\nanswer (None when no text left the corpus).",
+        "properties": {
+          "amendments": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Amendments",
+            "type": "array"
+          },
+          "build": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build"
+          },
+          "clr_id": {
+            "title": "Clr Id",
+            "type": "string"
+          },
+          "follow_up": {
+            "title": "Follow Up",
+            "type": "boolean"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clr_id",
+          "gap_id",
+          "follow_up"
+        ],
+        "title": "RevertResult",
         "type": "object"
       },
       "SectionPreview": {
@@ -11648,6 +11776,62 @@
         ]
       }
     },
+    "/api/v1/projects/{pid}/gaps/ai_answers": {
+      "get": {
+        "description": "The review list \"Answered by AI\": every AI and pointer answer with its basis and confidence, newest first;\nreverted ones name the follow-up gap a person answers instead.",
+        "operationId": "list_ai_answers_api_v1_projects__pid__gaps_ai_answers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiAnswerList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Ai Answers",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
     "/api/v1/projects/{pid}/gaps/apply": {
       "post": {
         "description": "Apply the project's pending answers now (\"Apply now\"): one update build is requested.",
@@ -11687,6 +11871,71 @@
           }
         },
         "summary": "Apply Answers",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/clarifications/{clr_id}/revert": {
+      "post": {
+        "description": "Withdraw an answer (a person's or AI's): its text leaves the corpus with the next build, and a person answers\nthe question again (a follow-up gap of a resolved gap, or the gap itself back open).",
+        "operationId": "revert_clarification_api_v1_projects__pid__gaps_clarifications__clr_id__revert_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "clr_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Clr Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapRevertBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevertResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revert Clarification",
         "tags": [
           "gaps"
         ]

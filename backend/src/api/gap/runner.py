@@ -24,8 +24,9 @@ wait for the process's run slot. Triggers:
   reports still start there.
 - ``schedule_apply``: an answer moves the project's apply time to the end of its quiet period; when it passes with no
   newer answer, ``GapService.apply_now`` makes the pending amendments active and requests one update build through the
-  build runner (``use_builds``; answers.md "Applying answers"). The time lives in this process: after a restart the
-  pending answers wait for the next answer or "Apply now".
+  build runner (``use_builds``; answers.md "Applying answers"). A run that recorded AI answers schedules the apply the
+  same way (AI answers never apply at once). The time lives in this process: after a restart the pending answers wait
+  for the next answer or "Apply now".
 
 - ``corpus_answers``: the build's corpus reader (``api.graph_build.corpus.CorpusAnswers``) reads the project's active
   amendments and the clarifications of its clarifications document here, so the build reads the answered text.
@@ -52,7 +53,7 @@ import re
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -681,6 +682,9 @@ class GapRunner:
             warnings=len(result.warnings),
             llm_calls=gateway.usage().total().calls,
         )
+        if int(result.counts.get("ai_answered") or 0) > 0:  # applied like a person's answers, never at once
+            quiet = self._gap.effective_limits(rules.limits).apply_quiet_seconds
+            self.schedule_apply(project_id, datetime.now(UTC) + timedelta(seconds=quiet))
 
     async def _changes(self, project_id: str, build_id: str | None) -> tuple[GapChangeReport, ...]:
         """The gap-side change reports after the build of the latest finished gap run up to ``build_id``; none

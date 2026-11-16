@@ -11,8 +11,10 @@ The writes are ``GapService`` calls with the member as actor (FR-GANS-13: member
 ``POST /gaps`` raises a gap (origin ``person``) and queues a ``site`` run on it; ``POST /gaps/{gap_id}/edits_preview``
 and ``/answer``; an answer schedules the apply at the end of the quiet period (``POST /gaps/apply`` applies at once);
 ``POST /gaps/{gap_id}/dismiss``; ``GET``/``POST /gaps/noise_rules`` and ``DELETE /gaps/noise_rules/{rule_id}``
-(registered before ``/gaps/{gap_id}``). Refusals: ``400 answer_invalid`` (``details`` name the field and the check),
-``409 gap_wrong_state``, ``409 gap_stale`` (reload the gap), ``404 gap_not_found``, ``404 noise_rule_not_found``.
+(registered before ``/gaps/{gap_id}``). ``GET /gaps/ai_answers`` is the review list "Answered by AI" and
+``POST /gaps/clarifications/{clr_id}/revert`` withdraws an answer (answers.md "Revert"). Refusals:
+``400 answer_invalid`` (``details`` name the field and the check), ``409 gap_wrong_state``, ``409 gap_stale`` (reload
+the gap), ``404 gap_not_found``, ``404 noise_rule_not_found``.
 
 ``GET /documents/{document_id}/export?answers=1`` downloads a document's text with its answers (reconcile.md).
 """
@@ -31,12 +33,15 @@ from api.deps import RuntimeDep, UserDep
 from api.errors import ApiError, document_not_found, invalid_arguments, invalid_cursor
 from api.gap.state import GapRunnerReads, GapRunState
 from api.gap_models import (
+    DEFAULT_LIMIT,
     MAX_ID,
+    MAX_LIMIT,
     GapAnswerBody,
     GapDismissBody,
     GapEditsPreviewBody,
     GapListQuery,
     GapRaiseBody,
+    GapRevertBody,
     GapRunStatus,
     NoiseRuleBody,
     NoiseRuleCreated,
@@ -49,6 +54,7 @@ from api.routers.plan import no_graph_build
 from api.runtime import Runtime
 from db import sources as sources_repo
 from graph.gap import (
+    AiAnswerList,
     AnswerInput,
     AnswerInvalidError,
     AnswerResult,
@@ -61,6 +67,7 @@ from graph.gap import (
     NewGap,
     NoiseReport,
     RaisedGap,
+    RevertResult,
     StaleGapError,
 )
 from logger.logger import INFO, WARNING, get_logger, log_event
@@ -256,6 +263,53 @@ async def apply_answers(pid: uuid.UUID, runtime: RuntimeDep, user: UserDep) -> A
         user_id=str(user.id),
         project_id=str(pid),
         gaps=len(result.gap_ids),
+        build=result.build,
+    )
+    return result
+
+
+@router.get("/gaps/ai_answers", response_model=AiAnswerList)
+async def list_ai_answers(
+    pid: uuid.UUID,
+    runtime: RuntimeDep,
+    user: UserDep,
+    *,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
+) -> AiAnswerList:
+    """The review list "Answered by AI": every AI and pointer answer with its basis and confidence, newest first;
+    reverted ones name the follow-up gap a person answers instead."""
+
+    await require_project(runtime, user.id, pid)
+    service = await _runner(runtime).service()
+    return await service.ai_answers(str(pid), limit=limit)
+
+
+@router.post("/gaps/clarifications/{clr_id}/revert", response_model=RevertResult)
+async def revert_clarification(
+    pid: uuid.UUID, clr_id: GapId, body: GapRevertBody, runtime: RuntimeDep, user: UserDep
+) -> RevertResult:
+    """Withdraw an answer (a person's or AI's): its text leaves the corpus with the next build, and a person answers
+    the question again (a follow-up gap of a resolved gap, or the gap itself back open)."""
+
+    await require_project(runtime, user.id, pid)
+    service = await _runner(runtime).service()
+    try:
+        result = await service.revert_clarification(str(pid), clr_id, by=str(user.id), reason=body.reason)
+    except GapNotFoundError:
+        raise gap_not_found() from None
+    except GapStateError as error:
+        raise gap_wrong_state(error) from None
+    except AnswerInvalidError as error:
+        raise answer_invalid(error) from None
+    log_event(
+        logger,
+        INFO,
+        "api.gap.reverted",
+        user_id=str(user.id),
+        project_id=str(pid),
+        clr_id=clr_id,
+        gap_id=result.gap_id,
+        follow_up=result.follow_up,
         build=result.build,
     )
     return result
