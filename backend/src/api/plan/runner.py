@@ -12,7 +12,9 @@ what they mark as changed is re-planned; with ``last_build_id`` already that bui
 reports it unchanged. A ``replan`` request, or a chain the build store cannot complete (a deleted build or result, a
 report missing, a failed build that started persist), re-plans every area from the current graph without reports;
 the run logs ``api.plan.change_reports_missing`` with the reason. A project's unfinished run (interrupted by a
-shutdown) is resumed by the next start, with the build and the replan choice of its run record. ``status``
+shutdown) is resumed by the next start, with the build and the replan choice of its run record. A run first waits
+until the project has no gap run queued or running (``api.gap.runner``, when configured), so after a build the order
+is build, gap run, plan run; a gap run failure never stops it. ``status``
 combines the running task with the plan store, so it survives a restart.
 
 Logs carry ids, counts, step names and error codes only (``api.plan.*``).
@@ -28,6 +30,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from api.contained import Contained
+from api.gap.state import GapHooks
 from api.graph_build.reports import reports_since
 from api.plan.changes import plan_change_reports
 from api.plan.state import NoGraphBuildError, PlanState
@@ -153,11 +156,13 @@ class GraphPlanRunner:
         *,
         store: GraphStore,
         dependencies: RunnerDependencies | None = None,
+        gaps: GapHooks | None = None,
     ) -> None:
         deps = dependencies or RunnerDependencies()
         self._llm: LLMConfig = settings.to_llm_config()
         self._state_dir = Path(settings.state_dir)
         self._store = store
+        self._gaps = gaps
         self._plan = deps.plan
         self._estimate = deps.estimate
         self._ensure = deps.ensure
@@ -478,6 +483,7 @@ class GraphPlanRunner:
     async def _run(self, project_id: str, run: _Run) -> None:
         with Contained() as planned:  # a failed run is recorded and logged, never raised
             try:
+                await self._wait_for_gaps(project_id)  # before the slot: other projects' plans do not wait
                 async with self._slots:
                     await self._run_one(project_id, run)
             except asyncio.CancelledError:
@@ -499,6 +505,24 @@ class GraphPlanRunner:
             error_type=planned.error_type,
             exc_info=error if unexpected else None,  # the traceback of an unexpected error only
         )
+
+    async def _wait_for_gaps(self, project_id: str) -> None:
+        """Wait for the project's queued and running gap runs (FR-GRUN-01: build, gap run, plan run); a failure of
+        the wait is logged and never stops the plan run."""
+
+        if self._gaps is None:
+            return
+        with Contained() as waited:
+            await self._gaps.wait_idle(project_id)
+        if waited.failed:
+            log_event(
+                logger,
+                WARNING,
+                "api.plan.gap_wait_failed",
+                project_id=project_id,
+                error_code=error_code(waited.error) if waited.error is not None else None,
+                error_type=waited.error_type,
+            )
 
     async def _run_one(self, project_id: str, run: _Run) -> None:
         ontology, rules, plans = await self._prepare()

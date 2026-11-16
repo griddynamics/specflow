@@ -61,6 +61,9 @@ codes = [
     { code = "invalid_arguments", http = 400 },
     { code = "unknown_relation", http = 400 },
     { code = "finding_limit", http = 409 },
+    { code = "gap_not_found", http = 404 },
+    { code = "gap_run_not_found", http = 404 },
+    { code = "gap_unavailable", http = 503 },
     { code = "internal_error", http = 500 },
     { code = "http_error", http = 400 },
 ]
@@ -102,6 +105,9 @@ probes = [
     { name = "probe-30", class = "api.errors:ApiError", args = [400, "invalid_arguments", "The error invalid_arguments."] },
     { name = "probe-31", class = "api.errors:ApiError", args = [400, "unknown_relation", "The error unknown_relation."] },
     { name = "probe-32", class = "api.errors:ApiError", args = [409, "finding_limit", "The error finding_limit."] },
+    { name = "probe-33", class = "api.errors:ApiError", args = [404, "gap_not_found", "The gap does not exist."] },
+    { name = "probe-34", class = "api.errors:ApiError", args = [404, "gap_run_not_found", "The gap run does not exist."] },
+    { name = "probe-35", class = "api.errors:ApiError", args = [503, "gap_unavailable", "Gap runs are not configured."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

@@ -956,6 +956,119 @@
         "title": "ClaimsOut",
         "type": "object"
       },
+      "ClarificationView": {
+        "additionalProperties": false,
+        "description": "A clarification as reads return it.",
+        "properties": {
+          "answered_at": {
+            "format": "date-time",
+            "title": "Answered At",
+            "type": "string"
+          },
+          "answered_by": {
+            "title": "Answered By",
+            "type": "string"
+          },
+          "applied_build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied Build Id"
+          },
+          "basis": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Quote"
+            },
+            "title": "Basis",
+            "type": "array"
+          },
+          "clr_id": {
+            "title": "Clr Id",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "mode": {
+            "enum": [
+              "option",
+              "own",
+              "ai",
+              "pointer"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "option_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Option Label"
+          },
+          "placement": {
+            "enum": [
+              "amend",
+              "document",
+              "none"
+            ],
+            "title": "Placement",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "applied",
+              "absorbed",
+              "conflict",
+              "orphaned",
+              "reverted",
+              "superseded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "required": [
+          "clr_id",
+          "mode",
+          "placement",
+          "status",
+          "answered_by",
+          "answered_at"
+        ],
+        "title": "ClarificationView",
+        "type": "object"
+      },
       "CloseFindingBody": {
         "additionalProperties": false,
         "description": "Resolve or dismiss: an optional note of at most 500 characters.",
@@ -1503,6 +1616,138 @@
           "rule"
         ],
         "title": "EdgeItem",
+        "type": "object"
+      },
+      "Edit": {
+        "additionalProperties": false,
+        "description": "One edit of an option (investigation.md \"Options and edits\").",
+        "properties": {
+          "operation": {
+            "enum": [
+              "insert_after",
+              "replace",
+              "append_section"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "placement": {
+            "enum": [
+              "amend",
+              "document"
+            ],
+            "title": "Placement",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/EditTarget"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "placement",
+          "target",
+          "operation",
+          "text"
+        ],
+        "title": "Edit",
+        "type": "object"
+      },
+      "EditTarget": {
+        "additionalProperties": false,
+        "description": "Where an edit applies: a fragment and a verbatim anchor line (``amend``), or a heading (``document``).",
+        "properties": {
+          "anchor_quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Quote"
+          },
+          "fragment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fragment Id"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          }
+        },
+        "title": "EditTarget",
+        "type": "object"
+      },
+      "EventRow": {
+        "additionalProperties": false,
+        "description": "``gap_event``: every transition, quote and reconcile outcome.",
+        "properties": {
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "clr_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clr Id"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "title": "Detail",
+            "type": "object"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "gap_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Id"
+          }
+        },
+        "required": [
+          "at",
+          "actor",
+          "event"
+        ],
+        "title": "EventRow",
         "type": "object"
       },
       "Evidence": {
@@ -2289,6 +2534,548 @@
         "title": "FindingsOut",
         "type": "object"
       },
+      "FollowUp": {
+        "additionalProperties": false,
+        "description": "One step of a follow-up chain: the gap this one continues, or that continues it, and why.",
+        "properties": {
+          "direction": {
+            "enum": [
+              "continues",
+              "continued_by"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "not_fixed",
+              "orphaned",
+              "conflict",
+              "reverted"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id",
+          "reason",
+          "direction"
+        ],
+        "title": "FollowUp",
+        "type": "object"
+      },
+      "GapHistory": {
+        "additionalProperties": false,
+        "description": "The events of a gap and its follow-up chain.",
+        "properties": {
+          "events": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/EventRow"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "follow_ups": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FollowUp"
+            },
+            "title": "Follow Ups",
+            "type": "array"
+          }
+        },
+        "title": "GapHistory",
+        "type": "object"
+      },
+      "GapPage": {
+        "additionalProperties": false,
+        "description": "One page of gaps; ``next`` is the cursor of the following page, or none.",
+        "properties": {
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/GapView"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "required": [
+          "gaps"
+        ],
+        "title": "GapPage",
+        "type": "object"
+      },
+      "GapRunResult": {
+        "additionalProperties": false,
+        "description": "The result of ``run_gap``. ``status`` is ``degraded`` when every investigation of the run failed\n(investigation.md \"Failures\"); ``counts`` holds the run metrics (detection.md \"Run metrics\"), ``cost`` the\ncalls and tokens per gateway role.",
+        "properties": {
+          "build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Id"
+          },
+          "cost": {
+            "additionalProperties": true,
+            "title": "Cost",
+            "type": "object"
+          },
+          "counts": {
+            "additionalProperties": true,
+            "title": "Counts",
+            "type": "object"
+          },
+          "deferred_sites": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Deferred Sites",
+            "type": "array"
+          },
+          "held_tasks": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Held Tasks",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "update",
+              "full",
+              "site"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "noise": {
+            "$ref": "#/components/schemas/NoiseReport"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "degraded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "mode",
+          "status"
+        ],
+        "title": "GapRunResult",
+        "type": "object"
+      },
+      "GapRunStatus": {
+        "description": "``.../gap/runs``: the project's latest gap run; ids, step names, counts and codes only.\n\n``status`` is ``queued`` while runs wait and none runs, ``running`` while one runs, else the latest run's outcome\n(``completed``, ``degraded``, ``failed``) or ``idle`` before the first run. ``step`` is the step that runs (or the\nlast one that ran); ``steps_done`` of ``steps_total`` are done; while a step reports items, ``step_items_done`` of\n``step_items_total``. ``queued`` counts the runs waiting. ``result`` is the latest finished run's result.",
+        "properties": {
+          "build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Id"
+          },
+          "counts": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Counts",
+            "type": "object"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "queued": {
+            "default": 0,
+            "title": "Queued",
+            "type": "integer"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GapRunResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "queued",
+              "running",
+              "completed",
+              "degraded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "step_items_done": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Items Done"
+          },
+          "step_items_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Items Total"
+          },
+          "steps_done": {
+            "default": 0,
+            "title": "Steps Done",
+            "type": "integer"
+          },
+          "steps_total": {
+            "default": 0,
+            "title": "Steps Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "GapRunStatus",
+        "type": "object"
+      },
+      "GapView": {
+        "additionalProperties": false,
+        "description": "What reads return: the gap's properties and what it is about; ``history`` and ``reach`` only from\n``get_gap``.",
+        "properties": {
+          "about": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/NodeRef"
+            },
+            "title": "About",
+            "type": "array"
+          },
+          "blocking": {
+            "default": false,
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "clarification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClarificationView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "detector": {
+            "title": "Detector",
+            "type": "string"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "history": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GapHistory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "impacts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/NodeRef"
+            },
+            "title": "Impacts",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "missing",
+              "ambiguous",
+              "contradiction",
+              "inconsistency",
+              "open_question",
+              "assumption"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/OptionRow"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "origin": {
+            "enum": [
+              "analysis",
+              "development",
+              "person"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "reach": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reach"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "enum": [
+                  "answered",
+                  "ai_answered",
+                  "pointer",
+                  "follow_up"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "route": {
+            "enum": [
+              "ask",
+              "ai"
+            ],
+            "title": "Route",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "severity": {
+            "enum": [
+              "blocker",
+              "major",
+              "minor"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "signature": {
+            "title": "Signature",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "answered",
+              "applying",
+              "resolved"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "why": {
+            "default": "",
+            "title": "Why",
+            "type": "string"
+          },
+          "witness": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/WitnessView"
+            },
+            "title": "Witness",
+            "type": "array"
+          }
+        },
+        "required": [
+          "gap_id",
+          "kind",
+          "severity",
+          "status",
+          "origin",
+          "route",
+          "title",
+          "question",
+          "detector",
+          "signature",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "GapView",
+        "type": "object"
+      },
       "GraphBuildRequest": {
         "additionalProperties": false,
         "description": "Optional body of ``POST /graph_build``; the level is only validated and logged.",
@@ -2856,6 +3643,31 @@
         "title": "NodeProvenance",
         "type": "object"
       },
+      "NodeRef": {
+        "additionalProperties": false,
+        "description": "A spec node as a gap view shows it.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name"
+        ],
+        "title": "NodeRef",
+        "type": "object"
+      },
       "NodeStatement": {
         "properties": {
           "document_id": {
@@ -2884,6 +3696,145 @@
           "text"
         ],
         "title": "NodeStatement",
+        "type": "object"
+      },
+      "NoiseReport": {
+        "additionalProperties": false,
+        "description": "Per section judged tracking or mixed (detection.md \"Relevance filter\").",
+        "properties": {
+          "sections": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/NoiseSection"
+            },
+            "title": "Sections",
+            "type": "array"
+          }
+        },
+        "title": "NoiseReport",
+        "type": "object"
+      },
+      "NoiseSection": {
+        "additionalProperties": false,
+        "description": "A section judged tracking or mixed, and the nodes it removed from structural seeds.",
+        "properties": {
+          "by": {
+            "enum": [
+              "rules",
+              "model",
+              "person"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "heading_path": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Heading Path",
+            "type": "array"
+          },
+          "lineage": {
+            "title": "Lineage",
+            "type": "string"
+          },
+          "relevance": {
+            "enum": [
+              "spec",
+              "tracking",
+              "mixed"
+            ],
+            "title": "Relevance",
+            "type": "string"
+          },
+          "removed": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "signals": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Signals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lineage",
+          "heading_path",
+          "relevance",
+          "by"
+        ],
+        "title": "NoiseSection",
+        "type": "object"
+      },
+      "OptionRow": {
+        "additionalProperties": false,
+        "description": "``gap_option``: one offered answer; exactly one recommended per gap, 2 to 4 rows.",
+        "properties": {
+          "basis": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Quote"
+            },
+            "title": "Basis",
+            "type": "array"
+          },
+          "created_run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created Run"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "edits": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Edit"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "rank": {
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "recommended": {
+            "title": "Recommended",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "gap_id",
+          "rank",
+          "label",
+          "recommended"
+        ],
+        "title": "OptionRow",
         "type": "object"
       },
       "Page_DocumentOut_": {
@@ -4335,6 +5286,50 @@
           "created_at"
         ],
         "title": "ProjectOut",
+        "type": "object"
+      },
+      "Quote": {
+        "additionalProperties": false,
+        "description": "A verbatim line of a fragment.",
+        "properties": {
+          "fragment_id": {
+            "title": "Fragment Id",
+            "type": "string"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fragment_id",
+          "quote"
+        ],
+        "title": "Quote",
+        "type": "object"
+      },
+      "Reach": {
+        "additionalProperties": false,
+        "description": "Stories and tasks an answer reaches, computed at read time from trace and the plan.",
+        "properties": {
+          "stories": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Stories",
+            "type": "array"
+          },
+          "tasks": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "title": "Reach",
         "type": "object"
       },
       "ReadyzOut": {
@@ -6634,6 +7629,48 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WitnessView": {
+        "additionalProperties": false,
+        "description": "A ``CITES`` witness of a gap.",
+        "properties": {
+          "fragment_id": {
+            "title": "Fragment Id",
+            "type": "string"
+          },
+          "line_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line End"
+          },
+          "line_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Start"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fragment_id",
+          "quote"
+        ],
+        "title": "WitnessView",
         "type": "object"
       },
       "WorkAreaInfo": {
@@ -9281,6 +10318,461 @@
         "summary": "Resolve Finding",
         "tags": [
           "findings"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gap/runs": {
+      "post": {
+        "description": "Queue a full gap run on the latest finished build (a run already queued or running is joined).",
+        "operationId": "start_gap_run_api_v1_projects__pid__gap_runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapRunStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Gap Run",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gap/runs/latest": {
+      "get": {
+        "description": "The project's running or latest gap run, with the latest finished run's result.",
+        "operationId": "latest_gap_run_api_v1_projects__pid__gap_runs_latest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapRunStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Latest Gap Run",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gap/runs/{run_id}/noise": {
+      "get": {
+        "description": "The sections a finished run judged tracking or mixed, and the nodes they removed from structural seeds.",
+        "operationId": "gap_run_noise_api_v1_projects__pid__gap_runs__run_id__noise_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoiseReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gap Run Noise",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps": {
+      "get": {
+        "description": "The project's gaps: open, answered and applying ones unless ``status`` says otherwise; blockers first, then\nnewest first. ``about`` keeps gaps about the spec ids (aliases resolve), ``story_id`` those about the nodes the\nstory's tasks implement, ``document`` those citing or about the document lineage.",
+        "operationId": "list_gaps_api_v1_projects__pid__gaps_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "open",
+                      "answered",
+                      "applying",
+                      "resolved"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "missing",
+                      "ambiguous",
+                      "contradiction",
+                      "inconsistency",
+                      "open_question",
+                      "assumption"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "blocker",
+                      "major",
+                      "minor"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "analysis",
+                      "development",
+                      "person"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Origin"
+            }
+          },
+          {
+            "in": "query",
+            "name": "route",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "ask",
+                      "ai"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Route"
+            }
+          },
+          {
+            "in": "query",
+            "name": "about",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "About"
+            }
+          },
+          {
+            "in": "query",
+            "name": "story_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Story Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "document",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Document"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Gaps",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/{gap_id}": {
+      "get": {
+        "description": "One gap with its options, history and reach.",
+        "operationId": "get_gap_api_v1_projects__pid__gaps__gap_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "gap_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Gap Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Gap",
+        "tags": [
+          "gaps"
         ]
       }
     },

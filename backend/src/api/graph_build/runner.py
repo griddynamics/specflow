@@ -5,6 +5,7 @@ corpus, the runtime's graph store, ``load_ontology()``, one ``Gateway`` per buil
 dimension check and ``ensure_schema`` once per process, then ``run_build``. The check is one embedding
 call before the schema and any extraction, so a ``GRAPH_EMBEDDING_DIM`` that does not match the
 embedding model fails the build in seconds and never creates vector indexes of the wrong size.
+After a build returns, the gap runner (``api.gap.runner``, when configured) queues its gap run, before any plan run.
 A project's unfinished build (interrupted by a shutdown, or failed) is resumed by the next start;
 a new build retries the follow-up lineages of the latest finished one. ``status`` combines the
 running task with the build store, so it survives a restart.
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from api.contained import Contained
+from api.gap.state import GapHooks
 from api.graph_build.corpus import PostgresCorpusSource
 from api.graph_build.state import BuildState
 from graph.build import BuildContext, BuildResult, BuildStore, FileStores, open_file_stores, run_build
@@ -110,11 +112,13 @@ class GraphBuildRunner:
         store: GraphStore,
         session_factory: Callable[[], Any],
         dependencies: RunnerDependencies | None = None,
+        gaps: GapHooks | None = None,
     ) -> None:
         deps = dependencies or RunnerDependencies()
         self._llm: LLMConfig = settings.to_llm_config()
         self._state_dir = Path(settings.state_dir)
         self._store = store
+        self._gaps = gaps
         self._corpus = PostgresCorpusSource(session_factory)
         self._build = deps.build
         self._ensure = deps.ensure
@@ -303,6 +307,8 @@ class GraphBuildRunner:
             llm_calls=usage.calls,
             duration_s=result.metrics.duration_s,
         )
+        if self._gaps is not None:  # queues the gap run (never raises); the plan run waits for it
+            await self._gaps.after_build(project_id, result.build_id)
 
 
 async def _follow_ups(builds: BuildStore, project_id: str) -> tuple[str, ...]:
