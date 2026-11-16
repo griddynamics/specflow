@@ -80,7 +80,8 @@ AmendmentOperation = Literal["insert_after", "replace", "append_section"]
 AmendmentStatus = Literal["pending", "active", "retired", "suspended", "orphaned", "reverted", "undecided"]
 """``pending``: recorded with an answer, not yet applied; the apply step makes it ``active`` (answers.md "Applying
 answers")."""
-ReconcileOutcome = Literal["applied", "reanchored", "absorbed", "conflict", "orphaned"]
+ReconcileOutcome = Literal["applied", "reanchored", "absorbed", "conflict", "orphaned", "undecided"]
+"""``undecided``: the same-meaning judge failed; the amendment stays applied until the next reconcile (FR-GREC-08)."""
 FollowUpReason = Literal["not_fixed", "orphaned", "conflict", "reverted"]
 Verdict = Literal["gap", "not_a_gap", "not_spec", "duplicate_of"]
 EditPlacement = Literal["amend", "document"]

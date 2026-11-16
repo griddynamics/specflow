@@ -74,11 +74,24 @@ class GapLimits(BaseModel):
 LIMIT_NAMES: Final = frozenset(GapLimits.model_fields)
 
 
+class ReconcileSettings(BaseModel):
+    """The thresholds of reconcile (docs/graph/gap/reconcile.md "The four questions"), tuned on the shop corpus's
+    re-uploads: ``anchor_similarity`` for a reworded anchor line under the same heading, ``section_similarity`` for a
+    section whose heading changed, ``judge_min_confidence`` below which a same-meaning verdict counts as different."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    anchor_similarity: float = Field(default=0.7, gt=0, le=1)
+    section_similarity: float = Field(default=0.6, gt=0, le=1)
+    judge_min_confidence: float = Field(default=0.7, ge=0, le=1)
+
+
 class GapSettings(BaseModel):
     """What the host decides for gap runs (docs/graph/gap/api.md "Models").
 
     ``limits`` overrides single limits of the rules file by name; ``apply_quiet_seconds`` overrides the rules'
-    value; ``ignore_cache`` makes a ``full`` run investigate every site again (investigation.md "Verdict cache").
+    value; ``ignore_cache`` makes a ``full`` run investigate every site again (investigation.md "Verdict cache");
+    ``reconcile`` holds the thresholds of reconcile (reconcile.md).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -91,6 +104,7 @@ class GapSettings(BaseModel):
     limits: Mapping[str, int | float] = Field(default_factory=lambda: MappingProxyType({}))
     apply_quiet_seconds: int | None = Field(default=None, gt=0)
     ignore_cache: bool = False
+    reconcile: ReconcileSettings = Field(default_factory=ReconcileSettings)
 
     @field_validator("limits")
     @classmethod

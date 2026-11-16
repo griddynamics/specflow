@@ -44,6 +44,7 @@ from datetime import datetime
 from typing import Any, Final
 
 from graph.core.ontology import Ontology
+from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.writer import DOCUMENT, FRAGMENT, NodeRef, OwnedWriter
 from graph.gap.answers import marker
 from graph.gap.corpus import APPLY_MARK, clarifications_lineage
@@ -51,6 +52,7 @@ from graph.gap.gaps import StoredGap, answer_key, cite_key, clarification_uuid, 
 from graph.gap.identity import gap_id, normalise_quote, sha256_hex
 from graph.gap.models import BuildFacts, EventRow
 from graph.gap.names import (
+    ABOUT,
     CITES,
     CLARIFICATION,
     FOLLOWS_UP,
@@ -61,8 +63,21 @@ from graph.gap.names import (
     RUN_ACTOR,
 )
 from graph.gap.ports import Amendments, GapRecords
+from graph.gap.resolve import resolve_spec_ids
 from graph.gap.rules import GapRules
 from graph.gap.steps.detect import Seed, detect
+from graph.gap.steps.reconciled import (
+    ABSORBED,
+    CONFLICT,
+    RECONCILE_STATE,
+    FollowUpSpec,
+    ReconciledOutcome,
+    absorbed_grounds,
+    amendments_state,
+    conflict_follow_up,
+    continues,
+    orphaned_follow_up,
+)
 from graph.gap.steps.relevance import RelevanceOutcome, cue_pattern
 from graph.gap.steps.snapshot import GraphSnapshot, heading_path_of
 from logger.logger import INFO, get_logger, log_event
@@ -74,6 +89,8 @@ OPEN: Final = "open"
 RESOLVED: Final = "resolved"
 PENDING: Final = "pending"
 APPLIED: Final = "applied"
+APPLIED_ROWS: Final = frozenset({"active", "undecided"})
+"""Amendment statuses the corpus reader applies (reconcile.md "Edge cases": an undecided one stays applied)."""
 NOT_FIXED: Final = "not_fixed"
 NOT_GROUNDED: Final = "not_grounded"
 RAISED_ORIGINS: Final = frozenset({"person", "development"})
@@ -111,6 +128,9 @@ class CloseOutcome:
     waiting: list[str] = field(default_factory=list)
     obsolete: list[str] = field(default_factory=list)
     cites_removed: int = 0
+    reconciled: ReconciledOutcome = field(default_factory=ReconciledOutcome)
+    """Answers reconcile changed (``steps.reconciled``); their conflict and orphaned follow-ups are not in
+    ``follow_ups`` (they get fixed options, not a site)."""
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -120,6 +140,7 @@ class CloseOutcome:
             "waiting": sorted(self.waiting),
             "obsolete": sorted(self.obsolete),
             "cites_removed": self.cites_removed,
+            "reconciled": self.reconciled.payload(),
         }
 
 
@@ -222,6 +243,8 @@ class Closer:
         for gap in self.gaps:
             if gap.status == APPLYING:
                 await self._applying(gap)
+            elif gap.status == RESOLVED:
+                await self._reconciled(gap)
             elif gap.status == OPEN and await self._obsolete(gap):
                 gone.add(gap.gap_id)
         await self._stale_cites([gap for gap in self.gaps if gap.gap_id not in gone])
@@ -249,6 +272,8 @@ class Closer:
             return
         props = max(current, key=lambda item: str(item.get(APPLY_MARK)))
         clr = str(props["clr_id"])
+        if props.get("placement") == "amend" and await self._reconciled_on_apply(gap, props):
+            return
         grounds = await self._grounds(gap, props)
         fires = still_fires(gap, self.seeds(), self.snapshot, self.run.rules)
         if not grounds:
@@ -280,7 +305,7 @@ class Closer:
             found = next((item.fragment_id for item in candidates if wanted and wanted in _plain(item.text)), None)
             return () if found is None else (found,)
         rows = await self.run.amendments.for_clarification(self.run.project_id, clr)
-        active = [row for row in rows if row.status == "active"]
+        active = [row for row in rows if row.status in APPLIED_ROWS]
         if not active:
             return ()
         grounds: list[str] = []
@@ -319,6 +344,9 @@ class Closer:
                 changed: dict[str, Any] = {"status": APPLIED}
                 if run.build_id is not None:
                     changed["applied_build_id"] = run.build_id
+                if props.get("placement") == "amend":
+                    rows = await run.amendments.for_clarification(run.project_id, clr)
+                    changed[RECONCILE_STATE] = amendments_state(rows)
                 await tx.upsert_node(CLARIFICATION, node.key, changed)
                 for fragment in grounds:
                     await tx.upsert_relationship(
@@ -339,16 +367,20 @@ class Closer:
             self.outcome.follow_ups[new] = gap.gap_id
             self._event(new, "created", follows_up=gap.gap_id, reason=NOT_FIXED, about=len(gap.about_ids))
 
-    async def _follow_up(self, tx: OwnedWriter, gap: StoredGap, now: str) -> str:
+    async def _follow_up(self, tx: OwnedWriter, gap: StoredGap, now: str, spec: FollowUpSpec | None = None) -> str:
+        """A new open gap ``FOLLOWS_UP`` the old one: reason ``not_fixed`` from the old gap's question and nodes, or the
+        reconcile follow-up ``spec`` (its own question, nodes and cites, no detector: it is never obsolete)."""
+
         run = self.run
-        signature = follow_up_signature(gap, NOT_FIXED)
+        reason = NOT_FIXED if spec is None else spec.reason
+        signature = follow_up_signature(gap, reason)
         new = gap_id(signature, self.taken)
         self.taken[new] = signature
-        props = {
-            name: gap.props[name]
-            for name in ("kind", "severity", "origin", "title", "question", "why", "detector")
-            if gap.props.get(name) is not None
-        }
+        names = ("kind", "severity", "origin", "title", "question", "why", "detector")
+        props = {name: gap.props[name] for name in names if gap.props.get(name) is not None}
+        if spec is not None:
+            props.pop("detector", None)
+            props |= dict(spec.props)
         props |= {
             "gap_id": new,
             "status": OPEN,
@@ -364,9 +396,10 @@ class Closer:
         owner = NodeRef(GAP, gap_uuid(run.project_id, new))
         await tx.upsert_node(GAP, owner.key, props)
         old = NodeRef(GAP, gap_uuid(run.project_id, gap.gap_id))
-        await tx.upsert_relationship(
-            FOLLOWS_UP, owner, old, link_key(new, FOLLOWS_UP, gap.gap_id), {"reason": NOT_FIXED}
-        )
+        await tx.upsert_relationship(FOLLOWS_UP, owner, old, link_key(new, FOLLOWS_UP, gap.gap_id), {"reason": reason})
+        if spec is not None:
+            await self._spec_links(tx, owner, new, spec)
+            return new
         for link in (*gap.about, *gap.impacts):
             if link.spec_id in self.snapshot.nodes and link.uuid and link.label:
                 await tx.upsert_relationship(
@@ -387,9 +420,163 @@ class Closer:
                 )
         return new
 
+    async def _spec_links(self, tx: OwnedWriter, owner: NodeRef, new: str, spec: FollowUpSpec) -> None:
+        run = self.run
+        labels = [label for label in run.ontology.labels if run.ontology.owner_of(label) == BUILD_OWNER]
+        refs = await resolve_spec_ids(run.executor, run.project_id, sorted(spec.about), labels)
+        for ref in sorted({ref.spec_id: ref for ref in refs.values()}.values(), key=lambda ref: ref.spec_id):
+            if run.ontology.is_legal(ABOUT, GAP, ref.label):
+                await tx.upsert_relationship(
+                    ABOUT,
+                    owner,
+                    NodeRef(ref.label, ref.uuid),
+                    link_key(new, ABOUT, ref.spec_id),
+                    {"added_by_run": run.run_id},
+                )
+        for fragment_id, quote in spec.cites:
+            digest = quote_hash(quote)
+            await tx.upsert_relationship(
+                CITES,
+                owner,
+                NodeRef(FRAGMENT, fragment_id),
+                cite_key(new, fragment_id, digest),
+                {"quote": quote, "quote_hash": digest, "added_by_run": run.run_id},
+            )
+
+    # Reconciled answers
+
+    async def _reconciled(self, gap: StoredGap) -> None:
+        """A resolved gap whose applied ``amend`` clarification reconcile changed (``steps.reconciled``)."""
+
+        current = [
+            props
+            for props in gap.clarifications
+            if props.get("status") == APPLIED and props.get("placement") == "amend"
+        ]
+        if not current:
+            return
+        props = max(current, key=lambda item: str(item.get("answered_at") or ""))
+        clr = str(props["clr_id"])
+        rows = list(await self.run.amendments.for_clarification(self.run.project_id, clr))
+        state = amendments_state(rows)
+        if not rows or props.get(RECONCILE_STATE) == state:
+            return
+        statuses = {row.status for row in rows}
+        if "suspended" in statuses:
+            await self._reconcile_follow_up(gap, clr, state, conflict_follow_up(gap, props, rows, self.snapshot))
+        elif "orphaned" in statuses:
+            await self._reconcile_follow_up(gap, clr, state, orphaned_follow_up(gap, props, rows, self.snapshot))
+        elif statuses == {"retired"}:
+            await self._absorbed(gap, clr, state, rows)
+        elif statuses & APPLIED_ROWS:
+            await self._recheck(gap, props, state)
+        else:
+            await self._clarification(clr, {RECONCILE_STATE: state})
+
+    async def _clarification(self, clr: str, changed: Mapping[str, Any], grounds: Sequence[str] = ()) -> None:
+        run = self.run
+        node = NodeRef(CLARIFICATION, clarification_uuid(run.project_id, clr))
+        build: dict[str, Any] = {} if run.build_id is None else {"build_id": run.build_id}
+        async with self._writer().transaction() as tx:
+            await tx.upsert_node(CLARIFICATION, node.key, dict(changed))
+            for fragment in grounds:
+                await tx.upsert_relationship(
+                    GROUNDED_IN, node, NodeRef(FRAGMENT, fragment), answer_key(clr, GROUNDED_IN, fragment), build
+                )
+
+    async def _reconciled_on_apply(self, gap: StoredGap, props: Mapping[str, Any]) -> bool:
+        """An answer an upload met in the build that applied it: reconcile's outcome decides, as for an applied answer
+        (a conflict or orphaned follow-up, or absorbed); the gap resolves. False when its rows are still applied."""
+
+        clr = str(props["clr_id"])
+        rows = list(await self.run.amendments.for_clarification(self.run.project_id, clr))
+        statuses = {row.status for row in rows}
+        state = amendments_state(rows)
+        if "suspended" in statuses:
+            spec = conflict_follow_up(gap, props, rows, self.snapshot)
+        elif "orphaned" in statuses:
+            spec = orphaned_follow_up(gap, props, rows, self.snapshot)
+        elif rows and statuses == {"retired"}:
+            await self._absorbed(gap, clr, state, rows, resolve=True)
+            return True
+        else:
+            return False
+        await self._reconcile_follow_up(gap, clr, state, spec, resolve=True)
+        return True
+
+    async def _reconcile_follow_up(
+        self, gap: StoredGap, clr: str, state: str, spec: FollowUpSpec, *, resolve: bool = False
+    ) -> None:
+        run = self.run
+        now = run.now().isoformat(timespec="milliseconds")
+        node = clarification_uuid(run.project_id, clr)
+        changed: dict[str, Any] = {"updated_at": now}
+        if resolve:  # an applying gap: the answer never held, the follow-up takes over
+            changed |= {"status": RESOLVED, "resolution": "follow_up", "resolved_at": now}
+        async with self._writer().transaction() as tx:
+            await tx.upsert_node(CLARIFICATION, node, {"status": spec.reason, RECONCILE_STATE: state})
+            await tx.upsert_node(GAP, gap_uuid(run.project_id, gap.gap_id), changed)
+            new = await self._follow_up(tx, gap, now, spec)
+        options = [
+            option.model_copy(update={"gap_id": new, "rank": rank, "created_run": run.run_id})
+            for rank, option in enumerate(spec.options, start=1)
+        ]
+        try:
+            await run.records.put_options(run.project_id, new, options)
+        except BaseException:  # the next run meets the answer again and writes the same follow-up with its options
+            async with self._writer().transaction() as tx:
+                await tx.upsert_node(
+                    CLARIFICATION, node, {"status": APPLIED if not resolve else PENDING, RECONCILE_STATE: ""}
+                )
+            raise
+        if resolve:
+            self.outcome.resolved.append(gap.gap_id)
+        outcome = self.outcome.reconciled
+        (outcome.conflict if spec.reason == CONFLICT else outcome.orphaned).append(gap.gap_id)
+        outcome.follow_ups[new] = gap.gap_id
+        self._event(gap.gap_id, spec.reason, clr=clr, follows_up=new)
+        self._event(new, "created", follows_up=gap.gap_id, reason=spec.reason, about=len(spec.about))
+
+    async def _absorbed(
+        self, gap: StoredGap, clr: str, state: str, rows: Sequence[Any], *, resolve: bool = False
+    ) -> None:
+        grounds = absorbed_grounds(gap, rows, self.snapshot)
+        changed: dict[str, Any] = {"status": ABSORBED, RECONCILE_STATE: state}
+        await self._clarification(clr, changed, grounds)
+        if resolve:  # the owner's upload already says what the answer said
+            now = self.run.now().isoformat(timespec="milliseconds")
+            async with self._writer().transaction() as tx:
+                resolved = {"status": RESOLVED, "resolution": "answered", "resolved_at": now, "updated_at": now}
+                await tx.upsert_node(GAP, gap_uuid(self.run.project_id, gap.gap_id), resolved)
+            self.outcome.resolved.append(gap.gap_id)
+        self.outcome.reconciled.absorbed.append(gap.gap_id)
+        self._event(gap.gap_id, ABSORBED, clr=clr, build_id=self.run.build_id, grounded=len(grounds))
+
+    async def _recheck(self, gap: StoredGap, props: Mapping[str, Any], state: str) -> None:
+        """Applied again, re-anchored or undecided: grounded again, and a follow-up when the detector fires again."""
+
+        clr = str(props["clr_id"])
+        grounds = await self._grounds(gap, props)
+        fires = still_fires(gap, self.seeds(), self.snapshot, self.run.rules) if grounds else None
+        followed = any(item.direction == "continued_by" and item.reason == NOT_FIXED for item in gap.follow_ups)
+        await self._clarification(clr, {RECONCILE_STATE: state}, grounds)
+        self.outcome.reconciled.rechecked.append(gap.gap_id)
+        self._event(gap.gap_id, "rechecked", clr=clr, build_id=self.run.build_id, grounded=len(grounds))
+        if fires and not followed:
+            now = self.run.now().isoformat(timespec="milliseconds")
+            async with self._writer().transaction() as tx:
+                await tx.upsert_node(
+                    GAP, gap_uuid(self.run.project_id, gap.gap_id), {"resolution": "follow_up", "updated_at": now}
+                )
+                new = await self._follow_up(tx, gap, now)
+            self.outcome.follow_ups[new] = gap.gap_id
+            self._event(new, "created", follows_up=gap.gap_id, reason=NOT_FIXED, about=len(gap.about_ids))
+
     # Open gaps
 
     async def _obsolete(self, gap: StoredGap) -> bool:
+        if continues(gap) is not None:  # a reconcile follow-up waits for a person, whatever the graph says
+            return False
         about = [spec_id for spec_id in gap.about_ids if spec_id in self.snapshot.nodes]
         cited = [cite for cite in gap.cites if holds(self.snapshot, cite.fragment_id, cite.quote)]
         fires = still_fires(gap, self.seeds(), self.snapshot, self.run.rules)

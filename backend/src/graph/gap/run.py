@@ -648,18 +648,24 @@ def _scope_counts(payload: Mapping[str, Any]) -> dict[str, int]:
     }
 
 
-def _close_counts(payload: Mapping[str, Any]) -> dict[str, int]:
+def _close_counts(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Gaps the close step resolved, followed up, left waiting and took out, and stale witnesses removed."""
 
     if payload.get("skipped") or "resolved" not in payload:
         return {}
-    return {
+    counts: dict[str, Any] = {
         "resolved": len(payload["resolved"]),
         "follow_ups": len(payload["follow_ups"]),
         "waiting": len(payload["waiting"]),
         "obsolete": len(payload["obsolete"]),
         "cites_removed": int(payload["cites_removed"]),
     }
+    reconciled = {
+        name: len(ids) for name, ids in sorted(payload.get("reconciled", {}).items()) if name != "follow_ups" and ids
+    }
+    if reconciled:  # answers reconcile changed: absorbed, conflict, orphaned, rechecked
+        counts["reconciled"] = reconciled
+    return counts
 
 
 def _sections_by_relevance(payload: Mapping[str, Any]) -> dict[str, dict[str, int]]:

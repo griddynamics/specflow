@@ -710,18 +710,33 @@ class RaisedGap(GapModel):
 
 
 class AmendmentResult(GapModel):
-    """The outcome of one amendment against a new source revision; ``anchor`` is the new anchor when re-anchored."""
+    """The outcome of one amendment against a new source revision (docs/graph/gap/reconcile.md "The four questions"):
+    ``anchor`` is the new anchor when re-anchored (or the owner's line a conflict suspends it on), ``line`` the line
+    or section heading that decided it, ``similarity`` the line's or section's similarity, ``verdict`` and
+    ``confidence`` the same-meaning judge's answer when it was asked (``failed`` when the call failed)."""
 
     amendment_id: str
+    clr_id: str = ""
     outcome: ReconcileOutcome
     anchor: AmendmentAnchor | None = None
+    line: str | None = None
+    similarity: float | None = None
+    verdict: str | None = None
+    confidence: float | None = None
 
 
 class ReconcileResult(GapModel):
-    """Every amendment's outcome and the effective text the build must read."""
+    """Every amendment's outcome and the effective text the build must read (reconcile.md "Where it runs").
+
+    ``changed`` are the amendment rows to store (status, anchor, ``last_revision_id``); ``applied`` the rows applied
+    to ``text`` (an ``undecided`` amendment as an insertion after its section, never stored so); ``follow_ups`` the
+    clarifications whose amendments became ``suspended`` or ``orphaned`` (the next gap run opens their follow-ups)."""
 
     amendments: tuple[AmendmentResult, ...] = ()
     text: str
+    changed: tuple[AmendmentRow, ...] = ()
+    applied: tuple[AmendmentRow, ...] = ()
+    follow_ups: tuple[str, ...] = ()
 
 
 # First slice: findings (docs/graph/gap.md "Library: Findings")

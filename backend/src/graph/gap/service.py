@@ -57,7 +57,26 @@ from graph.gap.answers import (
     write_clarification,
 )
 from graph.gap.errors import AnswerInvalidError, GapNotFoundError, GapStateError, StaleGapError
-from graph.gap.gaps import StoredGap, cite_key, clarification_uuid, gap_uuid, link_key, quote_hash, read_gaps
+from graph.gap.follow_ups import (
+    APPLIED_ROWS,
+    REVERTED_ROWS,
+    SET_ASIDE_ROWS,
+    Predecessor,
+    continued,
+    predecessors,
+    reconcile_reason,
+    settles_at_once,
+)
+from graph.gap.gaps import (
+    StoredGap,
+    answer_key,
+    cite_key,
+    clarification_uuid,
+    gap_uuid,
+    link_key,
+    quote_hash,
+    read_gaps,
+)
 from graph.gap.identity import clr_id, development_signature, gap_id, normalise_quote, person_signature
 from graph.gap.models import (
     AnswerInput,
@@ -88,6 +107,7 @@ from graph.gap.names import (
     CLARIFICATION,
     GAP,
     GRAPH_STATUSES,
+    GROUNDED_IN,
     OPEN_STATUSES,
     OWNER,
     RUN_ACTOR,
@@ -512,6 +532,8 @@ class GapService:
             raise StaleGapError(gap_id=gap.gap_id)
         graph = await AnswerGraph.read(self._reader, project_id, self._ontology, gap)
         mode, label, edits = await self._answer_edits(project_id, gap, answer)
+        if settles_at_once(gap, mode, edits):
+            return await self._settle(project_id, gap, answer, label)
         checked, placement = place(gap, check_edits(graph, edits), answer.placement)
         checked = check_edits(graph, checked)
         now = self._clock()
@@ -635,11 +657,16 @@ class GapService:
             for row in await self.amendments.for_clarification(project_id, clr)
             if row.status == "active"
         ]
+        by_id = {gap.gap_id: gap for gap in gaps}
+        replaced = [old for gap, _ in batch for old in predecessors(gap, by_id)]
+        restore = await self._revertible(project_id, replaced)
+        old_ids += [old.clr_id for old in replaced]
         now = self._clock()
         moved = [gap.gap_id for gap, _ in batch if gap.status == "answered"]
         try:
             await self.amendments.set_status(project_id, activate, "active")
             await self.amendments.set_status(project_id, revert, "reverted")
+            await self.amendments.set_status(project_id, [key for ids in restore.values() for key in ids], "reverted")
             async with self._writer(project_id).transaction() as tx:
                 for clr in new_ids:
                     await tx.upsert_node(CLARIFICATION, clarification_uuid(project_id, clr), {APPLY_MARK: _iso(now)})
@@ -652,6 +679,8 @@ class GapService:
         except BaseException:
             await self.amendments.set_status(project_id, activate, PENDING)
             await self.amendments.set_status(project_id, revert, "active")
+            for status, ids in restore.items():
+                await self.amendments.set_status(project_id, ids, status)
             raise
         events = [
             EventRow(
@@ -670,6 +699,17 @@ class GapService:
             if gap.status == "resolved"
             for props in gap.clarifications
             if props.get("status") in APPLIED_CLARIFICATIONS
+        ]
+        events += [
+            EventRow(
+                gap_id=old.gap_id,
+                clr_id=old.clr_id,
+                at=now,
+                actor=by,
+                event="superseded",
+                detail={"reason": old.reason},
+            )
+            for old in replaced
         ]
         await self._records.log(project_id, events)
         build = await self.builds.request_update_build(project_id, APPLY_REASON, immediate=immediate)
@@ -731,6 +771,10 @@ class GapService:
                     await self._records.unsuppress(project_id, signature)
             raise
         released = await self.holds.release_gap(project_id, gap.gap_id) if self.holds is not None else ()
+        if reconcile_reason(gap) is not None:  # the upload stays what the build reads (reconcile.md "Edge cases")
+            olds = await self._predecessors(project_id, gap)
+            restore = await self._revertible(project_id, olds, SET_ASIDE_ROWS)  # its applied rows still hold
+            await self.amendments.set_status(project_id, [key for ids in restore.values() for key in ids], "reverted")
         await self._records.put_options(project_id, gap.gap_id, ())
         await self._records.log(
             project_id,
@@ -879,6 +923,124 @@ class GapService:
         if not found:
             raise GapNotFoundError(gap_id=gap_id)
         return found[0]
+
+    async def _predecessors(self, project_id: str, gap: StoredGap) -> tuple[Predecessor, ...]:
+        ids = [old for old, _ in continued(gap)]
+        if not ids:
+            return ()
+        olds = await read_gaps(self._executor, project_id, self._ontology, statuses=GRAPH_STATUSES, gap_ids=ids)
+        return predecessors(gap, {old.gap_id: old for old in olds})
+
+    async def _revertible(
+        self, project_id: str, olds: Sequence[Predecessor], statuses: Collection[str] = REVERTED_ROWS
+    ) -> dict[str, list[str]]:
+        """The amendments of replaced clarifications an answer reverts, by their current status (to set back)."""
+
+        found: dict[str, list[str]] = defaultdict(list)
+        for old in olds:
+            for row in await self.amendments.for_clarification(project_id, old.clr_id):
+                if row.status in statuses:
+                    found[row.status].append(row.amendment_id)
+        return dict(found)
+
+    async def _settle(self, project_id: str, gap: StoredGap, answer: AnswerInput, label: str) -> AnswerResult:
+        """An option without edits on a reconcile follow-up (``graph.gap.follow_ups``): the follow-up resolves now.
+        "Keep the upload" is a ``pointer`` grounded in the owner's lines the gap cites; "Drop it" an ``option``
+        answer. The answer it follows up becomes ``superseded`` and its amendments ``reverted``; no build is
+        needed (the build already reads the upload)."""
+
+        olds = await self._predecessors(project_id, gap)
+        keep = reconcile_reason(gap) == "conflict"
+        now = self._clock()
+        clr = clr_id(gap.gap_id, label, now)
+        props = clarification_props(
+            clr,
+            mode="pointer" if keep else "option",
+            placement="none",
+            option_label=label,
+            text=label,
+            answered_by=answer.answered_by,
+            answered_at=now,
+        ) | {"status": "applied"}
+        pending = [item for item in gap.clarifications if item.get("status") == PENDING]
+        restore = await self._revertible(project_id, olds)
+        await self.amendments.set_status(project_id, [key for ids in restore.values() for key in ids], "reverted")
+        try:
+            async with self._writer(project_id).transaction() as tx:
+                replaces = olds[0].clr_id if olds else None
+                await write_clarification(tx, project_id, ClarificationWrite(clr, gap, props, (), replaces))
+                node = WriterRef(CLARIFICATION, clarification_uuid(project_id, clr))
+                for cite in gap.cites if keep else ():
+                    await tx.upsert_relationship(
+                        GROUNDED_IN,
+                        node,
+                        WriterRef(FRAGMENT, cite.fragment_id),
+                        answer_key(clr, GROUNDED_IN, cite.fragment_id),
+                        {},
+                    )
+                for old in olds:
+                    await tx.upsert_node(
+                        CLARIFICATION, clarification_uuid(project_id, old.clr_id), {"status": "superseded"}
+                    )
+                for item in pending:
+                    await tx.delete_node(CLARIFICATION, clarification_uuid(project_id, str(item["clr_id"])))
+                await tx.upsert_node(
+                    GAP,
+                    gap_uuid(project_id, gap.gap_id),
+                    {
+                        "status": "resolved",
+                        "resolution": "pointer" if keep else "answered",
+                        "resolved_at": _iso(now),
+                        "updated_at": _iso(now),
+                    },
+                )
+        except BaseException:
+            for status, ids in restore.items():
+                await self.amendments.set_status(project_id, ids, status)
+            raise
+        events = await self._replaced(project_id, gap, pending, by=answer.answered_by, now=now)
+        events += [
+            EventRow(
+                gap_id=gap.gap_id,
+                clr_id=clr,
+                at=now,
+                actor=answer.answered_by,
+                event="answered",
+                detail={"mode": props["mode"], "placement": "none", "amendments": 0, "replaces": replaces},
+            ),
+            EventRow(
+                gap_id=gap.gap_id,
+                clr_id=clr,
+                at=now,
+                actor=answer.answered_by,
+                event="resolved",
+                detail={"resolution": "pointer" if keep else "answered"},
+            ),
+            *(
+                EventRow(
+                    gap_id=old.gap_id,
+                    clr_id=old.clr_id,
+                    at=now,
+                    actor=answer.answered_by,
+                    event="superseded",
+                    detail={"reason": old.reason},
+                )
+                for old in olds
+            ),
+        ]
+        await self._records.log(project_id, events)
+        if self.builds is not None and set(restore) & APPLIED_ROWS:  # a part of the old answer leaves the corpus
+            await self.builds.request_update_build(project_id, APPLY_REASON, immediate=False)
+        log_event(
+            logger,
+            INFO,
+            "graph.gap.answer.settled",
+            project_id=project_id,
+            gap_id=gap.gap_id,
+            clr_id=clr,
+            reverted=sum(len(ids) for ids in restore.values()),
+        )
+        return AnswerResult(gap_id=gap.gap_id, clr_id=clr, placement="none", apply_at=now, immediate=True)
 
     async def _answerable(self, project_id: str, gap_id: str) -> StoredGap:
         """The gap, when an answer applies to it: ``open`` or ``answered``, or ``resolved`` with an applied

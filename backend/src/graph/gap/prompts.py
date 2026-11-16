@@ -11,9 +11,15 @@ from functools import cache
 from importlib.resources import files
 from typing import Final, Literal
 
-PromptName = Literal["relevance", "investigate", "judge", "edits"]
+PromptName = Literal["relevance", "investigate", "judge", "edits", "reconcile"]
 
-REVISIONS: Final[dict[PromptName, int]] = {"relevance": 1, "investigate": 1, "judge": 1, "edits": 1}
+REVISIONS: Final[dict[PromptName, int]] = {
+    "relevance": 1,
+    "investigate": 1,
+    "judge": 1,
+    "edits": 1,
+    "reconcile": 1,
+}
 """The revision of each prompt; raise it whenever the prompt's text or its input format changes."""
 
 
@@ -37,3 +43,6 @@ REPAIR_PROMPT: Final = f"{INVESTIGATE_PROMPT}.repair"
 JUDGE_PROMPT: Final = gateway_prompt("judge")
 EDITS_PROMPT: Final = gateway_prompt("edits")
 """``preview_edits`` for own text: role ``gap_edits``, the person's answer turned into edits (answers.md)."""
+RECONCILE_PROMPT: Final = f"{JUDGE_PROMPT}.reconcile.{REVISIONS['reconcile']}"
+"""Reconcile's same-meaning question (reconcile.md "The four questions"): role ``gap_judge``, its own system text
+(``prompts/reconcile.md``) and revision; not part of a run's prompt versions (reconcile runs in the corpus reader)."""
