@@ -62,6 +62,12 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Vector size of `GRAPH_EMBEDDING_MODEL`; set it together with the model, because the default fits only models with 1536 dimensions (1 to 4096). The first build of each api process checks it with one embedding call, before the schema and any extraction: a mismatch fails that build at once with `embedding_dim_mismatch`, and the `api.graph_build.failed` log gives `expected` and `actual`. To change it after a build, see [Local stack](#local-stack). |
 | `GRAPH_STATE_DIR` | `.graph-build/state` | api | Folder of the graph build file stores, relative to the working directory. |
 | `GRAPH_LLM_CONCURRENCY` | `8` | api, tools | How many graph-build model calls may run at once. |
+| `GAP_ENABLED` | `true` | api | With the graph build configured, runs gap runs and serves the gap routes; `false` makes them answer 503 `gap_unavailable` ([gap settings](graph/gap/architecture.md#settings)). |
+| `GAP_AUTO_RUN_AFTER_BUILD` | `true` | api | Queues an update gap run after each returned build; a plan run waits for it. |
+| `GAP_INVESTIGATOR` | `loop` | api | The gap investigator: `loop` or `agents`. |
+| `GAP_AI_ANSWERS` | `true` | api | Allows AI answers to gaps; when off, every gap is asked. |
+| `GAP_RULES_PATH` | empty | api | A rules file that replaces the shipped gap rules. |
+| `GAP_APPLY_QUIET_SECONDS` | `120` | api | Quiet period before pending answers are applied. |
 | `API_PORT`, `WORKER_HEALTH_PORT` | `8000`, `8001` | api, workers | Listen ports. The worker port answers `GET /healthz`. |
 | `DATABASE_PORT` | `5432` | api, workers | PostgreSQL port. |
 | `DATABASE_AGENT_USER` | `specflow_agent` | api, workers | Role for agent tools. It must differ from `DATABASE_USER`. |

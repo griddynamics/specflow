@@ -18,6 +18,8 @@ graph/gap/
   models.py            GapContext, GapSettings, GapChangeReport, GapRunResult, GapView, AnswerInput, NewGap, rows
   errors.py            GapNotFoundError, GapStateError, AnswerInvalidError, StaleGapError
   run.py               run_gap, estimate_gap: the run steps, resume from the run store
+  run_store.py         GapRunStore, GapRunRecord: the run artifact store (file and in-memory), for resume
+  gaps.py              the gap read (READ_GAPS) as StoredGap, and the keys of gap nodes and relations
   steps/
     scope.py           change reports: aliases, touched nodes, the investigation scope
     close.py           close check of applying and reconciled gaps, rekeys, obsolete gaps
@@ -120,7 +122,9 @@ The plan's `FindingsReads` port is filled by `GapService`.
 | `GAP_APPLY_QUIET_SECONDS` | `120` | Quiet period before pending answers are applied |
 | Gateway roles `gap_relevance`, `gap_investigate`, `gap_judge`, `gap_edits` | the gateway defaults | Model, token limits and timeouts per role |
 
-The host maps the settings to `GapSettings` ([api.md](api.md) "Models"); limits come from the rules file.
+The host maps the settings to `GapSettings` ([api.md](api.md) "Models") when the graph build is configured
+(`RoleSettings.gap`, with `gap_settings_from_env`); an invalid value stops the start naming the variable. Limits come
+from the rules file.
 
 ## Errors
 
@@ -135,8 +139,8 @@ The build and plan ontologies do not change. These changes are needed elsewhere:
 
 | Where | Change |
 |---|---|
-| Build runner (host) | Store each build's change report with the build; call the gap runner after a build, before the plan run; stop calling the first-slice findings refresh |
-| Plan runner (host) | Pass the change reports since the plan's last consumed build to the plan run (the plan prerequisite, its own pull request first, [lifecycle.md](lifecycle.md)) |
+| Build runner (host) | Store each build's change report with the build; call the gap runner (`after_build`) after a build, before the plan run; stop calling the first-slice findings refresh |
+| Plan runner (host) | Pass the change reports since the plan's last consumed build to the plan run (the plan prerequisite, its own pull request first, [lifecycle.md](lifecycle.md)); wait until the project has no gap run queued or running before it plans (`wait_idle`) |
 | Plan service (host wiring) | Fill the findings port with `GapService`; provide `StoryHolds`; a claim is refused when a task of the story is held by a blocker gap |
 | Corpus reader (host) | Apply amendments, add the clarifications document, call reconcile, report the effective revision id ([api.md](api.md) "Host runner") |
 | Relational store (host) | One migration adding the tables of [data-model.md](data-model.md) |
