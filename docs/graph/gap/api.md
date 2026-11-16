@@ -319,7 +319,7 @@ Under `/projects/{pid}`, in the style of the existing project routers. Project m
 
 | Method and path | Call |
 |---|---|
-| `GET /projects/{pid}/gaps` | `list_gaps` (query: status, kind, severity, origin, route, about, story_id, document, held_back, cursor, limit; a list filter repeats its parameter) |
+| `GET /projects/{pid}/gaps` | `list_gaps` (query: status, kind, severity, origin, route, about, story_id, document, held_back, cursor, limit; a list filter repeats its parameter; `document` takes the graph's document id, a lineage, or an uploaded document's id as the documents routes name it, which the route turns into its lineage `doc:<id>`) |
 | `GET /projects/{pid}/gaps/{gap_id}` | `get_gap` |
 | `POST /projects/{pid}/gaps` | `raise_gap` (origin `person`) |
 | `POST /projects/{pid}/gaps/{gap_id}/edits_preview` | `preview_edits` |
@@ -363,6 +363,14 @@ dismiss for one release, then go.
 | Gaps screen, noise report | Sections judged tracking or mixed, their signals, "Mark as not spec" and the noise rules |
 | Plan screens | Stories and tasks show open gaps and held tasks with a link to the card |
 | Document view | Banner "N answers are not in the source file yet" and "Download with answers" |
+
+Read-only first version (the Gaps screen replaces the Decisions screen at `/projects/{pid}/gaps`): the inbox lists
+gaps of route `ask` with `held_back=false`, in the service's order (severity, newest first) with development gaps
+that hold tasks first (ordering by reach needs reach on list items and comes with the interactive screen); a second
+read with `held_back=true` fills a collapsed "More found in this run" section; the card shows the witness as fragment
+and lines (`WitnessView` names no document or section yet), `ABOUT` and `IMPACTS` chips (spec id, label, name),
+options with the recommended mark, and reach; the noise report tab reads the latest run's `result.noise`. No answer,
+dismiss, revert, noise-rule or run control exists until the write routes do.
 
 The screen is built from the existing decision components (`components/decisions`: questions, option
 cards, severity badge), with a "recommended" mark added to the option cards and a real data port in place of

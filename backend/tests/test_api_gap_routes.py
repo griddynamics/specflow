@@ -146,6 +146,17 @@ async def test_the_list_passes_every_filter_and_answers_the_page(harness):
     }
 
 
+async def test_the_document_filter_takes_an_uploaded_documents_id_as_its_lineage(harness):
+    runner, pid = await gap_project(harness)
+    document = "11111111-2222-4333-8444-555555555555"
+
+    response = await harness.client.get(url(pid, f"/gaps?document={document}"), headers=bearer())
+
+    assert response.status_code == 200
+    [(_, _, filters)] = runner.gap_service.calls
+    assert filters["document"] == f"doc:{document}"  # the graph's document id of an uploaded document
+
+
 async def test_the_list_defaults_to_no_filter(harness):
     runner, pid = await gap_project(harness)
 

@@ -19,6 +19,7 @@ from api.deps import RuntimeDep, UserDep
 from api.errors import ApiError, invalid_arguments, invalid_cursor
 from api.gap.state import GapRunnerReads, GapRunState
 from api.gap_models import MAX_ID, GapListQuery, GapRunStatus
+from api.graph_build.corpus import document_lineage
 from api.plan.state import NoGraphBuildError
 from api.routers.documents import require_project
 from api.routers.plan import no_graph_build
@@ -53,6 +54,18 @@ def _runner(runtime: Runtime) -> GapRunnerReads:
     return runner
 
 
+def _lineage(document: str | None) -> str | None:
+    """The graph's document id of the ``document`` filter: an uploaded document's id (a UUID, as the documents routes
+    name it) becomes its lineage ``doc:<id>``; any other value is taken as a lineage id as it is."""
+
+    if document is None:
+        return None
+    try:
+        return document_lineage(uuid.UUID(document))
+    except ValueError:
+        return document
+
+
 def _out(state: GapRunState) -> GapRunStatus:
     return GapRunStatus(**{item.name: getattr(state, item.name) for item in dataclasses.fields(state)})
 
@@ -73,7 +86,7 @@ async def list_gaps(
     await require_project(runtime, user.id, pid)
     service = await _runner(runtime).service()
     try:
-        return await service.list_gaps(str(pid), **query.model_dump())
+        return await service.list_gaps(str(pid), **{**query.model_dump(), "document": _lineage(query.document)})
     except AnswerInvalidError as error:
         raise _refused(error) from None
 
