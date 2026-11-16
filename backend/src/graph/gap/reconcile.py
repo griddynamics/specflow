@@ -310,14 +310,34 @@ def _find_section(path: tuple[str, ...], current: Sequence[Section]) -> Section 
 # The judge
 
 
-class SameMeaningAnswer(BaseModel):
-    """The ``gap_judge`` answer of reconcile's question 3."""
+class AnswerDecision(BaseModel):
+    """One decision of the answer and whether the owner's section states it (``stated``), leaves it out or only
+    implies it (``missing``), or says otherwise (``contradicted``)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    decision: str
+    in_section: Literal["stated", "missing", "contradicted"]
+
+
+class SameMeaningAnswer(BaseModel):
+    """The ``gap_judge`` answer of reconcile's question 3: the answer's decisions, each looked up in the section, then
+    the verdict. ``decided`` holds code to the list: a ``same`` verdict with a decision the section does not state is
+    ``different`` (a partial adoption is a conflict, reconcile.md "The four questions")."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[AnswerDecision] = Field(default_factory=list)
     verdict: Literal["same", "different", "unrelated"]
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     reason: str = ""
+
+    def decided(self) -> Literal["same", "different", "unrelated"]:
+        """The verdict, ``different`` when it says ``same`` while a listed decision is missing or contradicted."""
+
+        if self.verdict == "same" and any(item.in_section != "stated" for item in self.decisions):
+            return "different"
+        return self.verdict
 
 
 def judge_messages(row: AmendmentRow, section: Section) -> list[dict[str, Any]]:
@@ -521,7 +541,7 @@ class _Document:
                 verdict=VERDICT_FAILED if failed else None,
             )
             return True
-        verdict = answer.verdict
+        verdict = answer.decided()
         if verdict == "same" and answer.confidence < self.settings.judge_min_confidence:
             verdict = "different"
         if verdict == "unrelated":
