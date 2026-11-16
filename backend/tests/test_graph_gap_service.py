@@ -67,7 +67,7 @@ async def test_list_gaps_pages_with_a_cursor() -> None:
     second = await gaps.list_gaps(PROJECT, limit=200, cursor=first.next)
 
     assert [view.gap_id for view in (*first.gaps, *second.gaps)] == [view.gap_id for view in every]
-    assert decode_cursor(encode_cursor((1, -5, "GAP::X"))) == (1, -5, "GAP::X")
+    assert decode_cursor(encode_cursor((1, -2, -5, "GAP::X"))) == (1, -2, -5, "GAP::X")
 
 
 async def test_list_gaps_filters_combine() -> None:

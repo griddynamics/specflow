@@ -22,12 +22,15 @@ from graph.gap import (
     AnswerInvalidError,
     AnswerResult,
     ApplyResult,
+    DocumentAnswer,
+    DocumentAnswers,
     EditPreview,
     GapNotFoundError,
     GapPage,
     GapRunResult,
     GapStateError,
     GapView,
+    LineageAnswers,
     NewGap,
     NoiseReport,
     NoiseRuleRow,
@@ -36,6 +39,7 @@ from graph.gap import (
     RevertResult,
     StaleGapError,
 )
+from graph.gap.corpus import DocumentClarification, clarifications_lineage
 from graph.gap.models import AmendmentRow
 from logger_harness import events, fields
 from specflow_api_support import bearer
@@ -130,6 +134,12 @@ class FakeService:
         self._call("remove_noise_rule", project_id, *args)
         return self.removed
 
+    async def document_answers(self, project_id: str) -> DocumentAnswers:
+        self._call("document_answers", project_id)
+        return self.answers or DocumentAnswers(clarifications_lineage=clarifications_lineage(project_id))
+
+    answers: DocumentAnswers | None = None
+
     async def ai_answers(self, project_id: str, **kwargs: Any) -> AiAnswerList:
         self._call("ai_answers", project_id, **kwargs)
         return AiAnswerList()
@@ -204,6 +214,7 @@ async def gap_project(harness) -> tuple[FakeGapRunner, uuid.UUID]:
 
 READ_ROUTES = (
     ("GET", "/gaps"),
+    ("GET", "/gaps/documents"),
     ("GET", "/gaps/GAP::A"),
     ("POST", "/gap/runs"),
     ("GET", "/gap/runs/latest"),
@@ -777,3 +788,72 @@ async def test_a_document_downloads_without_answers_when_gaps_are_off(harness, m
     response = await harness.client.get(url(pid, f"/documents/{document}/export?answers=1"), headers=bearer())
 
     assert response.status_code == 200 and response.text == EXPORTED_TEXT
+
+
+async def test_fr_gweb_05_the_document_view_lists_each_documents_answers_and_the_clarifications_document(
+    harness, monkeypatch
+):
+    runner, pid = await gap_project(harness)
+    amended, plain = uuid.UUID(int=31), uuid.UUID(int=32)
+    generated = clarifications_lineage(str(pid))
+    answer = DocumentAnswer(clr_id="CLR::1", gap_id="GAP::A", title="No provider", status="active", amendments=2)
+    section = DocumentAnswer(clr_id="CLR::2", gap_id="GAP::B", title="Limits", status="applied")
+    runner.gap_service.answers = DocumentAnswers(
+        lineages=(LineageAnswers(lineage=f"doc:{amended}", answers=(answer,)),),
+        clarifications_lineage=generated,
+        clarifications=(section,),
+    )
+
+    async def listed(_session, project_id):
+        assert project_id == pid
+        return [_corpus_row(amended), _corpus_row(plain)]
+
+    monkeypatch.setattr("api.routers.gaps.sources_repo.list_graph_corpus", listed)
+
+    response = await harness.client.get(url(pid, "/gaps/documents"), headers=bearer())
+
+    assert response.status_code == 200, response.text
+    documents = response.json()["documents"]
+    by_id = {item["document_id"]: item for item in documents}
+    assert documents[-1]["document_id"] == generated.removeprefix("doc:") and documents[-1]["generated"] is True
+    assert set(by_id) == {str(amended), str(plain), generated.removeprefix("doc:")}
+    assert by_id[str(amended)]["answers"] == [answer.model_dump(mode="json")] and not by_id[str(amended)]["generated"]
+    assert by_id[str(amended)]["lineage"] == f"doc:{amended}"
+    assert by_id[str(plain)]["answers"] == []
+    assert documents[-1]["path"] == "Specflow/Clarifications.md" and documents[-1]["title"] == "Clarifications"
+    assert documents[-1]["answers"] == [section.model_dump(mode="json")]
+    assert [name for name, _, _ in runner.gap_service.calls] == ["document_answers"]
+
+
+class ClarificationsRunner(FakeGapRunner):
+    """A gap runner whose corpus answers hold one clarifications-document section."""
+
+    async def corpus_answers(self, project_id: str, revisions: Any = (), *, dry_run: bool = False) -> Any:
+        assert project_id and revisions == () and dry_run
+        entry = DocumentClarification(
+            gap_id="GAP::B",
+            clr_id="CLR::2",
+            title="Review limit",
+            question="Which limit holds?",
+            text="500 EUR everywhere.",
+            answered_at="2026-11-05T09:00:00+00:00",
+        )
+        return CorpusAnswersRead(clarifications=(entry,))
+
+
+async def test_fr_gweb_05_the_clarifications_document_downloads_as_generated(harness):
+    pid = await project(harness)
+    generated = uuid.UUID(clarifications_lineage(str(pid)).removeprefix("doc:"))
+
+    harness.runtime.gaps = None
+    off = await harness.client.get(url(pid, f"/documents/{generated}/export?answers=1"), headers=bearer())
+    harness.runtime.gaps = ClarificationsRunner()
+    response = await harness.client.get(url(pid, f"/documents/{generated}/export?answers=1"), headers=bearer())
+    stranger = await harness.client.get(url(pid, f"/documents/{generated}/export"), headers=bearer("bob@example.com"))
+
+    assert off.status_code == 404 and off.json()["error"]["code"] == "document_not_found"
+    assert response.status_code == 200 and response.headers["content-type"].startswith("text/markdown")
+    assert response.headers["content-disposition"] == 'attachment; filename="Clarifications.md"'
+    assert response.text.startswith("# Clarifications\n\n## Review limit (GAP::B)\n\n500 EUR everywhere.")
+    assert "Answers: Which limit holds?" in response.text
+    assert stranger.status_code == 404 and stranger.json()["error"]["code"] == "project_not_found"
