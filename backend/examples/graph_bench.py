@@ -6,6 +6,10 @@ Run from backend/ (record needs the LLM gateway environment, replay does not):
         --state <state folder> --cassette ../.graph-bench/v1.jsonl --out ../.graph-bench/report --label v1 --wipe"
     make graph-bench ARGS="replay --project bench-demo --corpus <v1 folder> \
         --state <fresh state folder> --cassette ../.graph-bench/v1.jsonl --out ../.graph-bench/report --label v1 --wipe"
+    make graph-bench ARGS="gap-detect --nodes 5000"
+
+``gap-detect`` times graph.gap's detection on a generated graph (examples/gap_detect_bench.py, NFR-GPERF-01); it
+needs no store and no model.
 
 ``record`` runs the build (what ``graph_build.py`` does: corpus folder, ``run_build``, file stores) with a
 recording gateway: every model call is passed to the real ``Gateway`` and stored in the cassette (JSONL)
@@ -70,6 +74,7 @@ import yaml
 from pydantic import BaseModel, SecretStr
 
 from example_lib import build_result_summary, run_example
+from gap_detect_bench import run_gap_detect_bench
 from graph.build import BuildContext, BuildOptions, BuildSettings, open_file_stores, run_build
 from graph.build.verify import verify_project
 from graph.core import GraphReader, LLMConfig, ensure_schema, load_ontology
@@ -860,6 +865,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         command.add_argument("--questions", type=Path, help="replay: also run the search QA of this question file")
         command.add_argument("--questions-meta", type=Path, help="question metadata (index -> type)")
         command.add_argument("--qa-cassette", type=Path, help="embeddings of the question texts (see the qa command)")
+    gap = sub.add_parser("gap-detect", help="graph.gap detection time on a generated graph (NFR-GPERF-01)")
+    gap.add_argument("--nodes", type=int, default=5000, help="spec nodes of the generated graph (a multiple of 50)")
     qa = sub.add_parser("qa", help="invariants, timings and search QA of the graph a run left in the store")
     add_store_arguments(qa)
     qa.add_argument("--questions", type=Path, help="question file (YAML list of text + spec_id)")
@@ -1190,6 +1197,12 @@ async def qa_main(args: argparse.Namespace) -> None:
 
 async def main() -> None:
     args = parse_args()
+    if args.command == "gap-detect":
+        summary = await run_gap_detect_bench(args.nodes)
+        print(json.dumps(summary, indent=2))
+        if not summary["ok"]:
+            raise RuntimeError(f"gap detection took {summary['total_s']} s (limit {summary['limit_s']} s)")
+        return
     if args.command == "qa":
         await qa_main(args)
         return

@@ -129,6 +129,35 @@ class GapChangeReport(GapModel):
     documents: Mapping[str, str] = Field(default_factory=_empty)
 
 
+class RefusedPair(GapModel):
+    """A near-duplicate pair the build kept apart (its dedup refusal: a number, a negation or the modality differs),
+    the ends by ``spec_id``; the input of CT-VALUE (detection.md "Detector catalogue")."""
+
+    first_spec_id: str
+    second_spec_id: str
+    label: str
+    guard: str
+
+
+class CutEdge(GapModel):
+    """An edge the build took out of a cycle (quarantined as ``cycle_broken``), the ends by ``spec_id``; IN-CYCLE
+    reads it as part of the cycle."""
+
+    relation: str
+    source_spec_id: str
+    target_spec_id: str
+    fragment_ids: tuple[str, ...] = ()
+
+
+class BuildFacts(GapModel):
+    """What the build persisted with its result and detectors read (detection.md "Detector catalogue"): the dedup
+    refusals and the cycle cuts of the build the run follows. The host converts them from the build result."""
+
+    build_id: str | None = None
+    refused_pairs: tuple[RefusedPair, ...] = ()
+    cut_edges: tuple[CutEdge, ...] = ()
+
+
 # Relational rows (data-model.md "Relational store"); every table also has project_id, which the ports take.
 
 

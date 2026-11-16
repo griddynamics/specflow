@@ -136,8 +136,9 @@ dev = [
 known_first_party = [
     "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "mcp_server", "postgres", "storage",
     "temporal", "cli", "cloud_profile", "health", "settings",
-    "example_lib", "graph_build", "mcp_qa_lib",  # examples/
+    "example_lib", "gap_detect_bench", "graph_build", "mcp_qa_lib",  # examples/
     "graph_probes",  # tests/graph_probes: the store probes examples/graph_bench.py reads the graph through
+    "gap_port_fakes",  # tests/gap_port_fakes: the relational fakes examples/gap_detect_bench.py runs detection on
 ]
 extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
 
