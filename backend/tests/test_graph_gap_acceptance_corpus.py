@@ -6,15 +6,24 @@ One test per requirement unit; its docstring starts with the unit's acceptance t
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
-from gap_acceptance_support import Planted, corpus_text, pending
+import pytest
+
+from api.graph_build.corpus import PostgresCorpusSource, effective_document
+from db.sources import GraphCorpusRow
+from gap_acceptance_support import Planted, corpus_text
 from gap_answer_support import MEMBER, ORDERS_LINEAGE, answer_world
 from gap_close_support import (
     PLACE_HEADING,
     PLACE_STORY,
     answer_and_apply,
     cancel_answered_and_built,
+    corpus_answers,
     effective_corpus,
     option_text,
     plan_update,
@@ -107,6 +116,57 @@ async def test_fr_gcor_04_after_apply_build_amended_fragments_re_extracted(tmp_p
     assert corpus_text(ORDERS).count(Planted.STATED_QUESTION_LINE) == 1
 
 
-@pending("10")
-def test_fr_gcor_05_download_answers_export_effective_text_document() -> None:
-    """Given an amended document, then the export equals the text the build read."""
+async def test_fr_gcor_05_download_answers_export_effective_text_document(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given an amended document, then the export equals the text the build read.
+
+    The host's corpus reader and the export (``api.graph_build.corpus.effective_document``, the route's helper) read
+    the same stored document and the world's applied answer."""
+
+    rig = await answer_world()
+    await answer_and_apply(rig, await rig.cancel_gap(), option_rank=1)
+    document = uuid.UUID(int=11)
+    rows = [
+        GraphCorpusRow(
+            document_id=document,
+            origin="upload",
+            content_hash="c" * 64,
+            original_filename=ORDERS,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            source_id=None,
+            holder_name=None,
+            drive_connection_id=None,
+            drive_external_id=None,
+            drive_source_name=None,
+            markdown=corpus_text(ORDERS),
+            parser=None,
+        )
+    ]
+    lineage = f"doc:{document}"
+    stored = await rig.world.amendments.for_lineage(rig.project_id, ORDERS_LINEAGE)
+    await rig.world.amendments.put(rig.project_id, [row.model_copy(update={"lineage": lineage}) for row in stored])
+
+    class Answers:
+        async def corpus_answers(self, project_id: str, revisions=(), *, dry_run: bool = False):
+            del project_id  # the host's project id; the world keeps its own
+            return await corpus_answers(rig.world, revisions, dry_run=dry_run)
+
+    async def listed(_session: object, _project: uuid.UUID) -> list[GraphCorpusRow]:
+        return rows
+
+    @asynccontextmanager
+    async def session() -> AsyncIterator[object]:
+        class Session:
+            @asynccontextmanager
+            async def begin(self) -> AsyncIterator[None]:
+                yield None
+
+        yield Session()
+
+    monkeypatch.setattr("api.graph_build.corpus.repo.list_graph_corpus", listed)
+    host_project = str(uuid.UUID(int=12))
+    (read,) = await PostgresCorpusSource(session, answers=Answers()).snapshot(host_project)
+    exported = await effective_document(rows, lineage, Answers(), host_project)
+
+    assert exported is not None and exported.markdown == read.markdown
+    assert exported.revision_id == read.revision_id
+    assert "> Clarified by " in exported.markdown and Planted.STATED_QUESTION_LINE not in exported.markdown

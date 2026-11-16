@@ -203,7 +203,9 @@ class MemoryAmendments:
             self.rows[project_id].pop(amendment_id, None)
 
     async def pending_lineages(self, project_id: str) -> Sequence[str]:
-        return tuple(sorted({row.lineage for row in self.rows[project_id].values() if row.status == "active"}))
+        return tuple(
+            sorted({row.lineage for row in self.rows[project_id].values() if row.status in ("active", "undecided")})
+        )
 
 
 class ScriptedInvestigator:

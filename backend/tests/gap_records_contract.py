@@ -434,6 +434,8 @@ async def amendment_status_changes_only_in_its_project(backend: Backend) -> None
         ("AMD::2", "retired", None),
     ]
     assert tuple(await amendments.pending_lineages(a)) == ("upload:orders-spec",)
+    await amendments.set_status(a, ["AMD::1"], "undecided")  # the corpus reader still applies it (FR-GREC-08)
+    assert tuple(await amendments.pending_lineages(a)) == ("upload:orders-spec",)
     await amendments.set_status(a, ["AMD::1"], "retired")
     assert tuple(await amendments.pending_lineages(a)) == ()
 

@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from api.gap.state import GapRunState
+from api.graph_build.corpus import CorpusAnswersRead
 from api.plan.state import NoGraphBuildError
 from db.sources import GraphCorpusRow
 from graph.gap import (
@@ -33,6 +34,7 @@ from graph.gap import (
     RaisedGap,
     StaleGapError,
 )
+from graph.gap.models import AmendmentRow
 from logger_harness import events, fields
 from specflow_api_support import bearer
 
@@ -653,3 +655,95 @@ async def test_the_noise_rules_route_is_not_read_as_a_gap_id(harness):
 
     assert response.status_code == 200 and "rules" in response.json()
     assert [name for name, _, _ in runner.gap_service.calls] == ["noise_rules"]
+
+
+EXPORTED_TEXT = "# Spec\n\n## Rules\nCan it be cancelled?\n"
+
+
+def _corpus_row(document_id: uuid.UUID) -> GraphCorpusRow:
+    return GraphCorpusRow(
+        document_id=document_id,
+        origin="upload",
+        content_hash="b" * 64,
+        original_filename="specé.md",
+        created_at=NOW,
+        source_id=None,
+        holder_name=None,
+        drive_connection_id=None,
+        drive_external_id=None,
+        drive_source_name=None,
+        markdown=EXPORTED_TEXT,
+        parser=None,
+    )
+
+
+class AnswersRunner(FakeGapRunner):
+    """A gap runner that also hands the corpus its answers (``CorpusAnswers``)."""
+
+    def __init__(self, document_id: uuid.UUID) -> None:
+        super().__init__()
+        self.document_id = document_id
+
+    async def corpus_answers(self, project_id: str, revisions: Any = (), *, dry_run: bool = False) -> Any:
+        assert project_id and len(revisions) == 1 and dry_run  # an export reconciles as a dry run
+        row = AmendmentRow(
+            amendment_id="AMD::1",
+            clr_id="CLR::1",
+            lineage=f"doc:{self.document_id}",
+            heading_path=("Spec", "Rules"),
+            anchor_text="Can it be cancelled?",
+            anchor_hash="0" * 64,
+            operation="replace",
+            text="It can be cancelled.\n\n> Clarified by GAP::A",
+            status="active",
+            created_at=NOW,
+            updated_at=NOW,
+        )
+        return CorpusAnswersRead(amendments={row.lineage: (row,)})
+
+
+async def test_a_document_downloads_with_its_answers(harness, monkeypatch):
+    pid = await project(harness)
+    document = uuid.UUID(int=21)
+    harness.runtime.gaps = AnswersRunner(document)
+
+    async def listed(_session, project_id):
+        assert project_id == pid
+        return [_corpus_row(document)]
+
+    async def own(_session, _project_id, document_id):
+        return [_corpus_row(document)] if document_id == document else []
+
+    monkeypatch.setattr("api.routers.gaps.sources_repo.list_graph_corpus", listed)
+    monkeypatch.setattr("api.routers.gaps.sources_repo.graph_corpus_document", own)
+
+    answered = await harness.client.get(url(pid, f"/documents/{document}/export?answers=1"), headers=bearer())
+    plain = await harness.client.get(url(pid, f"/documents/{document}/export"), headers=bearer())
+    missing = await harness.client.get(url(pid, f"/documents/{uuid.UUID(int=22)}/export?answers=1"), headers=bearer())
+    stranger = await harness.client.get(url(pid, f"/documents/{document}/export"), headers=bearer("bob@example.com"))
+
+    assert answered.status_code == 200 and answered.headers["content-type"].startswith("text/markdown")
+    assert answered.text == "# Spec\n\n## Rules\nIt can be cancelled.\n\n> Clarified by GAP::A\n"
+    assert answered.headers["content-disposition"] == 'attachment; filename="spec_.md"'
+    assert plain.status_code == 200 and plain.text == EXPORTED_TEXT
+    assert missing.status_code == 404 and missing.json()["error"]["code"] == "document_not_found"
+    assert stranger.status_code == 404 and stranger.json()["error"]["code"] == "project_not_found"
+
+
+async def test_a_document_downloads_without_answers_when_gaps_are_off(harness, monkeypatch):
+    pid = await project(harness)
+    document = uuid.UUID(int=23)
+    harness.runtime.gaps = None
+
+    async def listed(_session, _project_id):
+        return [_corpus_row(document)]
+
+    async def own(_session, _project_id, _document_id):
+        return [_corpus_row(document)]
+
+    monkeypatch.setattr("api.routers.gaps.sources_repo.list_graph_corpus", listed)
+    monkeypatch.setattr("api.routers.gaps.sources_repo.graph_corpus_document", own)
+
+    response = await harness.client.get(url(pid, f"/documents/{document}/export?answers=1"), headers=bearer())
+
+    assert response.status_code == 200 and response.text == EXPORTED_TEXT

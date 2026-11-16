@@ -1,4 +1,15 @@
 {
   "role": "gap_judge",
-  "calls": []
+  "calls": [
+    {
+      "input_hash": "2fc5e2ef1d75dfabc243bd3ffb601b18b9fd0c75b1e419ac0fd7157cfdb4c68d",
+      "note": "reconcile own-words.md: Place order section against the cancel-paid-order answer",
+      "answer": {"verdict": "same", "confidence": 0.92, "reason": "Half an hour after payment with a full refund is the same rule as 30 minutes with the full amount refunded."}
+    },
+    {
+      "input_hash": "aa2f047f901ecfd37c03e2e64e324a61033ce443b0ee5f5058b0533c4d1c579d",
+      "note": "reconcile changed-rule.md: Place order section against the cancel-paid-order answer",
+      "answer": {"verdict": "different", "confidence": 0.95, "reason": "The section allows cancelling until shipping and keeps a 5% fee; the answer allows 30 minutes with a full refund."}
+    }
+  ]
 }

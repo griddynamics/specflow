@@ -30,7 +30,10 @@ from gap_run_support import CountingInvestigator, GapWorld
 from graph.build import CorpusRevision
 from graph.gap import run_gap
 from graph.gap.corpus import document_clarifications
+from graph.gap.gaps import read_gaps
 from graph.gap.models import AnswerInput, AnswerResult, BuildFacts, GapChangeReport, GapRunResult, GapView, RefusedPair
+from graph.gap.names import GRAPH_STATUSES
+from graph.gap.reconcile import APPLIED_STATUSES, Judge, LineageText, ReconcileInputs, reconcile_corpus
 from graph.plan.diff import DiffInputs, diff
 from graph.plan.files import open_plan_store
 from graph.plan.models import DiffArtifact
@@ -100,19 +103,58 @@ def world_data(world: GapWorld) -> dict[str, Any]:
     return world.corpus_data
 
 
-async def corpus_answers(world: GapWorld) -> CorpusAnswersRead:
-    """What the gap runner hands the corpus reader for the world's project (``GapRunner.corpus_answers``)."""
+async def corpus_answers(
+    world: GapWorld,
+    revisions: Sequence[CorpusRevision] = (),
+    *,
+    judge: Judge | None = None,
+    dry_run: bool = False,
+) -> CorpusAnswersRead:
+    """What the gap runner hands the corpus reader for the world's project (``GapRunner.corpus_answers``): with
+    ``revisions`` (a build's snapshot) the lineages are reconciled first, with ``judge`` as the same-meaning call and
+    the world's active fragments as the previous text."""
 
-    by_lineage = {
-        lineage: tuple(await world.amendments.for_lineage(world.project_id, lineage, statuses=("active",)))
-        for lineage in await world.amendments.pending_lineages(world.project_id)
-    }
+    if revisions:
+        reader = world.reader
+
+        async def previous_text(lineage: str) -> str | None:
+            fragments = [
+                item for item in await reader.fragments(world.project_id, lineage) if item.status in {None, "active"}
+            ]
+            fragments.sort(key=lambda item: (item.line_start or 0, item.ordinal or 0, item.fragment_id))
+            return "\n\n".join(item.text for item in fragments) or None
+
+        async def gap_ids() -> Mapping[str, str]:
+            gaps = await read_gaps(world.executor, world.project_id, world.ontology, statuses=GRAPH_STATUSES)
+            return {str(props.get("clr_id")): gap.gap_id for gap in gaps for props in gap.clarifications}
+
+        inputs = ReconcileInputs(
+            amendments=world.amendments,
+            records=world.records,
+            judge=judge,
+            previous_text=previous_text,
+            gap_ids=gap_ids,
+        )
+        lineages = [LineageText(item.lineage_id, item.revision_id, item.markdown) for item in revisions]
+        by_lineage = dict((await reconcile_corpus(world.project_id, lineages, inputs, dry_run=dry_run)).rows)
+    else:
+        by_lineage = {
+            lineage: tuple(await world.amendments.for_lineage(world.project_id, lineage, statuses=APPLIED_STATUSES))
+            for lineage in await world.amendments.pending_lineages(world.project_id)
+        }
     clarifications = await document_clarifications(world.executor, world.project_id, world.ontology)
     return CorpusAnswersRead(amendments=by_lineage, clarifications=clarifications)
 
 
-async def effective_corpus(world: GapWorld, uploads: Mapping[str, str] | None = None) -> list[CorpusRevision]:
-    """The corpus as the next build reads it; ``uploads`` replaces the stored text of a lineage (a new upload)."""
+async def effective_corpus(
+    world: GapWorld,
+    uploads: Mapping[str, str] | None = None,
+    *,
+    judge: Judge | None = None,
+    reconcile: bool = True,
+) -> list[CorpusRevision]:
+    """The corpus as the next build reads it; ``uploads`` replaces the stored text of a lineage (a new upload, a new
+    revision id) and, with ``reconcile``, the snapshot is reconciled like the host's corpus reader does."""
 
     stored = [
         revision.model_copy(update={"markdown": uploads[revision.lineage_id], "revision_id": "REV::UPLOADED"})
@@ -120,7 +162,8 @@ async def effective_corpus(world: GapWorld, uploads: Mapping[str, str] | None = 
         else revision
         for revision in corpus_revisions()
     ]
-    return with_answers(world.project_id, stored, await corpus_answers(world))
+    answers = await corpus_answers(world, stored if reconcile else (), judge=judge)
+    return with_answers(world.project_id, stored, answers)
 
 
 @dataclass(frozen=True)
@@ -346,14 +389,19 @@ async def _follow(world: GapWorld, data: Mapping[str, Any], extraction: Extracti
 
 
 async def apply_build(
-    world: GapWorld, *, build_id: str = "build-2", uploads: Mapping[str, str] | None = None, **outcome: Any
+    world: GapWorld,
+    *,
+    build_id: str = "build-2",
+    uploads: Mapping[str, str] | None = None,
+    judge: Judge | None = None,
+    **outcome: Any,
 ) -> Rebuilt:
     """Build the world's corpus as an update build would (module docstring), with the extraction outcome ``outcome``
-    (the fields of ``Extraction``); ``uploads`` is new source text by lineage."""
+    (the fields of ``Extraction``); ``uploads`` is new source text by lineage, reconciled with ``judge``."""
 
     extraction = Extraction(**outcome)
     data = world_data(world)
-    revisions = await effective_corpus(world, uploads)
+    revisions = await effective_corpus(world, uploads, judge=judge)
     moved: dict[tuple[str, str], tuple[str, str]] = {}
     for revision in revisions:
         moved |= _resegment(data, revision, build_id)

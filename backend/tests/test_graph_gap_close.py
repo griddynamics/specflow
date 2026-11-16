@@ -193,7 +193,7 @@ async def test_an_answer_the_build_did_not_pick_up_waits_one_build_then_follows_
     await answer_and_apply(rig, gap, option_rank=1)
     world = rig.world
     rows = await world.amendments.for_lineage(rig.project_id, ORDERS_LINEAGE)
-    await world.amendments.set_status(rig.project_id, [row.amendment_id for row in rows], "suspended")
+    await world.amendments.set_status(rig.project_id, [row.amendment_id for row in rows], "pending")
     unchanged = await apply_build(world)  # the build ran before the answer reached the corpus
 
     first = await update_run(world, unchanged)

@@ -334,6 +334,21 @@ async def test_idle_then_one_task_per_project_then_succeeded(tmp_path):
     assert len(build.contexts) == 2 and len(ensured) == 1  # ensure_schema once per process
 
 
+async def test_a_first_build_cuts_sections_and_an_update_keeps_its_frozen_options(tmp_path):
+    build = StubBuild()
+    runner = make_runner(tmp_path, build)
+
+    await runner.start(PROJECT)
+    await finished(runner, PROJECT)
+    await runner.start(PROJECT)
+    await finished(runner, PROJECT)
+
+    first, second = build.contexts
+    assert first.options == runner_module.SECTION_FRAGMENTS  # FR-GCOR-04: one fragment per section
+    assert first.options.fragment_tokens.target == 1
+    assert second.options == BuildOptions()  # the options the (stub) first build froze
+
+
 async def test_projects_wait_for_a_free_slot(tmp_path, monkeypatch):
     build = StubBuild(block=True)
     runner = make_runner(tmp_path, build)
