@@ -118,7 +118,8 @@ site joined to an existing gap, re-checks that gap: an open gap gets the relatio
 | `GapRunRecord` | The run store's record of one run ("Gap runs" above) |
 | `GapFinding`, `GapFindingPage` | What `GapService.findings` returns: an open gap as the plan's `FindingLike` (`finding_id`, `kind`, `text`, `blocking`, `about_spec_ids`, `story_id`, `created_by`, `created_at`, `orphaned`) and the page of them |
 | `GapView` | What reads return: the gap's properties (`held_back` true while the gap is a new question its run held back from the inbox's default view), `about` and `impacts` (id, type, name), `witness` (fragment id, quote, lines), `options` (from `gap_option`), `clarification` (current one), `history` (events, follow-up chain), `reach` (stories and tasks found by trace and the plan, computed at read time) |
-| `AnswerInput` | `gap_id`, `option_rank` or `own_text` (exactly one), `placement` (`amend`, `document`; default from the option's edits), `edits` (optional: edits confirmed from `preview_edits`), `answered_by` |
+| `AnswerInput` | `gap_id`, `option_rank` or `own_text` (exactly one), `placement` (`amend`, `document`; default from the option's edits), `edits` (optional: edits confirmed from `preview_edits`), `answered_by`, `updated_at` (the gap's as the caller read it; None skips the stale check) |
+| `AnswerResult`, `ApplyResult`, `EditPreview` (with `SectionPreview`), `RaisedGap` | What `answer_gap`, `apply_now`, `preview_edits` and `raise_gap` return ("Gap service" below) |
 | `NewGap` | `kind`, `question`, `about` (spec ids), `quotes` (fragment id and quote, optional), `severity` (optional), `origin` (`person` or `development`), `blocking`, `story_id` and `claim_token` (development), `created_by` |
 | `ReconcileResult` | Per amendment: `amendment_id`, outcome (`applied`, `reanchored`, `absorbed`, `conflict`, `orphaned`), the new anchor when re-anchored; and the effective text the build must read |
 | Rows of the ports | `OptionRow`, `AmendmentRow`, `RunRow`, `SeedRow`, `SiteRow`, `VerdictRow`, `SectionKey`, `RelevanceRow`, `NoiseRuleRow`, `SuppressionRow`, `NoteRow`, `EventRow`: one model per table of [data-model.md](data-model.md) "Relational store" (without `project_id`, which every port call takes); `TaskRef` (`task_id`, `story_id`, `status`) and `HoldResult` (`held`, `in_progress`) of the plan ports |
@@ -134,18 +135,26 @@ serves the inbox, the routes and the MCP tools. `plan` gives the story filter an
 |---|---|---|
 | `list_gaps(project_id, *, status=None, kind=None, severity=None, origin=None, route=None, about=None, story_id=None, document=None, held_back=None, cursor=None, limit=50)` | A page of `GapView` (no options, history or reach) and the next cursor, by severity (blocker, major, minor), newest first, then gap id; `status` (default `open`, `answered`, `applying`), `kind`, `severity`, `origin` and `route` take one value or several; `about` filters by spec ids (aliases resolved), `story_id` by the nodes the story's tasks implement (an empty page without a plan), `document` (a document id) by the gaps citing a fragment of it or `ABOUT` a node with evidence in it; `held_back=False` is the inbox's default view (the new questions a run held back are left out until the next run, FR-GRTE-06), `True` lists only those, `None` both | `AnswerInvalidError` (`field` `limit` outside 1 to 200, `cursor`, or a filter value outside its vocabulary) |
 | `get_gap(project_id, gap_id)` | `GapView` with options, history (events of `GapRecords.events`, follow-up chain) and reach (trace from the `ABOUT` and `IMPACTS` nodes along `affects`, depth 2; the plan's tasks of all of them and their stories; empty without a plan) | `GapNotFoundError` |
-| `preview_edits(project_id, gap_id, *, option_rank=None, own_text=None, placement=None)` | The edits an answer would make, with the target section's current text and the text after; for own text, AI drafts the edits (role `gap_edits`) | `GapNotFoundError`, `AnswerInvalidError` (empty text, too long, anchor not found) |
-| `answer_gap(project_id, answer: AnswerInput)` | The clarification id and the scheduled apply time | `GapNotFoundError`, `GapStateError` (gap not `open` or `answered`), `AnswerInvalidError`, `StaleGapError` (the gap's witness changed since it was shown: the person must reload) |
+| `preview_edits(project_id, gap_id, *, option_rank=None, own_text=None, placement=None)` | An `EditPreview`: the checked edits an answer would make and each target section before and after (`SectionPreview`); for own text, one `gap_edits` call drafts the edits (`drafted`), and when it fails or its edits do not check the text goes to the clarifications document as written (`fallback` names why); nothing is stored | `GapNotFoundError`, `GapStateError`, `AnswerInvalidError` (as for `answer_gap`) |
+| `answer_gap(project_id, answer: AnswerInput)` | An `AnswerResult`: the clarification id, the pending one it replaced, placement, amendment ids, the apply time (now plus the quiet period) and `immediate` (a blocking development gap, applied at once) | `GapNotFoundError`, `GapStateError` (gap not `open` or `answered`, or `resolved` without an applied clarification), `AnswerInvalidError` ([answers.md](answers.md) "Answering"), `StaleGapError` (its `updated_at` differs from `AnswerInput.updated_at`: the person must reload) |
 | `dismiss_gap(project_id, gap_id, *, reason, by)` | Nothing | `GapNotFoundError`, `GapStateError` (not `open`) |
 | `revert_clarification(project_id, clr_id, *, by, reason)` | The follow-up gap id | `GapNotFoundError`, `GapStateError` (not `applied` or `absorbed`) |
-| `raise_gap(project_id, new: NewGap)` | The gap id; with `blocking`, the released claim | `AnswerInvalidError` (unknown ids, quote not found), plan errors of the hold (`TaskStateError`) pass through |
-| `apply_now(project_id, *, by)` | The gap ids moved to `applying` and the requested build | `GapStateError` when nothing is pending |
+| `raise_gap(project_id, new: NewGap)` | A `RaisedGap` (gap id, `created` false when the same question about the same ids is open); the host then queues a `site` run on it ([answers.md](answers.md) "Raising a gap by hand"); the hold of a blocking development gap comes with the development gaps | `AnswerInvalidError` (`question`, `about` unknown ids or count, `quotes` not found), plan errors of the hold (`TaskStateError`) pass through |
+| `apply_now(project_id, *, by, immediate=False)` | An `ApplyResult`: the gaps of the pending clarifications, the clarifications and amendments applied, and the build request's answer ([answers.md](answers.md) "Applying answers") | `GapStateError` (`status` `nothing_pending`) when nothing is pending; `ConfigurationError` (`gap_builds_missing`) without `builds` |
 | `open_counts(project_id, spec_ids)` | Open gaps per spec id | Satisfies the plan's `FindingsReads` |
 | `findings(project_id, *, spec_ids=None, limit=50)` | A `GapFindingPage` whose items satisfy the plan's `FindingLike` ([lifecycle.md](lifecycle.md) "Plan link"), blocking first, then newest first | Satisfies the plan's `FindingsReads`; `AnswerInvalidError` for `limit` outside 1 to 200 |
-| `noise_rules(project_id)`, `add_noise_rule(project_id, scope, value, reason, by)`, `remove_noise_rule(project_id, rule_id, by)` | The rules; the new rule id | `AnswerInvalidError` (pattern does not compile) |
+| `noise_rules(project_id)`, `add_noise_rule(project_id, scope, value, reason, by)`, `remove_noise_rule(project_id, rule_id, by)` | The rules; the rule id (`NR::` and 12 hex of scope and value: the same rule added twice is one); whether a rule was removed | `AnswerInvalidError` (`scope`, `value` 1 to 500 characters or a pattern that does not compile, `reason` 1 to 500) |
 
 Answers and dismissals write the gap event log. Every write is one transaction in the graph store and one
-in the relational store; the relational row is written first and removed again when the graph write fails.
+in the relational store; the relational row is written first and removed again when the graph write fails. The
+relational rows are port calls, each its own transaction: the rows the graph write depends on (amendments, a
+suppression, amendment statuses) go first and are removed or set back when the graph write fails; the event rows
+follow the graph write (the log is append-only), and a dismissal deletes the options after it. Answers, applies and dismissals of one
+project run one at a time in the process (a per-project lock in `GapService`; the API runs one process), so two
+answers on one gap never both commit. An apply marks each clarification it applies (`apply_requested_at`), so a
+re-answer of a resolved gap, which stays `pending` until the close check, is not applied again. A blocking development
+answer whose immediate apply fails is kept and waits for the quiet period (`AnswerResult.immediate` false). A failed
+dismissal keeps a suppression of the signature that existed before it.
 
 ## Reconcile
 
@@ -195,8 +204,11 @@ class GapRecords(Protocol):
     async def relevance(self, project_id: str, keys: Sequence[SectionKey]) -> Mapping[SectionKey, RelevanceRow]: ...
     async def put_relevance(self, project_id: str, rows: Sequence[RelevanceRow]) -> None: ...
     async def noise_rules(self, project_id: str) -> Sequence[NoiseRuleRow]: ...
+    async def put_noise_rule(self, project_id: str, row: NoiseRuleRow) -> None: ...
+    async def delete_noise_rule(self, project_id: str, rule_id: str) -> bool: ...
     async def suppressed(self, project_id: str, signatures: Sequence[str]) -> frozenset[str]: ...
     async def suppress(self, project_id: str, row: SuppressionRow) -> None: ...
+    async def unsuppress(self, project_id: str, signature: str) -> None: ...
     async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None: ...
     async def log(self, project_id: str, events: Sequence[EventRow]) -> None: ...
     async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]: ...
@@ -207,6 +219,7 @@ class Amendments(Protocol):
     async def for_clarification(self, project_id: str, clr_id: str) -> Sequence[AmendmentRow]: ...
     async def put(self, project_id: str, rows: Sequence[AmendmentRow]) -> None: ...
     async def set_status(self, project_id: str, amendment_ids: Sequence[str], status: str, *, revision_id: str | None = None) -> None: ...
+    async def delete(self, project_id: str, amendment_ids: Sequence[str]) -> None: ...
     async def pending_lineages(self, project_id: str) -> Sequence[str]: ...
 
 class Investigator(Protocol):
@@ -240,7 +253,9 @@ recommended row of an `ask` gap are the `check` step's rule, GI5). `start_run` s
 have. `events` returns one gap's events of the project by `at`, then id. `put_seeds` and `put_sites` raise `ConformanceError` (`gap_rows_of_another_run`) for a row
 of another run; a site put again for its run takes the new values. `put_notes` files every note under the given
 run. Verdicts, relevance rows, suppressions and amendments are upserts on their keys ([data-model.md](data-model.md)
-"Relational store"). `set_status` changes only the project's amendments among the ids, ignores the others and
+"Relational store"); so is `put_noise_rule`. `delete_noise_rule` (true when the rule existed), `unsuppress` and
+`Amendments.delete` remove only the project's rows (a failed graph write takes back the rows written before it, and a
+replaced pending answer's amendments go). `set_status` changes only the project's amendments among the ids, ignores the others and
 moves `updated_at`, and raises `ConformanceError` (`gap_amendment_status_unknown`) for a status outside the
 vocabulary; `for_lineage` and `for_clarification` return rows by `created_at`, then id (code-point order), and a
 put of an existing amendment replaces it, `created_at` included. A batch that names one key twice keeps its last
@@ -266,8 +281,8 @@ another run of the same project.
 |---|---|
 | A build returns (and `auto_run_after_build`) | `update`, with the change reports of the builds since the last gap run; then the plan run |
 | `POST .../gap/runs` | `full` |
-| `raise_gap`, `add_finding` | `site` for that gap |
-| Answers pending past the quiet period, or `apply_now` | No run: amendments are activated and an update build is requested; the run after that build closes the gaps |
+| `raise_gap`, `add_finding` | `site` for that gap, at the head of the queue, on the build of the latest finished gap run (read when the run starts) |
+| Answers pending past the quiet period, or `apply_now` | No run: amendments are activated and an update build is requested (`GraphBuildRunner.request_update_build`: `started`, or `queued` behind the running build, which starts one more build when it ends); the run after that build closes the gaps |
 
 Status is polled like the plan's: step, progress, counts, the last result.
 
@@ -300,8 +315,11 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
 - **Status.** `GET .../gap/runs/latest` answers `idle`, `queued`, `running` (with the step, steps done, the items of
   the running step, the runs waiting) or the latest run's outcome with its counts and stored `GapRunResult`; an
   interrupted run shows `failed` with `interrupted`.
-- **Reads.** The routes use one `GapService` built from the runner's ontology, rules, store, relational ports,
-  settings and plan view.
+- **Reads and writes.** The routes use one `GapService` built from the runner's ontology, rules, store, relational
+  ports, settings, plan view, the build runner as `BuildRequests` (`use_builds`) and one `Gateway` for `gap_edits`
+  (closed with the runner).
+- **Answers.** `schedule_apply(project_id, at)` keeps the project's apply time (a later answer moves it); when it
+  passes, `apply_now(by="gap-apply")` runs (nothing pending is logged as skipped). The time lives in the process.
 
 The host also:
 - adds the relational tables of [data-model.md](data-model.md) "Relational store" in one migration;
@@ -335,7 +353,11 @@ Under `/projects/{pid}`, in the style of the existing project routers. Project m
 | `DELETE /projects/{pid}/gaps/noise_rules/{rule_id}` | `remove_noise_rule` |
 | `GET /projects/{pid}/documents/{document_id}/export?answers=1` | The document's text with its active amendments applied ([reconcile.md](reconcile.md) "Download with answers") |
 
-A non-member gets `404 project_not_found`, as on every project route. `get_gap` answers `404 gap_not_found` for an
+A write answers `400 answer_invalid` (`details`: `field`, `reason`), `409 gap_wrong_state` (`details`: `status`,
+`allowed`), `409 gap_stale` (the answer's `updated_at` is not the gap's: reload), `404 gap_not_found` or
+`404 noise_rule_not_found`; `POST .../gaps` answers `201` with the `RaisedGap`, `POST .../gaps/noise_rules` `201`
+with the rule id, dismiss and rule removal `204`. `GET .../gaps/noise_rules` is registered before
+`GET .../gaps/{gap_id}`. A non-member gets `404 project_not_found`, as on every project route. `get_gap` answers `404 gap_not_found` for an
 unknown gap; an invalid cursor `400 invalid_cursor`; a full run of a project without a finished build
 `409 no_graph_build`. Every gap route answers `503 gap_unavailable` while the gap runner is not configured (no graph
 build settings, or `GAP_ENABLED` off).

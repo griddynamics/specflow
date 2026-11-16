@@ -36,7 +36,7 @@ other node.
 | Label | Key | Properties |
 |---|---|---|
 | `Gap` | `gap_id` (`GAP::<12 hex>`) | `kind`, `severity`, `status`, `origin`, `route`, `resolution` (when resolved), `title`, `question`, `why`, `detector` (code, or `development`, `person`), `signature`, `blocking` (`yes` when a development gap holds the reporting agent's claimed story), `held_back` (`yes` while a new question its run held back beyond `new_questions_per_run` waits for the next run), `run_id`, `created_by`, `created_at`, `updated_at`, `resolved_at` |
-| `Clarification` | `clr_id` (`CLR::<12 hex>`) | `mode`, `placement`, `status`, `option_label`, `text`, `answered_by` (a user id, or `ai`), `answered_at`, `applied_build_id`, `basis` (JSON: quoted lines behind an AI or pointer answer), `confidence` (AI answers) |
+| `Clarification` | `clr_id` (`CLR::<12 hex>`) | `mode`, `placement`, `status`, `option_label`, `text`, `answered_by` (a user id, or `ai`), `answered_at`, `apply_requested_at` (when its answers were sent to an update build), `applied_build_id`, `basis` (JSON: quoted lines behind an AI or pointer answer), `confidence` (AI answers) |
 
 Vocabularies are those of [gap-ontology.yaml](gap-ontology.yaml). `severity` `info` is not a graph value:
 an info finding is a run note in the relational store.
@@ -89,7 +89,7 @@ gap event log.
 
 | Item | Rule |
 |---|---|
-| Signature | SHA-256 of the canonical JSON of: detector code, sorted `ABOUT` spec ids, sorted witness entries (fragment id and normalised quote, or the graph fact as text). For a development gap: `development`, the reporting task id, sorted spec ids and the normalised question |
+| Signature | SHA-256 of the canonical JSON of: detector code, sorted `ABOUT` spec ids, sorted witness entries (fragment id and normalised quote, or the graph fact as text). For a development gap: `development`, the reporting task id, sorted spec ids and the normalised question. For a gap a person raised: `person`, sorted spec ids and the normalised question |
 | `gap_id` | `GAP::` and the first 12 hex digits of the signature. A collision with a different signature appends the next 4 hex digits |
 | `clr_id` | `CLR::` and the first 12 hex digits of SHA-256 of the gap id, the answer text and the answered-at instant |
 | Normalisation | A quote (and a graph fact) is normalised by making quote marks plain, collapsing whitespace to one space and trimming it; a development gap's question is also case-folded. Canonical JSON has sorted keys and no spaces |
@@ -133,7 +133,7 @@ The tables belong to the host; `graph.gap` reaches them through the ports `GapRe
 | Table | Columns | Notes |
 |---|---|---|
 | `gap_option` | `gap_id`, `rank`, `label`, `detail`, `recommended`, `edits` (JSON), `basis` (JSON), `created_run` | Exactly one `recommended` per gap; 2 to 4 rows |
-| `corpus_amendment` | `amendment_id`, `clr_id`, `lineage`, `heading_path` (JSON), `anchor_text`, `anchor_hash`, `operation` (`insert_after`, `replace`, `append_section`), `text`, `status` (`active`, `retired`, `suspended`, `orphaned`, `reverted`, `undecided`), `last_revision_id`, `created_at`, `updated_at` | One row per edit; one clarification may have several |
+| `corpus_amendment` | `amendment_id`, `clr_id`, `lineage`, `heading_path` (JSON), `anchor_text`, `anchor_hash`, `operation` (`insert_after`, `replace`, `append_section`), `text`, `status` (`pending`, `active`, `retired`, `suspended`, `orphaned`, `reverted`, `undecided`), `last_revision_id`, `created_at`, `updated_at` | One row per edit; one clarification may have several |
 | `gap_run` | `run_id`, `build_id`, `mode` (`update`, `full`, `site`), `status`, `started_at`, `finished_at`, `counts` (JSON), `cost` (JSON), `rules_version`, `prompt_versions` (JSON) | One row per run |
 | `gap_seed` | `run_id`, `detector`, `spec_ids` (JSON), `witness` (JSON), `strength`, `relevance`, `corroborated`, `site_id` | Every detector hit |
 | `gap_site` | `site_id`, `run_id`, `input_hash`, `rank_score`, `outcome` (`gap`, `not_a_gap`, `not_spec`, `duplicate`, `skipped`, `deferred`), `gap_id` | `input_hash` keys the verdict cache |
@@ -175,4 +175,4 @@ policy `agent_project_scope` and no grant to the agent role: only the applicatio
 | GI4 | A `Clarification` with status `applied` or `absorbed` has a `GROUNDED_IN` relation; one with placement `amend` or `document` has a `PLACED_IN` relation. |
 | GI5 | Every gap with route `ask` has 2 to 4 option rows with exactly one recommended; a development gap may have none until its investigation finishes. |
 | GI6 | No gap relation ends at a node of another project, and no spec node, spec relation, document or fragment property is written by `graph.gap`. |
-| GI7 | Every active amendment belongs to a clarification with status `pending` or `applied`. |
+| GI7 | Every active or pending amendment belongs to a clarification with status `pending` or `applied`; a `pending` amendment's clarification is `pending`. |

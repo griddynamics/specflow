@@ -249,7 +249,11 @@ For a gap a coding agent reported ([lifecycle.md](lifecycle.md) "Development gap
 on the gap's own site. The agent's question stays the question; the report may refine `title`, `why`,
 `about`, `impacts`, `kind` and `severity`, and adds options or a pointer. A report with verdict `not_spec`
 (the finding is about code, not the spec) closes the gap as a note and releases the task; `not_a_gap` leaves
-it for a person to dismiss.
+it for a person to dismiss. A gap a person raised is investigated the same way (mode `site`, the question stays). No
+detector seed names such a gap, so the sites step seeds its own site: detector `person` or `development`, the
+asker's question as a fact witness (it is shown to the investigator and is part of the input hash), the quoted
+lines and the `ABOUT` nodes. The record step then refines the gap's severity, kind, title and why and stores the
+options and `IMPACTS`.
 
 ## Verdict cache
 

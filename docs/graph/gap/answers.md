@@ -113,25 +113,31 @@ prepared" and accepts an own answer at once.
 
 ### AnswerInput
 
-`GapService.answer_gap(project_id, gap_id, AnswerInput)` records an answer. `AnswerInput`:
+`GapService.answer_gap(project_id, AnswerInput)` records an answer and returns an `AnswerResult` (the
+clarification id, the pending clarification it replaced, the placement, the amendment ids, the apply time and
+whether it is applied at once). `AnswerInput`:
 
 | Field | Meaning |
 |---|---|
-| `mode` | `option` or `own` (people); `ai` and `pointer` are set only by a gap run |
-| `option_rank` | The chosen option, for `option` |
-| `text` | The person's own text, for `own` |
-| `edits` | Optional: the edits confirmed in the preview; for `own` they are required |
+| `gap_id` | The gap |
+| `option_rank` | The chosen option (mode `option`); exactly one of `option_rank` and `own_text` |
+| `own_text` | The person's own text (mode `own`); `ai` and `pointer` are set only by a gap run |
+| `edits` | Optional: the edits confirmed in the preview; an option's own edits when absent; an own text without edits goes to the clarifications document as written |
 | `placement` | Optional override: `amend` or `document` |
 | `answered_by` | The user id, from the host's session; `ai` for AI answers |
+| `updated_at` | The gap's `updated_at` as the caller read it; a gap changed since then raises `StaleGapError` (the web route requires it) |
 
-Checks, each a `GapError` with its code:
+Checks; nothing is written when one fails:
 
-| Check | Code |
+| Check | Error (`field`, `reason`) |
 |---|---|
-| The gap exists in the project and is `open` or `answered` | `gap_not_answerable` |
-| `option_rank` names one of the gap's options | `gap_option_unknown` |
-| `text` is 1 to 4000 characters for `own` | `gap_answer_length` |
-| Every edit's target resolves to an active fragment of the project, or the clarifications document | `gap_edit_target` |
+| The gap exists in the project | `GapNotFoundError` |
+| The gap is `open` or `answered`, or `resolved` with an applied clarification ("Changing an answer") | `GapStateError` |
+| The gap did not change since the caller read it | `StaleGapError` |
+| `option_rank` names one of the gap's options | `AnswerInvalidError` (`option_rank`, `unknown`) |
+| `own_text` is 1 to 4000 characters | `AnswerInvalidError` (`own_text`, `length`) |
+| 1 to 12 edits, each passing "Edits" below | `AnswerInvalidError` (`edits`, the failed check: `edit_text_length`, `edit_text_heading`, `edit_document_target`, `edit_operation`, `edit_target`, `edit_anchor`, `edit_replace_outside_gap`, `edit_anchor_twice`, `edits_count`) |
+| A placement override fits ("Placement rules") | `AnswerInvalidError` (`placement`, `contradiction_amends` or `no_anchor`) |
 | The caller is a member of the project (host check) | host error |
 
 ### Clarification
@@ -151,7 +157,11 @@ the amendment rows:
 | `basis`, `confidence` | For `ai` and `pointer`: the basis quotes and the second check's confidence |
 
 `PLACED_IN` links the clarification to each document its edits go into: the source document of every
-amendment, or the clarifications document. The gap moves to `answered`.
+amendment, or the clarifications document (linked once the generated document exists in the graph, with the
+corpus integration). The gap moves to `answered`. Order of writes: the amendment rows (`pending`) first, then
+the graph (clarification, `ANSWERS`, `PLACED_IN`, `REPLACES`, a replaced pending clarification deleted, the gap's
+status and `updated_at`) in one transaction; when it fails the amendment rows are deleted again. The events
+(`replaced`, `answered`) follow.
 
 ### Own answers become edits
 
@@ -169,8 +179,8 @@ placement with the text as written, which needs no anchor.
 
 | When | What happens |
 |---|---|
-| Before it is applied (gap `answered`, clarification `pending`) | A new answer replaces the pending clarification: the old one is deleted with its amendment rows, and the event log keeps it |
-| After it is applied (gap `resolved`) | A person answers again from the gap's history: a new clarification `REPLACES` the old one, the old one becomes `superseded`, its amendments `reverted`, and the new amendments take their place in the same update build. The gap stays `resolved`; the close check runs again |
+| Before it is applied (gap `answered`, clarification `pending`) | A new answer replaces the pending clarification: the old one is deleted with its amendment rows (an event `replaced` keeps it in the log) |
+| After it is applied (gap `resolved`) | A person answers again from the gap's history: a new `pending` clarification `REPLACES` the old one at once; when the answers are applied, the old one becomes `superseded` and its amendments `reverted`, and the new amendments take their place in the same update build. The gap stays `resolved`; the close check runs again |
 
 ## Edits
 
@@ -237,7 +247,7 @@ Each `amend` edit becomes one `corpus_amendment` row ([data-model.md](data-model
 | `heading_path` | The heading path of the target section, from the document title down |
 | `anchor_text`, `anchor_hash` | The anchor line, normalised, and its SHA-256 |
 | `operation`, `text` | From the edit; `text` includes the answer marker |
-| `status` | `active` |
+| `status` | `pending` with the answer; `active` when the answers are applied ("Applying answers") |
 | `last_revision_id` | The revision id of the document the anchor was found in |
 
 The corpus reader applies active amendments in [reconcile.md](reconcile.md) "Applying amendments".
@@ -279,7 +289,9 @@ answer recorded (gap answered, clarification pending)
 
 | Rule | Detail |
 |---|---|
-| One build at a time | `BuildRequests` queues the request when a build of the project is running; one queued request covers every answer recorded before it starts |
+| One build at a time | `BuildRequests` queues the request when a build of the project is running; one queued request covers every answer recorded before it starts. The host's build runner answers `started` or `queued` |
+| Order of writes | Amendments `pending` to `active` (and the superseded ones' to `reverted`) first, then the graph (`answered` to `applying`, `superseded` clarifications) in one transaction; when it fails the rows are set back. Then an `applying` event per clarification and the build request |
+| The quiet period | Kept by the host per project ("Host runner" in [api.md](api.md)): each answer moves the apply to `apply_quiet_seconds` after it; "Apply now" (`apply_now`) applies at once. The time lives in the API process: after a restart pending answers wait for the next answer or "Apply now" |
 | `immediate` | Skips the quiet period; it never starts a second concurrent build |
 | A failed build | Gaps stay `applying`; the next successful update build settles them. After two failed builds the event log records "apply failed" and the inbox shows it |
 | Answers recorded while a build runs | Wait for the next request |
@@ -342,6 +354,9 @@ in its brief ([lifecycle.md](lifecycle.md) "Development gaps").
 | "not spec" | Also offers to add a noise rule for the section ([detection.md](detection.md) "Relevance filter") |
 | Plan | A blocker hold on its tasks ends |
 
+Order of writes: the suppression row first, then the graph deletion in one transaction (the suppression is removed
+again when it fails), then the option rows are deleted and the `dismissed` event (with the reason) logged.
+
 A suppression ends when the signature changes: other `ABOUT` nodes, another detector, or a changed witness
 line. "Won't decide now" is a suppression too; the gap returns when its lines change.
 
@@ -356,4 +371,11 @@ and every event record the user id. There are no roles in this release ([later.m
 `development`, through MCP) open a gap: question, optional kind, the spec ids it is about, optional quoted
 lines, and, for an agent, the task and whether it blocks. Code checks the ids and quotes as for a report;
 an investigation of the site starts at once and adds options, `IMPACTS` and a severity. Until it finishes,
-the gap is `open` with severity `major` and route `ask`.
+the gap is `open` with severity `major` (or the one given) and route `ask`.
+
+| Rule | Detail |
+|---|---|
+| Checks | The question is 10 to 1000 characters; 1 to 20 spec ids that resolve (aliases too), or at least one quote; every quote is found in its active fragment of the project; else `AnswerInvalidError` (`question`, `about` or `quotes`) |
+| Signature | A person's gap: `person`, the sorted current spec ids and the normalised question ([data-model.md](data-model.md) "Identity"); the same open question about the same ids is that gap (`RaisedGap.created` false) |
+| The gap | Title: the question's first line (at most 160 characters); `detector` the origin; `ABOUT` the ids, `CITES` the quotes with their line |
+| Site run | The host queues a `site` run on the gap at the head of the queue. The sites step seeds the gap's own site (detector `person` or `development`, the question as a fact, the quoted lines, the `ABOUT` nodes); the investigation refines severity, kind, title and why and adds options and `IMPACTS`; the question stays |

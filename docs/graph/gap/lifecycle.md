@@ -23,7 +23,8 @@ answer does not hold, a follow-up gap opens and points back to it, so the histor
 | `open` | `answered` | Person, `answer_gap` | A `Clarification` (mode `option` or `own`) with status `pending`; amendments are stored |
 | `open` | `resolved` | Person or AI, pointer answer | The spec already answers it: a `pointer` clarification is `GROUNDED_IN` the answering fragment at once; resolution `pointer` |
 | `answered` | `open` | Person, withdraws the answer before it is applied | The clarification becomes `superseded` without a successor; its amendments are deleted |
-| `answered` | `answered` | Person, answers again before it is applied | A new clarification `REPLACES` the old one |
+| `answered` | `answered` | Person, answers again before it is applied | The new pending clarification replaces the old one, which is deleted with its amendments (answers.md "Changing an answer") |
+| `resolved` | `resolved` | Person, answers again after it is applied | A new pending clarification `REPLACES` the applied one, which becomes `superseded` when the answers are applied |
 | `answered` | `applying` | Apply (quiet period ends, `apply_now`, or an immediate development answer) | Amendments become active, the clarifications document is regenerated, `BuildRequests.request_update_build` is called |
 | `applying` | `resolved` | Close check, fixed | Clarification `applied`, `GROUNDED_IN` set; resolution `answered` or `ai_answered`; held tasks released |
 | `applying` | `resolved` | Close check, not fixed | Resolution `follow_up`; a new open gap `FOLLOWS_UP` it with reason `not_fixed` |
