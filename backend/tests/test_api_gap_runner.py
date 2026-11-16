@@ -68,6 +68,26 @@ async def test_two_builds_in_quick_succession_run_one_gap_run_after_the_other(tm
     assert all(gateway.closed for gateway in StubGateway.instances)
 
 
+async def test_fr_gweb_04_a_running_run_keeps_the_latest_finished_result_readable(tmp_path):
+    await store_build(tmp_path, "build-1", minutes=0)
+    await store_build(tmp_path, "build-2", minutes=5, report=REPORT)
+    run = StubGapRun()
+    runner = make_gap_runner(tmp_path, run)
+    await runner.after_build(PROJECT, "build-1")
+    await drained(runner)
+    run.release.clear()
+    run.started.clear()
+
+    await runner.after_build(PROJECT, "build-2")
+    await asyncio.wait_for(run.started.wait(), 5)
+    running = await runner.status(PROJECT)
+    run.release.set()
+    await drained(runner)
+
+    assert running.status == "running" and running.build_id == "build-2"
+    assert running.result is not None and running.result.build_id == "build-1" and running.result.noise == NOISE
+
+
 async def test_a_waiting_update_is_replaced_by_the_newer_build(tmp_path):
     for index in range(3):
         await store_build(tmp_path, f"build-{index}", minutes=index * 5)

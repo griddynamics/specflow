@@ -349,8 +349,9 @@ class GapRunner:
         queued = len(project.queue) if project is not None else 0
         active = project.active if project is not None else None
         if active is not None:
+            last = await self._last_result(runs, project_id)  # the latest finished run's result stays readable
             if record is not None and not record.finished:  # this run's record, or the run it resumes
-                return _with_items(_record_state(record, "running", queued=queued), active.items)
+                return replace(_with_items(_record_state(record, "running", queued=queued), active.items), result=last)
             return GapRunState(
                 "running",
                 mode=active.request.mode,
@@ -358,6 +359,7 @@ class GapRunner:
                 steps_total=len(RUN_STEPS),
                 queued=queued,
                 started_at=active.started_at,
+                result=last,
             )
         failure = project.failure if project is not None else None
         if failure is not None and (record is None or not record.finished or record.started_at < failure.started_at):
@@ -720,6 +722,10 @@ class GapRunner:
             return BuildFacts()
         result = await self._builds().get_result(project_id, build_id)
         return build_facts(result) if result is not None else BuildFacts(build_id=build_id)
+
+    async def _last_result(self, runs: GapRunStore, project_id: str) -> GapRunResult | None:
+        finished = await runs.latest_run(project_id, finished_only=True)
+        return None if finished is None else await runs.get_result(project_id, finished.run_id)
 
     async def _stored_state(
         self, runs: GapRunStore, project_id: str, record: GapRunRecord | None, *, queued: int
