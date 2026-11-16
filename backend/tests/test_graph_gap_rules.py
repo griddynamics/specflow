@@ -295,6 +295,67 @@ def test_a_rules_file_may_drop_a_detector_and_shrink_the_ai_kinds(tmp_path: Path
     assert rules.routing.ai_kinds == ("missing",)
 
 
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        (lambda data: data["seeds"].update(system_parts=["task"]), "seeds.system_parts: 'task' is not a spec type"),
+        (lambda data: data["seeds"].pop("system_parts"), "seeds.system_parts must list the types"),
+        (
+            lambda data: data["detectors"]["MS-COVERAGE"].update(topics=["security", "weather"]),
+            "detectors.MS-COVERAGE.topics are not checklist topics: weather",
+        ),
+        (
+            lambda data: data["detectors"]["MS-CONTRACT"].update(provided_by="IMPLEMENTS"),
+            "detectors.MS-CONTRACT.provided_by 'IMPLEMENTS' is not a declared spec relation",
+        ),
+        (
+            lambda data: data["detectors"]["MS-CONTRACT"].update(interfaces=["gizmo"]),
+            "detectors.MS-CONTRACT.interfaces: 'gizmo' is not a declared node type or group",
+        ),
+        (
+            lambda data: data["detectors"]["MS-OWNER"].update(exclude={"colour": ["red"]}),
+            "detectors.MS-OWNER.exclude: 'colour' is not declared on every end of the rule",
+        ),
+        (
+            lambda data: data["detectors"]["MS-OWNER"].update(exclude={"external": ["maybe"]}),
+            "detectors.MS-OWNER.exclude.external: maybe not values of the attribute",
+        ),
+        (
+            lambda data: data["detectors"]["MS-CONTRACT"].update(exclude="external"),
+            "detectors.MS-CONTRACT.exclude must be a mapping",
+        ),
+        (
+            lambda data: data["detectors"]["IN-SCOPE"].update(value="maybe"),
+            "detectors.IN-SCOPE.value 'maybe' is not a value of attribute 'in_scope'",
+        ),
+    ],
+)
+def test_the_detection_parameters_resolve_in_the_ontology(
+    tmp_path: Path, ontology: Ontology, change: Any, expected: str
+) -> None:
+    data = copy.deepcopy(shipped_data())
+    change(data)
+
+    assert expected in "\n".join(problems_of(tmp_path, data, ontology))
+
+
+def test_the_shipped_detection_parameters(ontology: Ontology) -> None:
+    rules = load_gap_rules(ontology=ontology)
+
+    assert set(rules.system_parts) == {"Module", "Interface", "DataEntity"}
+    assert dict(rules.detectors["MS-OWNER"].exclude) == {"external": ("yes",)}
+    contract = rules.detectors["MS-CONTRACT"]
+    assert (contract.provided_by, contract.consumed_by, contract.interface_labels) == (
+        "PROVIDED_BY",
+        "CONSUMED_BY",
+        ("Interface",),
+    )
+    assert set(contract.member_labels) == set(ontology.node_groups["requirement"].labels)
+    assert len(rules.detectors["MS-COVERAGE"].topics) == 6
+    assert rules.detectors["IN-SCOPE"].value == "no"
+    assert rules.detectors["OQ-TBD"].labels == ("OpenQuestion",)
+
+
 def test_the_catalogue_names_every_shipped_detector() -> None:
     assert set(CATALOGUE) == set(shipped_data()["detectors"])
 
@@ -390,14 +451,9 @@ def test_fr_gont_04_no_spec_label_relation_or_attribute_is_a_literal_of_the_new_
     package = Path(graph.gap.__file__).resolve().parent
     # gap's own field names that a spec type also uses, and the gap kind open_question (a gap_kind value)
     shared = {"kind", "status", "name", "text", "type", "quote", "open_question"}
-    for module in (
-        "rules.py",
-        "identity.py",
-        "models.py",
-        "ports.py",
-        "settings.py",
-        "schema.py",
-        "names.py",
-    ):
-        found = (_string_literals(package / module) & spec_names) - shared
-        assert not found, (module, sorted(found))
+    first_slice = {"findings.py", "blocking.py", "arguments.py", "resolve.py", "rows.py"}
+    modules = sorted(path for path in package.rglob("*.py") if path.relative_to(package).as_posix() not in first_slice)
+    assert package / "steps" / "detect.py" in modules
+    for module in modules:
+        found = (_string_literals(module) & spec_names) - shared
+        assert not found, (module.relative_to(package).as_posix(), sorted(found))

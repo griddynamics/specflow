@@ -1,4 +1,36 @@
 {
   "role": "gap_relevance",
-  "calls": []
+  "calls": [
+    {
+      "input_hash": "8b621c69654fa06c1f5aa80ab177b31ed8b340574e6e60a8c3bd7913a225dd95",
+      "note": "the uncertain sections of the shop corpus: S1 account-spec Order export (spec), S2 roadmap Release plan (mixed)",
+      "answer": {
+        "sections": [
+          {
+            "section": "S1",
+            "relevance": "spec",
+            "signal": "states behaviour"
+          },
+          {
+            "section": "S2",
+            "relevance": "mixed",
+            "signal": "release list with one obligation"
+          }
+        ]
+      }
+    },
+    {
+      "input_hash": "f9c71e0e1668ab850db4644b8a842f81cd977e9bee89722163b0e0ebf57fceab",
+      "note": "the shop corpus with a noise rule on roadmap Release plan: S1 account-spec Order export (spec)",
+      "answer": {
+        "sections": [
+          {
+            "section": "S1",
+            "relevance": "spec",
+            "signal": "states behaviour"
+          }
+        ]
+      }
+    }
+  ]
 }

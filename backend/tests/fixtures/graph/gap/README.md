@@ -32,12 +32,15 @@ the plan fixtures). Test helpers: `tests/gap_acceptance_support.py`.
 Section relevance by the shipped rules: the spec documents' sections have no tracking title and no tracking
 pattern, except "Order export" (one isolated node, so a tracking candidate with an obligation cue: uncertain, settled
 by the `gap_relevance` call). "Release plan" has tracking signals and "must" (uncertain); "Sprint scope",
-"Milestones" and "Retrospective" have tracking signals and no obligation cue (tracking). The expected relevance
-answers ("Order export" `spec`, "Release plan" `mixed`) are recorded by the session that adds the relevance prompt.
+"Milestones" and "Retrospective" have tracking signals and no obligation cue (tracking). The relevance answers
+("Order export" `spec`, "Release plan" `mixed`) are recorded in `recordings/gap_relevance.json`, with a second call
+for a run whose noise rule takes "Release plan" out of the batch.
 
 Other seeds the shipped rules give and the planted cases do not name: AM-MEASURE on `REQ::NFR::ADMIN_PANEL_FAST`,
-MS-OWNER on `REQ::INT::CAPTURE_THROUGH_STRIPE` and `REQ::INT::LOAD_SALES_FIGURES`, MS-CRITERIA on most functional
-requirements, MS-COVERAGE for the checklist topics no node covers. No placeholder marker is in the corpus.
+MS-CRITERIA on most functional requirements (`REQ::FR::SIGN_IN` stays uncorroborated), MS-COVERAGE for the six
+checklist topics no quality requirement or constraint covers. MS-OWNER fires on the three nodes without any relation
+(CSV export, newsletter preferences, the R2 release-plan rule); the integration requirements reach a module through
+their interface's consumer. No placeholder marker or dangling reference is in the corpus.
 
 No plan comes with the corpus. A test that needs one (Place order task, `STORY::ORDERS_SERVICE::PLACE_ORDER`) plans
 the graph itself and says so; a plan task on `REQ::FR::NEWSLETTER_PREFERENCES` would corroborate it
@@ -67,4 +70,5 @@ call up by `input_hash(role, messages)` (SHA-256 of canonical JSON). Format:
 
 A call may record `"error": "<LLMError reason>"` instead of an answer. A call nobody recorded raises
 `UnrecordedCallError`, names its hash, and fails the test through `assert_all_recorded` even when the library
-swallowed the error. The files are empty until the sessions that add the gap prompts record their calls.
+swallowed the error. A file stays empty until the session that adds its prompt records the calls
+(`gap_relevance`: session 04).
