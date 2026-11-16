@@ -51,7 +51,7 @@ Every screen is built once (`components/<area>/`); `lib/routes.ts` is the only p
 | `/login`                                           | none (no shell)         | Sign-in on the design system: one "Sign in" button (OIDC, any provider)                       |
 | `/`                                                | production `app/(app)/` | Opens the newest project's Mission Control; with no project an empty state with "New project" |
 | `/projects/<id>/mission-control`                   | production              | Mission Control on the real backend (upload, parse, summarize through the BFF)                |
-| `/projects/<id>/gaps`                              | production              | Gaps (read-only): the inbox with filters, the question card (`?gap=<id>`), the noise report   |
+| `/projects/<id>/gaps`                              | production              | Gaps: inbox, question card (`?gap=<id>`), Answered by AI, noise report, documents             |
 | `/projects/<id>/specbot`, `/connections`           | production              | Placeholder screens: no endpoint yet, so they show an empty state                             |
 | `/projects/<id>`, `/projects/<id>/documents/<doc>` | old hello routes        | 307 redirect to `/projects/<id>/mission-control`                                              |
 

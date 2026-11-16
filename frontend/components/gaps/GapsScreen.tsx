@@ -1,14 +1,18 @@
 "use client";
-// FR-GWEB-04 (docs/graph/gap/api.md "User interface"; answers.md "The question card"), read-only part: the Gaps screen, built from the decision
-// components (DecisionList, DecisionRow, SeverityBadge, QuestionBlock and OptionCards with the "Recommended" mark) over the real gaps port.
+// FR-GWEB-04, FR-GWEB-05 (docs/graph/gap/api.md "User interface"; answers.md "The question card", "Applying answers", "Review list",
+// "Raising a gap by hand"): the Gaps screen, built from the decision components (DecisionList, DecisionRow, SeverityBadge, OptionCards with
+// the "Recommended" mark) over the real gaps port.
 //  - Gate (as Plan): `useReadyGate`; not Ready or a failed read -> `NotReadyState` "No gaps yet" + "Open Mission Control"; data and `?gap=`
 //    load only once the gate is open.
-//  - Header row: the Inbox / Noise report tabs; on the inbox the filters (status, kind, severity, origin, story, document) join it. The
-//    filters go to the server (`list_gaps`): the inbox asks for route `ask` and `held_back=false` (its default view); the questions a run
-//    held back until the next run (FR-GRTE-06) are read with `held_back=true` and listed under "More found in this run", collapsed.
-//  - `?gap=<id>` opens the question card (GapCard), also when the filters hide the row; closing removes the parameter (history.replaceState).
+//  - Header row: the Inbox / Answered by AI / Noise report / Documents tabs; on the inbox the filters (status, kind, severity, origin, story,
+//    document) join it. The filters go to the server (`list_gaps`, which orders by severity, reach, then newest): the inbox asks for route
+//    `ask` and `held_back=false` (its default view); the questions a run held back until the next run (FR-GRTE-06) are read with
+//    `held_back=true` and listed under "More found in this run", collapsed. Above the list: "Apply now" (applies the answers waiting for the
+//    quiet period; `409 gap_wrong_state` means none waits) and "Raise a gap" (a dialog; the new gap's card opens).
+//  - `?gap=<id>` opens the question card (GapCard, answerable here), also when the filters hide the row; closing removes the parameter
+//    (history.replaceState). After an answer, a withdrawal or a dismissal the lists read again without a loading state.
+//  - "Answered by AI" (AiAnswers), the noise report with its rules (NoiseReport) and "Documents" (FR-GWEB-05, DocumentsTab) are tabs.
 //  - `503 gap_unavailable` (gap runs not configured) shows "Gaps are not available", never an error page.
-//  - Nothing here writes: no answer, dismiss, revert, run or apply control (they come with the write routes).
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { NotReadyState } from "@/components/shell/NotReadyState";
@@ -23,9 +27,13 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { PageTitle } from "@/components/ui/TopBar";
 import { usePorts, useRoutes } from "@/lib/data/provider";
+import { isDataError } from "@/lib/domain/errors";
 import type { Gap, GapDocument, GapsPort } from "@/lib/domain/gaps";
 import { parseGapsQuery } from "@/lib/routes";
-import { GapCard } from "./GapCard";
+import { AiAnswers } from "./AiAnswers";
+import { DocumentsTab } from "./DocumentsTab";
+import { GapCard, type CardControl } from "./GapCard";
+import { RaiseGapDialog } from "./GapDialogs";
 import { GapsUnavailable } from "./GapsUnavailable";
 import { NoiseReport } from "./NoiseReport";
 import { gapLink } from "./gap-links";
@@ -41,6 +49,7 @@ import {
   STATUS_OPTIONS,
   countText,
   failureOf,
+  failureText,
   gapQuery,
   inboxOrder,
   patchOf,
@@ -51,10 +60,12 @@ import {
 import "@/components/shell/ready-gate.css";
 import "./gaps.css";
 
-type View = "inbox" | "noise";
-const VIEWS = [
+type View = "inbox" | "ai" | "noise" | "documents";
+const VIEWS: { value: View; label: string }[] = [
   { value: "inbox", label: "Inbox" },
+  { value: "ai", label: "Answered by AI" },
   { value: "noise", label: "Noise report" },
+  { value: "documents", label: "Documents" },
 ];
 
 /** `key={projectId}`: another project starts with a fresh gate, filters and card. */
@@ -114,8 +125,11 @@ interface ListState {
 }
 const LOADING: ListState = { gaps: [], next: null, phase: "loading" };
 
-/** One `list_gaps` view (the inbox, or the held-back questions): the first page on every filter change, then "Show more". */
-function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, heldBack: boolean, tries: number) {
+/**
+ * One `list_gaps` view (the inbox, or the held-back questions): the first page on every filter change, then "Show more". `version` reads
+ * the first page again after a write and keeps the shown rows until it answers (no loading state).
+ */
+function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, heldBack: boolean, tries: number, version: number) {
   const [state, setState] = useState<{ key: string; list: ListState }>({ key: "", list: LOADING });
   const key = `${JSON.stringify(filters)}|${String(tries)}`;
   useEffect(() => {
@@ -131,7 +145,7 @@ function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, held
     return () => {
       alive = false;
     };
-  }, [gaps, projectId, filters, heldBack, key]);
+  }, [gaps, projectId, filters, heldBack, key, version]);
   const list = state.key === key ? state.list : LOADING;
   const more = useCallback(() => {
     const cursor = list.next;
@@ -173,10 +187,15 @@ function useFilterSources(projectId: string) {
   return { stories, documents };
 }
 
-/** The gap `?gap=` names, once loaded; an unknown id opens nothing and drops the parameter. */
-function useOpenGap(projectId: string, openId: string | null): Gap | null {
+/** The gap `?gap=` names, once loaded; an unknown id opens nothing and drops the parameter. `reload` reads it again. */
+function useOpenGap(projectId: string, openId: string | null): { card: Gap | null; reload: () => Promise<void> } {
   const { gaps, routes } = useGapsDeps();
   const [fetched, setFetched] = useState<Gap | null>(null);
+  const reload = useCallback(async () => {
+    if (openId === null || openId === "") return;
+    const g = await gaps.get(projectId, openId);
+    setFetched(g);
+  }, [gaps, projectId, openId]);
   useEffect(() => {
     if (openId === null || openId === "") return;
     let alive = true;
@@ -192,7 +211,7 @@ function useOpenGap(projectId: string, openId: string | null): Gap | null {
       alive = false;
     };
   }, [gaps, projectId, openId, routes]);
-  return openId !== null && fetched?.id === openId ? fetched : null;
+  return { card: openId !== null && fetched?.id === openId ? fetched : null, reload };
 }
 
 // ---- view ----
@@ -298,6 +317,46 @@ function HeldBack({
   );
 }
 
+/** "Apply now" and "Raise a gap" above the inbox, with the outcome of "Apply now" in words. */
+function InboxActions({ projectId, onApplied, onRaise }: Readonly<{ projectId: string; onApplied: () => void; onRaise: () => void }>) {
+  const { gaps } = useGapsDeps();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const apply = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const r = await gaps.applyNow(projectId);
+      const n = r.clrIds.length;
+      const what = n === 1 ? "1 answer is" : `${String(n)} answers are`;
+      const build = r.build === null ? "" : ` (build ${r.build})`;
+      setMessage(`${what} being applied${build}. The gaps resolve when the build finishes.`);
+      onApplied();
+    } catch (e) {
+      setMessage(
+        isDataErrorCode(e, "gap_wrong_state") ? "No answers are waiting to be applied." : `Answers could not be applied. ${failureText(e)}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="gaps-actions" data-testid="gaps-actions">
+      <p className="gaps-actions__msg body-sm" role="status" data-testid="gaps-apply-result">
+        {message ?? ""}
+      </p>
+      <Button variant="glass" size="sm" onClick={() => void apply()} disabled={busy} data-testid="gaps-apply-now">
+        Apply now
+      </Button>
+      <Button variant="glass" size="sm" onClick={onRaise} data-testid="gaps-raise">
+        Raise a gap
+      </Button>
+    </div>
+  );
+}
+
+const isDataErrorCode = (e: unknown, apiCode: string): boolean => isDataError(e) && e.detail?.apiCode === apiCode;
+
 function Inbox({
   inbox,
   held,
@@ -359,18 +418,72 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   const [view, setView] = useState<View>("inbox");
   const [filters, setFilters] = useState<GapFilters>(DEFAULT_GAP_FILTERS);
   const [tries, setTries] = useState(0);
-  const inbox = useGapList(gaps, projectId, filters, false, tries);
-  const held = useGapList(gaps, projectId, filters, true, tries);
+  const [version, setVersion] = useState(0);
+  const [raising, setRaising] = useState(false);
+  const inbox = useGapList(gaps, projectId, filters, false, tries, version);
+  const held = useGapList(gaps, projectId, filters, true, tries, version);
   const { stories, documents } = useFilterSources(projectId);
-  const card = useOpenGap(projectId, openId);
+  const { card, reload } = useOpenGap(projectId, openId);
   const filtered = useMemo(() => JSON.stringify(filters) !== JSON.stringify(DEFAULT_GAP_FILTERS), [filters]);
 
-  const open = (id: string) => {
-    window.history.replaceState(null, "", gapLink(routes, projectId, id));
-  };
+  const href = useCallback((id: string) => gapLink(routes, projectId, id), [routes, projectId]);
+  const open = useCallback(
+    (id: string) => {
+      window.history.replaceState(null, "", gapLink(routes, projectId, id));
+    },
+    [routes, projectId],
+  );
   const close = useCallback(() => {
     window.history.replaceState(null, "", routes.gaps(projectId));
   }, [routes, projectId]);
+  const changed = useCallback(() => {
+    setVersion((n) => n + 1);
+  }, []);
+  const control = useMemo<CardControl>(
+    () => ({
+      gaps,
+      projectId,
+      href,
+      onOpenGap: open,
+      onReload: reload,
+      onChanged: changed,
+      onDismissed: () => {
+        close();
+        changed();
+      },
+    }),
+    [gaps, projectId, href, open, reload, changed, close],
+  );
+
+  let content: ReactNode;
+  if (view === "inbox") {
+    content = (
+      <>
+        <InboxActions
+          projectId={projectId}
+          onApplied={changed}
+          onRaise={() => {
+            setRaising(true);
+          }}
+        />
+        <Inbox
+          inbox={inbox}
+          held={held}
+          filtered={filtered}
+          onOpen={open}
+          onRetry={() => {
+            setTries((n) => n + 1);
+          }}
+        />
+      </>
+    );
+  } else if (view === "ai") {
+    content = <AiAnswers gaps={gaps} projectId={projectId} href={href} onOpenGap={open} onChanged={changed} />;
+  } else if (view === "noise") {
+    content = <NoiseReport gaps={gaps} projectId={projectId} />;
+  } else {
+    content = <DocumentsTab gaps={gaps} projectId={projectId} href={href} onOpenGap={open} version={version} />;
+  }
 
   return (
     <>
@@ -380,8 +493,9 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
             label="View"
             options={VIEWS}
             value={view}
+            testId="gaps-tab"
             onChange={(v) => {
-              setView(v === "noise" ? "noise" : "inbox");
+              setView(VIEWS.find((x) => x.value === v)?.value ?? "inbox");
             }}
           />
         }
@@ -398,20 +512,22 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
           ) : undefined
         }
       />
-      {view === "inbox" ? (
-        <Inbox
-          inbox={inbox}
-          held={held}
-          filtered={filtered}
-          onOpen={open}
-          onRetry={() => {
-            setTries((n) => n + 1);
+      {content}
+      {card ? <GapCard key={card.id} gap={card} onClose={close} control={control} /> : null}
+      {raising ? (
+        <RaiseGapDialog
+          gaps={gaps}
+          projectId={projectId}
+          onClose={() => {
+            setRaising(false);
+          }}
+          onRaised={(gapId) => {
+            setRaising(false);
+            changed();
+            open(gapId);
           }}
         />
-      ) : (
-        <NoiseReport projectId={projectId} />
-      )}
-      {card ? <GapCard key={card.id} gap={card} onClose={close} /> : null}
+      ) : null}
     </>
   );
 }

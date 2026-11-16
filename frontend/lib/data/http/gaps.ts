@@ -1,20 +1,57 @@
-// FR-GWEB-04 (docs/graph/gap/api.md "Web routes", "Models"): the production `GapsPort`, read-only. `GET /projects/{pid}/gaps` (the
-// filters as query parameters, a list filter repeating its parameter; `held_back` is always sent, so the inbox's default view is
-// `held_back=false` and "More found in this run" is `held_back=true`, FR-GRTE-06), `GET /projects/{pid}/gaps/{gap_id}`,
-// `GET /projects/{pid}/gap/runs/latest` (the noise report of the latest finished run) and `GET /projects/{pid}/documents` (the Document
-// filter). Bodies are parsed strictly: any other shape is `invalid_response`. `503 gap_unavailable` rejects as `unavailable` with that
-// API code; the screen shows its "not available" state for it.
-import { getGap, getGaps, getLatestGapRun, listDocuments } from "@/lib/api";
+// FR-GWEB-04, FR-GWEB-05 (docs/graph/gap/api.md "Web routes", "Models"): the production `GapsPort`. Reads: `GET /projects/{pid}/gaps` (the
+// filters as query parameters, a list filter repeating its parameter; the inbox sends `held_back=false` and "More found in this run"
+// `held_back=true`, FR-GRTE-06; the Plan screens send none), `GET .../gaps/{gap_id}`, `GET .../gap/runs/latest` (the noise report of the
+// latest finished run), `GET .../documents` (the Document filter), `GET .../gaps/ai_answers`, `GET .../gaps/noise_rules` and
+// `GET .../gaps/documents` (the documents with the answers not in their source file yet). Writes: `POST .../gaps/{gap_id}/edits_preview`,
+// `.../answer`, `.../dismiss`, `POST .../gaps` (raise), `POST .../gaps/apply`, `POST .../gaps/clarifications/{clr_id}/revert`,
+// `POST .../gaps/noise_rules` and `DELETE .../gaps/noise_rules/{rule_id}`. Bodies are parsed strictly: any other shape is
+// `invalid_response`. Failures are `DataError`s with the API code and, for `400 answer_invalid` and `409 gap_wrong_state`, the `field`,
+// `reason` and gap `state` of the envelope's details; `503 gap_unavailable` rejects as `unavailable` (the screen's "not available" state).
 import {
+  addNoiseRule,
+  answerGap,
+  applyGapAnswers,
+  dismissGap,
+  documentExportUrl,
+  getAiAnswers,
+  getGap,
+  getGapDocuments,
+  getGaps,
+  getLatestGapRun,
+  getNoiseRules,
+  listDocuments,
+  previewGapEdits,
+  raiseGap,
+  removeNoiseRule,
+  revertClarification,
+} from "@/lib/api";
+import {
+  CLARIFICATION_PLACEMENTS,
   CLARIFICATION_STATUSES,
   GAP_KINDS,
   GAP_ORIGINS,
   GAP_ROUTES,
   GAP_SEVERITIES,
   GAP_STATUSES,
+  DOCUMENT_ANSWER_STATUSES,
+  NOISE_SCOPES,
+  type AiAnswer,
+  type AnswerDocument,
+  type AnswerInput,
+  type AnswerResult,
+  type ApplyResult,
+  type BasisQuote,
+  type DocumentAnswer,
+  type EditPlacement,
+  type EditPreview,
   type Gap,
+  type GapAnswerChoice,
   type GapClarification,
   type GapDocument,
+  type GapEdit,
+  type GapEvent,
+  type GapFollowUp,
+  type GapHistory,
   type GapNode,
   type GapNoise,
   type GapOption,
@@ -22,7 +59,10 @@ import {
   type GapQuote,
   type GapReach,
   type GapsPort,
+  type NoiseRule,
   type NoiseSection,
+  type PreviewSection,
+  type RevertResult,
 } from "@/lib/domain/gaps";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
 
@@ -30,6 +70,9 @@ const RUN_STATUSES = ["idle", "queued", "running", "completed", "degraded", "fai
 const RELEVANCE = ["spec", "tracking", "mixed"] as const;
 const DECIDED_BY = ["rules", "model", "person"] as const;
 const CLARIFICATION_MODES = ["option", "own", "ai", "pointer"] as const;
+const EDIT_PLACEMENTS = ["amend", "document"] as const;
+const OPERATIONS = ["insert_after", "replace", "append_section"] as const;
+const DIRECTIONS = ["continues", "continued_by"] as const;
 
 const oneOf = <T extends string>(values: readonly T[], v: unknown): T => {
   const found = values.find((x) => x === v);
@@ -62,8 +105,31 @@ function toNode(v: unknown): GapNode {
 
 function toQuote(v: unknown): GapQuote {
   expectShape(isRecord(v) && isString(v.fragment_id) && isString(v.quote));
-  return { fragmentId: v.fragment_id, quote: v.quote, lineStart: lineOrNull(v.line_start), lineEnd: lineOrNull(v.line_end) };
+  return {
+    fragmentId: v.fragment_id,
+    quote: v.quote,
+    lineStart: lineOrNull(v.line_start),
+    lineEnd: lineOrNull(v.line_end),
+    documentId: textOrNull(v.document_id),
+    documentTitle: textOrNull(v.document_title),
+    documentPath: textOrNull(v.document_path),
+    headingPath: listOf(v.heading_path, text),
+  };
 }
+
+function toBasis(v: unknown): BasisQuote {
+  expectShape(isRecord(v) && isString(v.fragment_id) && isString(v.quote));
+  return { fragmentId: v.fragment_id, quote: v.quote };
+}
+
+const flag = (v: unknown): boolean => {
+  expectShape(v === undefined || typeof v === "boolean");
+  return v === true;
+};
+const count = (v: unknown): number => {
+  expectShape(v === undefined || (typeof v === "number" && Number.isInteger(v) && v >= 0));
+  return typeof v === "number" ? v : 0;
+};
 
 function toOption(v: unknown): GapOption {
   expectShape(isRecord(v) && typeof v.rank === "number" && Number.isInteger(v.rank) && isString(v.label));
@@ -80,14 +146,47 @@ function toOption(v: unknown): GapOption {
 function toClarification(v: unknown): GapClarification | null {
   if (v === null || v === undefined) return null;
   expectShape(isRecord(v) && isString(v.answered_by) && isString(v.answered_at));
-  return {
+  expectShape(v.confidence === undefined || v.confidence === null || (typeof v.confidence === "number" && Number.isFinite(v.confidence)));
+  const c: GapClarification = {
     mode: oneOf(CLARIFICATION_MODES, v.mode),
     status: oneOf(CLARIFICATION_STATUSES, v.status),
     optionLabel: textOrNull(v.option_label),
     text: textOrNull(v.text),
     answeredBy: v.answered_by,
     answeredAt: v.answered_at,
+    appliedBuildId: textOrNull(v.applied_build_id),
+    basis: listOf(v.basis, toBasis),
+    confidence: typeof v.confidence === "number" ? v.confidence : null,
   };
+  if (v.clr_id !== undefined) c.clrId = text(v.clr_id);
+  if (v.placement !== undefined) c.placement = oneOf(CLARIFICATION_PLACEMENTS, v.placement);
+  return c;
+}
+
+function toEvent(v: unknown): GapEvent {
+  expectShape(isRecord(v) && isString(v.at) && isString(v.actor) && isString(v.event));
+  expectShape(v.detail === undefined || isRecord(v.detail));
+  return {
+    gapId: textOrNull(v.gap_id),
+    clrId: textOrNull(v.clr_id),
+    at: v.at,
+    actor: v.actor,
+    event: v.event,
+    detail: isRecord(v.detail) ? v.detail : {},
+  };
+}
+
+function toFollowUp(v: unknown): GapFollowUp {
+  expectShape(isRecord(v) && isString(v.gap_id) && isString(v.reason));
+  return { gapId: v.gap_id, reason: v.reason, direction: oneOf(DIRECTIONS, v.direction) };
+}
+
+function toHistory(v: unknown): GapHistory | null {
+  if (v === null || v === undefined) return null;
+  expectShape(isRecord(v));
+  // Time order, oldest first, whatever order the API sent them in.
+  const events = listOf(v.events, toEvent).toSorted((a, b) => a.at.localeCompare(b.at));
+  return { events, followUps: listOf(v.follow_ups, toFollowUp) };
 }
 
 function toReach(v: unknown): GapReach | null {
@@ -101,6 +200,7 @@ export function toGap(v: unknown): Gap {
   expectShape(isRecord(v) && isString(v.gap_id) && isString(v.title) && isString(v.question) && isString(v.created_at));
   expectShape(v.blocking === undefined || typeof v.blocking === "boolean");
   expectShape(v.held_back === undefined || typeof v.held_back === "boolean");
+  expectShape(v.updated_at === undefined || isString(v.updated_at));
   // A card never shows more than one recommendation (answers.md "The question card"): the first recommended option keeps the mark.
   const options = listOf(v.options, toOption).toSorted((a, b) => a.rank - b.rank);
   const first = options.findIndex((o) => o.recommended);
@@ -117,12 +217,14 @@ export function toGap(v: unknown): Gap {
     blocking: v.blocking === true,
     heldBack: v.held_back === true,
     createdAt: v.created_at,
+    updatedAt: isString(v.updated_at) ? v.updated_at : "",
     about: listOf(v.about, toNode),
     impacts: listOf(v.impacts, toNode),
     witness: listOf(v.witness, toQuote),
     options: options.map((o, i) => ({ ...o, recommended: i === first })),
     clarification: toClarification(v.clarification),
     reach: toReach(v.reach),
+    history: toHistory(v.history),
   };
 }
 
@@ -162,9 +264,146 @@ export function gapQueryString(q: GapQuery): string {
   many("route", q.route);
   if (q.storyId !== undefined) params.set("story_id", q.storyId);
   if (q.document !== undefined) params.set("document", q.document);
-  params.set("held_back", q.heldBack === true ? "true" : "false");
+  if (q.heldBack !== undefined) params.set("held_back", q.heldBack ? "true" : "false");
   if (q.cursor !== undefined) params.set("cursor", q.cursor);
+  if (q.limit !== undefined) params.set("limit", String(q.limit));
   return params.toString();
+}
+
+// ---- writes ----
+
+function toEdit(v: unknown): GapEdit {
+  expectShape(isRecord(v) && isString(v.text) && isRecord(v.target));
+  const t = v.target;
+  return {
+    placement: oneOf(EDIT_PLACEMENTS, v.placement),
+    target: { fragmentId: textOrNull(t.fragment_id), anchorQuote: textOrNull(t.anchor_quote), heading: textOrNull(t.heading) },
+    operation: oneOf(OPERATIONS, v.operation),
+    text: v.text,
+  };
+}
+
+/** An edit back on the wire, exactly as the preview sent it (unset target fields are left out). */
+export function editWire(e: GapEdit): Record<string, unknown> {
+  const target: Record<string, string> = {};
+  if (e.target.fragmentId !== null) target.fragment_id = e.target.fragmentId;
+  if (e.target.anchorQuote !== null) target.anchor_quote = e.target.anchorQuote;
+  if (e.target.heading !== null) target.heading = e.target.heading;
+  return { placement: e.placement, target, operation: e.operation, text: e.text };
+}
+
+function toPreviewSection(v: unknown): PreviewSection {
+  expectShape(isRecord(v) && isString(v.after));
+  return {
+    fragmentId: textOrNull(v.fragment_id),
+    lineage: textOrNull(v.lineage),
+    headingPath: listOf(v.heading_path, text),
+    before: textOr(v.before, ""),
+    after: v.after,
+  };
+}
+
+/** `EditPreview`. */
+export function toPreview(v: unknown): EditPreview {
+  expectShape(isRecord(v) && isString(v.gap_id) && Array.isArray(v.edits) && Array.isArray(v.sections));
+  return {
+    gapId: v.gap_id,
+    placement: oneOf(EDIT_PLACEMENTS, v.placement),
+    edits: v.edits.map(toEdit),
+    sections: v.sections.map(toPreviewSection),
+    drafted: flag(v.drafted),
+    fallback: textOrNull(v.fallback),
+  };
+}
+
+/** The body of an answer or a preview: the option rank or the own text, and the placement when one is given. */
+export function choiceWire(choice: GapAnswerChoice, placement: EditPlacement | undefined): Record<string, unknown> {
+  const body: Record<string, unknown> = "optionRank" in choice ? { option_rank: choice.optionRank } : { own_text: choice.ownText };
+  if (placement !== undefined) body.placement = placement;
+  return body;
+}
+
+/** `POST .../answer`: the choice, the placement, the preview's edits when it has some, and the gap's `updated_at` as read. */
+export function answerWire(input: AnswerInput): Record<string, unknown> {
+  const body = choiceWire(input.choice, input.placement);
+  if (input.edits.length > 0) body.edits = input.edits.map(editWire);
+  body.updated_at = input.updatedAt;
+  return body;
+}
+
+const ids = (v: unknown): string[] => listOf(v, text);
+
+function toAnswerResult(v: unknown): AnswerResult {
+  expectShape(isRecord(v) && isString(v.gap_id) && isString(v.clr_id) && isString(v.apply_at));
+  return {
+    gapId: v.gap_id,
+    clrId: v.clr_id,
+    replaced: textOrNull(v.replaced),
+    placement: oneOf(CLARIFICATION_PLACEMENTS, v.placement),
+    amendments: ids(v.amendments),
+    applyAt: v.apply_at,
+    immediate: flag(v.immediate),
+  };
+}
+
+function toApplyResult(v: unknown): ApplyResult {
+  expectShape(isRecord(v));
+  return { gapIds: ids(v.gap_ids), clrIds: ids(v.clr_ids), amendments: ids(v.amendments), build: textOrNull(v.build) };
+}
+
+function toAiAnswer(v: unknown): AiAnswer {
+  expectShape(isRecord(v) && isString(v.gap_id));
+  const c = toClarification(v.clarification);
+  expectShape(c?.clrId !== undefined);
+  return {
+    gapId: v.gap_id,
+    title: textOr(v.title, ""),
+    question: textOr(v.question, ""),
+    gapStatus: oneOf(GAP_STATUSES, v.gap_status),
+    clarification: { ...c, clrId: c.clrId },
+    followUp: textOrNull(v.follow_up),
+  };
+}
+
+function toRevertResult(v: unknown): RevertResult {
+  expectShape(isRecord(v) && isString(v.clr_id) && isString(v.gap_id) && typeof v.follow_up === "boolean");
+  return { clrId: v.clr_id, gapId: v.gap_id, followUp: v.follow_up, amendments: ids(v.amendments), build: textOrNull(v.build) };
+}
+
+function toNoiseRule(v: unknown): NoiseRule {
+  expectShape(isRecord(v) && isString(v.rule_id) && isString(v.value) && isString(v.reason) && isString(v.created_at));
+  return {
+    ruleId: v.rule_id,
+    scope: oneOf(NOISE_SCOPES, v.scope),
+    value: v.value,
+    reason: v.reason,
+    createdBy: textOr(v.created_by, ""),
+    createdAt: v.created_at,
+  };
+}
+
+function toDocumentAnswer(v: unknown): DocumentAnswer {
+  expectShape(isRecord(v) && isString(v.clr_id) && isString(v.status));
+  return {
+    clrId: v.clr_id,
+    gapId: textOrNull(v.gap_id),
+    title: textOr(v.title, ""),
+    status: oneOf(DOCUMENT_ANSWER_STATUSES, v.status),
+    amendments: count(v.amendments),
+  };
+}
+
+/** One row of `GET .../gaps/documents`. */
+export function toAnswerDocument(v: unknown): AnswerDocument {
+  expectShape(isRecord(v) && isString(v.document_id) && isString(v.lineage) && isString(v.path));
+  return {
+    documentId: v.document_id,
+    lineage: v.lineage,
+    path: v.path,
+    title: textOr(v.title, ""),
+    generated: flag(v.generated),
+    answers: listOf(v.answers, toDocumentAnswer),
+  };
 }
 
 export function createHttpGaps(): GapsPort {
@@ -194,5 +433,65 @@ export function createHttpGaps(): GapsPort {
         });
       });
     },
+    async previewEdits(projectId, gapId, choice, placement) {
+      const body = await guard(() => previewGapEdits(projectId, gapId, choiceWire(choice, placement)));
+      return checked(() => toPreview(body));
+    },
+    async answer(projectId, gapId, input) {
+      const body = await guard(() => answerGap(projectId, gapId, answerWire(input)));
+      return checked(() => toAnswerResult(body));
+    },
+    async dismiss(projectId, gapId, reason) {
+      await guard(() => dismissGap(projectId, gapId, reason));
+    },
+    async raise(projectId, input) {
+      const wire: Record<string, unknown> = { question: input.question, kind: input.kind, about: input.about };
+      if (input.severity !== undefined) wire.severity = input.severity;
+      const body = await guard(() => raiseGap(projectId, wire));
+      return checked(() => {
+        expectShape(isRecord(body) && isString(body.gap_id));
+        return { gapId: body.gap_id, created: body.created !== false };
+      });
+    },
+    async applyNow(projectId) {
+      const body = await guard(() => applyGapAnswers(projectId));
+      return checked(() => toApplyResult(body));
+    },
+    async aiAnswers(projectId) {
+      const body = await guard(() => getAiAnswers(projectId));
+      return checked(() => {
+        expectShape(isRecord(body));
+        return listOf(body.answers, toAiAnswer);
+      });
+    },
+    async revert(projectId, clrId, reason) {
+      const body = await guard(() => revertClarification(projectId, clrId, reason));
+      return checked(() => toRevertResult(body));
+    },
+    async noiseRules(projectId) {
+      const body = await guard(() => getNoiseRules(projectId));
+      return checked(() => {
+        expectShape(isRecord(body) && Array.isArray(body.rules));
+        return body.rules.map(toNoiseRule);
+      });
+    },
+    async addNoiseRule(projectId, rule) {
+      const body = await guard(() => addNoiseRule(projectId, { scope: rule.scope, value: rule.value, reason: rule.reason }));
+      return checked(() => {
+        expectShape(isRecord(body) && isString(body.rule_id));
+        return body.rule_id;
+      });
+    },
+    async removeNoiseRule(projectId, ruleId) {
+      await guard(() => removeNoiseRule(projectId, ruleId));
+    },
+    async answerDocuments(projectId) {
+      const body = await guard(() => getGapDocuments(projectId));
+      return checked(() => {
+        expectShape(isRecord(body) && Array.isArray(body.documents));
+        return body.documents.map(toAnswerDocument);
+      });
+    },
+    exportUrl: documentExportUrl,
   };
 }

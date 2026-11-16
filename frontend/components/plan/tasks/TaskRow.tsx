@@ -1,19 +1,22 @@
 "use client";
 // FE-PLAN-06.AC8 (G-PLAN-5; DECISIONS P24-2, P27; Q20): one task row. The button shows the title, the phase Tag, a "Rule-made" Tag when the
-// fallback rules wrote the task (the planner's answer stayed invalid), and the status Tag (the word is always there, never colour alone);
+// fallback rules wrote the task (the planner's answer stayed invalid), "N open gaps" (FR-GWEB-04) when gaps are about what it implements,
+// and the status Tag (the word is always there, never colour alone);
 // activating it opens or closes the task body below it.
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Tag } from "@/components/ui/Tag";
 import type { PlanTask } from "@/lib/domain/plan";
+import { openGapsText } from "@/components/gaps/gaps-logic";
 import { PHASE_NAMES, STATUS_TAGS } from "./task-logic";
 
 export function TaskRow({
   task,
+  gapCount = 0,
   open,
   onToggle,
   children,
-}: Readonly<{ task: PlanTask; open: boolean; onToggle: () => void; children?: ReactNode }>) {
+}: Readonly<{ task: PlanTask; gapCount?: number; open: boolean; onToggle: () => void; children?: ReactNode }>) {
   const status = STATUS_TAGS[task.status];
   const bodyId = `plan-task-${task.taskId.replace(/[^\w-]/g, "-")}`;
   return (
@@ -36,6 +39,11 @@ export function TaskRow({
         {task.plannedBy === "rules" ? (
           <span data-testid="plan-task-rules">
             <Tag tone="warning">Rule-made</Tag>
+          </span>
+        ) : null}
+        {gapCount > 0 ? (
+          <span data-testid="plan-task-gaps">
+            <Tag tone="warning">{openGapsText(gapCount)}</Tag>
           </span>
         ) : null}
         {status ? (

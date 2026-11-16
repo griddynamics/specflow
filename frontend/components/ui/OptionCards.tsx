@@ -136,6 +136,7 @@ export function OptionCards({
                 value={other}
                 placeholder={nonEmpty(otherPlaceholder) ?? "Describe your answer"}
                 aria-label="Other answer"
+                data-testid="option-other-text"
                 readOnly={disabled}
                 onChange={(e) => {
                   setOther(e.target.value);

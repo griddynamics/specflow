@@ -32,6 +32,8 @@ export class ApiError extends Error {
     message: string = code,
     /** `details.max_bytes` of a 413 `file_too_large`: the cap of that file type. */
     readonly maxBytes?: number,
+    /** The envelope's `details` (e.g. `field` and `reason` of a 400 `answer_invalid`, `status` of a 409 `gap_wrong_state`). */
+    readonly details?: Readonly<Record<string, unknown>>,
   ) {
     super(message);
   }
@@ -42,7 +44,7 @@ const BASE = "/api/backend";
 const HEADERS = { "X-Requested-With": "specflow" };
 
 export interface ParsedEnvelope {
-  body: { error?: { code?: unknown; details?: { max_bytes?: unknown } } } | null;
+  body: { error?: { code?: unknown; details?: { max_bytes?: unknown } & Record<string, unknown> } } | null;
   parsed: boolean;
 }
 
@@ -90,9 +92,10 @@ async function call(path: string, init: RequestInit = {}): Promise<{ status: num
   const { body, parsed } = await readEnvelope(res);
   if (!res.ok) {
     const code = parsed && typeof body?.error?.code === "string" ? body.error.code : `http_${String(res.status)}`;
-    const maxBytes = body?.error?.details?.max_bytes;
+    const details = body?.error?.details;
+    const maxBytes = details?.max_bytes;
     if (parsed && code === body?.error?.code)
-      throw new ApiError(res.status, code, code, typeof maxBytes === "number" ? maxBytes : undefined);
+      throw new ApiError(res.status, code, code, typeof maxBytes === "number" ? maxBytes : undefined, details ?? undefined);
     throw new ApiError(res.status, code, `Request failed (HTTP ${String(res.status)}). Please try again.`);
   }
   if (!parsed) throw new ApiError(res.status, "invalid_response", `Unexpected response from the server (HTTP ${String(res.status)}).`);
@@ -188,14 +191,41 @@ export const dismissFinding = (pid: string, fid: string, note: string | undefine
   httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/dismiss`, json({ note: note ?? null })).then(
     (r) => r.body,
   );
-// The Gaps screen (FR-GWEB-04, read-only): the gap list (`query` is the encoded `list_gaps` filters, never empty: `held_back` is always sent; a list filter repeating its parameter),
-// one gap, the latest gap run with its noise report, and the project's documents for the Document filter. Bodies stay `unknown`; the
-// gaps port (lib/data/http/gaps.ts) checks their shape.
+// The Gaps screen (FR-GWEB-04): the gap list (`query` is the encoded `list_gaps` filters, never empty: `held_back` is always sent; a list
+// filter repeating its parameter), one gap, the latest gap run with its noise report, the project's documents for the Document filter, and
+// the writes: edits preview, answer, dismiss, raise, apply now, the "Answered by AI" list and revert, the noise rules, and the documents
+// with the answers not in their source file yet. Bodies stay `unknown`; the gaps port (lib/data/http/gaps.ts) checks their shape. POSTs
+// and DELETEs go through `call`, so they carry the CSRF header (the BFF adds nothing; the browser sends the Origin).
 export const getGaps = (pid: string, query: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps?${query}`).then((r) => r.body);
 export const getGap = (pid: string, gid: string) =>
   httpGet(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}`).then((r) => r.body);
 export const getLatestGapRun = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gap/runs/latest`).then((r) => r.body);
 export const listDocuments = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/documents?limit=100`).then((r) => r.body);
+export const previewGapEdits = (pid: string, gid: string, body: Record<string, unknown>) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/edits_preview`, json(body)).then((r) => r.body);
+export const answerGap = (pid: string, gid: string, body: Record<string, unknown>) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/answer`, json(body)).then((r) => r.body);
+/** Resolves with the HTTP status (204 = dismissed). */
+export const dismissGap = (pid: string, gid: string, reason: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/dismiss`, json({ reason })).then((r) => r.status);
+export const raiseGap = (pid: string, body: Record<string, unknown>) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/gaps`, json(body)).then((r) => r.body);
+export const applyGapAnswers = (pid: string) => httpPost(`/projects/${encodeURIComponent(pid)}/gaps/apply`).then((r) => r.body);
+export const getAiAnswers = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps/ai_answers?limit=50`).then((r) => r.body);
+export const revertClarification = (pid: string, clr: string, reason: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/clarifications/${encodeURIComponent(clr)}/revert`, json({ reason })).then(
+    (r) => r.body,
+  );
+export const getNoiseRules = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules`).then((r) => r.body);
+export const addNoiseRule = (pid: string, body: Record<string, unknown>) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules`, json(body)).then((r) => r.body);
+/** Resolves with the HTTP status (204 = removed). */
+export const removeNoiseRule = (pid: string, rid: string) =>
+  httpDelete(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules/${encodeURIComponent(rid)}`).then((r) => r.status);
+export const getGapDocuments = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps/documents`).then((r) => r.body);
+/** "Download with answers" (FR-GWEB-05): a plain same-origin link (a GET needs no CSRF header); the BFF passes the attachment through. */
+export const documentExportUrl = (pid: string, did: string) =>
+  `${BASE}/projects/${encodeURIComponent(pid)}/documents/${encodeURIComponent(did)}/export?answers=1`;
 export const getClaims = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/claims`).then((r) => r.body);
 export const releaseClaim = (pid: string, sid: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/plan/claims/${encodeURIComponent(sid)}/release`).then((r) => r.body);

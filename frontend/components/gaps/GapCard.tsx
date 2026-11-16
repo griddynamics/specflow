@@ -1,18 +1,40 @@
 "use client";
-// FR-GWEB-04 (gap answers.md "The question card"; api.md "User interface"), read-only: the question card of one gap in the P04 Modal (focus
-// trap, Esc, focus returns to the opener). Chips (severity, kind, origin, status, blocking), the title, the question with its options in the
-// decision QuestionBlock (read-only; the recommended option carries the "Recommended" mark), why, the ABOUT and IMPACTS nodes, the quoted
-// witness lines with their source, the reach (stories, tasks) and, once answered, the recorded answer. No answering control: answering,
-// "Other", the edits preview, placement and "Not a gap" come with the write routes.
+// FR-GWEB-04 (gap answers.md "The question card", "Answering", "Revert", "Dismissing"; api.md "User interface"): the question card of one gap
+// in the P04 Modal (focus trap, Esc, focus returns to the opener). Chips (severity, kind, origin, status, blocking), the title, the question
+// with its options, why, the ABOUT and IMPACTS nodes, the quoted witness lines with their source (document › section · lines when the read
+// names them), the reach (stories, tasks), the recorded answer, and the collapsible history with its follow-ups.
+// With a `control` (the Gaps screen) an open or answered gap is answerable (GapAnswer.tsx: options as a radio group, "Other", the edits
+// preview, the placement, Submit in the footer, stale handling) and can be dismissed ("Not a gap", GapDialogs.tsx); a recorded answer that
+// is pending, applied or absorbed can be withdrawn ("Withdraw answer", a revert with a reason). Without one the card is read-only.
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { QuestionBlock } from "@/components/ui/QuestionBlock";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { Tag } from "@/components/ui/Tag";
-import type { Gap, GapNode } from "@/lib/domain/gaps";
-import { KIND_LABEL, ORIGIN_LABEL, SEVERITY_LABEL, SEVERITY_LEVEL, STATUS_LABEL, clarificationText, quoteSource } from "./gaps-logic";
+import type { Gap, GapNode, RevertResult } from "@/lib/domain/gaps";
+import { AnswerForm, AnswerMessages, useGapAnswer, type CardControl, type GapAnswerState } from "./GapAnswer";
+import { DismissDialog, ReasonDialog } from "./GapDialogs";
+import { GapHistory } from "./GapHistory";
+import {
+  CLARIFICATION_STATUS_LABEL,
+  KIND_LABEL,
+  ORIGIN_LABEL,
+  SEVERITY_LABEL,
+  SEVERITY_LEVEL,
+  STATUS_LABEL,
+  answerable,
+  appliedWhenText,
+  clarificationText,
+  confidenceText,
+  quoteSource,
+  withdrawable,
+  witnessSection,
+} from "./gaps-logic";
 import "./gaps.css";
+
+export type { CardControl } from "./GapAnswer";
 
 function NodeChips({ title, nodes, testId }: Readonly<{ title: string; nodes: GapNode[]; testId: string }>) {
   if (nodes.length === 0) return null;
@@ -33,7 +55,7 @@ function NodeChips({ title, nodes, testId }: Readonly<{ title: string; nodes: Ga
   );
 }
 
-/** The options as decision option cards; the recorded option is shown chosen. */
+/** The options as decision option cards, read-only; the recorded option is shown chosen. */
 function GapQuestion({ gap }: Readonly<{ gap: Gap }>) {
   const value = (label: string | null) => gap.options.find((o) => o.label === label)?.rank;
   const chosen = gap.clarification === null ? undefined : value(gap.clarification.optionLabel);
@@ -61,29 +83,44 @@ function GapQuestion({ gap }: Readonly<{ gap: Gap }>) {
   );
 }
 
-export function GapCard({ gap, onClose }: Readonly<{ gap: Gap; onClose: () => void }>) {
+/** The recorded answer: its words, who answered, its status, an AI answer's confidence and basis, and "Withdraw answer". */
+function RecordedAnswer({ gap, onWithdraw }: Readonly<{ gap: Gap; onWithdraw: (() => void) | null }>) {
+  const c = gap.clarification;
+  if (c === null) return null;
+  const confidence = confidenceText(c.confidence);
+  return (
+    <section className="gap-sec" aria-label="Answer" data-testid="gap-answer">
+      <h3 className="gap-sec__title eyebrow">Answer</h3>
+      <p className="gap-text">{clarificationText(c)}</p>
+      <p className="gap-quote__src body-sm">
+        {c.mode === "ai" ? "Answered by AI" : `Answered by ${c.answeredBy}`} · {CLARIFICATION_STATUS_LABEL[c.status]}
+        {confidence === null ? null : ` · ${confidence}`}
+        {c.appliedBuildId === null || c.appliedBuildId === undefined ? null : ` · applied by build ${c.appliedBuildId}`}
+      </p>
+      {(c.basis ?? []).length === 0 ? null : (
+        <ul className="gap-quotes" aria-label="Basis">
+          {(c.basis ?? []).map((b, i) => (
+            <li key={`${b.fragmentId}-${String(i)}`}>
+              <blockquote className="gap-quote">{b.quote}</blockquote>
+            </li>
+          ))}
+        </ul>
+      )}
+      {onWithdraw === null ? null : (
+        <div>
+          <Button variant="glass" size="sm" onClick={onWithdraw} data-testid="gap-withdraw">
+            Withdraw answer
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReadOnlyParts({ gap }: Readonly<{ gap: Gap }>) {
   const reach = gap.reach;
   return (
-    <Modal
-      open
-      size="lg"
-      eyebrow={`Gap · ${KIND_LABEL[gap.kind]}`}
-      title={gap.title}
-      onClose={onClose}
-      footer={
-        <Button variant="glass" onClick={onClose}>
-          Close
-        </Button>
-      }
-    >
-      <div className="gap-meta" data-testid="gap-meta">
-        <SeverityBadge level={SEVERITY_LEVEL[gap.severity]} label={SEVERITY_LABEL[gap.severity]} />
-        <Tag>{KIND_LABEL[gap.kind]}</Tag>
-        <Tag>{ORIGIN_LABEL[gap.origin]}</Tag>
-        {gap.status === "open" ? null : <Tag tone="success">{STATUS_LABEL[gap.status]}</Tag>}
-        {gap.blocking ? <Tag tone="warning">Holds tasks</Tag> : null}
-      </div>
-      <GapQuestion gap={gap} />
+    <>
       {gap.why === "" ? null : (
         <section className="gap-sec" aria-label="Why" data-testid="gap-why">
           <h3 className="gap-sec__title eyebrow">Why</h3>
@@ -126,14 +163,171 @@ export function GapCard({ gap, onClose }: Readonly<{ gap: Gap; onClose: () => vo
           </ul>
         </section>
       )}
-      {gap.clarification === null ? null : (
-        <section className="gap-sec" aria-label="Answer" data-testid="gap-answer">
-          <h3 className="gap-sec__title eyebrow">Answer</h3>
-          <p className="gap-text">{clarificationText(gap.clarification)}</p>
-          <p className="gap-quote__src body-sm">
-            {gap.clarification.mode === "ai" ? "Answered by AI" : `Answered by ${gap.clarification.answeredBy}`}
-          </p>
+    </>
+  );
+}
+
+function revertedText(r: RevertResult): string {
+  return r.followUp
+    ? "Answer withdrawn. A follow-up gap is open for a person to answer; it is linked in the history."
+    : "Answer withdrawn. The gap is open again.";
+}
+
+/** Close, and for an answerable gap "Not a gap" and Submit (the one primary action of the card). */
+function CardFooter({
+  gap,
+  a,
+  editable,
+  closeCard,
+  askDismissal,
+}: Readonly<{ gap: Gap; a: GapAnswerState; editable: boolean; closeCard: () => void; askDismissal: () => void }>) {
+  return (
+    <>
+      <Button variant="glass" onClick={closeCard}>
+        Close
+      </Button>
+      {editable ? (
+        <>
+          <Button variant="glass" onClick={askDismissal} data-testid="gap-dismiss">
+            Not a gap
+          </Button>
+          <Button variant="primary" onClick={() => void a.submit()} disabled={!a.canSubmit} data-testid="gap-submit">
+            {gap.status === "answered" ? "Change answer" : "Submit answer"}
+          </Button>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** The card's dialogs: "Not a gap" (with the "not spec" section rule) and "Withdraw answer". */
+function CardDialog({
+  gap,
+  control,
+  dialog,
+  finish,
+  onWithdrawn,
+}: Readonly<{
+  gap: Gap;
+  control: CardControl;
+  dialog: "dismiss" | "withdraw";
+  finish: () => void;
+  onWithdrawn: (r: RevertResult) => void;
+}>) {
+  const clrId = gap.clarification?.clrId;
+  if (dialog === "dismiss") {
+    const section = witnessSection(gap);
+    return (
+      <DismissDialog
+        section={section}
+        onClose={finish}
+        onConfirm={async (reason, markSection) => {
+          await control.gaps.dismiss(control.projectId, gap.id, reason);
+          if (markSection && section !== null) {
+            // The dismissal stands even when the rule is refused; the noise report offers the rule again.
+            await control.gaps.addNoiseRule(control.projectId, { scope: "section", value: section.value, reason }).catch(() => undefined);
+          }
+          finish();
+          control.onDismissed();
+        }}
+      />
+    );
+  }
+  if (clrId === undefined) return null;
+  return (
+    <ReasonDialog
+      title="Withdraw answer"
+      description="The answer's text leaves the specification with the next build, and the question goes back to a person."
+      confirmLabel="Withdraw answer"
+      onClose={finish}
+      onConfirm={async (reason) => {
+        const r = await control.gaps.revert(control.projectId, clrId, reason);
+        finish();
+        onWithdrawn(r);
+        control.onChanged();
+        await control.onReload();
+      }}
+    />
+  );
+}
+
+export function GapCard({ gap, onClose, control }: Readonly<{ gap: Gap; onClose: () => void; control?: CardControl }>) {
+  const a = useGapAnswer(gap, control);
+  const [dialog, setDialog] = useState<"dismiss" | "withdraw" | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const editable = control !== undefined && answerable(gap);
+  const canWithdraw = control !== undefined && withdrawable(gap);
+  const appliedText = note ?? (a.result === null ? null : appliedWhenText(a.result));
+  const closeDialog = () => {
+    setDialog(null);
+  };
+  return (
+    <Modal
+      open
+      size="lg"
+      eyebrow={`Gap · ${KIND_LABEL[gap.kind]}`}
+      title={gap.title}
+      onClose={onClose}
+      footer={
+        <CardFooter
+          gap={gap}
+          a={a}
+          editable={editable}
+          closeCard={onClose}
+          askDismissal={() => {
+            setDialog("dismiss");
+          }}
+        />
+      }
+    >
+      <div className="gap-meta" data-testid="gap-meta">
+        <SeverityBadge level={SEVERITY_LEVEL[gap.severity]} label={SEVERITY_LABEL[gap.severity]} />
+        <Tag>{KIND_LABEL[gap.kind]}</Tag>
+        <Tag>{ORIGIN_LABEL[gap.origin]}</Tag>
+        {gap.status === "open" ? null : (
+          <span data-testid="gap-status">
+            <Tag tone="success">{STATUS_LABEL[gap.status]}</Tag>
+          </span>
+        )}
+        {gap.blocking ? <Tag tone="warning">Holds tasks</Tag> : null}
+      </div>
+      {editable ? (
+        <section className="gap-sec" aria-label="Question" data-testid="gap-question">
+          <h3 className="gap-sec__title eyebrow">Question</h3>
+          <AnswerForm gap={gap} a={a} />
         </section>
+      ) : (
+        <GapQuestion gap={gap} />
+      )}
+      <AnswerMessages a={a} appliedText={appliedText} />
+      <RecordedAnswer
+        gap={gap}
+        onWithdraw={
+          canWithdraw
+            ? () => {
+                setDialog("withdraw");
+              }
+            : null
+        }
+      />
+      <ReadOnlyParts gap={gap} />
+      {gap.history === null || gap.history === undefined ? null : (
+        <GapHistory
+          history={gap.history}
+          href={control?.href ?? ((id) => `?gap=${encodeURIComponent(id)}`)}
+          onOpenGap={control?.onOpenGap ?? (() => undefined)}
+        />
+      )}
+      {dialog === null || control === undefined ? null : (
+        <CardDialog
+          gap={gap}
+          control={control}
+          dialog={dialog}
+          finish={closeDialog}
+          onWithdrawn={(r) => {
+            setNote(revertedText(r));
+          }}
+        />
       )}
     </Modal>
   );

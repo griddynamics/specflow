@@ -127,3 +127,222 @@
   margin: 0;
   color: var(--ink-2);
 }
+
+/* FR-GWEB-04, FR-GWEB-05: the interactive parts. Messages carry their meaning in words; the colour of the side rule only repeats it. */
+.gap-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.gap-sec__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+.gap-answer {
+  display: grid;
+  gap: var(--space-sm);
+}
+.gap-answer__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.gap-alert,
+.gap-done,
+.gap-stale {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid var(--danger);
+  background: var(--glass-fill-strong);
+  color: var(--ink);
+}
+.gap-done {
+  border-inline-start-color: var(--success);
+}
+.gap-stale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  border-inline-start-color: var(--yellow);
+}
+.gap-preview {
+  display: grid;
+  gap: var(--space-xs);
+}
+.gap-preview__list {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gap-preview__sec {
+  display: grid;
+  gap: var(--space-2xs);
+}
+.gap-preview__where {
+  margin: 0;
+  color: var(--ink-2);
+}
+.gap-preview__cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-xs);
+}
+.gap-preview__col {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--hairline);
+}
+.gap-preview__col--after {
+  border-color: var(--yellow-glass-rim);
+}
+.gap-preview__label {
+  color: var(--ink-2);
+  text-transform: uppercase;
+} /* with class eyebrow */
+.gap-preview__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.gap-placement {
+  display: grid;
+  gap: var(--space-xs);
+}
+.gap-dialog {
+  display: grid;
+  gap: var(--space-sm);
+}
+.gap-dialog__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.gap-follow,
+.gap-events {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gap-event {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2xs) var(--space-sm);
+  padding-block: var(--space-2xs);
+  border-bottom: 1px solid var(--hairline);
+}
+.gap-event__meta {
+  color: var(--ink-2);
+}
+
+/* The inbox actions: the outcome of "Apply now" on the left, the two actions on the right. */
+.gaps-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs) var(--space-sm);
+}
+.gaps-actions__msg {
+  flex: 1;
+  min-width: 12rem;
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* "Answered by AI" rows and the documents of the Documents tab: rows like the noise report's. */
+.ai-answers,
+.gap-docs,
+.noise-tab {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+}
+.ai-row,
+.doc-row {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+}
+.ai-row + .ai-row,
+.doc-row + .doc-row {
+  border-top: 1px solid var(--hairline);
+}
+.ai-row__head,
+.doc-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.ai-row__title,
+.doc-row__title {
+  margin: 0;
+} /* with class headline */
+.ai-row__q,
+.ai-row__meta,
+.doc-row__path,
+.doc-row__quiet {
+  margin: 0;
+  color: var(--ink-2);
+}
+.doc-row__name {
+  flex: 1;
+  min-width: 12rem;
+}
+.doc-row__banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--warning-tint);
+  color: var(--ink);
+}
+.doc-row__answers {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.doc-answer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-sm);
+}
+.doc-answer__status {
+  color: var(--ink-2);
+}
+
+/* The noise rules under the report, and the form that adds one. */
+.noise-rules {
+  gap: var(--space-sm);
+}
+.noise__value {
+  flex: 1;
+  min-width: 10rem;
+  overflow-wrap: anywhere;
+}
+.noise-add {
+  display: grid;
+  gap: var(--space-sm);
+  max-width: 48rem;
+}

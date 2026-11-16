@@ -165,6 +165,71 @@
       "id": "start_upload_batch_api_v1_projects__pid__sources_uploads_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/uploads"
+    },
+    {
+      "id": "start_gap_run_api_v1_projects__pid__gap_runs_post",
+      "method": "POST",
+      "path": "/projects/{pid}/gap/runs"
+    },
+    {
+      "id": "gap_run_noise_api_v1_projects__pid__gap_runs__run_id__noise_get",
+      "method": "GET",
+      "path": "/projects/{pid}/gap/runs/{run_id}/noise"
+    },
+    {
+      "id": "raise_gap_api_v1_projects__pid__gaps_post",
+      "method": "POST",
+      "path": "/projects/{pid}/gaps"
+    },
+    {
+      "id": "list_ai_answers_api_v1_projects__pid__gaps_ai_answers_get",
+      "method": "GET",
+      "path": "/projects/{pid}/gaps/ai_answers"
+    },
+    {
+      "id": "apply_answers_api_v1_projects__pid__gaps_apply_post",
+      "method": "POST",
+      "path": "/projects/{pid}/gaps/apply"
+    },
+    {
+      "id": "revert_clarification_api_v1_projects__pid__gaps_clarifications__clr_id__revert_post",
+      "method": "POST",
+      "path": "/projects/{pid}/gaps/clarifications/{clr_id}/revert"
+    },
+    {
+      "id": "list_answer_documents_api_v1_projects__pid__gaps_documents_get",
+      "method": "GET",
+      "path": "/projects/{pid}/gaps/documents"
+    },
+    {
+      "id": "list_noise_rules_api_v1_projects__pid__gaps_noise_rules_get",
+      "method": "GET",
+      "path": "/projects/{pid}/gaps/noise_rules"
+    },
+    {
+      "id": "add_noise_rule_api_v1_projects__pid__gaps_noise_rules_post",
+      "method": "POST",
+      "path": "/projects/{pid}/gaps/noise_rules"
+    },
+    {
+      "id": "remove_noise_rule_api_v1_projects__pid__gaps_noise_rules__rule_id__delete",
+      "method": "DELETE",
+      "path": "/projects/{pid}/gaps/noise_rules/{rule_id}"
+    },
+    {
+      "id": "answer_gap_api_v1_projects__pid__gaps__gap_id__answer_post",
+      "method": "POST",
+      "path": "/projects/{pid}/gaps/{gap_id}/answer"
+    },
+    {
+      "id": "dismiss_gap_api_v1_projects__pid__gaps__gap_id__dismiss_post",
+      "method": "POST",
+      "path": "/projects/{pid}/gaps/{gap_id}/dismiss"
+    },
+    {
+      "id": "preview_edits_api_v1_projects__pid__gaps__gap_id__edits_preview_post",
+      "method": "POST",
+      "path": "/projects/{pid}/gaps/{gap_id}/edits_preview"
     }
   ]
 }

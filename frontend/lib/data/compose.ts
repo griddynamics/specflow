@@ -22,7 +22,7 @@ export function composeProductionPorts(http: HttpPorts): DataPorts {
     knowledge: http.knowledge,
     plan: http.plan, // the plan API (/projects/{pid}/plan*)
     work: http.work, // findings and claims (/projects/{pid}/findings*, /plan/claims*)
-    gaps: http.gaps, // the Gaps screen, read-only (/projects/{pid}/gaps*, /projects/{pid}/gap/runs/latest), FR-GWEB-04
+    gaps: http.gaps, // the Gaps screen and the Plan gap links (/projects/{pid}/gaps*, /projects/{pid}/gap/runs/latest), FR-GWEB-04, FR-GWEB-05
     assistant: {
       ...unavailable.assistant,
       // The SpecBot greeting names the signed-in user (GET /me). If /me fails, the greeting has no name.

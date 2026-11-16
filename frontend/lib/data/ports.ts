@@ -21,7 +21,7 @@ export interface DataPorts {
   files: FilesPort;
   comments: CommentsPort;
   diagrams: DiagramsPort;
-  gaps: GapsPort; // the Gaps screen, read-only (FR-GWEB-04): /projects/{pid}/gaps*, /projects/{pid}/gap/runs/latest
+  gaps: GapsPort; // the Gaps screen and the gap links of the Plan (FR-GWEB-04, FR-GWEB-05): /projects/{pid}/gaps*, /projects/{pid}/gap/runs/latest
   assistant: AssistantPort;
   connectors: ConnectorsPort;
   plan: PlanPort; // P20 (AUTO-17), TECH-SPECS §2.15

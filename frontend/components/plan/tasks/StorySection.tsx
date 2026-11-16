@@ -1,17 +1,21 @@
 "use client";
-// FE-PLAN-06 (G-PLAN-2): one story inside a work area. The header is a `<button aria-expanded>` inside an h3 with the story's progress; the
+// FE-PLAN-06 (G-PLAN-2): one story inside a work area. The header is a `<button aria-expanded>` inside an h3 with the story's progress and,
+// FR-GWEB-04, "N open gaps" when its tasks have open gaps; the
 // task list stays mounted with `hidden`. The summary (written by the describe planner) sits above the tasks.
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Tag } from "@/components/ui/Tag";
 import type { StoryGroup } from "@/lib/domain/logic/plan";
+import { openGapsText } from "@/components/gaps/gaps-logic";
 import { doneProgress } from "./task-logic";
 
 export function StorySection({
   group,
+  gapCount = 0,
   open,
   onToggle,
   children,
-}: Readonly<{ group: StoryGroup; open: boolean; onToggle: () => void; children: ReactNode }>) {
+}: Readonly<{ group: StoryGroup; gapCount?: number; open: boolean; onToggle: () => void; children: ReactNode }>) {
   const { story, tasks } = group;
   const { done, total } = doneProgress(tasks);
   const listId = `plan-story-${story.storyId.replace(/[^\w-]/g, "-")}`;
@@ -30,6 +34,11 @@ export function StorySection({
           <span className="plan-story__name" data-testid="plan-story-name">
             {story.title}
           </span>
+          {gapCount > 0 ? (
+            <span data-testid="plan-story-gaps">
+              <Tag tone="warning">{openGapsText(gapCount)}</Tag>
+            </span>
+          ) : null}
           <span className="plan-story__count body-sm" data-testid="plan-story-count">{`${String(done)} of ${String(total)} done`}</span>
         </button>
       </h3>

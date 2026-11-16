@@ -3,7 +3,7 @@
 // `invalid_response` when the body was not the envelope (`lib/api.ts:51-68`). Mapping: by `code` first, then by `status`.
 // Ports never pass server text on: a DataError carries a code, the HTTP status and the API code only.
 import { ApiError } from "@/lib/api";
-import { DataError, isDataError, type DataErrorCode } from "@/lib/domain/errors";
+import { DataError, isDataError, type DataErrorCode, type DataErrorDetail } from "@/lib/domain/errors";
 
 /** API / BFF error codes with a fixed meaning (TECH-SPECS §2.13 table). */
 const BY_CODE: Record<string, DataErrorCode> = {
@@ -29,6 +29,10 @@ const BY_CODE: Record<string, DataErrorCode> = {
   gap_unavailable: "unavailable", // 503: gap runs are not configured on this server (the Gaps screen says so)
   gap_not_found: "not_found",
   gap_run_not_found: "not_found",
+  noise_rule_not_found: "not_found", // the rule was removed meanwhile
+  gap_stale: "conflict", // 409: the gap changed since it was read (the card offers Reload)
+  gap_wrong_state: "conflict", // 409: `details.status` is the gap's state now (or nothing waits for "Apply now")
+  answer_invalid: "validation", // 400: `details.field` and `details.reason` say what to fix
   invalid_cursor: "validation",
   invalid_response: "invalid_response",
   csrf_rejected: "unknown", // a bug in the client, not a user error
@@ -51,15 +55,30 @@ export function codeOfStatus(status: number): DataErrorCode {
 
 export const isRetryableCode = (code: DataErrorCode): boolean => RETRYABLE.has(code);
 
-const make = (code: DataErrorCode, detail?: { status?: number; apiCode?: string; maxBytes?: number }) =>
-  new DataError(code, isRetryableCode(code), detail);
+const make = (code: DataErrorCode, detail?: DataErrorDetail) => new DataError(code, isRetryableCode(code), detail);
+
+const GAP_STATES = ["open", "answered", "applying", "resolved"] as const;
+const textOf = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v : undefined);
+
+/** The envelope `details` a screen may show in words: `field` and `reason` (answer_invalid), the gap's `status` (gap_wrong_state). */
+function detailsOf(details: Readonly<Record<string, unknown>> | undefined): Pick<DataErrorDetail, "field" | "reason" | "state"> {
+  if (details === undefined) return {};
+  const out: Pick<DataErrorDetail, "field" | "reason" | "state"> = {};
+  const field = textOf(details.field);
+  const reason = textOf(details.reason);
+  const state = GAP_STATES.find((s) => s === details.status);
+  if (field !== undefined) out.field = field;
+  if (reason !== undefined) out.reason = reason;
+  if (state !== undefined) out.state = state;
+  return out;
+}
 
 /** FE-DATA-01 (TECH-SPECS §2.13): any thrown value -> `DataError`. A `DataError` passes through unchanged. */
 export function toDataError(e: unknown): DataError {
   if (isDataError(e)) return e;
   if (e instanceof ApiError) {
     const code = Object.hasOwn(BY_CODE, e.code) ? BY_CODE[e.code] : codeOfStatus(e.status);
-    const detail = { status: e.status, apiCode: e.code };
+    const detail: DataErrorDetail = { status: e.status, apiCode: e.code, ...detailsOf(e.details) };
     return make(code, e.maxBytes === undefined ? detail : { ...detail, maxBytes: e.maxBytes });
   }
   if (e instanceof Error && e.name === "AbortError") return make("aborted");

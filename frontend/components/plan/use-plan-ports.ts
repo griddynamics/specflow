@@ -17,3 +17,8 @@ export function usePlanRoutes() {
 export function useWorkPort() {
   return usePorts().work;
 }
+
+/** The gaps port (the open gaps the Plan links to their cards). */
+export function useGapsPort() {
+  return usePorts().gaps;
+}
