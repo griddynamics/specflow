@@ -119,6 +119,50 @@
         "project_id"
       ]
     },
+    "corpus_amendment": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "amendment_id": {
+          "type": "text"
+        },
+        "clr_id": {
+          "type": "text"
+        },
+        "lineage": {
+          "type": "text"
+        },
+        "heading_path": {
+          "type": "json"
+        },
+        "anchor_text": {
+          "type": "text"
+        },
+        "anchor_hash": {
+          "type": "text"
+        },
+        "operation": {
+          "type": "text"
+        },
+        "text": {
+          "type": "text"
+        },
+        "status": {
+          "type": "text"
+        },
+        "last_revision_id": {
+          "type": "text"
+        },
+        "created_at": {
+          "type": "timestamp"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        }
+      }
+    },
     "documents": {
       "columns": {
         "id": {
@@ -237,6 +281,290 @@
         "source_id",
         "target_id"
       ]
+    },
+    "gap_event": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "gap_id": {
+          "type": "text"
+        },
+        "clr_id": {
+          "type": "text"
+        },
+        "at": {
+          "type": "timestamp"
+        },
+        "actor": {
+          "type": "text"
+        },
+        "event": {
+          "type": "text"
+        },
+        "detail": {
+          "type": "json"
+        }
+      }
+    },
+    "gap_noise_rule": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "rule_id": {
+          "type": "text"
+        },
+        "scope": {
+          "type": "text"
+        },
+        "value": {
+          "type": "text"
+        },
+        "reason": {
+          "type": "text"
+        },
+        "created_by": {
+          "type": "text"
+        },
+        "created_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "gap_note": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "run_id": {
+          "type": "text"
+        },
+        "detector": {
+          "type": "text"
+        },
+        "spec_ids": {
+          "type": "json"
+        },
+        "text": {
+          "type": "text"
+        }
+      }
+    },
+    "gap_option": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "gap_id": {
+          "type": "text"
+        },
+        "rank": {
+          "type": "int"
+        },
+        "label": {
+          "type": "text"
+        },
+        "detail": {
+          "type": "text"
+        },
+        "recommended": {
+          "type": "bool"
+        },
+        "edits": {
+          "type": "json"
+        },
+        "basis": {
+          "type": "json"
+        },
+        "created_run": {
+          "type": "text"
+        }
+      }
+    },
+    "gap_run": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "run_id": {
+          "type": "text"
+        },
+        "build_id": {
+          "type": "text"
+        },
+        "mode": {
+          "type": "text"
+        },
+        "status": {
+          "type": "text"
+        },
+        "started_at": {
+          "type": "timestamp"
+        },
+        "finished_at": {
+          "type": "timestamp"
+        },
+        "counts": {
+          "type": "json"
+        },
+        "cost": {
+          "type": "json"
+        },
+        "rules_version": {
+          "type": "text"
+        },
+        "prompt_versions": {
+          "type": "json"
+        }
+      }
+    },
+    "gap_section_relevance": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "lineage": {
+          "type": "text"
+        },
+        "heading_path": {
+          "type": "json"
+        },
+        "text_hash": {
+          "type": "text"
+        },
+        "relevance": {
+          "type": "text"
+        },
+        "signals": {
+          "type": "json"
+        },
+        "by": {
+          "type": "text"
+        }
+      }
+    },
+    "gap_seed": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "run_id": {
+          "type": "text"
+        },
+        "detector": {
+          "type": "text"
+        },
+        "spec_ids": {
+          "type": "json"
+        },
+        "witness": {
+          "type": "json"
+        },
+        "strength": {
+          "type": "text"
+        },
+        "relevance": {
+          "type": "text"
+        },
+        "corroborated": {
+          "type": "bool"
+        },
+        "site_id": {
+          "type": "text"
+        }
+      }
+    },
+    "gap_site": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "run_id": {
+          "type": "text"
+        },
+        "site_id": {
+          "type": "text"
+        },
+        "input_hash": {
+          "type": "text"
+        },
+        "rank_score": {
+          "type": "real"
+        },
+        "outcome": {
+          "type": "text"
+        },
+        "gap_id": {
+          "type": "text"
+        }
+      }
+    },
+    "gap_suppression": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "signature": {
+          "type": "text"
+        },
+        "gap_id": {
+          "type": "text"
+        },
+        "question": {
+          "type": "text"
+        },
+        "reason": {
+          "type": "text"
+        },
+        "dismissed_by": {
+          "type": "text"
+        },
+        "dismissed_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "gap_verdict": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "input_hash": {
+          "type": "text"
+        },
+        "report": {
+          "type": "json"
+        },
+        "model": {
+          "type": "text"
+        },
+        "prompt_version": {
+          "type": "text"
+        },
+        "created_at": {
+          "type": "timestamp"
+        }
+      }
     },
     "meta": {
       "columns": {
@@ -466,8 +794,13 @@
     "connections",
     "documents",
     "edge",
+    "gap_option",
     "node"
   ],
-  "append_only_tables": [],
+  "append_only_tables": [
+    "gap_event",
+    "gap_note",
+    "gap_seed"
+  ],
   "orm_models": {}
 }

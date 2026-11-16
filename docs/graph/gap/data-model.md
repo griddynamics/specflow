@@ -144,6 +144,14 @@ The tables belong to the host; `graph.gap` reaches them through the ports `GapRe
 | `gap_note` | `run_id`, `detector`, `spec_ids` (JSON), `text` | Info findings: nothing to decide |
 | `gap_event` | `gap_id`, `clr_id`, `at`, `actor`, `event`, `detail` (JSON) | Every transition, quote and reconcile outcome |
 
+Keys (each starts with `project_id`, the project's id in the application database, a foreign key to
+`projects`): `gap_option` (`gap_id`, `rank`), with a unique index keeping one `recommended` row per gap and `rank`
+1 to 4; `corpus_amendment` (`amendment_id`); `gap_run` (`run_id`); `gap_site` (`run_id`, `site_id`); `gap_verdict`
+(`input_hash`); `gap_section_relevance` (`lineage`, `heading_path`, `text_hash`); `gap_noise_rule` (`rule_id`);
+`gap_suppression` (`signature`). `gap_seed`, `gap_note` and `gap_event` are append-only and keyed by a generated
+`id`. JSON columns are `jsonb`; enumerated columns are text with a check. Every table has the row-level security
+policy `agent_project_scope` and no grant to the agent role: only the application role reads and writes them.
+
 ## Constraints and indexes
 
 | Object | Definition |

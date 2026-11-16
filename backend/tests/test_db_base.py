@@ -50,6 +50,17 @@ def test_the_base_metadata_holds_exactly_the_app_tables() -> None:
         "documents",
         "connections",
         "connection_items",
+        "gap_option",
+        "corpus_amendment",
+        "gap_run",
+        "gap_seed",
+        "gap_site",
+        "gap_verdict",
+        "gap_section_relevance",
+        "gap_noise_rule",
+        "gap_suppression",
+        "gap_note",
+        "gap_event",
     }
 
 

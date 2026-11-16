@@ -5,18 +5,24 @@ deviations: ``documents`` drops ``connection_id``/``source_item_id`` (DEV-13),
 adds ``markdown`` (C7) and the ``summarization*`` columns (C8), and starts in
 status ``uploaded`` (DEV-4). Primary keys are uuid4 values generated in Python;
 enums are ``text`` plus a CHECK constraint.
+
+The gap tables (docs/graph/gap/data-model.md "Relational store") hold the relational rows of
+``graph.gap``; the host reaches them through ``api.gap.records`` (FR-GOWN-04). Each is keyed by
+``project_id`` first, and its ids are the gap library's own text ids.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -26,7 +32,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -327,3 +333,243 @@ class ConnectionItem(Base):
     document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
+
+
+# Gap tables (docs/graph/gap/data-model.md "Relational store"). The vocabularies mirror
+# graph.gap.names; a test keeps them equal (db does not import graph).
+GAP_RUN_MODES: Final = ("update", "full", "site")
+GAP_RUN_STATUSES: Final = ("running", "completed", "degraded", "failed")
+GAP_SEED_STRENGTHS: Final = ("strong", "weak")
+GAP_RELEVANCES: Final = ("spec", "tracking", "mixed")
+GAP_SITE_OUTCOMES: Final = ("gap", "not_a_gap", "not_spec", "duplicate", "skipped", "deferred")
+GAP_DECIDED_BY: Final = ("rules", "model", "person")
+GAP_NOISE_SCOPES: Final = ("document", "section", "pattern")
+AMENDMENT_OPERATIONS: Final = ("insert_after", "replace", "append_section")
+AMENDMENT_STATUSES: Final = ("active", "retired", "suspended", "orphaned", "reverted", "undecided")
+GAP_OPTIONS_MAX: Final = 4
+
+
+def _project_id() -> Mapped[uuid.UUID]:
+    return mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+
+
+def _json(*, nullable: bool = False) -> Mapped[Any]:
+    return mapped_column(JSONB, nullable=nullable)
+
+
+class GapOption(Base):
+    """One offered answer of a gap: 2 to 4 rows, exactly one recommended."""
+
+    __tablename__ = "gap_option"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "gap_id", "rank"),
+        CheckConstraint(f"rank BETWEEN 1 AND {GAP_OPTIONS_MAX}", name="rank"),
+        Index(
+            "ix_gap_option_one_recommended",
+            "project_id",
+            "gap_id",
+            unique=True,
+            postgresql_where=text("recommended"),
+        ),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    gap_id: Mapped[str] = mapped_column(Text, nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    recommended: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    edits: Mapped[Any] = _json()
+    basis: Mapped[Any] = _json()
+    created_run: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CorpusAmendment(Base):
+    """One stored edit of a clarification, applied by the corpus reader."""
+
+    __tablename__ = "corpus_amendment"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "amendment_id"),
+        CheckConstraint(_one_of("operation", AMENDMENT_OPERATIONS), name="operation"),
+        CheckConstraint(_one_of("status", AMENDMENT_STATUSES), name="status"),
+        Index("ix_corpus_amendment_lineage_status", "project_id", "lineage", "status"),
+        Index("ix_corpus_amendment_clr_id", "project_id", "clr_id"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    amendment_id: Mapped[str] = mapped_column(Text, nullable=False)
+    clr_id: Mapped[str] = mapped_column(Text, nullable=False)
+    lineage: Mapped[str] = mapped_column(Text, nullable=False)
+    heading_path: Mapped[Any] = _json()
+    anchor_text: Mapped[str] = mapped_column(Text, nullable=False)
+    anchor_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    operation: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    last_revision_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class GapRun(Base):
+    """One gap run."""
+
+    __tablename__ = "gap_run"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "run_id"),
+        CheckConstraint(_one_of("mode", GAP_RUN_MODES), name="mode"),
+        CheckConstraint(_one_of("status", GAP_RUN_STATUSES), name="status"),
+        Index("ix_gap_run_started_at", "project_id", "started_at"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    build_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mode: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    counts: Mapped[Any] = _json()
+    cost: Mapped[Any] = _json()
+    rules_version: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_versions: Mapped[Any] = _json()
+
+
+class GapSeed(Base):
+    """One detector hit of a run (append-only)."""
+
+    __tablename__ = "gap_seed"
+    __table_args__ = (
+        CheckConstraint(_one_of("strength", GAP_SEED_STRENGTHS), name="strength"),
+        CheckConstraint(_one_of("relevance", GAP_RELEVANCES), name="relevance"),
+        Index("ix_gap_seed_run_id", "project_id", "run_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = _project_id()
+    run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    detector: Mapped[str] = mapped_column(Text, nullable=False)
+    spec_ids: Mapped[Any] = _json()
+    witness: Mapped[Any] = _json()
+    strength: Mapped[str] = mapped_column(Text, nullable=False)
+    relevance: Mapped[str] = mapped_column(Text, nullable=False)
+    corroborated: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    site_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class GapSite(Base):
+    """One investigation entry point of a run; ``input_hash`` keys the verdict cache."""
+
+    __tablename__ = "gap_site"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "run_id", "site_id"),
+        CheckConstraint(_one_of("outcome", GAP_SITE_OUTCOMES), name="outcome"),
+        Index("ix_gap_site_input_hash", "project_id", "input_hash"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    site_id: Mapped[str] = mapped_column(Text, nullable=False)
+    input_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    rank_score: Mapped[float] = mapped_column(Float, nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    gap_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class GapVerdict(Base):
+    """A checked report reused while a site's inputs stay the same."""
+
+    __tablename__ = "gap_verdict"
+    __table_args__ = (PrimaryKeyConstraint("project_id", "input_hash"),)
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    input_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    report: Mapped[Any] = _json()
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class GapSectionRelevance(Base):
+    """The cached relevance of a section (lineage, heading path, text hash)."""
+
+    __tablename__ = "gap_section_relevance"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "lineage", "heading_path", "text_hash"),
+        CheckConstraint(_one_of("relevance", GAP_RELEVANCES), name="relevance"),
+        CheckConstraint(_one_of("by", GAP_DECIDED_BY), name="by"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    lineage: Mapped[str] = mapped_column(Text, nullable=False)
+    heading_path: Mapped[Any] = _json()
+    text_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    relevance: Mapped[str] = mapped_column(Text, nullable=False)
+    signals: Mapped[Any] = _json()
+    by: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class GapNoiseRule(Base):
+    """A document, section or pattern a person marked "not spec"."""
+
+    __tablename__ = "gap_noise_rule"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "rule_id"),
+        CheckConstraint(_one_of("scope", GAP_NOISE_SCOPES), name="scope"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    rule_id: Mapped[str] = mapped_column(Text, nullable=False)
+    scope: Mapped[str] = mapped_column(Text, nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class GapSuppression(Base):
+    """A dismissed gap signature, quiet until it changes."""
+
+    __tablename__ = "gap_suppression"
+    __table_args__ = (PrimaryKeyConstraint("project_id", "signature"),)
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    signature: Mapped[str] = mapped_column(Text, nullable=False)
+    gap_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)  # database only, never logged
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    dismissed_by: Mapped[str] = mapped_column(Text, nullable=False)
+    dismissed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class GapNote(Base):
+    """An info finding of a run: nothing to decide (append-only)."""
+
+    __tablename__ = "gap_note"
+    __table_args__ = (Index("ix_gap_note_run_id", "project_id", "run_id"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = _project_id()
+    run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    detector: Mapped[str] = mapped_column(Text, nullable=False)
+    spec_ids: Mapped[Any] = _json()
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class GapEvent(Base):
+    """One transition, quote or reconcile outcome of a gap or clarification (append-only)."""
+
+    __tablename__ = "gap_event"
+    __table_args__ = (
+        Index("ix_gap_event_gap_id", "project_id", "gap_id"),
+        Index("ix_gap_event_clr_id", "project_id", "clr_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = _project_id()
+    gap_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    clr_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    actor: Mapped[str] = mapped_column(Text, nullable=False)
+    event: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[Any] = _json()

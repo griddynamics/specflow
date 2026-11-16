@@ -45,13 +45,28 @@ AGENT_CRED = "agent-canary-pw-51d"
 SKIP_COMMENT = "-- agent role existence check skipped (offline)"
 AGENT_GRANT = "GRANT SELECT (id, project_id, original_filename, version, status, markdown) ON documents TO {role}"
 HEAD = "0001_initial"
-APP_TABLES = ("users", "projects", "project_members", "connections", "documents", "connection_items")
+# The relational rows of the gap module (docs/graph/gap/data-model.md "Relational store").
+GAP_TABLES = (
+    "gap_option",
+    "corpus_amendment",
+    "gap_run",
+    "gap_seed",
+    "gap_site",
+    "gap_verdict",
+    "gap_section_relevance",
+    "gap_noise_rule",
+    "gap_suppression",
+    "gap_note",
+    "gap_event",
+)
+APP_TABLES = ("users", "projects", "project_members", "connections", "documents", "connection_items", *GAP_TABLES)
 SCOPED_TABLES = (
     ("projects", "id"),
     ("project_members", "project_id"),
     ("documents", "project_id"),
     ("connections", "project_id"),
     ("connection_items", "project_id"),
+    *((table, "project_id") for table in GAP_TABLES),
 )
 
 

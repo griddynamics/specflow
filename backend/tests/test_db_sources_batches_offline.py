@@ -176,6 +176,17 @@ def test_the_downgrade_only_drops_the_tables() -> None:
     sql = offline(f"{HEAD}:base", down=True)
 
     assert re.findall(r"DROP TABLE (\w+)", sql) == [
+        "gap_event",
+        "gap_note",
+        "gap_suppression",
+        "gap_noise_rule",
+        "gap_section_relevance",
+        "gap_verdict",
+        "gap_site",
+        "gap_seed",
+        "gap_run",
+        "corpus_amendment",
+        "gap_option",
         "connection_items",
         "documents",
         "connections",
