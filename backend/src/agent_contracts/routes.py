@@ -21,6 +21,7 @@ AGENT_ROUTES: Final[Mapping[str, str]] = {
     "get_evidence": f"{AGENT_PREFIX}/evidence",
     "path": f"{AGENT_PREFIX}/node-path",
     "expand_brief": f"{AGENT_PREFIX}/brief-expansion",
+    "list_gaps": f"{AGENT_PREFIX}/gaps",
     "list_areas": f"{AGENT_PREFIX}/areas",
     "list_stories": f"{AGENT_PREFIX}/stories",
     "preview_story": f"{AGENT_PREFIX}/story-preview",

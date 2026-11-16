@@ -125,6 +125,31 @@ class GetTaskBriefArgs(ProjectArguments):
     )
 
 
+class Holder(BaseModel):
+    """The person behind a claim, a task or a finding: no user id, token or email (tools.md "Holders")."""
+
+    name: str | None
+    you: bool
+    agent_label: str | None = None
+
+
+class FindingItem(BaseModel):
+    """An open finding about a node or a story: an open gap (with its ``severity``: ``blocker``, ``major`` or
+    ``minor``) or a finding an agent reported (``severity`` null)."""
+
+    finding_id: str
+    kind: str
+    text: str
+    blocking: bool
+    about: list[str]
+    author: Holder
+    severity: str | None = None
+
+
 class TaskBriefResult(BaseModel):
+    """The brief of one task and the open findings about the nodes it implements (blocking first; open gaps from the
+    gap module, FR-GPLN-02)."""
+
     project_id: str
     brief: TaskBrief
+    findings: list[FindingItem] = Field(default_factory=list)

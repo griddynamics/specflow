@@ -36,7 +36,8 @@ from agent_contracts import (
     TaskPath,
     TaskStatusFilter,
 )
-from api.agent_reads import FEATURE_TYPE, agent_reads
+from api.agent_reads import FEATURE_TYPE, agent_reads, finding_severities, findings_port
+from api.agent_views import finding_items, holders_of
 from api.deps import AgentProjectDep, AgentUserDep, RuntimeDep
 from api.errors import (
     ApiError,
@@ -49,6 +50,7 @@ from api.runtime import agent_error
 from auth.errors import AuthError
 from db import repositories as repo
 from graph.plan.errors import PlanReadError
+from graph.plan.findings_port import open_findings_about
 from logger.logger import WARNING, get_logger, log_event
 
 logger = get_logger("api.routers.agent")
@@ -297,12 +299,17 @@ async def get_task_path(
 async def get_task_brief(
     project: AgentProjectDep,
     runtime: RuntimeDep,
+    user: AgentUserDep,
     task_id: str,
     neighbours: NeighboursQuery = DEFAULT_NEIGHBOURS,
 ) -> TaskBriefResult:
-    """The plan library's brief of one open or completed task."""
+    """The plan library's brief of one open or completed task, with the open findings (open gaps first among equals:
+    blocking first, newest first) about the nodes it implements (FR-GPLN-02)."""
 
     graph_id = str(project.id)
-    plan = (await agent_reads(runtime)).plan
-    brief = await _read(lambda: plan.task_brief(graph_id, task_id, neighbours=neighbours))
-    return TaskBriefResult(project_id=graph_id, brief=brief)
+    reads = await agent_reads(runtime)
+    brief = await _read(lambda: reads.plan.task_brief(graph_id, task_id, neighbours=neighbours))
+    found = await open_findings_about(findings_port(reads), graph_id, [node.spec_id for node in brief.implements])
+    holders = await holders_of(runtime, project.id, user.id, [item.created_by for item in found])
+    severities = await finding_severities(reads, graph_id, found)
+    return TaskBriefResult(project_id=graph_id, brief=brief, findings=finding_items(found, holders, severities))

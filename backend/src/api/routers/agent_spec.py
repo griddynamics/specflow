@@ -35,7 +35,7 @@ from agent_contracts import (
     StoryBriefResult,
     TraceQuery,
 )
-from api.agent_reads import agent_reads
+from api.agent_reads import agent_reads, finding_severities, findings_port
 from api.agent_views import (
     evidence_view,
     expansion_view,
@@ -65,10 +65,9 @@ from api.routers.agent import AgentRoute
 from api.runtime import Runtime
 from graph.core.expand import MAX_SEED_IDS, MAX_SIMILAR_SOURCES, Expansion
 from graph.core.reader import BUILD, GraphNode, GraphReader, NodeHit
-from graph.gap import Finding
 from graph.plan.brief_models import StoryBrief
 from graph.plan.errors import PlanReadError
-from graph.plan.findings_port import open_finding
+from graph.plan.findings_port import OpenFinding, open_finding
 
 router = APIRouter(prefix="/agent", tags=["agent"], route_class=AgentRoute)
 
@@ -111,7 +110,8 @@ async def get_story_brief(
     brief = await _plan_read(lambda: reads.plan.story_brief(graph_id, story_id, neighbours=neighbours))
     holders = await holders_of(runtime, project.id, user.id, [item.created_by for item in brief.findings])
     expansion = await _expansion(reads.reader, graph_id, brief, DEFAULT_BUDGET_TOKENS)
-    return StoryBriefResult(project_id=graph_id, brief=story_brief_body(brief, holders, expansion))
+    severities = await finding_severities(reads, graph_id, brief.findings)
+    return StoryBriefResult(project_id=graph_id, brief=story_brief_body(brief, holders, expansion, severities))
 
 
 @router.get("/trace", response_model=SpecTrace)
@@ -168,10 +168,12 @@ async def get_node(
         }
         ends = await reads.reader.nodes_by_spec_ids(graph_id, sorted(others))
     plan = await reads.plan.node_plan(graph_id, node.spec_id, node.spec_id_aliases) if "plan" in parts else None
-    open_findings: list[Finding] = []
-    if "findings" in parts and reads.findings is not None:
-        page = await reads.findings.findings(graph_id, spec_ids=[node.spec_id], limit=NODE_FINDINGS)
-        open_findings = list(page.findings)
+    open_findings: list[OpenFinding] = []
+    port = findings_port(reads)
+    if "findings" in parts and port is not None:  # open gaps and first-slice findings about the node
+        page = await port.findings(graph_id, spec_ids=[node.spec_id], limit=NODE_FINDINGS)
+        open_findings = [open_finding(item) for item in page.findings]
+    severities = await finding_severities(reads, graph_id, open_findings)
     named = [task.claimed_by for task in plan.tasks] if plan is not None else []
     holders = await holders_of(runtime, project.id, user.id, [*named, *(item.created_by for item in open_findings)])
     if "edges" in parts:
@@ -181,9 +183,7 @@ async def get_node(
         edges=edges,
         plan=node_plan_part(plan, holders),
         provenance=node_provenance(node) if "provenance" in parts else None,
-        findings=finding_items([open_finding(item) for item in open_findings], holders)
-        if "findings" in parts
-        else None,
+        findings=finding_items(open_findings, holders, severities) if "findings" in parts else None,
     )
 
 

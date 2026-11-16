@@ -191,7 +191,9 @@ def preview_user_ids(preview: Preview) -> list[str | None]:
     ]
 
 
-def preview_view(project_id: str, preview: Preview, holders: Holders) -> StoryPreview:
+def preview_view(
+    project_id: str, preview: Preview, holders: Holders, severities: Mapping[str, str] | None = None
+) -> StoryPreview:
     return StoryPreview(
         project_id=project_id,
         story=StoryHeader(
@@ -220,7 +222,7 @@ def preview_view(project_id: str, preview: Preview, holders: Holders) -> StoryPr
             for task in preview.tasks
         ],
         blockers=[blocker_item(blocker, holders) for blocker in preview.blockers],
-        findings=finding_items(preview.findings, holders),
+        findings=finding_items(preview.findings, holders, severities),
         unblocks=[ref.story_id for ref in preview.unblocks],
     )
 

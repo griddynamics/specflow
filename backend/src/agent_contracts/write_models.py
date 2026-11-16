@@ -9,8 +9,8 @@ from typing import Annotated, Final, Literal
 
 from pydantic import AwareDatetime, BaseModel, Field
 
-from agent_contracts.models import ProjectArguments
-from agent_contracts.spec_models import MAX_ID_CHARS, Holder
+from agent_contracts.models import Holder, ProjectArguments
+from agent_contracts.spec_models import MAX_ID_CHARS
 from agent_contracts.story_models import MAX_NOTE_CHARS, MAX_TOKEN_CHARS
 from graph.plan.models import TaskItem
 from graph.plan.names import TaskProgress

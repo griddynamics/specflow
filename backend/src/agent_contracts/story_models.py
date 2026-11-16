@@ -10,8 +10,8 @@ from typing import Final
 
 from pydantic import AwareDatetime, BaseModel, Field
 
-from agent_contracts.models import DEFAULT_LIMIT, Limit, ProjectArguments
-from agent_contracts.spec_models import MAX_ID_CHARS, FindingItem, Holder
+from agent_contracts.models import DEFAULT_LIMIT, FindingItem, Holder, Limit, ProjectArguments
+from agent_contracts.spec_models import MAX_ID_CHARS
 from graph.plan.names import AreaKind, StoryKind, StoryState, StoryView, TaskProgress
 
 MAX_NOTE_CHARS: Final = 500

@@ -29,7 +29,7 @@ from agent_contracts import (
     StoryRelease,
 )
 from api import story_views as views
-from api.agent_reads import AgentReads, agent_reads
+from api.agent_reads import AgentReads, agent_reads, finding_severities
 from api.agent_views import holders_of
 from api.deps import AgentProjectDep, AgentUserDep, RuntimeDep
 from api.errors import ApiError, not_available, partly_claimed, story_claimed
@@ -104,10 +104,11 @@ async def preview_story(
     """One story before a claim: state, holder, unit, open tasks in build order, blockers, findings, unblocks."""
 
     graph_id = str(project.id)
-    plan = (await agent_reads(runtime)).plan
-    preview = await plan_read(lambda: plan.story_preview(graph_id, story_id))
+    reads = await agent_reads(runtime)
+    preview = await plan_read(lambda: reads.plan.story_preview(graph_id, story_id))
     holders = await holders_of(runtime, project.id, user.id, views.preview_user_ids(preview))
-    return views.preview_view(graph_id, preview, holders)
+    severities = await finding_severities(reads, graph_id, preview.findings)
+    return views.preview_view(graph_id, preview, holders, severities)
 
 
 async def _blocking_findings(reads: AgentReads, graph_id: str, caller: str) -> tuple[str, ...]:
