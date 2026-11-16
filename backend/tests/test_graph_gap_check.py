@@ -4,6 +4,7 @@ FR-GINV-05 to FR-GINV-07, FR-GRTE-01, FR-GRTE-02, FR-GRTE-06)."""
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime
 from typing import Any
 
@@ -376,7 +377,8 @@ async def test_a_pointer_goes_to_the_second_check() -> None:
     mini, orders, payments = graph()
     pointer = Quote(fragment_id=orders, quote=LINE)
     missing = report(orders, payments, kind="missing", pointer=pointer, options=())
-    at = site(orders, payments)
+    contradicted = site(orders, payments)
+    at = dataclasses.replace(contradicted, seeds=(dataclasses.replace(contradicted.seeds[0], kind="missing"),))
     asks: list[ScriptedRequest] = []
 
     def judge(request: ScriptedRequest) -> Any:
@@ -404,6 +406,8 @@ async def test_a_pointer_goes_to_the_second_check() -> None:
     contradiction = report(orders, payments, pointer=pointer)
     no_judge = RecordedGapGateway(recordings={})
     assert not (await checker(mini, no_judge).check(at, result(mini, orders, payments, contradiction))).pointer
+    relabelled = await checker(mini, no_judge).check(contradicted, result(mini, orders, payments, missing))
+    assert not relabelled.pointer  # a contradiction seed gets no pointer, whatever kind the report names
     assert no_judge.calls_of("gap_judge") == []
     found = ReadResult(read="find_fragments", items=({"text": LINE},))
     assert "retrieved lines" in str(judge_messages(missing, found)[1]["content"])

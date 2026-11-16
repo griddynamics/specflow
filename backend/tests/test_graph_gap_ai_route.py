@@ -11,13 +11,16 @@ import pytest
 
 from gap_acceptance_support import Planted, RecordedGapGateway, gap_corpus_graph
 from gap_detection_support import PROJECT, MiniGraph
+from gap_investigation_support import loop_world
 from gap_port_fakes import MemoryGapRecords
 from gap_run_support import corpus_world
 from graph.core import load_ontology
-from graph.core.errors import GraphWriteError, LLMError
+from graph.core.errors import GraphWriteError, InfrastructureUnavailableError, LLMError
+from graph.gap import run_gap
 from graph.gap.models import Edit, EditTarget, GapReport, InvestigationResult, Quote, ReportOption, Witness, WitnessRef
 from graph.gap.prompts import AI_ANSWER_PROMPT, JUDGE_PROMPT
 from graph.gap.rules import Gates, load_gap_rules
+from graph.gap.settings import GapSettings
 from graph.gap.steps.check import Checked, Checker, CheckRun, ai_answer_messages
 from graph.gap.steps.detect import Seed
 from graph.gap.steps.investigate import Investigated
@@ -34,6 +37,7 @@ from graph.gap.steps.route import (
 from graph.gap.steps.sites import ExistingGap, Site
 from graph.gap.steps.snapshot import GraphSnapshot, read_snapshot
 from graph_support import ScriptedRequest
+from test_graph_gap_run import StopAfter
 
 LINE = "Customers can export their orders as CSV."
 RULE = "Orders over 1,000 EUR are reviewed."
@@ -195,7 +199,7 @@ def test_the_route_is_ai_only_when_every_rule_and_gate_holds() -> None:
     assert route_report(found, snapshot, **given, new=False).reasons == ("existing",)
     assert route_report(found, snapshot, **given, ai_answers=False).reasons == ("ai_answers_off",)
     failed = route_report(found, snapshot, ai_kinds=KINDS, gates=GATES, judge_failed=True)
-    assert failed.route == "ask" and failed.reasons[0] == "judge_failed"
+    assert failed.route == "ask" and failed.reasons[0] == "ai_judge_failed"
     assert route_report(found, snapshot, ai_kinds=KINDS).reasons == ("gates_off",)
     for kind in ("contradiction", "open_question", "assumption"):
         never = route_report(report(export, kind=kind), snapshot, **given)
@@ -392,3 +396,73 @@ def test_a_gap_answered_by_the_run_ai_is_not_an_input_of_its_site() -> None:
     assert ExistingGap("GAP::1", "sig", "answered", route="ask").hashed
     assert not ExistingGap("GAP::1", "sig", "open").hashed
     assert ExistingGap("GAP::1", "sig", "applying", route="ai").hashed
+
+
+# Review findings: relabelled kinds, raised sites, a resumed run with AI answers off
+
+
+def test_a_report_that_relabels_its_seeds_kind_is_never_answered_by_ai() -> None:
+    mini, export, _ = graph()
+    snapshot = mini.snapshot()
+    found = report(export)
+    given: dict[str, Any] = {"ai_kinds": KINDS, "gates": GATES, "judge": SURE}
+
+    for kind in ("open_question", "assumption", "contradiction"):
+        assert not ai_candidate(
+            found, snapshot, gates=GATES, ai_kinds=KINDS, ai_answers=True, new=True, seed_kinds=(kind,)
+        )
+        relabelled = route_report(found, snapshot, **given, seed_kinds=("missing", kind))
+        assert relabelled.route == "ask" and "kind" in relabelled.reasons
+    pointer = route_report(found, snapshot, **given, pointer=True, seed_kinds=("contradiction",))
+    assert pointer.route == "ask"
+    no_edits = report(
+        export,
+        options=(found.options[0].model_copy(update={"edits": ()}), *found.options[1:]),
+    )
+    assert not ai_candidate(no_edits, snapshot, gates=GATES, ai_kinds=KINDS, ai_answers=True, new=True)
+    assert not gate_results(no_edits, snapshot, GATES, SURE)["entailed"]
+
+
+async def test_a_contradiction_seed_gets_no_pointer_check() -> None:
+    mini, export, _ = graph()
+    gateway = RecordedGapGateway(recordings={})
+    seed = Seed(
+        detector="CT-VALUE",
+        kind="contradiction",
+        family="text",
+        strength="strong",
+        about=("REQ::FR::EXPORT",),
+        witness=(Witness(fragment_id=export, quote=LINE),),
+    )
+    at = Site("SITE::2", (seed,), seed.about, (), "hash-2", 1.0, 0)
+    found = report(export, pointer=Quote(fragment_id=export, quote=LINE))
+
+    checked = await checker(mini, gateway).check(at, investigated(export, found))
+
+    assert not checked.pointer and checked.ai_judge is None and gateway.calls_of("gap_judge") == []
+
+
+async def test_an_ai_route_on_a_site_joined_to_a_gap_is_never_written_as_an_ai_answer() -> None:
+    world, snapshot, decision = await csv_decision()
+    joined = SiteDecision(**{**decision.__dict__, "site": Site(**{**decision.site.__dict__, "gap_id": "GAP::RAISED"})})
+
+    outcome = await record_sites(record_run(world), snapshot, (), [joined])
+
+    assert outcome.ai_answered == 0 and not world.amendments.rows[PROJECT]
+    assert not [props for (label, _), props in world.executor.nodes.items() if label == "Clarification"]
+
+
+async def test_a_run_resumed_with_ai_answers_off_records_no_ai_answer() -> None:
+    world = await loop_world()
+    world.store = StopAfter("route")
+
+    with pytest.raises(InfrastructureUnavailableError, match="store_stopped"):
+        await run_gap(world.context(), mode="full")
+    (record,) = world.store.records.values()
+    routed = await world.store.get_artifact(PROJECT, record.run_id, "route")
+    assert any(item["mode"] == "ai" for item in routed["routed"].values())
+
+    result = await run_gap(world.context(run_id=record.run_id, settings=GapSettings(ai_answers=False)), mode="full")
+
+    assert result.counts["ai_answered"] == 0 and not world.amendments.rows[PROJECT]
+    assert {props["route"] for props in world.gap_nodes().values()} == {"ask"}

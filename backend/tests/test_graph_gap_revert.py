@@ -7,9 +7,11 @@ import pytest
 
 from gap_acceptance_support import Planted
 from gap_answer_support import MEMBER, answer_world, service_of
+from gap_close_support import apply_build, update_run
 from graph.core.errors import ConfigurationError, GraphWriteError
 from graph.gap.errors import AnswerInvalidError, GapNotFoundError, GapStateError
 from graph.gap.models import AnswerInput
+from graph.gap.prompts import RELEVANCE_PROMPT
 
 
 async def ai_rig():
@@ -114,3 +116,56 @@ async def test_a_revert_that_needs_a_build_refuses_without_a_build_port_and_a_fa
     assert await statuses(rig, clr) == {"active"}
     gap = await rig.service.get_gap(rig.project_id, listed.gap_id)
     assert gap.status == "applying" and {node.spec_id for node in gap.about} == {Planted.OWNERLESS_CSV_EXPORT}
+
+
+async def test_a_persons_answer_takes_the_ai_route_off_the_gap() -> None:
+    rig, listed = await ai_rig()
+
+    await rig.service.answer_gap(rig.project_id, AnswerInput(gap_id=listed.gap_id, option_rank=2, answered_by=MEMBER))
+
+    gap = await rig.service.get_gap(rig.project_id, listed.gap_id)
+    assert (gap.route, gap.clarification.mode if gap.clarification else None) == ("ask", "option")
+
+
+def resolve(rig, gap_id: str, clr: str) -> None:
+    """As the close check leaves a fixed gap: resolved, its clarification applied."""
+
+    for key, props in rig.world.executor.nodes.items():
+        if key[0] == "Gap" and props["gap_id"] == gap_id:
+            props.update(status="resolved", resolution="answered")
+        if key[0] == "Clarification" and props["clr_id"] == clr:
+            props["status"] = "applied"
+
+
+async def test_after_a_revert_the_follow_up_is_answered_not_the_old_gap() -> None:
+    rig, listed = await ai_rig()
+    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    resolve(rig, listed.gap_id, listed.clarification.clr_id)
+
+    result = await rig.service.revert_clarification(rig.project_id, listed.clarification.clr_id, by=MEMBER, reason="A")
+
+    with pytest.raises(GapStateError):  # its only applied answer is reverted: the question lives in the follow-up
+        await rig.service.answer_gap(
+            rig.project_id, AnswerInput(gap_id=listed.gap_id, option_rank=1, answered_by=MEMBER)
+        )
+    answered = await rig.service.answer_gap(
+        rig.project_id, AnswerInput(gap_id=result.gap_id, option_rank=1, answered_by=MEMBER)
+    )
+    assert answered.gap_id == result.gap_id
+    old, new = rig.world.gap_nodes()[listed.gap_id], rig.world.gap_nodes()[result.gap_id]
+    assert new["signature"] != old["signature"] and new["route"] == "ask"
+
+
+async def test_a_reopened_gap_with_a_reverted_answer_is_never_obsolete() -> None:
+    rig, listed = await ai_rig()
+    spec = {"sections": [{"section": "S1", "relevance": "spec", "signal": "states behaviour"}]}
+    rig.world.gateway.handle(RELEVANCE_PROMPT, lambda _request: spec)
+    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    await rig.service.revert_clarification(rig.project_id, listed.clarification.clr_id, by=MEMBER, reason="No.")
+    criteria = {Planted.OWNERLESS_CSV_EXPORT: {"acceptance_criteria": str(listed.clarification.text)}}
+
+    # The build already in flight read the answer: the detector is silent on the gap, which still waits for a person.
+    await update_run(rig.world, await apply_build(rig.world, attributes=criteria))
+
+    gap = await rig.service.get_gap(rig.project_id, listed.gap_id)
+    assert (gap.status, gap.route) == ("open", "ask")

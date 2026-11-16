@@ -37,6 +37,7 @@ PROJECT = "11111111-1111-4111-8111-111111111111"
 QUESTION = "Can a customer cancel a paid order?"
 ANSWER = "A customer can cancel a paid order within 30 minutes of payment. The full amount is refunded."
 MARKER = "> Clarified by GAP::7C2A91E04B3D"
+STATED = AnswerDecision(decision="a paid order may be cancelled", in_section="stated")
 ORDERS = corpus_text("orders-spec.md")
 
 
@@ -78,7 +79,9 @@ class Judge:
         self.seen.append(amendment.amendment_id)
         for word, verdict in self.verdicts.items():
             if word in section.text:
-                return None if verdict is None else SameMeaningAnswer(verdict=verdict, confidence=self.confidence)
+                if verdict is None:
+                    return None
+                return SameMeaningAnswer(decisions=[STATED], verdict=verdict, confidence=self.confidence)
         return SameMeaningAnswer(verdict="unrelated", confidence=0.9)
 
 
@@ -187,7 +190,7 @@ def test_a_same_verdict_holds_only_when_every_listed_decision_is_stated() -> Non
     contradicted = AnswerDecision(decision="full refund", in_section="contradicted")
 
     assert SameMeaningAnswer(decisions=[stated], verdict="same").decided() == "same"
-    assert SameMeaningAnswer(verdict="same").decided() == "same"
+    assert SameMeaningAnswer(verdict="same").decided() == "different"  # a verdict without its list
     assert SameMeaningAnswer(decisions=[stated, missing], verdict="same").decided() == "different"
     assert SameMeaningAnswer(decisions=[contradicted], verdict="same").decided() == "different"
     assert SameMeaningAnswer(decisions=[missing], verdict="unrelated").decided() == "unrelated"
@@ -284,7 +287,7 @@ async def test_the_gateway_judge_is_cached_by_input_and_a_failure_is_not() -> No
             Gateway.calls += 1
             if Gateway.fail:
                 raise LLMError("exhausted", prompt="gap.judge")
-            return SameMeaningAnswer(verdict="same", confidence=0.95)
+            return SameMeaningAnswer(decisions=[STATED], verdict="same", confidence=0.95)
 
     section = sections(upload("own-words"))[2]
     judge = gateway_judge(Gateway(), records, PROJECT, lambda: AT)
