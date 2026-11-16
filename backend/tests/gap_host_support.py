@@ -195,7 +195,7 @@ def make_gap_runner(
         ensure=ensure,
         gateway_factory=StubGateway,
         ports=lambda _transaction: ("records", "amendments"),
-        investigator=lambda: "investigator",
+        investigator=lambda _gateway: "investigator",
         executor=lambda _store: "executor",
         reader=lambda _store, _ontology: "reader",
         plan=lambda _store, _ontology: "plan",

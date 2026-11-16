@@ -10,9 +10,10 @@ import asyncio
 
 import pytest
 
-from gap_acceptance_support import Planted, RecordedGapGateway, assert_all_recorded, pending
+from gap_acceptance_support import Planted, RecordedGapGateway, assert_all_recorded
 from gap_detection_support import corpus_reader
 from gap_host_support import PROJECT, StubGapRun, make_pipeline
+from gap_investigation_support import loop_world, loop_world_of, recording_of, site_about
 from gap_run_support import corpus_world
 from graph.core.errors import InfrastructureUnavailableError
 from graph.gap import estimate_gap, run_gap
@@ -87,11 +88,29 @@ async def test_fr_grun_03_site_s_input_hash_equals_cached_verdict() -> None:
     assert_all_recorded(world.gateway)
 
 
-@pending("06")
-def test_fr_grun_04_run_fail_because_model_failure_site_recorded() -> None:
+async def test_fr_grun_04_run_fail_because_model_failure_site_recorded() -> None:
     """Given a gateway fake that fails one site, then the run completes, the site is `deferred`, and the next run
     investigates it.
     """
+
+    site_id = await site_about(Planted.STATED_QUESTION, Planted.PLACE_ORDER)
+    failing = RecordedGapGateway().record("gap_investigate", recording_of(site_id), error="exhausted")
+    world = await loop_world(gateway=failing)
+
+    first = await run_gap(world.context(), mode="full")
+
+    assert first.status == "completed" and first.deferred_sites == (site_id,)
+    assert first.counts["sites"]["deferred"] == 1 and first.counts["outcomes"]["deferred"] == 1
+    assert not any(Planted.STATED_QUESTION in world.about(gap) for gap in world.gap_nodes())
+    world.gateway = RecordedGapGateway()
+    loop_world_of(world)
+
+    second = await run_gap(world.context())
+
+    assert second.mode == "update" and world.investigator.sites == [site_id]
+    assert second.counts["outcomes"]["gap"] == 1 and second.deferred_sites == ()
+    assert any(world.about(gap) == {Planted.STATED_QUESTION, Planted.PLACE_ORDER} for gap in world.gap_nodes())
+    assert_all_recorded(world.gateway)
 
 
 async def test_fr_grun_05_run_respect_limits_rules_file_defer_lowest() -> None:

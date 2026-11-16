@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from gap_acceptance_support import Planted, RecordedGapGateway, assert_all_recorded, pending
+from gap_acceptance_support import Planted, RecordedGapGateway, assert_all_recorded
 from gap_detection_support import PROJECT, DetectionSetup, run_detection
+from gap_investigation_support import ReportsBySite, site_about
 from gap_port_fakes import MemoryGapRecords
-from graph.gap.models import NoiseRuleRow
+from gap_run_support import corpus_world
+from graph.gap import run_gap
+from graph.gap.models import GapReport, NoiseRuleRow
 from graph.gap.names import NoiseScope
 from graph.gap.steps.relevance import noise_report
 
@@ -112,6 +115,21 @@ async def test_fr_grel_06_noise_rule_added_person_mark_scope_tracking() -> None:
     assert_all_recorded(gateway)
 
 
-@pending("06", "steps.relevance.mark_not_spec turns a not_spec report into mixed sections; investigation calls it")
-def test_fr_grel_07_not_spec_report_records_the_site_not_spec() -> None:
+async def test_fr_grel_07_not_spec_report_records_the_site_not_spec() -> None:
     """Given a fake report `not_spec`, then no gap is written and the noise report names the nodes."""
+
+    site_id = await site_about(Planted.OWNERLESS_CSV_EXPORT)
+    world = await corpus_world()
+    not_spec = GapReport(verdict="not_spec", not_spec_reason="A ticket-like note, not a requirement.")
+    world.investigator = ReportsBySite({site_id: not_spec})
+
+    result = await run_gap(world.context(), mode="site", site_ids=[site_id])
+
+    assert world.gap_nodes() == {} and result.counts["outcomes"]["not_spec"] == 1
+    export = next(item for item in result.noise.sections if item.heading_path[-1] == "Order export")
+    assert Planted.OWNERLESS_CSV_EXPORT in export.removed and export.relevance == "mixed"
+    rows = [row for row in world.records.relevance_rows[PROJECT].values() if row.heading_path[-1] == "Order export"]
+    assert [(row.relevance, row.by, row.signals[-1]) for row in rows] == [("mixed", "model", "not_spec")]
+    (site,) = [row for row in world.records.sites[PROJECT] if row.site_id == site_id]
+    assert site.outcome == "not_spec" and site.gap_id is None
+    assert_all_recorded(world.gateway)

@@ -2,8 +2,11 @@
 and one call that runs the steps ``relevance``, ``detect`` and ``sites`` (docs/graph/gap/detection.md).
 
 ``TracingReader`` adds ``trace`` to the fixture reader: the directed walk by impact roles of the core reader
-(``docs/graph/trace.md``), without hubs and owners, which is all the site ranking needs offline. The live tests
-use the core ``GraphReader``.
+(``docs/graph/trace.md``), without hubs and owners, which is all the site ranking needs offline. It also answers the
+other reads of the investigation's read menu and context pack in a simple offline form: ``node``, ``evidence`` (the
+provenance lines with two lines around them), ``neighbours``, ``paths`` (none), ``similar`` (none), ``find_nodes``
+(name words), ``find_fragments`` (text words) and ``expand`` (nodes by hop distance, within the token budget). The
+live tests use the core ``GraphReader``.
 """
 
 from __future__ import annotations
@@ -16,8 +19,20 @@ from typing import Any
 from gap_acceptance_support import GapCorpusGraph, RecordedGapGateway, gap_corpus_graph
 from gap_port_fakes import MemoryGapRecords
 from graph.core import Ontology, load_ontology
+from graph.core.evidence import EvidenceItem
+from graph.core.expand import Expansion, ExpansionItem, SimilarResult
 from graph.core.ontology.compiled import COUPLED, RELATED, USED_BY, USES
-from graph.core.reader import EvidenceQuote, GraphDocument, GraphEdge, GraphFragment, GraphNode, Provenance
+from graph.core.paths import PathResult
+from graph.core.reader import (
+    EvidenceQuote,
+    FragmentHit,
+    GraphDocument,
+    GraphEdge,
+    GraphFragment,
+    GraphNode,
+    NodeHit,
+    Provenance,
+)
 from graph.core.trace import Direction, TraceNode, TraceResult
 from graph.gap.models import BuildFacts, CutEdge, RefusedPair
 from graph.gap.names import RunMode
@@ -84,7 +99,133 @@ class TracingReader:
             seen |= set(reached)
             frontier = sorted(reached)
             found += [reached[spec_id] for spec_id in frontier]
-        return TraceResult(direction=direction, sources=tuple(spec_ids), nodes=tuple(found))
+        return TraceResult(
+            direction=direction,
+            sources=tuple(spec_id for spec_id in spec_ids if spec_id in nodes),
+            unknown=tuple(spec_id for spec_id in spec_ids if spec_id not in nodes),
+            nodes=tuple(found),
+        )
+
+    # The read menu, offline
+
+    async def node(self, project_id: str, spec_id: str) -> GraphNode | None:
+        return next(
+            (node for node in await self.nodes(project_id) if spec_id in (node.spec_id, *node.spec_id_aliases)), None
+        )
+
+    async def evidence(self, project_id: str, spec_id: str, *, context_lines: int = 2) -> list[EvidenceItem] | None:
+        node = await self.node(project_id, spec_id)
+        if node is None:
+            return None
+        fragments = {item.fragment_id: item for item in await self.fragments(project_id)}
+        found = []
+        for item in node.provenance:
+            fragment = fragments.get(item.fragment_id)
+            if fragment is None or fragment.line_start is None or item.line_start is None:
+                continue
+            lines = fragment.text.splitlines()
+            start = item.line_start - fragment.line_start
+            end = (item.line_end or item.line_start) - fragment.line_start
+            found.append(
+                EvidenceItem(
+                    document_id=fragment.document_id,
+                    path=None,
+                    fragment_id=fragment.fragment_id,
+                    line_start=item.line_start,
+                    line_end=item.line_end,
+                    quote="\n".join(lines[start : end + 1]),
+                    before=tuple(lines[max(0, start - context_lines) : start]),
+                    after=tuple(lines[end + 1 : end + 1 + context_lines]),
+                )
+            )
+        return found
+
+    async def neighbours(
+        self, project_id: str, spec_id: str, relations: Sequence[str] | None = None
+    ) -> list[GraphEdge]:
+        return [
+            edge
+            for edge in await self.edges(project_id)
+            if spec_id in (edge.source, edge.target) and (not relations or edge.relation in relations)
+        ]
+
+    async def paths(self, project_id: str, from_id: str, to_id: str, *, max_hops: int = 4) -> PathResult | None:
+        del max_hops
+        if await self.node(project_id, from_id) is None or await self.node(project_id, to_id) is None:
+            return None
+        return PathResult(reason="not_connected")
+
+    async def similar(self, project_id: str, spec_ids: Sequence[str], **_: Any) -> SimilarResult:
+        del project_id
+        return SimilarResult(sources=tuple(spec_ids))
+
+    async def find_nodes(
+        self, project_id: str, text: str, labels: Sequence[str] | None = None, where: Any = None, limit: int = 20
+    ) -> list[NodeHit]:
+        del where
+        words = {word.casefold() for word in text.split()}
+        hits = [
+            NodeHit(node=node, score=1.0, matched="fulltext")
+            for node in await self.nodes(project_id)
+            if (not labels or node.label in labels) and words & {word.casefold() for word in node.name.split()}
+        ]
+        return hits[:limit]
+
+    async def find_fragments(
+        self, project_id: str, text: str, document_id: str | None = None, limit: int = 20
+    ) -> list[FragmentHit]:
+        words = [word.casefold() for word in text.split()]
+        hits = [
+            FragmentHit(fragment=fragment, document=None, score=1.0)
+            for fragment in await self.fragments(project_id, document_id)
+            if words and all(word in fragment.text.casefold() for word in words)
+        ]
+        return hits[:limit]
+
+    async def expand(
+        self,
+        project_id: str,
+        spec_ids: Sequence[str],
+        *,
+        exclude: Sequence[str] = (),
+        budget_tokens: int = 3000,
+        query: str | None = None,
+    ) -> Expansion:
+        """Nodes by hop distance from ``spec_ids`` (either direction, any relation), then spec id, while they fit."""
+
+        del query
+        nodes = {node.spec_id: node for node in await self.nodes(project_id)}
+        edges = await self.edges(project_id)
+        seen = {*spec_ids, *exclude}
+        frontier = [spec_id for spec_id in spec_ids if spec_id in nodes]
+        reached: list[str] = []
+        while frontier:
+            step = sorted(
+                {
+                    end
+                    for edge in edges
+                    for start, end in ((edge.source, edge.target), (edge.target, edge.source))
+                    if start in frontier and end in nodes and end not in seen and end not in reached
+                }
+            )
+            reached += [spec_id for spec_id in step if spec_id not in seen]
+            seen |= set(step)
+            frontier = step
+        items: list[ExpansionItem] = []
+        used = 0
+        for spec_id in reached:
+            node = nodes[spec_id]
+            text = node.name
+            tokens = -(-(len(node.spec_id) + len(text)) // 4)
+            if used + tokens > budget_tokens:
+                break
+            used += tokens
+            items.append(
+                ExpansionItem(
+                    spec_id=spec_id, label=node.label, name=node.name, score=1.0, via="graph", text=text, tokens=tokens
+                )
+            )
+        return Expansion(items=tuple(items), tokens=used, left_out=len(reached) - len(items))
 
 
 def _walks(role: str, *, outgoing: bool, direction: str) -> bool:

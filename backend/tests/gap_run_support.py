@@ -14,10 +14,10 @@ from typing import Any
 
 from gap_acceptance_support import RecordedGapGateway, gap_corpus_graph
 from gap_detection_support import PROJECT, TracingReader, build_facts
-from gap_port_fakes import MemoryAmendments, MemoryGapRecords
+from gap_port_fakes import MemoryAmendments, MemoryGapRecords, SeedInvestigator
 from gap_support import MemoryGapExecutor
 from graph.core import Ontology, load_ontology
-from graph.gap import GapContext, MemoryGapRunStore, SeedInvestigator
+from graph.gap import GapContext, MemoryGapRunStore
 from graph.gap.models import BuildFacts, GapChangeReport, InvestigationResult, SiteBudget, SitePack
 from graph.gap.ports import Investigator, PlanView, SiteReads
 from graph.gap.rules import GapRules, load_gap_rules
@@ -61,7 +61,7 @@ class GapWorld:
     amendments: MemoryAmendments = field(default_factory=MemoryAmendments)
     store: MemoryGapRunStore = field(default_factory=MemoryGapRunStore)
     gateway: RecordedGapGateway = field(default_factory=RecordedGapGateway)
-    investigator: CountingInvestigator = field(default_factory=CountingInvestigator)
+    investigator: Any = field(default_factory=CountingInvestigator)  # an Investigator; counted by default
     plan: PlanView | None = None
     project_id: str = PROJECT
 

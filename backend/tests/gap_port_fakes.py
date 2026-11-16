@@ -3,8 +3,9 @@
 ``MemoryGapRecords`` and ``MemoryAmendments`` keep rows per project id, so a test can show that one project never
 sees another's rows (FR-GOWN-02). They follow the port semantics of the PostgreSQL adapters (``api.gap.records``);
 ``tests/gap_records_contract.py`` runs the same contract on both. ``ScriptedInvestigator`` returns prepared results
-per site, ``MemoryStoryHolds``, ``MemoryBuildRequests`` and ``MemoryPlanView`` record what the run asked of the plan
-and the build runner.
+per site, ``SeedInvestigator`` turns a site's seeds into a ``gap`` report with two options and no model call
+(``NO_READS`` answers every read empty), ``MemoryStoryHolds``, ``MemoryBuildRequests`` and ``MemoryPlanView``
+record what the run asked of the plan and the build runner.
 """
 
 from __future__ import annotations
@@ -17,13 +18,18 @@ from typing import Any, get_args
 from graph.core.errors import ConformanceError, GraphError
 from graph.gap.models import (
     AmendmentRow,
+    Edit,
+    EditTarget,
     EventRow,
+    GapReport,
     HoldResult,
     InvestigationResult,
     NoiseRuleRow,
     NoteRow,
     OptionRow,
+    ReadResult,
     RelevanceRow,
+    ReportOption,
     RunRow,
     SectionKey,
     SeedRow,
@@ -33,9 +39,11 @@ from graph.gap.models import (
     SuppressionRow,
     TaskRef,
     VerdictRow,
+    WitnessRef,
 )
-from graph.gap.names import AmendmentStatus, FinishedRunStatus
+from graph.gap.names import AmendmentStatus, FinishedRunStatus, ReportSeverity
 from graph.gap.ports import SiteReads
+from graph.gap.steps.investigate import primary_seed
 
 
 def _same_run(run_id: str, rows: Sequence[SeedRow] | Sequence[SiteRow]) -> None:
@@ -275,3 +283,150 @@ class MemoryPlanView:
             for spec_id in spec_ids
             if spec_id in self.tasks
         }
+
+
+# A seed-based investigator: no model call
+
+
+SEED_STUB_VERSION = "gap.seed_stub.2"
+READS_UNAVAILABLE = "reads_unavailable"
+MAJOR_KINDS = frozenset({"contradiction", "open_question"})
+TITLE_IDS = 3
+_TITLES = {
+    "missing": "Missing in the spec",
+    "ambiguous": "Ambiguous in the spec",
+    "contradiction": "Contradiction in the spec",
+    "inconsistency": "Inconsistent in the spec",
+    "open_question": "Open question in the spec",
+    "assumption": "Unconfirmed assumption in the spec",
+}
+
+
+class _NoReads:
+    """A read menu whose every read returns an empty result with ``reads_unavailable``."""
+
+    async def _empty(self, read: str) -> ReadResult:
+        return ReadResult(read=read, reason=READS_UNAVAILABLE)
+
+    async def node(self, spec_id: str) -> ReadResult:
+        del spec_id
+        return await self._empty("node")
+
+    async def evidence(self, spec_id: str) -> ReadResult:
+        del spec_id
+        return await self._empty("evidence")
+
+    async def neighbours(self, spec_id: str, relations: Sequence[str] = ()) -> ReadResult:
+        del spec_id, relations
+        return await self._empty("neighbours")
+
+    async def trace(self, spec_id: str, direction: str, depth: int) -> ReadResult:
+        del spec_id, direction, depth
+        return await self._empty("trace")
+
+    async def paths(self, source: str, target: str) -> ReadResult:
+        del source, target
+        return await self._empty("paths")
+
+    async def similar(self, query: str, limit: int) -> ReadResult:
+        del query, limit
+        return await self._empty("similar")
+
+    async def find_nodes(self, words: str, labels: Sequence[str] = ()) -> ReadResult:
+        del words, labels
+        return await self._empty("find_nodes")
+
+    async def find_fragments(self, words: str) -> ReadResult:
+        del words
+        return await self._empty("find_fragments")
+
+
+NO_READS: SiteReads = _NoReads()
+
+
+def _as_question(text: str) -> str:
+    clean = text.strip().rstrip(".!:;")
+    return clean if clean.endswith("?") else f"{clean}?"
+
+
+def seed_report(pack: SitePack) -> GapReport:
+    """A site's seeds as a ``gap`` report: the primary seed's kind; ``ABOUT`` every seed node, ``IMPACTS`` their
+    context nodes, every quote and fact as witness; ``major`` for a strong seed, a contradiction or a stated question,
+    else ``minor``, and ``info`` when the seeds name no node and quote no line. Options: insert after the first
+    witness line (recommended) and a clarifications-document section; both document sections without a quote."""
+
+    primary = primary_seed(pack.seeds)
+    about = tuple(sorted({spec_id for seed in pack.seeds for spec_id in seed.spec_ids}))
+    impacts = tuple(sorted({spec_id for seed in pack.seeds for spec_id in seed.context_ids} - set(about)))
+    witness: list[WitnessRef] = []
+    for index, seed in enumerate(pack.seeds):
+        for item in seed.witness:
+            ref = (
+                WitnessRef(fact=index)
+                if item.fact is not None
+                else WitnessRef(fragment_id=item.fragment_id, quote=item.quote)
+            )
+            if ref not in witness:
+                witness.append(ref)
+    first = next((item for item in primary.witness if item.quote and item.fragment_id), None)
+    named = ", ".join(about[:TITLE_IDS]) + (" and more" if len(about) > TITLE_IDS else "")
+    if primary.kind == "open_question" and first is not None:
+        question = _as_question(str(first.quote))
+    elif primary.kind == "assumption" and first is not None:
+        question = _as_question(f"Is this assumption confirmed: {first.quote}")
+    else:
+        question = f"What must the spec state to settle this {primary.kind.replace('_', ' ')} about {named}?"
+    severity: ReportSeverity = "major" if primary.strength == "strong" or primary.kind in MAJOR_KINDS else "minor"
+    if not about and not any(ref.quote for ref in witness):
+        severity = "info"
+    document = Edit(
+        placement="document",
+        target=EditTarget(heading=named or "Project"),
+        operation="append_section",
+        text=f"The spec settles this for {named or 'the project'}.",
+    )
+    if first is not None:
+        amend = Edit(
+            placement="amend",
+            target=EditTarget(fragment_id=first.fragment_id, anchor_quote=first.quote),
+            operation="insert_after",
+            text="The spec states the answer here.",
+        )
+        options = (
+            ReportOption(label="State it in the section", recommended=True, edits=(amend,)),
+            ReportOption(label="Clarifications document", recommended=False, edits=(document,)),
+        )
+    else:
+        options = (
+            ReportOption(label="Clarifications document", recommended=True, edits=(document,)),
+            ReportOption(
+                label="Clarifications document, owner decides",
+                recommended=False,
+                edits=(document.model_copy(update={"text": "The owner decides this."}),),
+            ),
+        )
+    detectors = ", ".join(sorted({seed.detector for seed in pack.seeds}))
+    return GapReport(
+        verdict="gap",
+        kind=primary.kind,
+        severity=severity,
+        title=f"{_TITLES[primary.kind]}: {named}"[:160],
+        question=question,
+        why=f"Found by the detectors {detectors} ({len(pack.seeds)} seeds).",
+        about=about,
+        impacts=impacts,
+        witness=tuple(witness),
+        options=() if severity == "info" else options,
+    )
+
+
+class SeedInvestigator:
+    """An ``Investigator`` with no model call and no read: the report is ``seed_report`` of the pack."""
+
+    prompt_version = SEED_STUB_VERSION
+
+    async def investigate(self, pack: SitePack, reads: SiteReads, budget: SiteBudget) -> InvestigationResult:
+        del reads, budget
+        if not pack.seeds:
+            return InvestigationResult(error="site_without_seeds")
+        return InvestigationResult(report=seed_report(pack))

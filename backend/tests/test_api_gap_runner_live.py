@@ -20,9 +20,11 @@ from db import repositories as repo
 from db.session import build_engine, build_session_factory, transaction
 from gap_acceptance_support import Planted, RecordedGapGateway, assert_all_recorded, write_gap_corpus_graph
 from gap_host_support import SETTINGS, store_build
+from gap_investigation_support import answer_by_site
 from graph.build import open_file_stores
 from graph.core import load_ontology
 from graph.gap import GapSettings
+from graph.gap.prompts import INVESTIGATE_PROMPT
 from graph_probes import requires_live_graph
 from graph_support import GraphProject
 from settings import DatabaseSettings
@@ -48,7 +50,7 @@ async def _project(factory: async_sessionmaker[AsyncSession]) -> str:
 
 def _gateways(made: list[RecordedGapGateway]) -> Callable[[Any], RecordedGapGateway]:
     def factory(_llm: Any) -> RecordedGapGateway:
-        gateway = RecordedGapGateway()
+        gateway = RecordedGapGateway().handle(INVESTIGATE_PROMPT, answer_by_site)  # the live packs differ offline
         made.append(gateway)
         return gateway
 

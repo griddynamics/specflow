@@ -138,10 +138,21 @@ async def test_a_gap_is_written_with_about_impacts_and_cites_and_its_rows() -> N
     (row,) = records.sites[PROJECT]
     assert row.outcome == "gap" and row.gap_id == gap_id and row.input_hash == "hash-SITE::1"
     assert records.verdicts[PROJECT]["hash-SITE::1"].report["gap_id"] == gap_id
-    (event,) = records.event_rows[PROJECT]
+    event, routed = records.event_rows[PROJECT]
     assert event.event == "created" and event.gap_id == gap_id
-    assert set(event.detail) == {"run_id", "site_id", "kind", "severity", "route", "about", "impacts", "cites"}
-    assert QUESTION not in str(event.detail)
+    assert set(event.detail) == {
+        "run_id",
+        "site_id",
+        "kind",
+        "severity",
+        "route",
+        "about",
+        "impacts",
+        "cites",
+        "options",
+    }
+    assert routed.event == "routed" and routed.detail["route"] == "ask" and routed.detail["held_back"] is False
+    assert QUESTION not in str(event.detail) and QUESTION not in str(routed.detail)
     assert counted(outcome.payload()["gaps_new"]) == {
         "total": 1,
         "by_kind": {"open_question": 1},

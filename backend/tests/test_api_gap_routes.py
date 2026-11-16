@@ -121,7 +121,7 @@ async def test_the_list_passes_every_filter_and_answers_the_page(harness):
     runner, pid = await gap_project(harness)
     query = (
         "?status=open&status=answered&kind=missing&severity=blocker&origin=analysis&route=ask"
-        "&about=REQ-1&about=REQ-2&story_id=STORY::A&document=doc:1&cursor=c1&limit=20"
+        "&about=REQ-1&about=REQ-2&story_id=STORY::A&document=doc:1&held_back=false&cursor=c1&limit=20"
     )
 
     response = await harness.client.get(url(pid, f"/gaps{query}"), headers=bearer())
@@ -140,6 +140,7 @@ async def test_the_list_passes_every_filter_and_answers_the_page(harness):
         "about": ["REQ-1", "REQ-2"],
         "story_id": "STORY::A",
         "document": "doc:1",
+        "held_back": False,
         "cursor": "c1",
         "limit": 20,
     }

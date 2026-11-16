@@ -1,4 +1,907 @@
 {
   "role": "gap_investigate",
-  "calls": []
+  "calls": [
+    {
+      "input_hash": "b3e4a35bf38d2acc3bf5d65ce8f55c23b820968d13bbce50dc027288ddaae6d0",
+      "note": "site SITE::02D1427EAAC5 round 1 (AM-MEASURE+AM-VAGUE REQ::NFR::ADMIN_PANEL_FAST)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "ambiguous",
+          "severity": "major",
+          "title": "Admin panel speed is not measurable",
+          "question": "How fast must admin panel pages load to count as fast?",
+          "why": "\"Fast\" cannot be tested; the review queue and reporting screens depend on it.",
+          "about": [
+            "REQ::NFR::ADMIN_PANEL_FAST"
+          ],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": "upload:admin-spec#admin-panel-specification/performance#b8f235a5",
+              "quote": "The admin panel should be fast.",
+              "fact": null
+            }
+          ],
+          "options": [
+            {
+              "label": "A: 2 seconds at the 95th percentile",
+              "detail": "",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:admin-spec#admin-panel-specification/performance#b8f235a5",
+                    "anchor_quote": "The admin panel should be fast.",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "Admin panel pages load within 2 seconds for 95% of requests."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "B: 1 second at the 95th percentile",
+              "detail": "",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:admin-spec#admin-panel-specification/performance#b8f235a5",
+                    "anchor_quote": "The admin panel should be fast.",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "Admin panel pages load within 1 second for 95% of requests."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "8795f2285bd3aab00885da9581e02c63cd38297971ad11bd074e55d2b578e6fc",
+      "note": "site SITE::19968E352716 round 1 (MS-CRITERIA REQ::FR::REFUND_TO_ORIGINAL_CARD)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_a_gap",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "The statement is specific enough to test.",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "32f49b14acf2cbd8bab03462b8819c0231ab9c8f893fa6c53f23c2e959d1b8e1",
+      "note": "site SITE::1B92214C2E59 round 1 (MS-CRITERIA+MS-OWNER REQ::FR::EXPORT_ORDERS_CSV)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "missing",
+          "severity": "minor",
+          "title": "CSV order export has no owner",
+          "question": "Which service provides the CSV export of a customer's orders?",
+          "why": "The export is required but no module owns it.",
+          "about": [
+            "REQ::FR::EXPORT_ORDERS_CSV"
+          ],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": "upload:account-spec#account-specification/order-export#145ce11f",
+              "quote": "Customers can export their orders as CSV.",
+              "fact": null
+            }
+          ],
+          "options": [
+            {
+              "label": "A: The Orders service",
+              "detail": "",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:account-spec#account-specification/order-export#145ce11f",
+                    "anchor_quote": "Customers can export their orders as CSV.",
+                    "heading": null
+                  },
+                  "operation": "insert_after",
+                  "text": "The Orders service provides the CSV export of a customer's orders."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "B: The Account service",
+              "detail": "",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:account-spec#account-specification/order-export#145ce11f",
+                    "anchor_quote": "Customers can export their orders as CSV.",
+                    "heading": null
+                  },
+                  "operation": "insert_after",
+                  "text": "The Account service provides the CSV export of a customer's orders."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "fd35e8feb75da847e573dde6b6e0341ad93aa10ba654b3b323b73249779efd91",
+      "note": "site SITE::2334561F3F63 round 1 (MS-COVERAGE -)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "missing",
+          "severity": "info",
+          "title": "No security requirement in the spec",
+          "question": "Which security requirements apply to the shop?",
+          "why": "No quality requirement covers security.",
+          "about": [],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": null,
+              "quote": null,
+              "fact": 0
+            }
+          ],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "e8701133ee04880b2702d6cddc12536c132006c8e6a7658450d121c910a95ce3",
+      "note": "site SITE::3BD332B843F9 round 1 (MS-CRITERIA REQ::FR::PAY_BY_CARD)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_a_gap",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "The statement is specific enough to test.",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "4bdcdbdc59eb3ea4cd47d07de7a57c5cf92c1909cad43e1d67c57c905b2ff883",
+      "note": "site SITE::56DC4050727C round 1 (MS-STORE ENT::REFUND)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "missing",
+          "severity": "major",
+          "title": "Where refunds are stored is not specified",
+          "question": "Which store keeps refunds, and for how long?",
+          "why": "Refunds are an entity of the Payments service but no store is named for them.",
+          "about": [
+            "ENT::REFUND"
+          ],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": null,
+              "quote": null,
+              "fact": 0
+            }
+          ],
+          "options": [
+            {
+              "label": "A: Payments database",
+              "detail": "Same store as payments.",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "document",
+                  "target": {
+                    "fragment_id": null,
+                    "anchor_quote": null,
+                    "heading": "Refund storage (ENT::REFUND)"
+                  },
+                  "operation": "append_section",
+                  "text": "The Payments service stores every refund in the Payments database."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "B: Not stored",
+              "detail": "No refund history in the shop.",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "document",
+                  "target": {
+                    "fragment_id": null,
+                    "anchor_quote": null,
+                    "heading": "Refund storage (ENT::REFUND)"
+                  },
+                  "operation": "append_section",
+                  "text": "Refunds are not stored; the card provider keeps the record."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "4bdd648706782a431c4371e849a2312aa5b2fa423a080b9162625a05444e9efa",
+      "note": "site SITE::5ABBD8F67B55 round 1 (MS-PROVIDER IFC::REPORTING_API)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "missing",
+          "severity": "major",
+          "title": "No service provides the Reporting API",
+          "question": "Which service provides the Reporting API the Admin panel reads sales figures from?",
+          "why": "The Admin panel consumes the Reporting API but no service provides it.",
+          "about": [
+            "IFC::REPORTING_API"
+          ],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": null,
+              "quote": null,
+              "fact": 0
+            },
+            {
+              "fragment_id": "upload:admin-spec#admin-panel-specification/reporting#57caaa16",
+              "quote": "The Admin panel shows sales figures it loads from the Reporting API.",
+              "fact": null
+            }
+          ],
+          "options": [
+            {
+              "label": "A: The Payments service",
+              "detail": "Sales figures come from payments.",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:admin-spec#admin-panel-specification/reporting#57caaa16",
+                    "anchor_quote": "The Admin panel shows sales figures it loads from the Reporting API.",
+                    "heading": null
+                  },
+                  "operation": "insert_after",
+                  "text": "The Payments service provides the Reporting API."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "B: The Orders service",
+              "detail": "Sales figures come from orders.",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:admin-spec#admin-panel-specification/reporting#57caaa16",
+                    "anchor_quote": "The Admin panel shows sales figures it loads from the Reporting API.",
+                    "heading": null
+                  },
+                  "operation": "insert_after",
+                  "text": "The Orders service provides the Reporting API."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "7f046502848fa4e3eb2c1216504db25e942f1572ee3328f14dfebc4789f0622c",
+      "note": "site SITE::7C7499AA0780 round 1 (MS-CRITERIA REQ::FR::SEE_PAST_ORDERS)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_a_gap",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "The statement is specific enough to test.",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "c59dff2ff42f775c0424a4c1e0d1de8bdb5f644a7117431d72b506f7d0440c19",
+      "note": "site SITE::86A61C681374 round 1 (AS-FLAG REQ::CON::CUSTOMER_HAS_EMAIL)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "assumption",
+          "severity": "major",
+          "title": "Every customer has an email address (unconfirmed)",
+          "question": "Is it confirmed that every customer has an email address?",
+          "why": "Sign-in uses the email address; customers without one could not sign in.",
+          "about": [
+            "REQ::CON::CUSTOMER_HAS_EMAIL"
+          ],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": "upload:account-spec#account-specification/sign-in-and-profile#972475c5",
+              "quote": "We assume every customer has an email address.",
+              "fact": null
+            }
+          ],
+          "options": [
+            {
+              "label": "A: Confirmed",
+              "detail": "",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:account-spec#account-specification/sign-in-and-profile#972475c5",
+                    "anchor_quote": "We assume every customer has an email address.",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "Every customer has an email address; sign-up requires one."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "B: Not confirmed",
+              "detail": "",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:account-spec#account-specification/sign-in-and-profile#972475c5",
+                    "anchor_quote": "We assume every customer has an email address.",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "A customer may have no email address and then signs in with a phone number."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "916e8b80dcdec1f453dba9f2ef1c9c5267d0f654e421df2c18da6f51bc2b57be",
+      "note": "site SITE::93D15FAEA9D1 round 1 (MS-CRITERIA+MS-OWNER REQ::FR::R2_REFUNDS_THROUGH_PAYMENTS)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_spec",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": "A release plan item, not a requirement of the system."
+        }
+      }
+    },
+    {
+      "input_hash": "fac92a8d163597a6e9e87470543c61319506a6e5832b0c599d614c71077e911d",
+      "note": "site SITE::9702D02433B3 round 1 (OQ-STATED QST::CANCEL_PAID_ORDER,REQ::FR::PLACE_ORDER)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "open_question",
+          "severity": "major",
+          "title": "Cancelling a paid order is not specified",
+          "question": "Can a customer cancel an order after paying, and what happens to the payment?",
+          "why": "Payment is captured when an order is placed and a refund interface exists, but no text says when cancellation is allowed.",
+          "about": [
+            "QST::CANCEL_PAID_ORDER",
+            "REQ::FR::PLACE_ORDER"
+          ],
+          "impacts": [
+            "IFC::REFUND_API"
+          ],
+          "witness": [
+            {
+              "fragment_id": "upload:orders-spec#orders-service-specification/place-order#e1486afe",
+              "quote": "Can a customer cancel a paid order?",
+              "fact": null
+            }
+          ],
+          "options": [
+            {
+              "label": "A: Allow within 30 minutes, full refund",
+              "detail": "Uses the existing refund interface; adds one rule under Place order.",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:orders-spec#orders-service-specification/place-order#e1486afe",
+                    "anchor_quote": "Can a customer cancel a paid order?",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "A customer can cancel a paid order within 30 minutes of payment. The full amount is refunded through the Refund API of the Payments service."
+                }
+              ],
+              "basis": [
+                {
+                  "fragment_id": "upload:orders-spec#orders-service-specification/place-order#e1486afe",
+                  "quote": "Payment is captured when the order is placed."
+                }
+              ]
+            },
+            {
+              "label": "B: Not allowed after payment",
+              "detail": "No refund flow for cancellations; support handles exceptions.",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:orders-spec#orders-service-specification/place-order#e1486afe",
+                    "anchor_quote": "Can a customer cancel a paid order?",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "A paid order cannot be cancelled by the customer."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "C: Allowed until shipment, minus a fee",
+              "detail": "Needs the shipment status in the Orders service.",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:orders-spec#orders-service-specification/place-order#e1486afe",
+                    "anchor_quote": "Can a customer cancel a paid order?",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "A customer can cancel a paid order until it ships. A 5% fee is kept; the rest is refunded through the Refund API of the Payments service."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "Changes customer-visible behaviour; not entailed by the text.",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "b6a2f23bb297bb7a84a0dac6c694efb5253628c8863916972e63ab18e8c873cc",
+      "note": "site SITE::A0BE385F3757 round 1 (MS-COVERAGE -)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_a_gap",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "The checklist topic is not needed for this shop at this stage.",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "27fd3875e79e1a513c91c3874048213e00119c27663885e5e1350d215327eb75",
+      "note": "site SITE::A6294855E4BE round 1 (CT-VALUE REQ::BR::HOLD_PAYMENTS_OVER_500_EUR,REQ::BR::REVIEW_ORDERS_OVER_1000_EUR)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "contradiction",
+          "severity": "major",
+          "title": "Two review limits for the same orders",
+          "question": "Which amount sends an order to review: 500 EUR or 1,000 EUR?",
+          "why": "The Orders spec reviews orders over 1,000 EUR while the Payments spec holds payments over 500 EUR; orders between the two limits are treated differently.",
+          "about": [
+            "REQ::BR::REVIEW_ORDERS_OVER_1000_EUR",
+            "REQ::BR::HOLD_PAYMENTS_OVER_500_EUR"
+          ],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": "upload:orders-spec#orders-service-specification/order-review#2abe6ad8",
+              "quote": "Orders over 1,000 EUR are reviewed.",
+              "fact": null
+            },
+            {
+              "fragment_id": "upload:payments-spec#payments-service-specification/payment-review#8a2d474f",
+              "quote": "Payments over 500 EUR are held for review.",
+              "fact": null
+            }
+          ],
+          "options": [
+            {
+              "label": "A: Review from 500 EUR",
+              "detail": "One limit for both services; more orders are reviewed.",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:orders-spec#orders-service-specification/order-review#2abe6ad8",
+                    "anchor_quote": "Orders over 1,000 EUR are reviewed.",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "Orders over 500 EUR are reviewed."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "B: Review from 1,000 EUR",
+              "detail": "Fewer reviews; payments between 500 and 1,000 EUR pass.",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:payments-spec#payments-service-specification/payment-review#8a2d474f",
+                    "anchor_quote": "Payments over 500 EUR are held for review.",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "Payments over 1,000 EUR are held for review."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "C: Keep two limits",
+              "detail": "Both rules stay; the clarifications document says they are independent.",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "document",
+                  "target": {
+                    "fragment_id": null,
+                    "anchor_quote": null,
+                    "heading": "Review limits (Orders service, Payments service)"
+                  },
+                  "operation": "append_section",
+                  "text": "The Orders service reviews orders over 1,000 EUR; the Payments service separately holds payments over 500 EUR."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "Choosing a limit is a decision.",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "323a1e1239da8573ed5d505b8eaa85417064dcf3cb282aaea35f394183f51dfb",
+      "note": "site SITE::C9EFC4F0CD3E round 1 (MS-CRITERIA REQ::FR::CAPTURE_PAYMENT_ON_ORDER)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_a_gap",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "The statement is specific enough to test.",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "845ff2c2681992a539a68263ac0fff896a36b7d6e99384cabd369a6ca4922559",
+      "note": "site SITE::E84299520E90 round 1 (MS-COVERAGE -)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_a_gap",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "The checklist topic is not needed for this shop at this stage.",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "97e0675ee444e030035ba965acc4973ab1300e1dff3cec7ee339383c363191cd",
+      "note": "site SITE::ED033ABC5F71 round 1 (MS-CRITERIA REQ::FR::REVIEW_QUEUE_DECISION)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "missing",
+          "severity": "minor",
+          "title": "What happens to a rejected order is not specified",
+          "question": "What happens to an order a shop manager rejects in the review queue?",
+          "why": "The review queue decision has no acceptance criteria; the outcome of a rejection is open.",
+          "about": [
+            "REQ::FR::REVIEW_QUEUE_DECISION"
+          ],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": null,
+              "quote": null,
+              "fact": 0
+            }
+          ],
+          "options": [
+            {
+              "label": "A: Cancelled and refunded",
+              "detail": "",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:admin-spec#admin-panel-specification/review-queue#ee9ddd8f",
+                    "anchor_quote": "Shop managers approve or reject the orders waiting for review.",
+                    "heading": null
+                  },
+                  "operation": "insert_after",
+                  "text": "A rejected order is cancelled and its payment refunded."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "B: Returned to the customer",
+              "detail": "",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:admin-spec#admin-panel-specification/review-queue#ee9ddd8f",
+                    "anchor_quote": "Shop managers approve or reject the orders waiting for review.",
+                    "heading": null
+                  },
+                  "operation": "insert_after",
+                  "text": "A rejected order goes back to the customer, who may change it."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "8df8c756443a82978065a0b7dd204fe9119d8db8d6dd2fd21ba5f8df33010c8d",
+      "note": "site SITE::FAEB63CC3A76 round 1 (MS-COVERAGE -)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_a_gap",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "The checklist topic is not needed for this shop at this stage.",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "b36d5ad8bcc2372ef848918efdb18b4e4cc7a115f9e56ed873fd9ad8bee9f6a1",
+      "note": "site SITE::FB341A19301E round 1 (MS-COVERAGE -)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "not_a_gap",
+          "duplicate_of": null,
+          "kind": null,
+          "severity": null,
+          "title": "",
+          "question": "",
+          "why": "The checklist topic is not needed for this shop at this stage.",
+          "about": [],
+          "impacts": [],
+          "witness": [],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "af63205a1a27645e4c8c79a32a3b064412ecc4041266c3fd7e0596ba415446b4",
+      "note": "site SITE::FD9DA5468AAD round 1 (MS-COVERAGE -)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "missing",
+          "severity": "info",
+          "title": "No data protection requirement in the spec",
+          "question": "Which data protection requirements apply to the shop?",
+          "why": "No quality requirement covers data protection.",
+          "about": [],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": null,
+              "quote": null,
+              "fact": 0
+            }
+          ],
+          "options": [],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "",
+          "not_spec_reason": null
+        }
+      }
+    }
+  ]
 }

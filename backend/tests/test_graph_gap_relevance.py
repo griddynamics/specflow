@@ -16,6 +16,7 @@ from graph.core import load_ontology
 from graph.core.errors import LLMError
 from graph.gap.models import NoiseRuleRow, RelevanceRow
 from graph.gap.names import NoiseScope, Relevance
+from graph.gap.prompts import prompt_text
 from graph.gap.rules import load_gap_rules
 from graph.gap.steps.relevance import (
     BATCH_SECTIONS,
@@ -31,7 +32,6 @@ from graph.gap.steps.relevance import (
     mark_not_spec,
     noise_report,
     noise_rule_matches,
-    prompt_text,
     relevance_messages,
     section_value,
 )
@@ -194,7 +194,7 @@ def test_the_messages_quote_sections_as_untrusted_blocks_of_at_most_1500_charact
 
     messages = relevance_messages([section])
 
-    assert messages[0] == {"role": "system", "content": prompt_text()}
+    assert messages[0] == {"role": "system", "content": prompt_text("relevance")}
     user = messages[1]["content"]
     assert '"id": "S1"' in user
     assert '"heading_path": ["Roadmap", "Roadmap", "Release plan"]' in user

@@ -12,7 +12,7 @@ import pytest
 
 from gap_acceptance_support import Planted, RecordedGapGateway, assert_all_recorded
 from gap_detection_support import PROJECT, MiniGraph
-from gap_port_fakes import MemoryPlanView, ScriptedInvestigator
+from gap_port_fakes import SEED_STUB_VERSION, MemoryPlanView, ScriptedInvestigator, SeedInvestigator
 from gap_run_support import CountingInvestigator, GapWorld, corpus_world, executor_for
 from graph.core import load_ontology
 from graph.core.errors import ConfigurationError, GraphError, InfrastructureUnavailableError
@@ -20,11 +20,11 @@ from graph.gap import RUN_STEPS, MemoryGapRunStore, estimate_gap, run_gap
 from graph.gap import run as run_module
 from graph.gap.models import BuildFacts, GapChangeReport, InvestigationResult, SiteBudget, SitePack, TaskRef
 from graph.gap.ports import SiteReads
+from graph.gap.prompts import INVESTIGATE_PROMPT
 from graph.gap.rules import load_gap_rules
 from graph.gap.run import new_run_id, prompt_versions, relevance_from, seed_from, seed_payload
 from graph.gap.run_store import GapRunRecord
 from graph.gap.settings import GapSettings
-from graph.gap.steps.investigate import SEED_STUB_VERSION, SeedInvestigator
 
 
 def no_coverage_rules() -> Any:
@@ -391,7 +391,7 @@ async def test_fr_grun_06_an_estimate_makes_no_call_and_writes_nothing() -> None
 
     assert estimate.sites > 0 and estimate.cached == 0
     assert estimate.calls["gap_relevance"] == 1 and estimate.tokens["gap_relevance"] > 0
-    assert estimate.calls["gap_investigate"] == estimate.sites * world.rules.limits.rounds_per_site
+    assert estimate.calls["gap_investigate"] == estimate.sites * (world.rules.limits.rounds_per_site + 1)
     assert world.gateway.calls == [] and world.investigator.sites == []
     assert world.records.sites[PROJECT] == [] and world.records.seeds[PROJECT] == []
     assert world.records.relevance_rows[PROJECT] == {} and world.records.runs[PROJECT] == {}
@@ -447,7 +447,8 @@ def test_the_prompt_versions_name_the_investigator() -> None:
         GapWorld(reader=empty, executor=empty, ontology=load_ontology(), rules=no_coverage_rules()).context(),
         investigator=Bare(),
     )
-    assert prompt_versions(world_ctx)["gap_investigate"] == SEED_STUB_VERSION
+    assert prompt_versions(world_ctx)["gap_investigate"] == INVESTIGATE_PROMPT == "gap.investigate.1"
+    assert prompt_versions(world_ctx)["gap_judge"] == "gap.judge.1"
     assert SeedInvestigator().prompt_version == SEED_STUB_VERSION
 
 
