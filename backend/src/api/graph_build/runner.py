@@ -5,7 +5,9 @@ corpus, the runtime's graph store, ``load_ontology()``, one ``Gateway`` per buil
 dimension check and ``ensure_schema`` once per process, then ``run_build``. The check is one embedding
 call before the schema and any extraction, so a ``GRAPH_EMBEDDING_DIM`` that does not match the
 embedding model fails the build in seconds and never creates vector indexes of the wrong size.
-After a build returns, the gap runner (``api.gap.runner``, when configured) queues its gap run, before any plan run.
+After a build returns, the gap runner (``api.gap.runner``, when configured) queues its gap run, before any plan run;
+the same runner hands the corpus reader the answers to apply (``CorpusAnswers``: active amendments and the
+clarifications document).
 ``request_update_build`` is the gap module's ``BuildRequests`` port (answers.md "Applying answers"): it starts the
 project's build, or, while one runs, notes one request that starts the next build when the running one ends (one
 build at a time per project; any number of requests made during a build share that next build).
@@ -27,7 +29,7 @@ from typing import Any, Final
 
 from api.contained import Contained
 from api.gap.state import GapHooks
-from api.graph_build.corpus import PostgresCorpusSource
+from api.graph_build.corpus import CorpusAnswers, PostgresCorpusSource
 from api.graph_build.state import BuildState
 from graph.build import BuildContext, BuildResult, BuildStore, FileStores, open_file_stores, run_build
 from graph.core import GraphError, LLMConfig, Ontology, ensure_schema, load_ontology
@@ -124,7 +126,9 @@ class GraphBuildRunner:
         self._state_dir = Path(settings.state_dir)
         self._store = store
         self._gaps = gaps
-        self._corpus = PostgresCorpusSource(session_factory)
+        hooks: object = gaps  # the gap runner also hands the corpus reader the answers to apply
+        answers = hooks if isinstance(hooks, CorpusAnswers) else None
+        self._corpus = PostgresCorpusSource(session_factory, answers=answers)
         self._build = deps.build
         self._ensure = deps.ensure
         self._refresh = deps.refresh

@@ -12,22 +12,46 @@
 - ``path`` is ``<source name>/<file name>`` (the file name alone without a source), made unique
   with a `` (n)`` suffix; ``title`` is the first heading, else the file name without extension.
 - Order: by ``path``.
+- Answers (docs/graph/gap/reconcile.md "Applying amendments", answers.md "Clarifications document"): when the gap
+  module is on (``CorpusAnswers``, the gap runner), every ``active`` amendment of a lineage is applied to its newest
+  text (``graph.gap.corpus.apply_amendments``) and its ``revision_id`` becomes the effective revision id; the stored
+  document is never changed (FR-GCOR-01, FR-GCOR-02). An amendment whose anchor line the newest text lacks is left
+  out and logged (``api.graph_build.amendment_unanchored``, ids only; reconcile of new revisions comes with its own
+  slice). The generated clarifications document (title "Clarifications", path ``Specflow/Clarifications.md``,
+  lineage ``graph.gap.corpus.clarifications_lineage``, revision id the hash of its text) is added whenever a
+  clarification of placement ``document`` is applied or sent to a build (FR-GCOR-03, FR-GANS-06).
 
-Nothing is recorded, so ``dry_run`` changes nothing. Nothing here logs: names stay in the database.
+Nothing is recorded, so ``dry_run`` changes nothing. Logs carry ids and counts only: names and text stay in the
+database.
 """
 
 from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Any, Final
+from typing import Any, Final, Protocol, runtime_checkable
 
 from db import sources as repo
 from db.sources import CONNECTION_ORIGIN, GraphCorpusRow
 from graph.build import CorpusRevision
 from graph.build.corpus import first_heading
+from graph.gap.corpus import (
+    CLARIFICATIONS_PATH,
+    CLARIFICATIONS_TITLE,
+    DocumentClarification,
+    apply_amendments,
+    clarifications_lineage,
+    clarifications_markdown,
+    effective_revision_id,
+    text_hash,
+)
+from graph.gap.models import AmendmentRow
+from logger.logger import WARNING, get_logger, log_event
+
+logger = get_logger("api.graph_build.corpus")
 
 LEGACY_PARSERS: Final = frozenset({None, "pymupdf4llm", "drive-convert"})
 """``documents.parser`` values whose revision id stays the bare content hash (all rows before Docling)."""
@@ -61,6 +85,13 @@ def _lineage(rows: Sequence[GraphCorpusRow]) -> tuple[str, str | None]:
     held = [item for item in drive if item[1] == item[0].source_id]
     pick, connection_id, external_id = min(held or drive, key=lambda item: (str(item[1]), item[2]))
     return drive_lineage(connection_id, external_id), pick.drive_source_name
+
+
+def lineage_of(rows: Sequence[GraphCorpusRow]) -> str | None:
+    """The graph lineage of one document's corpus rows (``graph_corpus_document``): ``drive:...`` for a Drive document,
+    ``doc:<id>`` otherwise; None when the document is not in the corpus."""
+
+    return _lineage(rows)[0] if rows else None
 
 
 def _unique(path: str, taken: set[str]) -> str:
@@ -106,14 +137,83 @@ def corpus_revisions(rows: Sequence[GraphCorpusRow]) -> list[CorpusRevision]:
     return revisions
 
 
-class PostgresCorpusSource:
-    """``CorpusSource`` of the API: one read transaction per snapshot."""
+@dataclass(frozen=True)
+class CorpusAnswersRead:
+    """The answers a corpus read applies: the ``active`` amendments by lineage and the clarifications of the
+    clarifications document."""
 
-    def __init__(self, session_factory: Callable[[], Any]) -> None:
+    amendments: Mapping[str, Sequence[AmendmentRow]] = field(default_factory=dict)
+    clarifications: Sequence[DocumentClarification] = ()
+
+
+@runtime_checkable
+class CorpusAnswers(Protocol):
+    """Where the corpus reader gets the answers (host: the gap runner, ``api.gap.runner.GapRunner``)."""
+
+    async def corpus_answers(self, project_id: str) -> CorpusAnswersRead: ...
+
+
+def with_answers(
+    project_id: str, revisions: Sequence[CorpusRevision], answers: CorpusAnswersRead
+) -> list[CorpusRevision]:
+    """``revisions`` with their active amendments applied and the clarifications document added (module
+    docstring), in path order."""
+
+    result: list[CorpusRevision] = []
+    for revision in revisions:
+        rows = answers.amendments.get(revision.lineage_id, ())
+        if not rows:
+            result.append(revision)
+            continue
+        applied = apply_amendments(revision.markdown, rows)
+        for row in applied.unanchored:
+            log_event(
+                logger,
+                WARNING,
+                "api.graph_build.amendment_unanchored",
+                project_id=project_id,
+                lineage_id=revision.lineage_id,
+                amendment_id=row.amendment_id,
+                clr_id=row.clr_id,
+            )
+        result.append(
+            revision.model_copy(
+                update={
+                    "markdown": applied.markdown,
+                    "revision_id": effective_revision_id(revision.revision_id, applied.applied),
+                }
+            )
+        )
+    markdown = clarifications_markdown(answers.clarifications)
+    if markdown:
+        taken = {revision.path for revision in result}
+        result.append(
+            CorpusRevision(
+                lineage_id=clarifications_lineage(project_id),
+                revision_id=text_hash(markdown),
+                version=1,
+                path=_unique(CLARIFICATIONS_PATH, taken),
+                title=CLARIFICATIONS_TITLE,
+                markdown=markdown,
+            )
+        )
+    result.sort(key=lambda revision: revision.path)
+    return result
+
+
+class PostgresCorpusSource:
+    """``CorpusSource`` of the API: one read transaction per snapshot, then the answers (``answers``, when the gap
+    module is on)."""
+
+    def __init__(self, session_factory: Callable[[], Any], *, answers: CorpusAnswers | None = None) -> None:
         self._session_factory = session_factory
+        self._answers = answers
 
     async def snapshot(self, project_id: str, *, dry_run: bool = False) -> list[CorpusRevision]:
         del dry_run  # nothing is recorded, so a dry run reads the same snapshot
         async with self._session_factory() as session, session.begin():
             rows = await repo.list_graph_corpus(session, uuid.UUID(project_id))
-        return corpus_revisions(rows)
+        revisions = corpus_revisions(rows)
+        if self._answers is None:
+            return revisions
+        return with_answers(project_id, revisions, await self._answers.corpus_answers(project_id))

@@ -38,11 +38,12 @@ from api.gap_models import (
     NoiseRuleCreated,
     NoiseRuleList,
 )
-from api.graph_build.corpus import document_lineage
+from api.graph_build.corpus import document_lineage, lineage_of
 from api.plan.state import NoGraphBuildError
 from api.routers.documents import require_project
 from api.routers.plan import no_graph_build
 from api.runtime import Runtime
+from db import sources as sources_repo
 from graph.gap import (
     AnswerInput,
     AnswerInvalidError,
@@ -116,16 +117,20 @@ def _runner(runtime: Runtime) -> GapRunnerReads:
     return runner
 
 
-def _lineage(document: str | None) -> str | None:
-    """The graph's document id of the ``document`` filter: an uploaded document's id (a UUID, as the documents routes
-    name it) becomes its lineage ``doc:<id>``; any other value is taken as a lineage id as it is."""
+async def _lineage(runtime: Runtime, pid: uuid.UUID, document: str | None) -> str | None:
+    """The graph's document id of the ``document`` filter: a document's id (a UUID, as the documents routes name it)
+    becomes its corpus lineage (``drive:<connection>:<file>`` for a Drive document, else ``doc:<id>``); any other
+    value is taken as a lineage id as it is."""
 
     if document is None:
         return None
     try:
-        return document_lineage(uuid.UUID(document))
+        document_id = uuid.UUID(document)
     except ValueError:
         return document
+    async with runtime.transaction() as session:
+        rows = await sources_repo.graph_corpus_document(session, pid, document_id)
+    return lineage_of(rows) or document_lineage(document_id)
 
 
 def _out(state: GapRunState) -> GapRunStatus:
@@ -148,7 +153,8 @@ async def list_gaps(
     await require_project(runtime, user.id, pid)
     service = await _runner(runtime).service()
     try:
-        return await service.list_gaps(str(pid), **{**query.model_dump(), "document": _lineage(query.document)})
+        document = await _lineage(runtime, pid, query.document)
+        return await service.list_gaps(str(pid), **{**query.model_dump(), "document": document})
     except AnswerInvalidError as error:
         raise _refused(error) from None
 

@@ -27,6 +27,9 @@ wait for the process's run slot. Triggers:
   build runner (``use_builds``; answers.md "Applying answers"). The time lives in this process: after a restart the
   pending answers wait for the next answer or "Apply now".
 
+- ``corpus_answers``: the build's corpus reader (``api.graph_build.corpus.CorpusAnswers``) reads the project's active
+  amendments and the clarifications of its clarifications document here, so the build reads the answered text.
+
 The ``GapService`` of the routes is built once with the runner's ports, the plan view, the build requests and one
 ``Gateway`` for the ``gap_edits`` drafts of ``preview_edits`` (closed with the runner).
 
@@ -58,6 +61,7 @@ from api.gap.changes import build_facts, gap_change_reports
 from api.gap.plan_view import PlanReaderView
 from api.gap.records import PostgresAmendments, PostgresGapRecords
 from api.gap.state import GapRunState
+from api.graph_build.corpus import CorpusAnswersRead
 from api.graph_build.reports import reports_since
 from api.plan.state import NoGraphBuildError
 from graph.build import BuildStore, open_file_stores
@@ -67,6 +71,7 @@ from graph.core.reader import GraphReader
 from graph.core.store import GraphStore, as_executor
 from graph.gap import (
     RUN_STEPS,
+    AmendmentRow,
     BuildFacts,
     GapChangeReport,
     GapContext,
@@ -84,6 +89,7 @@ from graph.gap import (
     open_gap_run_store,
     run_gap,
 )
+from graph.gap.corpus import document_clarifications
 from graph.plan.reader import PlanReader
 from graph.plan.rules import load_plan_rules
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
@@ -389,6 +395,28 @@ class GapRunner:
             )
         service: GapService = self._lazy.service
         return service
+
+    async def corpus_answers(self, project_id: str) -> CorpusAnswersRead:
+        """``CorpusAnswers`` of the build's corpus reader: the project's ``active`` amendments by lineage and the
+        clarifications of its clarifications document (docs/graph/gap/reconcile.md "Applying amendments", answers.md
+        "Clarifications document"). Read whether gap runs are on or not: an answer applied stays in the corpus."""
+
+        ontology, _, _ = await self._prepare()
+        _, amendments = self._deps.ports(self._transaction)
+        by_lineage: dict[str, tuple[AmendmentRow, ...]] = {}
+        for lineage in await amendments.pending_lineages(project_id):
+            by_lineage[lineage] = tuple(await amendments.for_lineage(project_id, lineage, statuses=("active",)))
+        clarifications = await document_clarifications(self._deps.executor(self._store), project_id, ontology)
+        log_event(
+            logger,
+            INFO,
+            "api.gap.corpus_answers",
+            project_id=project_id,
+            lineages=len(by_lineage),
+            amendments=sum(len(rows) for rows in by_lineage.values()),
+            clarifications=len(clarifications),
+        )
+        return CorpusAnswersRead(amendments=by_lineage, clarifications=clarifications)
 
     async def aclose(self) -> None:
         """Cancel every queued and running run; the next run of the project resumes it (gap runs are resumable)."""
