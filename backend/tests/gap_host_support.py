@@ -177,8 +177,10 @@ def make_gap_runner(
     runs: Any = None,
     ensured: list[Any] | None = None,
     builds: Any = None,
+    service: Any = None,
 ) -> GapRunner:
-    """A runner on ``tmp_path`` (build store) and a memory run store, with stub ports, readers and gateway."""
+    """A runner on ``tmp_path`` (build store) and a memory run store, with stub ports, readers and gateway; its
+    ``service()`` is ``service`` when given, else the (args, kwargs) the service was built with."""
 
     StubGateway.instances.clear()
 
@@ -199,7 +201,7 @@ def make_gap_runner(
         executor=lambda _store: "executor",
         reader=lambda _store, _ontology: "reader",
         plan=lambda _store, _ontology: "plan",
-        service=lambda *args, **kwargs: (args, kwargs),
+        service=(lambda *_args, **_kwargs: service) if service is not None else lambda *args, **kwargs: (args, kwargs),
     )
     settings = SETTINGS.model_copy(update={"state_dir": str(tmp_path)})
     return GapRunner(settings, gap or GapSettings(), store=object(), transaction=lambda: None, dependencies=deps)

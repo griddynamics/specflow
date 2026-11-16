@@ -2,9 +2,9 @@
 
 Written against the protocols only, so it runs on the in-memory fakes (``gap_port_fakes``, offline) and on the
 PostgreSQL adapters (``api.gap.records``, live). A ``Backend`` bundles the two ports, two project ids and a ``Probe``
-that reads back what the write-only calls stored (runs, seeds, sites, notes, events) and stores noise rules, which
-no port call writes yet. Every case shows the two-project isolation of its calls (FR-GOWN-02); none of the rows is
-a graph node (FR-GOWN-04).
+that reads back what the write-only calls stored (runs, seeds, sites, notes, events) and stores noise rules
+directly (the port's ``put_noise_rule`` has its own case). Every case shows the two-project isolation of its calls
+(FR-GOWN-02); none of the rows is a graph node (FR-GOWN-04).
 
 A test module parametrizes over ``CASES``: ``await case(backend)``.
 """
@@ -438,6 +438,50 @@ async def amendment_status_changes_only_in_its_project(backend: Backend) -> None
     assert tuple(await amendments.pending_lineages(a)) == ()
 
 
+async def noise_rules_are_put_and_deleted_per_project(backend: Backend) -> None:
+    records, a, b = backend.records, backend.a, backend.b
+    rule = NoiseRuleRow(
+        rule_id="NR-1", scope="section", value="Release plan", reason="plan", created_by="ann", created_at=NOW
+    )
+
+    await records.put_noise_rule(a, rule)
+    await records.put_noise_rule(a, rule.model_copy(update={"reason": "release plan"}))
+
+    assert [row.reason for row in await records.noise_rules(a)] == ["release plan"]
+    assert not await records.delete_noise_rule(b, "NR-1")
+    assert tuple(await records.noise_rules(a))
+    assert await records.delete_noise_rule(a, "NR-1")
+    assert not await records.delete_noise_rule(a, "NR-1")
+    assert tuple(await records.noise_rules(a)) == ()
+
+
+async def suppressions_are_removed_per_project(backend: Backend) -> None:
+    records, a, b = backend.records, backend.a, backend.b
+    row = SuppressionRow(
+        signature="sig-1", gap_id=None, question="q?", reason="not a gap", dismissed_by="ann", dismissed_at=NOW
+    )
+    await records.suppress(a, row)
+    await records.suppress(b, row)
+
+    await records.unsuppress(a, "sig-1")
+    await records.unsuppress(a, "sig-404")
+
+    assert await records.suppressed(a, ["sig-1"]) == frozenset()
+    assert await records.suppressed(b, ["sig-1"]) == frozenset({"sig-1"})
+
+
+async def amendments_are_deleted_only_in_their_project(backend: Backend) -> None:
+    amendments, a, b = backend.amendments, backend.a, backend.b
+    await amendments.put(a, [amendment("AMD::1", status="pending"), amendment("AMD::2")])
+    await amendments.put(b, [amendment("AMD::1")])
+
+    await amendments.delete(a, ["AMD::1", "AMD::404"])
+    await amendments.delete(a, [])
+
+    assert [row.amendment_id for row in await amendments.for_clarification(a, "CLR::1")] == ["AMD::2"]
+    assert [row.amendment_id for row in await amendments.for_clarification(b, "CLR::1")] == ["AMD::1"]
+
+
 CASES: Final[tuple[Case, ...]] = (
     options_are_replaced_and_read_by_rank,
     invalid_option_sets_are_refused,
@@ -451,4 +495,7 @@ CASES: Final[tuple[Case, ...]] = (
     suppressions_answer_per_project,
     amendments_are_read_by_lineage_and_clarification,
     amendment_status_changes_only_in_its_project,
+    noise_rules_are_put_and_deleted_per_project,
+    suppressions_are_removed_per_project,
+    amendments_are_deleted_only_in_their_project,
 )

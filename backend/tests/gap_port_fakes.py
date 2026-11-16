@@ -129,11 +129,24 @@ class MemoryGapRecords:
     async def noise_rules(self, project_id: str) -> Sequence[NoiseRuleRow]:
         return tuple(sorted(self.noise[project_id], key=lambda row: (row.created_at, row.rule_id)))
 
+    async def put_noise_rule(self, project_id: str, row: NoiseRuleRow) -> None:
+        kept = [rule for rule in self.noise[project_id] if rule.rule_id != row.rule_id]
+        self.noise[project_id] = [*kept, row]
+
+    async def delete_noise_rule(self, project_id: str, rule_id: str) -> bool:
+        kept = [rule for rule in self.noise[project_id] if rule.rule_id != rule_id]
+        found = len(kept) != len(self.noise[project_id])
+        self.noise[project_id] = kept
+        return found
+
     async def suppressed(self, project_id: str, signatures: Sequence[str]) -> frozenset[str]:
         return frozenset(signature for signature in signatures if signature in self.suppressions[project_id])
 
     async def suppress(self, project_id: str, row: SuppressionRow) -> None:
         self.suppressions[project_id][row.signature] = row
+
+    async def unsuppress(self, project_id: str, signature: str) -> None:
+        self.suppressions[project_id].pop(signature, None)
 
     async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None:
         self.notes[project_id].extend(note.model_copy(update={"run_id": run_id}) for note in notes)
@@ -184,6 +197,10 @@ class MemoryAmendments:
             if revision_id is not None:
                 update["last_revision_id"] = revision_id
             self.rows[project_id][amendment_id] = row.model_copy(update=update)
+
+    async def delete(self, project_id: str, amendment_ids: Sequence[str]) -> None:
+        for amendment_id in amendment_ids:
+            self.rows[project_id].pop(amendment_id, None)
 
     async def pending_lineages(self, project_id: str) -> Sequence[str]:
         return tuple(sorted({row.lineage for row in self.rows[project_id].values() if row.status == "active"}))

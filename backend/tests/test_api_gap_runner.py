@@ -1,13 +1,13 @@
 """Tier 1: the API's gap wiring: the in-process gap runner (``api.gap.runner``) and the plan view adapter.
 
-The runner is checked on a stub ``run_gap``, a stub gateway, a memory run store and a real file build store under
-``tmp_path``. No graph store, no database, no model.
+The runner (with its site runs and the apply timer) is checked on a stub ``run_gap``, a stub gateway, a memory run
+store and a real file build store under ``tmp_path``. No graph store, no database, no model.
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -28,7 +28,7 @@ from gap_host_support import (
 from graph.build.models import ChangedNode, ChangeReport, DedupRefusal, QuarantinedEdge, Settlement
 from graph.core import ConfigurationError
 from graph.core.reader import GraphNode
-from graph.gap import GapRunResult, GapSettings, TaskRef
+from graph.gap import ApplyResult, GapRunResult, GapSettings, GapStateError, TaskRef
 from graph.gap.run_store import GapRunRecord, MemoryGapRunStore
 from logger_harness import events, fields
 
@@ -387,6 +387,8 @@ async def test_closing_cancels_the_running_run_and_refuses_new_ones(tmp_path):
 async def test_the_service_is_built_once_from_the_runner_resources(tmp_path):
     gap = GapSettings(ai_answers=False)
     runner = make_gap_runner(tmp_path, gap=gap)
+    builds = object()
+    runner.use_builds(builds)
 
     first = await runner.service()
     again = await runner.service()
@@ -394,7 +396,150 @@ async def test_the_service_is_built_once_from_the_runner_resources(tmp_path):
     args, kwargs = first
     assert first is again
     assert args[0] == "executor" and args[1] == "reader" and args[4:] == ("records", "amendments")
-    assert kwargs == {"settings": gap, "plan": "plan"}
+    gateway = kwargs.pop("gateway")
+    assert kwargs == {"settings": gap, "plan": "plan", "builds": builds}
+    await runner.aclose()
+    assert gateway.closed  # the gap_edits gateway closes with the runner
+
+
+# Site runs and applying answers ----------------------------------------------------------------------------------
+
+
+class ApplyService:
+    """A ``GapService`` with ``apply_now`` only: records each call and its time, raises ``fail`` when set."""
+
+    def __init__(self, fail: Exception | None = None) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.times: list[datetime] = []
+        self.fail = fail
+
+    async def apply_now(self, project_id: str, *, by: str) -> ApplyResult:
+        self.calls.append((project_id, by))
+        self.times.append(datetime.now(UTC))
+        if self.fail is not None:
+            raise self.fail
+        return ApplyResult(gap_ids=("GAP::A",), build="started")
+
+
+async def applier_done(runner) -> None:
+    await asyncio.wait_for(runner._projects[PROJECT].applier, 5)
+
+
+def later(seconds: float) -> datetime:
+    return datetime.now(UTC) + timedelta(seconds=seconds)
+
+
+async def test_a_raised_gap_queues_a_site_run_at_the_head_on_the_build_of_the_last_gap_run_when_it_starts(tmp_path):
+    await store_build(tmp_path, "build-1", minutes=0)
+    await store_build(tmp_path, "build-2", minutes=5, report=REPORT)
+    runs = MemoryGapRunStore()
+    await finished_run(runs, "run-1", "build-1")
+    run = StubGapRun(block=True)
+    runner = make_gap_runner(tmp_path, run, runs=runs)
+
+    await runner.after_build(PROJECT, "build-2")
+    await asyncio.wait_for(run.started.wait(), 5)
+    await runner.start_full(PROJECT)
+    await runner.start_site(PROJECT, "GAP::NEW")
+    queued = await runner.status(PROJECT)
+    run.release.set()
+    await drained(runner)
+
+    assert queued.queued == 2
+    assert run.modes == ["update", "site", "full"]  # the site run goes before the waiting full run
+    assert run.site_ids == [(), ("GAP::NEW",), ()]
+    # The site run reads the build of the latest finished gap run when it starts: the update run on build-2.
+    assert [context.build.build_id for context in run.contexts] == ["build-2", "build-2", "build-2"]
+
+
+async def test_a_site_run_without_a_gap_run_runs_on_the_latest_build(tmp_path):
+    await store_build(tmp_path, "build-1", minutes=0)
+    run = StubGapRun()
+    runner = make_gap_runner(tmp_path, run)
+
+    await runner.start_site(PROJECT, "GAP::NEW")
+    await drained(runner)
+
+    assert (run.modes, run.site_ids) == (["site"], [("GAP::NEW",)])
+    assert run.contexts[0].build.build_id == "build-1"
+
+
+async def test_a_closed_runner_refuses_a_site_run(tmp_path):
+    runner = make_gap_runner(tmp_path)
+    await runner.aclose()
+
+    with pytest.raises(RunnerClosedError):
+        await runner.start_site(PROJECT, "GAP::NEW")
+
+
+async def test_a_due_apply_applies_the_pending_answers_once(tmp_path, caplog):
+    service = ApplyService()
+    runner = make_gap_runner(tmp_path, service=service)
+
+    with caplog.at_level("INFO"):
+        runner.schedule_apply(PROJECT, datetime.now(UTC) - timedelta(seconds=1))
+        await applier_done(runner)
+
+    assert service.calls == [(PROJECT, "gap-apply")]
+    [applied] = events(caplog, "api.gap.applied")
+    assert (fields(applied)["gaps"], fields(applied)["build"]) == (1, "started")
+    await runner.aclose()
+
+
+async def test_a_later_answer_moves_the_apply_and_it_runs_once(tmp_path):
+    service = ApplyService()
+    runner = make_gap_runner(tmp_path, service=service)
+    first, second = later(0.05), later(0.2)
+
+    runner.schedule_apply(PROJECT, first)
+    runner.schedule_apply(PROJECT, second)
+    runner.schedule_apply(PROJECT, first)  # an earlier time never brings it forward
+    await applier_done(runner)
+
+    assert service.calls == [(PROJECT, "gap-apply")]
+    assert service.times[0] >= second
+    await runner.aclose()
+
+
+async def test_apply_now_cancels_the_due_apply(tmp_path):
+    service = ApplyService()
+    runner = make_gap_runner(tmp_path, service=service)
+
+    runner.schedule_apply(PROJECT, later(0.05))
+    runner.applied(PROJECT)
+    await applier_done(runner)
+
+    assert service.calls == []
+    await runner.aclose()
+
+
+async def test_an_apply_with_nothing_pending_is_logged_as_skipped(tmp_path, caplog):
+    service = ApplyService(fail=GapStateError(status="none", allowed=("answered",)))
+    runner = make_gap_runner(tmp_path, service=service)
+
+    with caplog.at_level("INFO"):
+        runner.schedule_apply(PROJECT, datetime.now(UTC))
+        await applier_done(runner)
+
+    assert service.calls == [(PROJECT, "gap-apply")]
+    [skipped] = events(caplog, "api.gap.apply_skipped")
+    assert fields(skipped)["error_code"] == "gap_wrong_state"
+    assert events(caplog, "api.gap.apply_failed") == []
+    await runner.aclose()
+
+
+async def test_closing_cancels_a_pending_apply(tmp_path):
+    service = ApplyService()
+    runner = make_gap_runner(tmp_path, service=service)
+    runner.schedule_apply(PROJECT, later(60))
+    applier = runner._projects[PROJECT].applier
+
+    await asyncio.wait_for(runner.aclose(), 5)
+    runner.schedule_apply(PROJECT, datetime.now(UTC))  # a closed runner schedules nothing
+
+    assert applier is not None and applier.cancelled()
+    assert runner._projects[PROJECT].applier is applier
+    assert service.calls == []
 
 
 # Plan view -------------------------------------------------------------------------------------------------------

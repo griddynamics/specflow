@@ -16,7 +16,7 @@ from sqlalchemy.dialects import postgresql
 
 from api.graph_build import runner as runner_module
 from api.graph_build.corpus import PostgresCorpusSource, corpus_revisions
-from api.graph_build.runner import GraphBuildRunner, RunnerDependencies
+from api.graph_build.runner import GraphBuildRunner, RunnerClosedError, RunnerDependencies
 from db import sources as sources_repo
 from db.sources import GraphCorpusRow, graph_corpus_statement
 from graph.build import BuildOptions, BuildRecord, BuildResult, SpecChanges, VerificationSummary, open_file_stores
@@ -569,3 +569,56 @@ async def test_the_default_refresh_runs_the_findings_library(tmp_path, monkeypat
     await runner_module.refresh_findings(store, ontology, "p1")
 
     assert calls == [(store, ontology, ""), (None, None, "p1")]
+
+
+# Update builds the gap module requests (BuildRequests) -----------------------------------------------------------
+
+
+async def test_an_update_build_request_starts_a_build_when_none_runs(tmp_path, caplog):
+    build = StubBuild()
+    runner = make_runner(tmp_path, build)
+
+    with caplog.at_level("INFO"):
+        outcome = await runner.request_update_build(PROJECT, "gap-apply", immediate=False)
+        await finished(runner, PROJECT)
+
+    assert outcome == "started"
+    assert len(build.contexts) == 1
+    assert (await runner.status(PROJECT)).status == "succeeded"
+    [requested] = [record for record in caplog.records if record.getMessage() == "api.graph_build.requested"]
+    assert (requested.reason, requested.immediate, requested.outcome) == ("gap-apply", False, "started")
+
+
+async def test_requests_during_a_build_start_exactly_one_more_build_when_it_ends(tmp_path):
+    build = StubBuild(block=True)
+    runner = make_runner(tmp_path, build)
+    await runner.start(PROJECT)
+    await asyncio.wait_for(build.waiting.wait(), 5)
+    running = runner._runs[PROJECT].task
+
+    first = await runner.request_update_build(PROJECT, "gap-apply", immediate=False)
+    second = await runner.request_update_build(PROJECT, "gap-blocker", immediate=True)
+
+    assert (first, second) == ("queued", "queued")
+    assert len(build.contexts) == 1  # never a second build beside the running one
+    build.release.set()
+    await asyncio.wait_for(running, 5)
+    follow_up = runner._runs[PROJECT].task
+    assert follow_up is not running
+    await asyncio.wait_for(follow_up, 5)
+    for _ in range(25):
+        await asyncio.sleep(0)
+
+    assert len(build.contexts) == 2
+    assert not runner.running(PROJECT)
+    assert runner._runs[PROJECT].task is follow_up
+
+
+async def test_a_closed_runner_refuses_an_update_build_request(tmp_path):
+    build = StubBuild()
+    runner = make_runner(tmp_path, build)
+    await runner.aclose()
+
+    with pytest.raises(RunnerClosedError):
+        await runner.request_update_build(PROJECT, "gap-apply", immediate=False)
+    assert build.contexts == []

@@ -149,6 +149,10 @@ class MemoryGapExecutor:
             return self._upsert_edge(name.removeprefix("upsert_relationship_"), params)
         if name.startswith("delete_relationship_"):
             return self._delete_edge(name.removeprefix("delete_relationship_"), params)
+        if name.startswith("relationship_types_"):
+            return self._relationship_types((params["n_label"], params["n_key"]))
+        if name.startswith("delete_node_"):
+            return self._delete_node((params["label"], params["key"]))
         handler = getattr(self, f"_q_{name}", None)
         if handler is None:
             raise AssertionError(f"the memory executor does not run {name}")
@@ -197,9 +201,22 @@ class MemoryGapExecutor:
         self.edge_props.pop((relation, params["key"]), None)
         return [{"deleted": int(self.edges.pop((relation, params["key"]), None) is not None)}]
 
+    def _relationship_types(self, node: tuple[str, str]) -> list[dict[str, Any]]:
+        return [{"types": sorted({kind for (kind, _), ends in self.edges.items() if node in ends})}]
+
+    def _delete_node(self, node: tuple[str, str]) -> list[dict[str, Any]]:
+        found = self.nodes.pop(node, None) is not None
+        gone = [key for key, ends in self.edges.items() if node in ends]
+        for key in gone:
+            del self.edges[key]
+            self.edge_props.pop(key, None)
+        return [{"deleted": int(found)}]
+
     def _spec_has(self, target: tuple[str, str]) -> bool:
         if target[0] == "Fragment":
             return target[1] in self.fragments
+        if target[0] == "Document":
+            return target[1] in set(self.fragments.values())
         return any(node["uuid"] == target[1] and node["label"] == target[0] for node in self.specs.values())
 
     def _spec_by_uuid(self, uuid: str) -> tuple[str, dict[str, Any]] | None:
