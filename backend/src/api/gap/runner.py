@@ -50,7 +50,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections import deque
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -64,7 +64,7 @@ from api.gap.state import GapRunState
 from api.graph_build.corpus import CorpusAnswersRead
 from api.graph_build.reports import reports_since
 from api.plan.state import NoGraphBuildError
-from graph.build import BuildStore, open_file_stores
+from graph.build import BuildStore, CorpusRevision, open_file_stores
 from graph.core import GraphError, LLMConfig, Ontology, load_ontology
 from graph.core.llm import Gateway
 from graph.core.reader import GraphReader
@@ -90,6 +90,8 @@ from graph.gap import (
     run_gap,
 )
 from graph.gap.corpus import document_clarifications
+from graph.gap.gaps import read_gaps
+from graph.gap.reconcile import APPLIED_STATUSES, LineageText, ReconcileInputs, gateway_judge, reconcile_corpus
 from graph.plan.reader import PlanReader
 from graph.plan.rules import load_plan_rules
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
@@ -201,6 +203,10 @@ class _Lazy:
     gateway: Any = None  # the service's gateway (``gap_edits``)
     schema_ready: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 def error_code(error: BaseException) -> str:
@@ -396,17 +402,30 @@ class GapRunner:
         service: GapService = self._lazy.service
         return service
 
-    async def corpus_answers(self, project_id: str) -> CorpusAnswersRead:
-        """``CorpusAnswers`` of the build's corpus reader: the project's ``active`` amendments by lineage and the
-        clarifications of its clarifications document (docs/graph/gap/reconcile.md "Applying amendments", answers.md
-        "Clarifications document"). Read whether gap runs are on or not: an answer applied stays in the corpus."""
+    async def corpus_answers(
+        self, project_id: str, revisions: Sequence[CorpusRevision] = (), *, dry_run: bool = False
+    ) -> CorpusAnswersRead:
+        """``CorpusAnswers`` of the build's corpus reader: the amendments to apply by lineage and the clarifications of
+        the clarifications document (docs/graph/gap/reconcile.md "Where it runs", "Applying amendments", answers.md
+        "Clarifications document"). Read whether gap runs are on or not: an answer applied stays in the corpus.
+
+        With ``revisions`` (the snapshot of a build) every lineage with amendments is reconciled first
+        (``graph.gap.reconcile_corpus``): the judge is a ``gap_judge`` gateway opened only when a question needs it
+        (none in a dry run, which stores nothing); the previous text of a lineage is its active fragments in the
+        graph. Without ``revisions`` (an export) the stored ``active`` and ``undecided`` rows are applied as they
+        are."""
 
         ontology, _, _ = await self._prepare()
         _, amendments = self._deps.ports(self._transaction)
-        by_lineage: dict[str, tuple[AmendmentRow, ...]] = {}
-        for lineage in await amendments.pending_lineages(project_id):
-            by_lineage[lineage] = tuple(await amendments.for_lineage(project_id, lineage, statuses=("active",)))
-        clarifications = await document_clarifications(self._deps.executor(self._store), project_id, ontology)
+        executor = self._deps.executor(self._store)
+        if revisions:
+            by_lineage = dict(await self._reconcile(project_id, revisions, ontology, dry_run=dry_run))
+        else:
+            by_lineage = {
+                lineage: tuple(await amendments.for_lineage(project_id, lineage, statuses=APPLIED_STATUSES))
+                for lineage in await amendments.pending_lineages(project_id)
+            }
+        clarifications = await document_clarifications(executor, project_id, ontology)
         log_event(
             logger,
             INFO,
@@ -417,6 +436,52 @@ class GapRunner:
             clarifications=len(clarifications),
         )
         return CorpusAnswersRead(amendments=by_lineage, clarifications=clarifications)
+
+    async def _reconcile(
+        self,
+        project_id: str,
+        revisions: Sequence[CorpusRevision],
+        ontology: Ontology,
+        *,
+        dry_run: bool,
+    ) -> Mapping[str, tuple[AmendmentRow, ...]]:
+        records, amendments = self._deps.ports(self._transaction)
+        reader = self._deps.reader(self._store, ontology)
+        executor = self._deps.executor(self._store)
+        opened: list[Any] = []
+
+        async def judge(row: AmendmentRow, section: Any) -> Any:
+            if not opened:
+                opened.append(self._deps.gateway_factory(self._llm))
+            return await gateway_judge(opened[0], records, project_id, _now)(row, section)
+
+        async def previous_text(lineage: str) -> str | None:
+            fragments = [
+                item for item in await reader.fragments(project_id, lineage) if item.status in (None, "active")
+            ]
+            fragments.sort(key=lambda item: (item.line_start or 0, item.ordinal or 0, item.fragment_id))
+            return "\n\n".join(item.text for item in fragments) or None
+
+        async def gap_ids() -> Mapping[str, str]:
+            gaps = await read_gaps(executor, project_id, ontology, statuses=("answered", "applying", "resolved"))
+            return {str(props.get("clr_id")): gap.gap_id for gap in gaps for props in gap.clarifications}
+
+        inputs = ReconcileInputs(
+            amendments=amendments,
+            records=records,
+            judge=None if dry_run else judge,
+            previous_text=previous_text,
+            gap_ids=gap_ids,
+            settings=self._gap.reconcile,
+            now=_now,
+        )
+        lineages = [LineageText(item.lineage_id, item.revision_id, item.markdown) for item in revisions]
+        try:
+            outcome = await reconcile_corpus(project_id, lineages, inputs, dry_run=dry_run)
+        finally:
+            for gateway in opened:
+                await gateway.aclose()
+        return outcome.rows
 
     async def aclose(self) -> None:
         """Cancel every queued and running run; the next run of the project resumes it (gap runs are resumable)."""

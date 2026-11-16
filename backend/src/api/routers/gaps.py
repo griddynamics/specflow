@@ -13,18 +13,22 @@ and ``/answer``; an answer schedules the apply at the end of the quiet period (`
 ``POST /gaps/{gap_id}/dismiss``; ``GET``/``POST /gaps/noise_rules`` and ``DELETE /gaps/noise_rules/{rule_id}``
 (registered before ``/gaps/{gap_id}``). Refusals: ``400 answer_invalid`` (``details`` name the field and the check),
 ``409 gap_wrong_state``, ``409 gap_stale`` (reload the gap), ``404 gap_not_found``, ``404 noise_rule_not_found``.
+
+``GET /documents/{document_id}/export?answers=1`` downloads a document's text with its answers (reconcile.md).
 """
 
 from __future__ import annotations
 
 import dataclasses
+import re
 import uuid
+from pathlib import PurePosixPath
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Path, Query, Response
 
 from api.deps import RuntimeDep, UserDep
-from api.errors import ApiError, invalid_arguments, invalid_cursor
+from api.errors import ApiError, document_not_found, invalid_arguments, invalid_cursor
 from api.gap.state import GapRunnerReads, GapRunState
 from api.gap_models import (
     MAX_ID,
@@ -38,7 +42,7 @@ from api.gap_models import (
     NoiseRuleCreated,
     NoiseRuleList,
 )
-from api.graph_build.corpus import document_lineage, lineage_of
+from api.graph_build.corpus import CorpusAnswers, document_lineage, effective_document, lineage_of
 from api.plan.state import NoGraphBuildError
 from api.routers.documents import require_project
 from api.routers.plan import no_graph_build
@@ -406,3 +410,44 @@ async def gap_run_noise(
     if report is None:
         raise gap_run_not_found()
     return report
+
+
+EXPORT_NAME: Final = re.compile(r"[^A-Za-z0-9._ ()-]+")
+
+
+@router.get(
+    "/documents/{document_id}/export",
+    response_class=Response,
+    responses={200: {"content": {"text/markdown": {}}, "description": "The document's text (Markdown)."}},
+)
+async def export_document(
+    pid: uuid.UUID,
+    document_id: uuid.UUID,
+    runtime: RuntimeDep,
+    user: UserDep,
+    *,
+    answers: Annotated[bool, Query()] = False,
+) -> Response:
+    """ "Download with answers" (docs/graph/gap/reconcile.md, FR-GCOR-05): the newest text of the document's corpus
+    lineage, with ``answers=1`` its active answers applied (marker lines included), as the last build read it; a
+    document outside the corpus answers ``404 document_not_found``. Without the gap module there are no answers to
+    apply, so the text is the source's."""
+
+    await require_project(runtime, user.id, pid)
+    async with runtime.transaction() as session:
+        rows = await sources_repo.list_graph_corpus(session, pid)
+        own = await sources_repo.graph_corpus_document(session, pid, document_id)
+    lineage = lineage_of(own)
+    source: CorpusAnswers | None = runtime.gaps if answers and isinstance(runtime.gaps, CorpusAnswers) else None
+    revision = None if lineage is None else await effective_document(rows, lineage, source, str(pid))
+    if revision is None:
+        raise document_not_found()
+    name = EXPORT_NAME.sub("_", PurePosixPath(revision.path).name) or "document.md"
+    log_event(
+        logger, INFO, "api.gap.document_exported", project_id=str(pid), document_id=str(document_id), answers=answers
+    )
+    return Response(
+        revision.markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )

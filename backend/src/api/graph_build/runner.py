@@ -11,6 +11,8 @@ clarifications document).
 ``request_update_build`` is the gap module's ``BuildRequests`` port (answers.md "Applying answers"): it starts the
 project's build, or, while one runs, notes one request that starts the next build when the running one ends (one
 build at a time per project; any number of requests made during a build share that next build).
+A project's first build segments its documents one fragment per section (``SECTION_FRAGMENTS``); later builds keep the
+options the project's builds froze (an older project keeps the default fragment sizes until a rebuild).
 A project's unfinished build (interrupted by a shutdown, or failed) is resumed by the next start;
 a new build retries the follow-up lineages of the latest finished one. ``status`` combines the
 running task with the build store, so it survives a restart.
@@ -31,7 +33,16 @@ from api.contained import Contained
 from api.gap.state import GapHooks
 from api.graph_build.corpus import CorpusAnswers, PostgresCorpusSource
 from api.graph_build.state import BuildState
-from graph.build import BuildContext, BuildResult, BuildStore, FileStores, open_file_stores, run_build
+from graph.build import (
+    BuildContext,
+    BuildOptions,
+    BuildResult,
+    BuildStore,
+    FileStores,
+    FragmentTokens,
+    open_file_stores,
+    run_build,
+)
 from graph.core import GraphError, LLMConfig, Ontology, ensure_schema, load_ontology
 from graph.core.llm import Gateway
 from graph.core.store import GraphStore
@@ -46,6 +57,11 @@ INTERRUPTED: Final = "interrupted"  # a stored build left running by a stopped p
 UNEXPECTED_ERROR: Final = "unexpected_error"
 STARTED: Final = "started"  # request_update_build: a build started now
 QUEUED: Final = "queued"  # request_update_build: the next build starts when the running one ends
+SECTION_FRAGMENTS: Final = BuildOptions(fragment_tokens=FragmentTokens(min=1, target=1, max=3000))
+"""The build options of a project's first build: one fragment per section (``target`` 1 cuts at every heading,
+``min`` 1 merges nothing), so an answer applied to one section re-extracts that section alone (docs/graph/gap
+reconcile.md "Effective revision id", FR-GCOR-04). Extraction windows still group neighbouring fragments
+(``unit_tokens``, ``max_node_windows``), so a full build sees the same context as before."""
 # The text embedded once per process to check that the model's vectors have ``GRAPH_EMBEDDING_DIM`` dimensions.
 DIMENSION_PROBE: Final = "SpecFlow embedding dimension check"
 
@@ -300,6 +316,7 @@ class GraphBuildRunner:
     async def _run_one(self, project_id: str, run: _Run) -> None:
         ontology, stores = await self._prepare()
         latest = await stores.builds.latest_build(project_id)
+        options = SECTION_FRAGMENTS if latest is None else latest.options  # an update keeps its frozen options
         resume = latest.build_id if latest is not None and not latest.finished else None
         run.resumed_build_id = resume
         retry = () if resume else await _follow_ups(stores.builds, project_id)
@@ -325,6 +342,7 @@ class GraphBuildRunner:
                 builds=stores.builds,
                 retry_lineages=retry,
                 build_id=resume,
+                options=options,
             )
             result = await self._build(ctx)
         finally:

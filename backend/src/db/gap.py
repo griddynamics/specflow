@@ -31,7 +31,7 @@ from db.models import (
 )
 
 RUN_FINISHED: Final = "completed"
-AMENDMENT_ACTIVE: Final = "active"
+AMENDMENT_APPLIED: Final = ("active", "undecided")
 # Text ids sort by code point, whatever the database's collation (the in-memory fakes sort the same way).
 BYTE_ORDER: Final = "C"
 
@@ -307,11 +307,11 @@ async def delete_amendments(session: AsyncSession, project_id: uuid.UUID, amendm
 
 
 async def pending_lineages(session: AsyncSession, project_id: uuid.UUID) -> Sequence[str]:
-    """The lineages with at least one active amendment, in order."""
+    """The lineages with at least one amendment the corpus reader applies (``active`` or ``undecided``), in order."""
 
     statement = (
         select(CorpusAmendment.lineage)
-        .where(CorpusAmendment.project_id == project_id, CorpusAmendment.status == AMENDMENT_ACTIVE)
+        .where(CorpusAmendment.project_id == project_id, CorpusAmendment.status.in_(AMENDMENT_APPLIED))
         .group_by(CorpusAmendment.lineage)
         .order_by(CorpusAmendment.lineage.collate(BYTE_ORDER))
     )
