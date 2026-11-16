@@ -58,13 +58,22 @@ SiteState = Literal["investigate", "skipped", "deferred"]
 
 @dataclass(frozen=True)
 class ExistingGap:
-    """A gap already in the graph, as the run engine reads it: its signature, status and ``ABOUT`` nodes. Open and
-    dismissed gaps on a site's nodes are part of its input hash; a seed with the gap's signature joins its site."""
+    """A gap already in the graph, as the run engine reads it: its signature, status, origin and ``ABOUT`` nodes. The
+    gaps on a site's nodes are part of its input hash, except open gaps of origin ``analysis``: those are what earlier
+    runs recorded from the same seeds, which the hash already holds (so a second run on an unchanged graph finds every
+    verdict cached, FR-GRUN-03). A seed with the gap's signature joins its site."""
 
     gap_id: str
     signature: str
     status: str
     about: tuple[str, ...] = ()
+    origin: str = "analysis"
+
+    @property
+    def hashed(self) -> bool:
+        """Whether the gap is an input of the input hash of the sites on its nodes."""
+
+        return not (self.status == "open" and self.origin == "analysis")
 
 
 @dataclass(frozen=True)
@@ -393,7 +402,7 @@ async def _sites(snapshot: GraphSnapshot, seeds: Sequence[Seed], run: SiteRun) -
     tasks = await plan.tasks_for(project_id, candidates) if plan is not None and candidates else {}
     gaps_on: dict[str, list[ExistingGap]] = defaultdict(list)
     for known in run.existing:
-        for spec_id in known.about:
+        for spec_id in known.about if known.hashed else ():
             gaps_on[spec_id].append(known)
     sites: list[Site] = []
     for members, gap in groups:

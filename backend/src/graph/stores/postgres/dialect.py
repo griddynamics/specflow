@@ -107,6 +107,7 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "gap.gap_delete_open_finding": lambda: load_gap_sql("gap_delete_open_finding.sql"),
     "gap.gap_delete_unused_refs": lambda: load_gap_sql("gap_delete_unused_refs.sql"),
     "gap.gap_read_findings": lambda: load_gap_sql("gap_read_findings.sql"),
+    "gap.gap_read_gaps": lambda: load_gap_sql("gap_read_gaps.sql"),
     "gap.gap_set_open_finding": lambda: load_gap_sql("gap_set_open_finding.sql"),
     "plan.plan_claim_task": lambda: load_plan_sql("plan_claim_task.sql"),
     "plan.plan_create_tasks": lambda: load_plan_sql("plan_create_tasks.sql"),

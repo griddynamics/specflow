@@ -83,13 +83,16 @@ async def finish_run(
     run_id: str,
     counts: Values,
     cost: Values,
+    *,
+    status: str = RUN_FINISHED,
 ) -> bool:
-    """Mark the run completed with its counts and cost; ``False`` when the project has no such run."""
+    """Mark the run finished (``status``: completed, degraded or failed) with its counts and cost; ``False`` when the
+    project has no such run."""
 
     statement = (
         update(GapRun)
         .where(GapRun.project_id == project_id, GapRun.run_id == run_id)
-        .values(status=RUN_FINISHED, finished_at=func.now(), counts=dict(counts), cost=dict(cost))
+        .values(status=status, finished_at=func.now(), counts=dict(counts), cost=dict(cost))
         .returning(GapRun.run_id)
     )
     return (await session.execute(statement)).first() is not None
@@ -121,6 +124,17 @@ async def insert_notes(session: AsyncSession, project_id: uuid.UUID, rows: Seque
 async def insert_events(session: AsyncSession, project_id: uuid.UUID, rows: Sequence[Values]) -> None:
     if rows:
         await session.execute(pg_insert(GapEvent), _scoped(project_id, rows))
+
+
+async def events(session: AsyncSession, project_id: uuid.UUID, gap_id: str) -> Sequence[RowMapping]:
+    """The events of one gap, by ``at`` then id."""
+
+    statement = (
+        select(GapEvent.__table__)
+        .where(GapEvent.project_id == project_id, GapEvent.gap_id == gap_id)
+        .order_by(GapEvent.at, GapEvent.id)
+    )
+    return (await session.execute(statement)).mappings().all()
 
 
 # gap_verdict

@@ -1,0 +1,407 @@
+"""Step ``record``: write the run's checked and routed reports (docs/graph/gap/data-model.md "Graph model",
+"Identity"; architecture.md "Write ownership"; FR-GOWN-01, FR-GOWN-02, FR-GDET-09).
+
+For each investigated site, by its checked outcome:
+
+- ``gap`` with a node severity: a ``Gap`` node (``gap_id`` from its signature, origin ``analysis``, status ``open``,
+  the run id, created and updated instants) with ``ABOUT`` to every node it is about, ``IMPACTS`` to the nodes an
+  answer would also change and ``CITES`` to the fragment of every witness quote (quote, lines, quote hash), written
+  through the core owned writer as owner ``gap`` in one transaction per gap. Relations carry ``added_by_run`` and
+  deterministic edge keys (``graph.gap.gaps``), so a resumed run writes the same relations again. The site row gets
+  outcome ``gap`` and the gap id, and a ``created`` event (ids, codes and counts only) is logged.
+- A report whose signature is that of a gap in the graph, or a site that joined an existing gap through a seed's
+  signature, re-checks that gap: an open gap gets the relations it lacks (and a new ``updated_at`` when it got any);
+  nothing is duplicated (``gaps_updated``, a ``rechecked`` event).
+- ``gap`` of severity ``info``: a ``gap_note`` row only (site outcome ``not_a_gap``: nothing to decide).
+- ``not_a_gap``, ``not_spec``, ``duplicate``: the site row only. ``deferred``: the site row, no verdict.
+
+Every investigated site with a checked outcome stores its report in the verdict cache under its input hash, so a
+later run with the same inputs makes no call (FR-GRUN-03). The step writes only ``Gap`` nodes and the gap relations:
+never a spec node, a spec relation, a document or a fragment (FR-GOWN-01); spec nodes are found by their current id
+or alias through the core read queries, and only pairs of the gap ontology are written.
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Final
+
+from graph.core.ontology import Ontology
+from graph.core.ontology.compiled import BUILD_OWNER
+from graph.core.writer import FRAGMENT, NodeRef, OwnedWriter
+from graph.gap.gaps import StoredGap, cite_key, gap_uuid, link_key, quote_hash
+from graph.gap.identity import gap_id, gap_signature, normalise_quote, witness_entry
+from graph.gap.models import EventRow, GapReport, NoteRow, SiteRow, VerdictRow, Witness
+from graph.gap.names import ABOUT, CITES, GAP, IMPACTS, OWNER, RUN_ACTOR, GapRoute, ReportSeverity, SiteOutcome
+from graph.gap.ports import GapRecords
+from graph.gap.resolve import SpecRef, resolve_spec_ids
+from graph.gap.steps.investigate import primary_seed
+from graph.gap.steps.sites import Site
+from graph.gap.steps.snapshot import GraphSnapshot
+from logger.logger import INFO, get_logger, log_event
+
+logger = get_logger(__name__)
+
+ORIGIN: Final = "analysis"
+OPEN: Final = "open"
+NOT_BLOCKING: Final = "no"
+
+
+@dataclass(frozen=True)
+class SiteDecision:
+    """What the steps before ``record`` decided for one investigated site."""
+
+    site: Site
+    outcome: SiteOutcome
+    report: GapReport | None = None
+    severity: ReportSeverity | None = None
+    route: GapRoute | None = None
+
+
+@dataclass(frozen=True)
+class RecordRun:
+    """What the record step needs of the run: the stores, the ontology, the ids and the clock."""
+
+    source: Any
+    executor: Any
+    ontology: Ontology
+    records: GapRecords
+    project_id: str
+    run_id: str
+    now: Callable[[], datetime]
+    model: str = ""
+    prompt_version: str = ""
+    database: str | None = None
+
+
+@dataclass
+class RecordOutcome:
+    """Each site's final outcome and gap id, and the metrics of the step."""
+
+    outcomes: dict[str, tuple[SiteOutcome, str | None]] = field(default_factory=dict)
+    gaps_new: Counter[tuple[str, str]] = field(default_factory=Counter)
+    gaps_updated: Counter[tuple[str, str]] = field(default_factory=Counter)
+    routes: Counter[str] = field(default_factory=Counter)
+    notes: int = 0
+    skipped_nodes: int = 0
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "outcomes": {site_id: [outcome, gap] for site_id, (outcome, gap) in sorted(self.outcomes.items())},
+            "gaps_new": [[kind, severity, count] for (kind, severity), count in sorted(self.gaps_new.items())],
+            "gaps_updated": [[kind, severity, count] for (kind, severity), count in sorted(self.gaps_updated.items())],
+            "routes": dict(sorted(self.routes.items())),
+            "notes": self.notes,
+            "skipped_nodes": self.skipped_nodes,
+        }
+
+
+def report_signature(site: Site, report: GapReport) -> str:
+    """data-model.md "Identity": the primary seed's detector, the report's ``ABOUT`` ids and its witness entries (a
+    quote by fragment and normalised text, a graph fact by the text of the seed it names)."""
+
+    entries: list[dict[str, str]] = []
+    for ref in report.witness:
+        if ref.fact is not None:
+            entries += [witness_entry(fact=item.fact) for item in site.seeds[ref.fact].witness if item.fact is not None]
+        elif ref.fragment_id is not None and ref.quote is not None:
+            entries.append(witness_entry(fragment_id=ref.fragment_id, quote=ref.quote))
+    unique = {tuple(sorted(entry.items())): entry for entry in entries}
+    return gap_signature(primary_seed(site.seeds).detector, report.about, unique.values())
+
+
+def _quotes(site: Site, report: GapReport, snapshot: GraphSnapshot) -> list[Witness]:
+    """The report's witness quotes with their line ranges (from the site's seeds, else the fragment's lines)."""
+
+    lines = {
+        (item.fragment_id, normalise_quote(item.quote)): (item.line_start, item.line_end)
+        for seed in site.seeds
+        for item in seed.witness
+        if item.fragment_id is not None and item.quote is not None
+    }
+    found: list[Witness] = []
+    for ref in report.witness:
+        if ref.fragment_id is None or ref.quote is None:
+            continue
+        start, end = lines.get((ref.fragment_id, normalise_quote(ref.quote)), (None, None))
+        if start is None:
+            start, end = _line_of(snapshot, ref.fragment_id, ref.quote)
+        found.append(Witness(fragment_id=ref.fragment_id, quote=ref.quote, line_start=start, line_end=end))
+    return found
+
+
+def _line_of(snapshot: GraphSnapshot, fragment_id: str, quote: str) -> tuple[int | None, int | None]:
+    wanted = normalise_quote(quote)
+    for line in snapshot.fragment_lines(fragment_id):
+        if wanted and wanted in normalise_quote(line.text):
+            return line.line_start, line.line_end
+    return None, None
+
+
+class Recorder:
+    """Writes the gaps of one run; ``existing`` are the gaps in the graph when the run read them."""
+
+    def __init__(self, run: RecordRun, snapshot: GraphSnapshot, existing: Sequence[StoredGap]) -> None:
+        self.run = run
+        self.snapshot = snapshot
+        self.by_id: dict[str, StoredGap] = {gap.gap_id: gap for gap in existing}
+        self.by_signature: dict[str, StoredGap] = {gap.signature: gap for gap in existing if gap.signature}
+        self.taken: dict[str, str] = {gap.gap_id: gap.signature for gap in existing}
+        self.labels = tuple(label for label in run.ontology.labels if run.ontology.owner_of(label) == BUILD_OWNER)
+        self.outcome = RecordOutcome()
+        self.site_rows: list[SiteRow] = []
+        self.verdicts: list[VerdictRow] = []
+        self.notes: list[NoteRow] = []
+        self.events: list[EventRow] = []
+
+    async def record(self, decisions: Sequence[SiteDecision]) -> RecordOutcome:
+        run = self.run
+        for decision in decisions:
+            outcome, gap = await self._one(decision)
+            self.outcome.outcomes[decision.site.site_id] = (outcome, gap)
+            self.site_rows.append(
+                SiteRow(
+                    site_id=decision.site.site_id,
+                    run_id=run.run_id,
+                    input_hash=decision.site.input_hash,
+                    rank_score=decision.site.rank_score,
+                    outcome=outcome,
+                    gap_id=gap,
+                )
+            )
+            if outcome != "deferred" and decision.report is not None:
+                self.verdicts.append(
+                    VerdictRow(
+                        input_hash=decision.site.input_hash,
+                        report={"outcome": outcome, "gap_id": gap, "report": decision.report.model_dump(mode="json")},
+                        model=run.model,
+                        prompt_version=run.prompt_version,
+                        created_at=run.now(),
+                    )
+                )
+        await self._flush()
+        log_event(
+            logger,
+            INFO,
+            "graph.gap.record.done",
+            project_id=run.project_id,
+            run_id=run.run_id,
+            sites=len(decisions),
+            gaps_new=sum(self.outcome.gaps_new.values()),
+            gaps_updated=sum(self.outcome.gaps_updated.values()),
+            notes=self.outcome.notes,
+        )
+        return self.outcome
+
+    async def _flush(self) -> None:
+        run, records = self.run, self.run.records
+        if self.site_rows:
+            await records.put_sites(run.project_id, run.run_id, self.site_rows)
+        for row in self.verdicts:
+            await records.put_verdict(run.project_id, row)
+        if self.notes:
+            await records.put_notes(run.project_id, run.run_id, self.notes)
+        if self.events:
+            await records.log(run.project_id, self.events)
+
+    async def _one(self, decision: SiteDecision) -> tuple[SiteOutcome, str | None]:
+        report = decision.report
+        if decision.outcome != "gap" or report is None:
+            return decision.outcome, None
+        if decision.severity == "info" or decision.route is None:
+            self.notes.append(
+                NoteRow(
+                    run_id=self.run.run_id,
+                    detector=primary_seed(decision.site.seeds).detector,
+                    spec_ids=report.about,
+                    text=f"info: {report.kind} about nodes outside the spine only",
+                )
+            )
+            self.outcome.notes += 1
+            return "not_a_gap", None
+        signature = report_signature(decision.site, report)
+        known = self.by_signature.get(signature) or (
+            self.by_id.get(decision.site.gap_id) if decision.site.gap_id else None
+        )
+        if known is not None:
+            await self._recheck(known, decision, report)
+            return "gap", known.gap_id
+        return await self._create(decision, report, signature)
+
+    async def _nodes(self, ids: Collection[str], relation: str) -> list[SpecRef]:
+        resolved = await resolve_spec_ids(self.run.executor, self.run.project_id, list(ids), self.labels)
+        nodes = {ref.spec_id: ref for spec_id in ids if (ref := resolved.get(spec_id)) is not None}
+        legal = [ref for ref in nodes.values() if self.run.ontology.is_legal(relation, GAP, ref.label)]
+        self.outcome.skipped_nodes += len(set(ids)) - len(legal)
+        return sorted(legal, key=lambda ref: ref.spec_id)
+
+    async def _create(
+        self, decision: SiteDecision, report: GapReport, signature: str
+    ) -> tuple[SiteOutcome, str | None]:
+        run = self.run
+        about = await self._nodes(report.about, ABOUT)
+        impacts = [
+            ref for ref in await self._nodes(report.impacts, IMPACTS) if ref.spec_id not in {a.spec_id for a in about}
+        ]
+        quotes = [
+            item
+            for item in _quotes(decision.site, report, self.snapshot)
+            if item.fragment_id in self.snapshot.fragments
+        ]
+        if not about and not quotes:
+            return "deferred", None
+        new_id = gap_id(signature, self.taken)
+        now = run.now().isoformat(timespec="milliseconds")
+        severity = decision.severity or "major"
+        props: dict[str, Any] = {
+            "gap_id": new_id,
+            "kind": report.kind,
+            "severity": severity,
+            "status": OPEN,
+            "origin": ORIGIN,
+            "route": decision.route,
+            "title": report.title,
+            "question": report.question,
+            "why": report.why,
+            "detector": primary_seed(decision.site.seeds).detector,
+            "signature": signature,
+            "blocking": NOT_BLOCKING,
+            "run_id": run.run_id,
+            "created_by": RUN_ACTOR,
+            "created_at": now,
+            "updated_at": now,
+        }
+        owner = NodeRef(GAP, gap_uuid(run.project_id, new_id))
+        async with self._writer().transaction() as tx:
+            await tx.upsert_node(GAP, owner.key, props)
+            await self._links(tx, owner, new_id, ABOUT, nodes=about, keys=set())
+            await self._links(tx, owner, new_id, IMPACTS, nodes=impacts, keys=set())
+            await self._cites(tx, owner, new_id, quotes, set())
+        self.taken[new_id] = signature
+        stored = StoredGap(gap_id=new_id, props=props)
+        self.by_id[new_id] = stored
+        self.by_signature[signature] = stored
+        self.outcome.gaps_new[(str(report.kind), severity)] += 1
+        self.outcome.routes[str(decision.route)] += 1
+        self.events.append(
+            EventRow(
+                gap_id=new_id,
+                at=run.now(),
+                actor=RUN_ACTOR,
+                event="created",
+                detail={
+                    "run_id": run.run_id,
+                    "site_id": decision.site.site_id,
+                    "kind": report.kind,
+                    "severity": severity,
+                    "route": decision.route,
+                    "about": len(about),
+                    "impacts": len(impacts),
+                    "cites": len(quotes),
+                },
+            )
+        )
+        return "gap", new_id
+
+    async def _recheck(self, known: StoredGap, decision: SiteDecision, report: GapReport) -> None:
+        run = self.run
+        added = 0
+        if known.status == OPEN:
+            about = await self._nodes(report.about, ABOUT)
+            impacts = [
+                ref
+                for ref in await self._nodes(report.impacts, IMPACTS)
+                if ref.spec_id not in {a.spec_id for a in about}
+            ]
+            quotes = [
+                item
+                for item in _quotes(decision.site, report, self.snapshot)
+                if item.fragment_id in self.snapshot.fragments
+            ]
+            keys = {link.edge_key for link in (*known.about, *known.impacts)} | {cite.edge_key for cite in known.cites}
+            owner = NodeRef(GAP, gap_uuid(run.project_id, known.gap_id))
+            async with self._writer().transaction() as tx:
+                added += await self._links(tx, owner, known.gap_id, ABOUT, nodes=about, keys=keys)
+                added += await self._links(tx, owner, known.gap_id, IMPACTS, nodes=impacts, keys=keys)
+                added += await self._cites(tx, owner, known.gap_id, quotes, keys)
+                if added:
+                    await tx.upsert_node(GAP, owner.key, {"updated_at": run.now().isoformat(timespec="milliseconds")})
+        kind = str(known.props.get("kind") or report.kind)
+        self.outcome.gaps_updated[(kind, str(known.props.get("severity") or decision.severity))] += 1
+        self.events.append(
+            EventRow(
+                gap_id=known.gap_id,
+                at=run.now(),
+                actor=RUN_ACTOR,
+                event="rechecked",
+                detail={"run_id": run.run_id, "site_id": decision.site.site_id, "added": added},
+            )
+        )
+
+    async def _links(
+        self, tx: OwnedWriter, owner: NodeRef, gap: str, relation: str, *, nodes: Sequence[SpecRef], keys: set[str]
+    ) -> int:
+        added = 0
+        for ref in nodes:
+            key = link_key(gap, relation, ref.spec_id)
+            if key in keys:
+                continue
+            await tx.upsert_relationship(
+                relation, owner, NodeRef(ref.label, ref.uuid), key, {"added_by_run": self.run.run_id}
+            )
+            keys.add(key)
+            added += 1
+        return added
+
+    async def _cites(self, tx: OwnedWriter, owner: NodeRef, gap: str, quotes: Sequence[Witness], keys: set[str]) -> int:
+        added = 0
+        for item in quotes:
+            fragment, quote = str(item.fragment_id), str(item.quote)
+            digest = quote_hash(quote)
+            key = cite_key(gap, fragment, digest)
+            if key in keys:
+                continue
+            props: dict[str, Any] = {"quote": quote, "quote_hash": digest, "added_by_run": self.run.run_id}
+            if item.line_start is not None:
+                props["line_start"] = item.line_start
+                props["line_end"] = item.line_end if item.line_end is not None else item.line_start
+            await tx.upsert_relationship(CITES, owner, NodeRef(FRAGMENT, fragment), key, props)
+            keys.add(key)
+            added += 1
+        return added
+
+    def _writer(self) -> OwnedWriter:
+        return OwnedWriter(self.run.source, self.run.ontology, OWNER, self.run.project_id, database=self.run.database)
+
+
+async def record_sites(
+    run: RecordRun, snapshot: GraphSnapshot, existing: Sequence[StoredGap], decisions: Sequence[SiteDecision]
+) -> RecordOutcome:
+    """Write the gaps, site rows, verdicts, notes and events of ``decisions`` (module docstring)."""
+
+    return await Recorder(run, snapshot, existing).record(decisions)
+
+
+def counted(rows: Sequence[Sequence[Any]]) -> dict[str, Any]:
+    """``gaps_new`` / ``gaps_updated`` of the run metrics from the step's ``[kind, severity, count]`` rows."""
+
+    by_kind: Counter[str] = Counter()
+    by_severity: Counter[str] = Counter()
+    for kind, severity, count in rows:
+        by_kind[str(kind)] += int(count)
+        by_severity[str(severity)] += int(count)
+    return {
+        "total": sum(by_kind.values()),
+        "by_kind": dict(sorted(by_kind.items())),
+        "by_severity": dict(sorted(by_severity.items())),
+    }
+
+
+def outcome_counts(outcomes: Mapping[str, Sequence[Any]]) -> dict[str, int]:
+    """Sites per outcome of investigation (detection.md "Run metrics")."""
+
+    found = Counter(str(value[0]) for value in outcomes.values())
+    return {name: found[name] for name in ("gap", "not_a_gap", "not_spec", "duplicate", "deferred")}

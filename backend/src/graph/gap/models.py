@@ -581,6 +581,30 @@ class GapPage(GapModel):
     next: str | None = None
 
 
+class GapFinding(GapModel):
+    """An open gap as the plan's findings port shows it (lifecycle.md "Plan link"): ``finding_id`` is the gap id,
+    ``text`` the question, ``blocking`` true for a blocker or a development gap holding its story, ``about_spec_ids``
+    the current ``ABOUT`` ids, ``orphaned`` true when no ``ABOUT`` relation is left. Satisfies the plan's
+    ``FindingLike`` (structural: graph.gap does not import graph.plan)."""
+
+    finding_id: str
+    kind: str
+    text: str
+    blocking: bool
+    about_spec_ids: tuple[str, ...]
+    story_id: str | None = None
+    created_by: str
+    created_at: AwareDatetime
+    orphaned: bool = False
+
+
+class GapFindingPage(GapModel):
+    """The open gaps a findings read returns (the plan's ``FindingPageLike``)."""
+
+    findings: tuple[GapFinding, ...]
+    next: str | None = None
+
+
 # Inputs of the service
 
 

@@ -33,6 +33,7 @@ from graph.gap.models import (
     TaskRef,
     VerdictRow,
 )
+from graph.gap.names import FinishedRunStatus
 
 
 @runtime_checkable
@@ -51,6 +52,8 @@ class GapRecords(Protocol):
         run_id: str,
         counts: Mapping[str, Any],
         cost: Mapping[str, Any],
+        *,
+        status: FinishedRunStatus = "completed",
     ) -> None: ...
 
     async def put_seeds(self, project_id: str, run_id: str, seeds: Sequence[SeedRow]) -> None: ...
@@ -74,6 +77,8 @@ class GapRecords(Protocol):
     async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None: ...
 
     async def log(self, project_id: str, events: Sequence[EventRow]) -> None: ...
+
+    async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]: ...
 
 
 @runtime_checkable

@@ -53,6 +53,8 @@ from graph.gap.models import (
     FollowUp,
     GapChangeReport,
     GapEstimate,
+    GapFinding,
+    GapFindingPage,
     GapHistory,
     GapPage,
     GapReport,
@@ -121,11 +123,16 @@ from graph.gap.rules import (
     RoutingRules,
     load_gap_rules,
 )
+from graph.gap.run import RUN_STEPS, estimate_gap, run_gap
+from graph.gap.run_store import FileGapRunStore, GapRunRecord, GapRunStore, MemoryGapRunStore, open_gap_run_store
 from graph.gap.schema import ensure_gap_schema
+from graph.gap.service import GapService
 from graph.gap.settings import GapLimits, GapSettings, gap_settings_from_env
+from graph.gap.steps.investigate import SeedInvestigator
 
 __all__ = [
     "BLOCK_REASONS",
+    "RUN_STEPS",
     "AddedFinding",
     "AmendmentAnchor",
     "AmendmentResult",
@@ -145,6 +152,7 @@ __all__ = [
     "Edit",
     "EditTarget",
     "EventRow",
+    "FileGapRunStore",
     "Finding",
     "FindingError",
     "FindingFlow",
@@ -160,6 +168,8 @@ __all__ = [
     "GapChangeReport",
     "GapContext",
     "GapEstimate",
+    "GapFinding",
+    "GapFindingPage",
     "GapHistory",
     "GapKind",
     "GapLimits",
@@ -172,7 +182,10 @@ __all__ = [
     "GapRoute",
     "GapRules",
     "GapRulesError",
+    "GapRunRecord",
     "GapRunResult",
+    "GapRunStore",
+    "GapService",
     "GapSettings",
     "GapSeverity",
     "GapStateError",
@@ -182,6 +195,7 @@ __all__ = [
     "HoldResult",
     "InvestigationResult",
     "Investigator",
+    "MemoryGapRunStore",
     "NewFinding",
     "NewGap",
     "NodeRef",
@@ -205,6 +219,7 @@ __all__ = [
     "RoutingRules",
     "RunRow",
     "SectionKey",
+    "SeedInvestigator",
     "SeedRow",
     "SiteBudget",
     "SitePack",
@@ -222,9 +237,12 @@ __all__ = [
     "clr_id",
     "development_signature",
     "ensure_gap_schema",
+    "estimate_gap",
     "gap_id",
     "gap_settings_from_env",
     "gap_signature",
     "load_gap_rules",
+    "open_gap_run_store",
+    "run_gap",
     "witness_entry",
 ]

@@ -11,8 +11,10 @@ fakes (``tests/gap_port_fakes.py``) and proven by ``tests/gap_records_contract.p
   than one recommended row or a row of another gap is refused (``ConformanceError("gap_options_invalid")``).
 - ``set_status`` refuses a status outside the amendment vocabulary (``gap_amendment_status_unknown``); a project id
   that is not a uuid is refused (``gap_project_id_invalid``). A batch naming a key twice keeps its last row.
-- ``start_run`` stores the run (again: replaced); ``finish_run`` marks it ``completed`` with ``finished_at``, counts
-  and cost, and raises ``ConformanceError("gap_run_unknown")`` when the project has no such run.
+- ``start_run`` stores the run (again: replaced); ``finish_run`` marks it finished (``completed`` unless ``status``
+  says ``degraded`` or ``failed``; another status raises ``gap_run_status_invalid``) with ``finished_at``, counts and
+  cost, and raises ``ConformanceError("gap_run_unknown")`` when the project has no such run. ``events`` reads one
+  gap's events by ``at``, then id.
 - ``put_seeds``/``put_sites`` refuse a row of another run (``ConformanceError("gap_rows_of_another_run")``); a site
   stored again for its run takes the new values. ``put_notes`` files every note under the given run.
 - ``verdict``, ``relevance``, ``suppress`` and amendments ``put`` are keyed upserts.
@@ -49,9 +51,11 @@ from graph.gap.models import (
     SuppressionRow,
     VerdictRow,
 )
-from graph.gap.names import AmendmentStatus
+from graph.gap.names import AmendmentStatus, FinishedRunStatus
 
 RUN_UNKNOWN: Final = "gap_run_unknown"
+RUN_STATUS_INVALID: Final = "gap_run_status_invalid"
+FINISHED_STATUSES: Final = frozenset(get_args(FinishedRunStatus))
 ROWS_OF_ANOTHER_RUN: Final = "gap_rows_of_another_run"
 OPTIONS_INVALID: Final = "gap_options_invalid"
 AMENDMENT_STATUS_UNKNOWN: Final = "gap_amendment_status_unknown"
@@ -135,9 +139,13 @@ class PostgresGapRecords:
         run_id: str,
         counts: Mapping[str, Any],
         cost: Mapping[str, Any],
+        *,
+        status: FinishedRunStatus = "completed",
     ) -> None:
+        if status not in FINISHED_STATUSES:
+            raise ConformanceError(RUN_STATUS_INVALID, status=status)
         async with self._transaction() as session:
-            found = await repo.finish_run(session, _project(project_id), run_id, counts, cost)
+            found = await repo.finish_run(session, _project(project_id), run_id, counts, cost, status=status)
         if not found:
             raise ConformanceError(RUN_UNKNOWN, run_id=run_id)
 
@@ -194,6 +202,11 @@ class PostgresGapRecords:
     async def log(self, project_id: str, events: Sequence[EventRow]) -> None:
         async with self._transaction() as session:
             await repo.insert_events(session, _project(project_id), [_values(event) for event in events])
+
+    async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]:
+        async with self._transaction() as session:
+            rows = await repo.events(session, _project(project_id), gap_id)
+        return tuple(_row(EventRow, row) for row in rows)
 
 
 class PostgresAmendments:

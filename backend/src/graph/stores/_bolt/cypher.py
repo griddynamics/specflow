@@ -118,6 +118,7 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "gap.gap_delete_open_finding": lambda: load_gap_query("gap_delete_open_finding.cypher"),
     "gap.gap_delete_unused_refs": lambda: load_gap_query("gap_delete_unused_refs.cypher"),
     "gap.gap_read_findings": lambda: load_gap_query("gap_read_findings.cypher"),
+    "gap.gap_read_gaps": lambda: load_gap_query("gap_read_gaps.cypher"),
     "gap.gap_set_open_finding": lambda: load_gap_query("gap_set_open_finding.cypher"),
     "plan.plan_claim_task": lambda: load_plan_query("plan_claim_task.cypher"),
     "plan.plan_create_tasks": lambda: load_plan_query("plan_create_tasks.cypher"),

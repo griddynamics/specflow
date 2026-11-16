@@ -21,6 +21,15 @@ import yaml
 GAP: Final = "Gap"
 CLARIFICATION: Final = "Clarification"
 GAP_PREFIX: Final = "GAP::"
+IMPACTS: Final = "IMPACTS"
+CITES: Final = "CITES"
+FOLLOWS_UP: Final = "FOLLOWS_UP"
+ANSWERS: Final = "ANSWERS"
+RUN_ACTOR: Final = "gap-run"
+"""The actor of the events a gap run writes, and the ``created_by`` of the gaps it records."""
+OPEN_STATUSES: Final[tuple[str, ...]] = ("open", "answered", "applying")
+"""Gaps the inbox and the plan's findings port show as open (lifecycle.md "Plan link")."""
+GRAPH_STATUSES: Final[tuple[str, ...]] = ("open", "answered", "applying", "resolved")
 CLR_PREFIX: Final = "CLR::"
 
 GapLabel = Literal["Gap", "Clarification"]
@@ -57,6 +66,7 @@ ClarificationStatus = Literal["pending", "applied", "absorbed", "conflict", "orp
 ReportSeverity = Literal["blocker", "major", "minor", "info"]
 RunMode = Literal["update", "full", "site"]
 RunStatus = Literal["running", "completed", "degraded", "failed"]
+FinishedRunStatus = Literal["completed", "degraded", "failed"]
 SiteOutcome = Literal["gap", "not_a_gap", "not_spec", "duplicate", "skipped", "deferred"]
 Relevance = Literal["spec", "tracking", "mixed"]
 DecidedBy = Literal["rules", "model", "person"]
