@@ -57,8 +57,8 @@ detectors:                      # detection.md "Detector catalogue"; one entry p
   CT-VALUE:     {kind: contradiction, family: text,      strength: strong, types: [requirement], rule: refused_merge}
   CT-CROSS:     {kind: contradiction, family: text,      strength: weak,   types: [requirement], rule: similar_across_documents, slice: 2}
   CT-RULE:      {kind: contradiction, family: text,      strength: weak,   types: [business_rule], rule: overlapping_conditions, slice: 2}
-  IN-SCOPE:     {kind: inconsistency, family: structure, strength: strong, types: [requirement, feature, interface, data_entity], rule: in_scope_uses_out_of_scope, attribute: in_scope}
-  IN-CYCLE:     {kind: inconsistency, family: structure, strength: strong, types: [module], rule: cycle, relation: DEPENDS_ON}
+  IN-SCOPE:     {kind: inconsistency, family: structure, strength: strong, types: [requirement, feature, interface], rule: in_scope_uses_out_of_scope, attribute: in_scope}
+  IN-CYCLE:     {kind: inconsistency, family: structure, strength: strong, types: [feature, requirement], rule: cycle, relation: DEPENDS_ON}
   IN-TERM:      {kind: inconsistency, family: text,      strength: weak,   types: [data_entity, interface, module], rule: near_names, slice: 2}
   IN-PAYLOAD:   {kind: inconsistency, family: text,      strength: weak,   types: [interface], rule: carries_differ, relation: CARRIES, slice: 2}
   OQ-STATED:    {kind: open_question, family: text,      strength: strong, types: [open_question], rule: present}

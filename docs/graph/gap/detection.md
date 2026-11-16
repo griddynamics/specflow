@@ -251,7 +251,7 @@ loaded rules; the rules version is recorded on every run and is part of every si
 
 ## Run metrics
 
-Every run records in `gap_run.counts` and returns in `GapRunResult.metrics`:
+Every run records in `gap_run.counts` and returns in `GapRunResult.counts`:
 
 | Metric | Meaning |
 |---|---|

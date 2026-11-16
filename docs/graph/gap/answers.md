@@ -267,7 +267,7 @@ answer recorded (gap answered, clarification pending)
      or "Apply now" in the inbox (GapService.apply_now),
      or at once for a development gap that blocks a task
   -> amendments active, clarifications document rebuilt
-  -> BuildRequests.request_update_build(project_id, reason="gap_answers", immediate)
+  -> BuildRequests.request_update_build(project_id, reason="gap_answers", immediate=...)
   -> every answered gap in the batch moves to applying
   -> the host runs the update build when no other build of the project runs
   -> the build returns; the host runs a gap run; its close check settles each applying gap

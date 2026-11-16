@@ -16,7 +16,7 @@ graph/gap/
   rules.py             load_gap_rules: read and validate the rules against the merged ontology
   ports.py             GapRecords, Amendments, Investigator, StoryHolds, BuildRequests, PlanView
   models.py            GapContext, GapSettings, GapChangeReport, GapRunResult, GapView, AnswerInput, NewGap, rows
-  errors.py            GapNotFound, GapStateError, AnswerInvalid, StaleGap
+  errors.py            GapNotFoundError, GapStateError, AnswerInvalidError, StaleGapError
   run.py               run_gap, estimate_gap: the run steps, resume from the run store
   steps/
     scope.py           change reports: aliases, touched nodes, the investigation scope
@@ -124,7 +124,7 @@ The host maps the settings to `GapSettings` ([api.md](api.md) "Models"); limits 
 ## Errors
 
 `graph.gap` raises `ConfigurationError` (core) for invalid rules, settings or missing ports, and its own
-`GapNotFound`, `GapStateError`, `AnswerInvalid` and `StaleGap` ([api.md](api.md) "Errors"). Model failures
+`GapNotFoundError`, `GapStateError`, `AnswerInvalidError` and `StaleGapError` ([api.md](api.md) "Errors"). Model failures
 are never raised from a run. Logs carry ids, counts, step names and error codes only, never document text,
 questions or answers (`graph.gap.*` events).
 

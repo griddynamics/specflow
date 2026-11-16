@@ -15,7 +15,7 @@ take the project id first, and filter every query on it.
 | Call | Returns | Notes |
 |---|---|---|
 | `load_gap_rules(path: Path \| None = None, *, ontology: Ontology) -> GapRules` (sync) | The validated rules | Shipped file when `path` is `None`; every problem in one `ConfigurationError` ([ontology.md](ontology.md) "Rules file") |
-| `ensure_gap_schema(executor) -> tuple[str, ...]` | The names of objects it created | Creates the `graph_gap_*` constraints and indexes of [data-model.md](data-model.md); idempotent (a second call returns `()`); runs the migration of first-slice findings when a project still has `Finding` nodes ([lifecycle.md](lifecycle.md)) |
+| `ensure_gap_schema(source, ontology, llm_config, database=None) -> tuple[str, ...]` | The names of objects it created | The store's `ensure_schema` with the gap DDL (`ddl/gap_schema.cypher`, found by the store), like `ensure_plan_schema`: creates the `graph_gap_*` constraints and indexes of [data-model.md](data-model.md); idempotent (a second call returns `()`); runs the migration of first-slice findings when a project still has `Finding` nodes ([lifecycle.md](lifecycle.md)) |
 
 `load_ontology()` merges the gap ontology file when `graph.gap` is installed; nothing else is needed.
 
@@ -48,15 +48,17 @@ no model call and writes nothing.
 | Model | Fields |
 |---|---|
 | `GapContext` | `project_id`, `executor` (core store executor), `reader` (`GraphReader`), `gateway` (core `Gateway`), `ontology`, `rules` (`GapRules`), `records` (`GapRecords`), `amendments` (`Amendments`), `investigator` (`Investigator`), `changes: tuple[GapChangeReport, ...]`, `plan: PlanView \| None`, `settings: GapSettings`, `store` (run artifact store, for resume), `run_id: str \| None`, `on_progress` (optional callback of step name, done, total) |
-| `GapSettings` | `enabled` (default `True`), `rules_path` (`None`: shipped rules), `investigator` (`"loop"` or `"agents"`, default `"loop"`), `auto_run_after_build` (default `True`), `ai_answers` (default `True`), `limits` (optional overrides of the rules' `limits`), `apply_quiet_seconds` (overrides the rules' value) |
+| `GapSettings` | `enabled` (default `True`), `rules_path` (`None`: shipped rules), `investigator` (`"loop"` or `"agents"`, default `"loop"`), `auto_run_after_build` (default `True`), `ai_answers` (default `True`), `limits` (optional overrides of the rules' `limits`, by name), `apply_quiet_seconds` (overrides the rules' value), `ignore_cache` (default `False`: a `full` run reuses cached verdicts). `gap_settings_from_env` maps the `GAP_*` variables of [architecture.md](architecture.md) "Settings"; `effective_limits` applies the overrides to the rules' limits |
 | `GapChangeReport` | The gap-side copy of one build change report: `build_id`, `added`, `removed`, `merged` (old id to new id), `rekeyed` (old id to new id), `changed_meaning`, `changed_links`, `changed_evidence` (spec id tuples), `fragments_changed` (fragment ids by lineage), `documents` (lineage to revision id). The host converts the build's report; `graph.gap` never imports `graph.build` |
-| `GapRunResult` | `run_id`, `mode`, `build_id`, `status` (`completed`, `failed`), `counts` (seeds by detector, sites investigated, cached, deferred, gaps new, follow-ups, AI answered, resolved, obsolete, notes), `cost` (calls and tokens per gateway role), `noise` (`NoiseReport`), `deferred_sites`, `held_tasks`, `warnings` |
+| `GapRunResult` | `run_id`, `mode`, `build_id`, `status` (`completed`, `degraded` when every investigation failed, `failed`), `counts` (the run metrics of [detection.md](detection.md) "Run metrics": seeds by detector, sites investigated, cached, deferred, gaps new, follow-ups, AI answered, resolved, obsolete, notes), `cost` (calls and tokens per gateway role), `noise` (`NoiseReport`), `deferred_sites`, `held_tasks`, `warnings` |
 | `NoiseReport` | Per section: lineage, heading path, relevance, signals, how it was decided (`rules`, `model`, `person`), and the node ids it removed from structural seeds |
 | `GapEstimate` | `sites`, `cached`, `calls` and `tokens` per role |
 | `GapView` | What reads return: the gap's properties, `about` and `impacts` (id, type, name), `witness` (fragment id, quote, lines), `options` (from `gap_option`), `clarification` (current one), `history` (events, follow-up chain), `reach` (stories and tasks found by trace and the plan, computed at read time) |
 | `AnswerInput` | `gap_id`, `option_rank` or `own_text` (exactly one), `placement` (`amend`, `document`; default from the option's edits), `edits` (optional: edits confirmed from `preview_edits`), `answered_by` |
 | `NewGap` | `kind`, `question`, `about` (spec ids), `quotes` (fragment id and quote, optional), `severity` (optional), `origin` (`person` or `development`), `blocking`, `story_id` and `claim_token` (development), `created_by` |
 | `ReconcileResult` | Per amendment: `amendment_id`, outcome (`applied`, `reanchored`, `absorbed`, `conflict`, `orphaned`), the new anchor when re-anchored; and the effective text the build must read |
+| Rows of the ports | `OptionRow`, `AmendmentRow`, `RunRow`, `SeedRow`, `SiteRow`, `VerdictRow`, `SectionKey`, `RelevanceRow`, `NoiseRuleRow`, `SuppressionRow`, `NoteRow`, `EventRow`: one model per table of [data-model.md](data-model.md) "Relational store" (without `project_id`, which every port call takes); `TaskRef` (`task_id`, `story_id`, `status`) and `HoldResult` (`held`, `in_progress`) of the plan ports |
+| Investigation | `SitePack`, `SiteBudget`, `InvestigationResult`, `GapReport` (the report, with `ReportOption`, `Edit`, `EditTarget`, `WitnessRef`, `Quote`), `ReadResult` of the read menu `SiteReads` ([investigation.md](investigation.md)) |
 
 ## Gap service
 
@@ -66,16 +68,16 @@ serves the inbox, the routes and the MCP tools.
 | Call | Returns | Errors |
 |---|---|---|
 | `list_gaps(project_id, *, status=None, kind=None, severity=None, origin=None, route=None, about=None, story_id=None, cursor=None, limit=50)` | A page of `GapView` (no history) and the next cursor; `about` filters by spec ids (aliases resolved), `story_id` by the nodes the story's tasks implement | |
-| `get_gap(project_id, gap_id)` | `GapView` with history and reach | `GapNotFound` |
-| `preview_edits(project_id, gap_id, *, option_rank=None, own_text=None, placement=None)` | The edits an answer would make, with the target section's current text and the text after; for own text, AI drafts the edits (role `gap_edits`) | `GapNotFound`, `AnswerInvalid` (empty text, too long, anchor not found) |
-| `answer_gap(project_id, answer: AnswerInput)` | The clarification id and the scheduled apply time | `GapNotFound`, `GapStateError` (gap not `open` or `answered`), `AnswerInvalid`, `StaleGap` (the gap's witness changed since it was shown: the person must reload) |
-| `dismiss_gap(project_id, gap_id, *, reason, by)` | Nothing | `GapNotFound`, `GapStateError` (not `open`) |
-| `revert_clarification(project_id, clr_id, *, by, reason)` | The follow-up gap id | `GapNotFound`, `GapStateError` (not `applied` or `absorbed`) |
-| `raise_gap(project_id, new: NewGap)` | The gap id; with `blocking`, the released claim | `AnswerInvalid` (unknown ids, quote not found), plan errors of the hold (`TaskStateError`) pass through |
+| `get_gap(project_id, gap_id)` | `GapView` with history and reach | `GapNotFoundError` |
+| `preview_edits(project_id, gap_id, *, option_rank=None, own_text=None, placement=None)` | The edits an answer would make, with the target section's current text and the text after; for own text, AI drafts the edits (role `gap_edits`) | `GapNotFoundError`, `AnswerInvalidError` (empty text, too long, anchor not found) |
+| `answer_gap(project_id, answer: AnswerInput)` | The clarification id and the scheduled apply time | `GapNotFoundError`, `GapStateError` (gap not `open` or `answered`), `AnswerInvalidError`, `StaleGapError` (the gap's witness changed since it was shown: the person must reload) |
+| `dismiss_gap(project_id, gap_id, *, reason, by)` | Nothing | `GapNotFoundError`, `GapStateError` (not `open`) |
+| `revert_clarification(project_id, clr_id, *, by, reason)` | The follow-up gap id | `GapNotFoundError`, `GapStateError` (not `applied` or `absorbed`) |
+| `raise_gap(project_id, new: NewGap)` | The gap id; with `blocking`, the released claim | `AnswerInvalidError` (unknown ids, quote not found), plan errors of the hold (`TaskStateError`) pass through |
 | `apply_now(project_id, *, by)` | The gap ids moved to `applying` and the requested build | `GapStateError` when nothing is pending |
 | `open_counts(project_id, spec_ids)` | Open gaps per spec id | Satisfies the plan's `FindingsReads` |
 | `findings(project_id, *, spec_ids=None, limit=50)` | A page whose items satisfy the plan's `FindingLike` ([lifecycle.md](lifecycle.md) "Plan link") | Satisfies the plan's `FindingsReads` |
-| `noise_rules(project_id)`, `add_noise_rule(project_id, scope, value, reason, by)`, `remove_noise_rule(project_id, rule_id, by)` | The rules; the new rule id | `AnswerInvalid` (pattern does not compile) |
+| `noise_rules(project_id)`, `add_noise_rule(project_id, scope, value, reason, by)`, `remove_noise_rule(project_id, rule_id, by)` | The rules; the new rule id | `AnswerInvalidError` (pattern does not compile) |
 
 Answers and dismissals write the gap event log. Every write is one transaction in the graph store and one
 in the relational store; the relational row is written first and removed again when the graph write fails.
@@ -105,10 +107,10 @@ same-meaning judge (role `gap_judge`), cached by input hash.
 | Error | Raised when |
 |---|---|
 | `ConfigurationError` (core) | Rules or settings are invalid; a port is missing for a call that needs it |
-| `GapNotFound` | The gap or clarification id is unknown in the project |
+| `GapNotFoundError` | The gap or clarification id is unknown in the project |
 | `GapStateError` | The call does not apply to the current status; `status` and `allowed` name why |
-| `AnswerInvalid` | An answer, a raised gap or a noise rule fails validation; `field` and `reason` name it |
-| `StaleGap` | The gap changed after the caller read it (its `updated_at` differs) |
+| `AnswerInvalidError` | An answer, a raised gap or a noise rule fails validation; `field` and `reason` name it |
+| `StaleGapError` | The gap changed after the caller read it (its `updated_at` differs) |
 
 All are `GraphError` subclasses and carry a stable `code`.
 
@@ -154,7 +156,7 @@ class StoryHolds(Protocol):
 
 class BuildRequests(Protocol):
     """Asks the host for an update build; builds stay one at a time per project."""
-    async def request_update_build(self, project_id: str, reason: str, immediate: bool) -> str: ...
+    async def request_update_build(self, project_id: str, reason: str, *, immediate: bool) -> str: ...
 
 class PlanView(Protocol):
     """What the gap run reads of the plan: tasks per spec node and their status (host: plan reader)."""

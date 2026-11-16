@@ -92,6 +92,7 @@ gap event log.
 | Signature | SHA-256 of the canonical JSON of: detector code, sorted `ABOUT` spec ids, sorted witness entries (fragment id and normalised quote, or the graph fact as text). For a development gap: `development`, the reporting task id, sorted spec ids and the normalised question |
 | `gap_id` | `GAP::` and the first 12 hex digits of the signature. A collision with a different signature appends the next 4 hex digits |
 | `clr_id` | `CLR::` and the first 12 hex digits of SHA-256 of the gap id, the answer text and the answered-at instant |
+| Normalisation | A quote (and a graph fact) is normalised by making quote marks plain, collapsing whitespace to one space and trimming it; a development gap's question is also case-folded. Canonical JSON has sorted keys and no spaces |
 | Same gap again | A report whose signature equals an existing gap's is that gap; a report whose question is similar (embedding cosine at least 0.9) on an overlapping `ABOUT` set is a duplicate ([investigation.md](investigation.md) "Checks") |
 
 When a build rekeys or merges a spec node, the next gap run moves `ABOUT` and `IMPACTS` to the new key and
@@ -151,6 +152,8 @@ The tables belong to the host; `graph.gap` reaches them through the ports `GapRe
 | `graph_clarification_id` | Unique (`group_id`, `clr_id`) on `Clarification` |
 | `graph_gap_status` | Index on `Gap` (`group_id`, `status`) |
 | `graph_gap_signature` | Index on `Gap` (`group_id`, `signature`) |
+| `graph_foreign_uuid_gap`, `graph_foreign_uuid_clarification` | Unique (`group_id`, `uuid`) on `Gap` and `Clarification`: the key every foreign node of the core owned writer needs |
+| `graph_edge_key_<relation>` | Index on (`group_id`, `edge_key`) of each of the eight gap relations: the key of an owned relationship write |
 
 `ensure_gap_schema` creates them and is idempotent ([api.md](api.md) "Setup").
 
