@@ -92,7 +92,7 @@ export const FLOW_STEPS: readonly FlowStep[] = [
     name: "Decide",
     detail:
       "Where documents disagree or leave something out, SpecFlow raises a decision with the evidence. Answer it with your team, assign it to the right person, or ask SpecBot to help.",
-    where: "Decisions",
+    where: "Gaps",
     get: "Agreed answers that the plan builds on.",
   },
   {

@@ -33,6 +33,8 @@ export interface QuestionBlockProps {
   readOnly?: boolean;
   /** Upload: the chosen file name, shown in the drop zone (or as a file row when read-only) (FE-DEC-03.AC5). */
   fileName?: string;
+  /** FR-GWEB-04: the value of the option marked "Recommended" (OptionCards `recommended`). */
+  recommended?: string;
 }
 
 type QuestionInputProps = Pick<
@@ -49,6 +51,7 @@ type QuestionInputProps = Pick<
   | "uploadTitle"
   | "readOnly"
   | "fileName"
+  | "recommended"
 >;
 
 /** The answer control of a question: the attached file or the drop zone for an upload, else the option cards. */
@@ -65,6 +68,7 @@ function QuestionInput({
   uploadTitle,
   readOnly,
   fileName,
+  recommended,
 }: Readonly<QuestionInputProps>) {
   if (type === "upload") {
     if (truthy(readOnly) && truthy(fileName)) return <FileRow name={fileName} status="done" doneText="Attached" />;
@@ -88,6 +92,7 @@ function QuestionInput({
       onOtherChange={onOtherChange}
       defaultOther={defaultOther}
       disabled={readOnly}
+      recommended={recommended}
     />
   );
 }
@@ -110,6 +115,7 @@ export function QuestionBlock({
   defaultComment,
   readOnly,
   fileName,
+  recommended,
 }: Readonly<QuestionBlockProps>) {
   const [showComment, setShowComment] = useState(defaultCommentOpen === true || truthy(defaultComment));
   const [userOpened, setUserOpened] = useState(false);
@@ -167,6 +173,7 @@ export function QuestionBlock({
         uploadTitle={uploadTitle}
         readOnly={readOnly}
         fileName={fileName}
+        recommended={recommended}
       />
       {comment}
     </section>

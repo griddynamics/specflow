@@ -88,6 +88,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     planMs: 2000,
     workFail: null,
     workReadFail: null,
+    gapFail: null,
   };
   /** Drive: sources per project (SourceOut rows, mutable by tests), and the identity answer (a Reason string = 503 with that code). */
   const sources = new Map(); // pid -> SourceOut[]
@@ -415,6 +416,67 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  // Gaps (FR-GWEB-04, read-only): per project, seeded through the control port (`seedGaps`: full `GapView` rows plus stub-only `stories` and
+  // `documents` id lists for the story and document filters, and the latest `GapRunStatus`). `GET /gaps` filters as `list_gaps` does
+  // (status default open, answered, applying; kind, severity, origin, route repeat; story_id; document; held_back), sorts blockers first
+  // then newest, and drops options, history and reach from the items; `cursor` is an offset. `state.gapFail` (an API code) makes every
+  // gap route answer 503 with it (`gap_unavailable`: gap runs not configured). An unseeded project has no gaps and an idle run.
+  const gapSets = new Map(); // pid -> {gaps: [...], run: GapRunStatus}
+  const gapsOf = (pid) => gapSets.get(pid) ?? gapSets.set(pid, { gaps: [], run: { status: "idle", result: null } }).get(pid);
+  const SEVERITY_RANK = { blocker: 0, major: 1, minor: 2 };
+  const publicGap = (g, full) => {
+    const view = Object.fromEntries(Object.entries(g).filter(([k]) => k !== "stories" && k !== "documents"));
+    return full ? view : { ...view, options: [], history: null, reach: null };
+  };
+  async function gapRoute({ req, res, url, pid, b, did, action }) {
+    for await (const c of req) void c;
+    if (req.method !== "GET") return err(res, 405, "method_not_allowed");
+    if (state.gapFail) return err(res, 503, state.gapFail);
+    const set = gapsOf(pid);
+    if (b === "gap") {
+      if (did !== "runs") return err(res, 404, "not_found");
+      if (action === "latest") return json(res, 200, set.run);
+      const rest = url.pathname.split("/").filter(Boolean)[7];
+      if (rest === "noise" && set.run.result && set.run.result.run_id === decodeURIComponent(action))
+        return json(res, 200, set.run.result.noise);
+      return err(res, 404, "gap_run_not_found");
+    }
+    if (did) {
+      const g = set.gaps.find((x) => x.gap_id === decodeURIComponent(did));
+      return g ? json(res, 200, publicGap(g, true)) : err(res, 404, "gap_not_found");
+    }
+    const q = url.searchParams;
+    const many = (name, fallback) => (q.getAll(name).length ? q.getAll(name) : fallback);
+    const statuses = many("status", ["open", "answered", "applying"]);
+    const keep = (name, value) => many(name, null) === null || many(name, null).includes(value);
+    const held = q.get("held_back");
+    const story = q.get("story_id");
+    const document = q.get("document");
+    const rows = set.gaps
+      .filter(
+        (g) =>
+          statuses.includes(g.status) &&
+          keep("kind", g.kind) &&
+          keep("severity", g.severity) &&
+          keep("origin", g.origin) &&
+          keep("route", g.route) &&
+          (held === null || String(Boolean(g.held_back)) === held) &&
+          (!story || (g.stories ?? []).includes(story)) &&
+          (!document || (g.documents ?? []).includes(document)),
+      )
+      .sort(
+        (x, y) =>
+          SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] ||
+          y.created_at.localeCompare(x.created_at) ||
+          x.gap_id.localeCompare(y.gap_id),
+      );
+    const limit = Number(q.get("limit") ?? 50);
+    const from = Number(q.get("cursor") ?? 0);
+    if (!Number.isInteger(from) || from < 0) return err(res, 400, "invalid_cursor");
+    const page = rows.slice(from, from + limit);
+    return json(res, 200, { gaps: page.map((g) => publicGap(g, false)), next: from + limit < rows.length ? String(from + limit) : null });
+  }
+
   async function sourcesRoute({ req, res, url, pid, did, action, entry }) {
     const drain = async () => {
       for await (const c of req) void c;
@@ -665,6 +727,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (b === "findings" || (b === "plan" && did === "claims"))
       return workRoute({ req, res, url, pid, b, did, action, rest: url.pathname.split("/").filter(Boolean)[7] });
     if (b === "plan") return planRoute({ req, res, pid, did, entry });
+    if (b === "gaps" || b === "gap") return gapRoute({ req, res, url, pid, b, did, action });
     if (b !== "documents") return err(res, 404, "not_found");
 
     if (!did) {
@@ -737,6 +800,11 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       const mine = workOf(pid);
       if (work.findings) mine.findings = work.findings;
       if (work.claims) mine.claims = work.claims;
+    },
+    seedGaps: (pid, seed) => {
+      const mine = gapsOf(pid);
+      if (seed.gaps) mine.gaps = seed.gaps;
+      if (seed.run) mine.run = seed.run;
     },
     setTiming: (t) => Object.assign(state, t),
     close: () => close(server),

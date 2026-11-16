@@ -1,7 +1,7 @@
 /* FE-PLAN-01, FE-PLAN-10 (GAPS.md "## P21"): the screen frame of the Plan page. The design system has EmptyState, Skeleton and the shell's
    header row but no page frame around them. Additive, tokens only; no design-system rule is overridden. */
 
-/* G-PLAN-4: the screen is a column that fills the content area, like the Decisions screen; the h1 is hidden (G-HDR-3). */
+/* G-PLAN-4: the screen is a column that fills the content area, like the Gaps screen; the h1 is hidden (G-HDR-3). */
 .plan-screen {
   flex: 1;
   min-width: 0;

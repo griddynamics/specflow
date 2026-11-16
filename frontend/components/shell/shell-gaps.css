@@ -98,7 +98,7 @@
   overflow-y: hidden;
   overscroll-behavior-x: contain;
 } /* a tab bar wider than the slot scrolls sideways */
-/* A labelled Select (Decisions "Domain") keeps its label beside the trigger here, so it fits one line. */
+/* A labelled Select (the Gaps filters) keeps its label beside the trigger here, so it fits one line. */
 .shell__head .gdg-select {
   grid-auto-flow: column;
   align-items: center;

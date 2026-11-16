@@ -112,6 +112,21 @@
       "path": "/projects/{pid}/plan/claims/{story_id}/release"
     },
     {
+      "id": "list_gaps_api_v1_projects__pid__gaps_get",
+      "method": "GET",
+      "path": "/projects/{pid}/gaps"
+    },
+    {
+      "id": "get_gap_api_v1_projects__pid__gaps__gap_id__get",
+      "method": "GET",
+      "path": "/projects/{pid}/gaps/{gap_id}"
+    },
+    {
+      "id": "latest_gap_run_api_v1_projects__pid__gap_runs_latest_get",
+      "method": "GET",
+      "path": "/projects/{pid}/gap/runs/latest"
+    },
+    {
       "id": "sources_status_api_v1_projects__pid__sources_get",
       "method": "GET",
       "path": "/projects/{pid}/sources"

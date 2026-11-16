@@ -53,12 +53,13 @@ const http: HttpPorts = {
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
   work: { findings: never, close: never, claims: never, release: never },
+  gaps: { list: never, get: never, noise: never, documents: never },
 };
 const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1): http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
@@ -66,15 +67,9 @@ test("FE-DATA-01 (TECH-SPECS §3.1): http serves people.me, projects, createProj
   assert.equal(ports.knowledge, http.knowledge);
   assert.equal(ports.plan, http.plan);
   assert.equal(ports.work, http.work);
+  assert.equal(ports.gaps, http.gaps); // FR-GWEB-04: the Gaps screen reads the real gap routes (no unavailable port)
   assert.equal((await ports.createProject.create({ name: "X", contributorIds: [] })).id, UUID);
   assert.deepEqual(Object.keys(ports.createProject), ["create"]);
-});
-
-test("SPL-DEMO-02: decisions answer empty; get is not_found; submit rejects", async () => {
-  assert.deepEqual(await ports.decisions.list(UUID), []);
-  assert.deepEqual(await ports.decisions.domains(UUID), []);
-  await rejectsWith(ports.decisions.get(UUID, "d1"), "not_found");
-  await rejectsWith(ports.decisions.submit(UUID, { decisionId: "d1", answers: {} }), "not_found");
 });
 
 test("SPL-DEMO-02: connectors list is empty and the only category is All", async () => {
@@ -128,10 +123,10 @@ test("SPL-DEMO-02: diagrams are not_found; the people directory and mentions are
   assert.deepEqual(await ports.people.mentionables(UUID), []);
 });
 
-test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the unavailable adapter covers the other six", () => {
+test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the unavailable adapter covers the other five", () => {
   assert.deepEqual(
     Object.keys(unavailable).toSorted((a, b) => a.localeCompare(b)),
-    ["assistant", "comments", "connectors", "decisions", "diagrams", "files"],
+    ["assistant", "comments", "connectors", "diagrams", "files"],
   );
   assert.deepEqual(
     Object.keys(ports).toSorted((a, b) => a.localeCompare(b)),
@@ -140,9 +135,9 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "comments",
       "connectors",
       "createProject",
-      "decisions",
       "diagrams",
       "files",
+      "gaps",
       "knowledge",
       "missionControl",
       "people",

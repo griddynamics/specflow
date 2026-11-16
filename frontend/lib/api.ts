@@ -188,6 +188,14 @@ export const dismissFinding = (pid: string, fid: string, note: string | undefine
   httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/dismiss`, json({ note: note ?? null })).then(
     (r) => r.body,
   );
+// The Gaps screen (FR-GWEB-04, read-only): the gap list (`query` is the encoded `list_gaps` filters, never empty: `held_back` is always sent; a list filter repeating its parameter),
+// one gap, the latest gap run with its noise report, and the project's documents for the Document filter. Bodies stay `unknown`; the
+// gaps port (lib/data/http/gaps.ts) checks their shape.
+export const getGaps = (pid: string, query: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps?${query}`).then((r) => r.body);
+export const getGap = (pid: string, gid: string) =>
+  httpGet(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}`).then((r) => r.body);
+export const getLatestGapRun = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gap/runs/latest`).then((r) => r.body);
+export const listDocuments = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/documents?limit=100`).then((r) => r.body);
 export const getClaims = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/claims`).then((r) => r.body);
 export const releaseClaim = (pid: string, sid: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/plan/claims/${encodeURIComponent(sid)}/release`).then((r) => r.body);

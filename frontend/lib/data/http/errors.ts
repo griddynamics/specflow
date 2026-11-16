@@ -26,6 +26,10 @@ const BY_CODE: Record<string, DataErrorCode> = {
   source_not_found: "not_found", // sources-ux: the detail's apiCode tells it from a plain `not_found` (an old API's unknown route)
   batch_ended: "conflict",
   removal_unavailable: "unavailable",
+  gap_unavailable: "unavailable", // 503: gap runs are not configured on this server (the Gaps screen says so)
+  gap_not_found: "not_found",
+  gap_run_not_found: "not_found",
+  invalid_cursor: "validation",
   invalid_response: "invalid_response",
   csrf_rejected: "unknown", // a bug in the client, not a user error
 };

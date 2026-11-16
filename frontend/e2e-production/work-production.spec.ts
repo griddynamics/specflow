@@ -6,6 +6,7 @@ import type { Page } from "@playwright/test";
 import {
   allowConsoleErrors,
   bff,
+  buildGraphAndPlan,
   createViaNew,
   expect,
   expectUploadReady,
@@ -94,18 +95,7 @@ test.describe("Plan > Work on production routes", { tag: "@production" }, () => 
     const pid = await createViaNew(page, unique());
     await pickLocalPdf(page, "requirements.pdf");
     await expectUploadReady(page);
-    expect((await bff(page, "POST", `/projects/${pid}/graph_build`, { reasoning_level: 3 })).status).toBe(202);
-    await expect
-      .poll(
-        async () =>
-          ((await bff(page, "GET", `/projects/${pid}/graph_build`)).json as { status: "idle" | "running" | "succeeded" | "failed" }).status,
-        { timeout: 10_000 },
-      )
-      .toBe("succeeded");
-    expect((await bff(page, "POST", `/projects/${pid}/plan`, { replan: false })).status).toBe(202);
-    await expect
-      .poll(async () => ((await bff(page, "GET", `/projects/${pid}/plan`)).json as { has_plan: boolean }).has_plan, { timeout: 15_000 })
-      .toBe(true);
+    await buildGraphAndPlan(page, pid);
     await seedWork(pid, seed);
     await rail(page).getByRole("button", { name: "Plan", exact: true }).click();
     await expect(page.getByTestId("screen-plan")).toHaveAttribute("data-stage", "ready", { timeout: 15_000 });

@@ -1,6 +1,6 @@
 // FE-DATA-01, FE-BP-02, FE-BP-08, SPL-DEMO-01: the production port bundle. http serves what the backend has (`people.me`, `projects`,
-// `createProject.create`, the Ready gate `missionControl`, `sources`, `knowledge`, `plan`); `unavailable` answers empty for everything
-// else (decisions, connectors, assistant, files, comments, diagrams, the people directory and mentions). No fixture is read.
+// `createProject.create`, the Ready gate `missionControl`, `sources`, `knowledge`, `plan`, `work`, `gaps`); `unavailable` answers empty
+// for everything else (connectors, assistant, files, comments, diagrams, the people directory and mentions). No fixture is read.
 import type { HttpPorts } from "./http";
 import type { DataPorts } from "./ports";
 import { unavailable, unavailableIntro } from "./unavailable";
@@ -22,6 +22,7 @@ export function composeProductionPorts(http: HttpPorts): DataPorts {
     knowledge: http.knowledge,
     plan: http.plan, // the plan API (/projects/{pid}/plan*)
     work: http.work, // findings and claims (/projects/{pid}/findings*, /plan/claims*)
+    gaps: http.gaps, // the Gaps screen, read-only (/projects/{pid}/gaps*, /projects/{pid}/gap/runs/latest), FR-GWEB-04
     assistant: {
       ...unavailable.assistant,
       // The SpecBot greeting names the signed-in user (GET /me). If /me fails, the greeting has no name.

@@ -1,0 +1,129 @@
+/* FR-GWEB-04: layout of the Gaps screen, its question card and noise report. The design system has the filter row, DecisionList, Modal,
+   QuestionBlock and Tag but no screen layout or card section structure around them. Additive, tokens only; no design-system rule is
+   overridden. */
+
+/* The screen is a column: list, "Show more", the live count, "More found in this run" (the tabs and filters are in the shell's header row). */
+.gaps-screen {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-md);
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+/* Before Mission Control is Ready the one child is the gate scene; its row takes all the height. */
+.gaps-screen:has(> .gate-scene) {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+.gaps-skel {
+  display: grid;
+  gap: var(--space-xs);
+}
+.gaps-count {
+  margin: 0;
+  color: var(--ink-2);
+} /* with class body-sm */
+.gaps-more {
+  display: flex;
+  justify-content: center;
+}
+.gaps-held {
+  margin-top: var(--space-sm);
+}
+.gaps-held__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+/* The card: a meta row of chips, then titled sections (Question, Why, Affected nodes, Quotes, Reach, Answer). */
+.gap-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.gap-sec {
+  display: grid;
+  gap: var(--space-xs);
+  align-content: start;
+}
+.gap-sec__title {
+  margin: 0;
+  color: var(--ink-2);
+  text-transform: uppercase;
+} /* with class eyebrow */
+.gap-text {
+  margin: 0;
+}
+.gap-nodes {
+  display: grid;
+  gap: var(--space-2xs);
+}
+.gap-nodes__rel {
+  margin: 0;
+  color: var(--ink-2);
+  text-transform: uppercase;
+} /* with class eyebrow */
+.gap-nodes__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gap-node__name {
+  color: var(--ink-2);
+}
+.gap-quotes {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gap-quote {
+  margin: 0;
+  padding-inline-start: var(--space-sm);
+  border-inline-start: 2px solid var(--hairline);
+}
+.gap-quote__src {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* The noise report: one row per section judged tracking or mixed. */
+.noise {
+  border-radius: var(--radius-lg);
+}
+.noise__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.noise__row {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+}
+.noise__row + .noise__row {
+  border-top: 1px solid var(--hairline);
+}
+.noise__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.noise__title {
+  margin: 0;
+} /* with class headline */
+.noise__meta {
+  margin: 0;
+  color: var(--ink-2);
+}

@@ -3,9 +3,9 @@ import type { AssistantPort } from "@/lib/domain/assistant";
 import type { CommentsPort } from "@/lib/domain/comments";
 import type { ConnectorsPort } from "@/lib/domain/connectors";
 import type { CreateProjectPort } from "@/lib/domain/create-project";
-import type { DecisionsPort } from "@/lib/domain/decisions";
 import type { DiagramsPort } from "@/lib/domain/diagrams";
 import type { FilesPort } from "@/lib/domain/files";
+import type { GapsPort } from "@/lib/domain/gaps";
 import type { PeoplePort } from "@/lib/domain/people";
 import type { PlanPort } from "@/lib/domain/plan";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
@@ -21,7 +21,7 @@ export interface DataPorts {
   files: FilesPort;
   comments: CommentsPort;
   diagrams: DiagramsPort;
-  decisions: DecisionsPort;
+  gaps: GapsPort; // the Gaps screen, read-only (FR-GWEB-04): /projects/{pid}/gaps*, /projects/{pid}/gap/runs/latest
   assistant: AssistantPort;
   connectors: ConnectorsPort;
   plan: PlanPort; // P20 (AUTO-17), TECH-SPECS §2.15
