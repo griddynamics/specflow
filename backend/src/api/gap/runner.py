@@ -19,6 +19,17 @@ wait for the process's run slot. Triggers:
 - ``wait_idle``: the plan runner waits until the project's queue is drained before it plans, so the order after a
   build is build, gap run, plan run (lifecycle.md "Plan link"); a failed gap run is logged and never stops the plan.
 
+- ``start_site``: a gap a person raised (``POST .../gaps``) queues a ``site`` run on it at the head of the queue (never
+  beside the running run), on the build of the project's latest finished gap run, so the next update run's change
+  reports still start there.
+- ``schedule_apply``: an answer moves the project's apply time to the end of its quiet period; when it passes with no
+  newer answer, ``GapService.apply_now`` makes the pending amendments active and requests one update build through the
+  build runner (``use_builds``; answers.md "Applying answers"). The time lives in this process: after a restart the
+  pending answers wait for the next answer or "Apply now".
+
+The ``GapService`` of the routes is built once with the runner's ports, the plan view, the build requests and one
+``Gateway`` for the ``gap_edits`` drafts of ``preview_edits`` (closed with the runner).
+
 Every run reads, as ``GapContext.changes``, the change reports of the builds after the build of the project's latest
 finished gap run up to its own build (``api.graph_build.reports``, converted by ``api.gap.changes``); the first gap run
 of a project has none, and a chain the build store cannot complete (or a latest gap run that failed) gives none and
@@ -65,6 +76,7 @@ from graph.gap import (
     GapRunStore,
     GapService,
     GapSettings,
+    GapStateError,
     LoopInvestigator,
     NoiseReport,
     ensure_gap_schema,
@@ -86,7 +98,8 @@ DOCUMENTS_INCOMPLETE: Final = "documents_incomplete"
 FAILED: Final = "failed"  # the status of a failed build and of a failed gap run
 RUN_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")  # names a folder of the run store: no separator
 
-RequestMode = Literal["update", "full"]
+RequestMode = Literal["update", "full", "site"]
+APPLY_ACTOR: Final = "gap-apply"  # the actor of an apply the quiet period triggers
 Transaction = Callable[[], Any]  # ``Runtime.transaction``: an async context manager of one session
 GapRunFunction = Callable[..., Awaitable[GapRunResult]]
 PortsFactory = Callable[[Transaction], tuple[Any, Any]]
@@ -139,6 +152,7 @@ class GapRunnerDependencies:
 class _Request:
     mode: RequestMode
     build_id: str | None = None  # ``None``: the latest finished build when the run starts
+    site_ids: tuple[str, ...] = ()  # a ``site`` run: the gaps it investigates
 
 
 @dataclass
@@ -166,6 +180,8 @@ class _Project:
     task: asyncio.Task[None] | None = None
     active: _Active | None = None
     failure: _Failure | None = None
+    apply_at: datetime | None = None  # when the pending answers are applied (end of the quiet period)
+    applier: asyncio.Task[None] | None = None
 
 
 @dataclass
@@ -176,6 +192,7 @@ class _Lazy:
     builds: BuildStore | None = None
     plan: Any = None
     service: Any = None
+    gateway: Any = None  # the service's gateway (``gap_edits``)
     schema_ready: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -206,7 +223,13 @@ class GapRunner:
         self._lazy = _Lazy(ontology=deps.ontology, rules=deps.rules, runs=deps.runs, builds=deps.builds)
         self._slots = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
         self._projects: dict[str, _Project] = {}
+        self._builds_port: Any = None  # ``BuildRequests``: the graph build runner (``use_builds``)
         self._closed = False
+
+    def use_builds(self, builds: Any) -> None:
+        """The ``BuildRequests`` port the service applies answers through (the graph build runner)."""
+
+        self._builds_port = builds
 
     # Triggers ------------------------------------------------------------------
 
@@ -243,6 +266,57 @@ class GapRunner:
         if not joined:
             self._enqueue(project_id, _Request("full"))
         return await self.status(project_id)
+
+    async def start_site(self, project_id: str, gap_id: str) -> None:
+        """Queue a ``site`` run on one gap at the head of the queue (a raised gap gets its options at once)."""
+
+        if self._closed:
+            raise RunnerClosedError("the gap runner is closed")
+        self._enqueue(project_id, _Request("site", None, (gap_id,)), front=True)
+
+    def schedule_apply(self, project_id: str, at: datetime) -> None:
+        """Apply the project's pending answers at ``at`` (the end of the quiet period after its last answer); a later
+        time replaces an earlier one."""
+
+        if self._closed:
+            return
+        project = self._project(project_id)
+        project.apply_at = at if project.apply_at is None else max(project.apply_at, at)
+        if project.applier is None or project.applier.done():
+            project.applier = asyncio.create_task(
+                self._apply_when_quiet(project_id, project), name=f"gap-apply-{project_id}"
+            )
+
+    def applied(self, project_id: str) -> None:
+        """The answers were applied now ("Apply now"): no apply is due any more."""
+
+        project = self._projects.get(project_id)
+        if project is not None:
+            project.apply_at = None
+
+    async def _apply_when_quiet(self, project_id: str, project: _Project) -> None:
+        while project.apply_at is not None and not self._closed:
+            wait = (project.apply_at - datetime.now(UTC)).total_seconds()
+            if wait > 0:
+                await asyncio.sleep(wait)
+                continue
+            project.apply_at = None
+            with Contained() as applying:
+                service = await self.service()
+                result = await service.apply_now(project_id, by=APPLY_ACTOR)
+                log_event(
+                    logger, INFO, "api.gap.applied", project_id=project_id, gaps=len(result.gap_ids), build=result.build
+                )
+            if applying.failed:
+                error = applying.error
+                log_event(
+                    logger,
+                    INFO if isinstance(error, GapStateError) else WARNING,
+                    "api.gap.apply_skipped" if isinstance(error, GapStateError) else "api.gap.apply_failed",
+                    project_id=project_id,
+                    error_code=error_code(error) if error is not None else None,
+                    error_type=applying.error_type,
+                )
 
     async def wait_idle(self, project_id: str) -> None:
         """Return once the project has no gap run queued or running (at once when it has none)."""
@@ -300,6 +374,7 @@ class GapRunner:
         ontology, rules, _ = await self._prepare()
         if self._lazy.service is None:
             records, amendments = self._deps.ports(self._transaction)
+            self._lazy.gateway = self._deps.gateway_factory(self._llm)
             self._lazy.service = self._deps.service(
                 self._deps.executor(self._store),
                 self._deps.reader(self._store, ontology),
@@ -307,6 +382,8 @@ class GapRunner:
                 rules,
                 records,
                 amendments,
+                gateway=self._lazy.gateway,
+                builds=self._builds_port,
                 settings=self._gap,
                 plan=await self._plan_view(ontology),
             )
@@ -317,11 +394,18 @@ class GapRunner:
         """Cancel every queued and running run; the next run of the project resumes it (gap runs are resumable)."""
 
         self._closed = True
-        tasks = [project.task for project in self._projects.values() if project.task and not project.task.done()]
+        tasks = [
+            task
+            for project in self._projects.values()
+            for task in (project.task, project.applier)
+            if task is not None and not task.done()
+        ]
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        if self._lazy.gateway is not None:
+            await self._lazy.gateway.aclose()
 
     # Queue ---------------------------------------------------------------------
 
@@ -429,12 +513,15 @@ class GapRunner:
             if _covered(latest, request):
                 return
         build_id = request.build_id
+        if build_id is None and request.mode == "site":  # the build of the latest finished gap run, read now
+            last = await self._runs().latest_run(project_id, finished_only=True)
+            build_id = last.build_id if last is not None else None
         if build_id is None:
             finished = await self._builds().latest_build(project_id, finished_only=True)
             if finished is None:
                 raise NoGraphBuildError(project_id)
             build_id = finished.build_id
-        await self._execute(project_id, active, request.mode, build_id)
+        await self._execute(project_id, active, request.mode, build_id, site_ids=request.site_ids)
 
     async def _execute(
         self,
@@ -607,6 +694,8 @@ def _covered(resumed: GapRunRecord, request: _Request) -> bool:
 
     if request.mode == "update":
         return resumed.build_id == request.build_id
+    if request.mode == "site":
+        return False
     return resumed.mode == "full"
 
 

@@ -104,6 +104,109 @@
         "title": "AddedByOut",
         "type": "object"
       },
+      "AnswerResult": {
+        "additionalProperties": false,
+        "description": "What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and when the\nanswers of the project are applied (``immediate``: at once, for a development gap that blocks its story).",
+        "properties": {
+          "amendments": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Amendments",
+            "type": "array"
+          },
+          "apply_at": {
+            "format": "date-time",
+            "title": "Apply At",
+            "type": "string"
+          },
+          "clr_id": {
+            "title": "Clr Id",
+            "type": "string"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "immediate": {
+            "default": false,
+            "title": "Immediate",
+            "type": "boolean"
+          },
+          "placement": {
+            "enum": [
+              "amend",
+              "document",
+              "none"
+            ],
+            "title": "Placement",
+            "type": "string"
+          },
+          "replaced": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced"
+          }
+        },
+        "required": [
+          "gap_id",
+          "clr_id",
+          "placement",
+          "apply_at"
+        ],
+        "title": "AnswerResult",
+        "type": "object"
+      },
+      "ApplyResult": {
+        "additionalProperties": false,
+        "description": "What ``apply_now`` (and the quiet-period apply) returns: the gaps moved to ``applying``, the clarifications\nwhose amendments became active and the build request's answer (``None`` without a ``BuildRequests`` port).",
+        "properties": {
+          "amendments": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Amendments",
+            "type": "array"
+          },
+          "build": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build"
+          },
+          "clr_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Clr Ids",
+            "type": "array"
+          },
+          "gap_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Gap Ids",
+            "type": "array"
+          }
+        },
+        "title": "ApplyResult",
+        "type": "object"
+      },
       "AreaInProgress": {
         "properties": {
           "count": {
@@ -1656,6 +1759,62 @@
         "title": "Edit",
         "type": "object"
       },
+      "EditPreview": {
+        "additionalProperties": false,
+        "description": "What ``preview_edits`` returns: the checked edits an answer would make and each target section before and\nafter. ``drafted`` when ``gap_edits`` wrote the edits of an own text; ``fallback`` names why the text goes to the\nclarifications document as written instead (the call failed or its edits did not check).",
+        "properties": {
+          "drafted": {
+            "default": false,
+            "title": "Drafted",
+            "type": "boolean"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/Edit"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "fallback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "placement": {
+            "enum": [
+              "amend",
+              "document"
+            ],
+            "title": "Placement",
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/SectionPreview"
+            },
+            "title": "Sections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "gap_id",
+          "placement",
+          "edits",
+          "sections"
+        ],
+        "title": "EditPreview",
+        "type": "object"
+      },
       "EditTarget": {
         "additionalProperties": false,
         "description": "Where an edit applies: a fragment and a verbatim anchor line (``amend``), or a heading (``document``).",
@@ -2580,6 +2739,145 @@
         "title": "FollowUp",
         "type": "object"
       },
+      "GapAnswerBody": {
+        "additionalProperties": false,
+        "description": "``POST .../gaps/{gap_id}/answer``: the answer, the edits confirmed in the preview (optional), and the gap's\n``updated_at`` as the card showed it (a gap changed since then answers ``409 gap_stale``).",
+        "properties": {
+          "edits": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Edit"
+                },
+                "maxItems": 12,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edits"
+          },
+          "option_rank": {
+            "anyOf": [
+              {
+                "maximum": 4.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Option Rank"
+          },
+          "own_text": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Text"
+          },
+          "placement": {
+            "anyOf": [
+              {
+                "enum": [
+                  "amend",
+                  "document"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placement"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "updated_at"
+        ],
+        "title": "GapAnswerBody",
+        "type": "object"
+      },
+      "GapDismissBody": {
+        "additionalProperties": false,
+        "description": "``POST .../gaps/{gap_id}/dismiss``: why the gap is not one (\"not a gap\", \"not spec\", \"duplicate\", \"won't\ndecide now\" or free text).",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "GapDismissBody",
+        "type": "object"
+      },
+      "GapEditsPreviewBody": {
+        "additionalProperties": false,
+        "description": "``POST .../gaps/{gap_id}/edits_preview``: an offered option by rank, or the person's own text (exactly one), and\nan optional placement; exactly one of the two, else ``400 answer_invalid`` (``field`` ``answer``).",
+        "properties": {
+          "option_rank": {
+            "anyOf": [
+              {
+                "maximum": 4.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Option Rank"
+          },
+          "own_text": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Text"
+          },
+          "placement": {
+            "anyOf": [
+              {
+                "enum": [
+                  "amend",
+                  "document"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placement"
+          }
+        },
+        "title": "GapEditsPreviewBody",
+        "type": "object"
+      },
       "GapHistory": {
         "additionalProperties": false,
         "description": "The events of a gap and its follow-up chain.",
@@ -2722,6 +3020,68 @@
           "gaps"
         ],
         "title": "GapPage",
+        "type": "object"
+      },
+      "GapRaiseBody": {
+        "additionalProperties": false,
+        "description": "``POST .../gaps``: a person's question about spec ids, with optional quoted lines, kind and severity.",
+        "properties": {
+          "about": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "About",
+            "type": "array"
+          },
+          "kind": {
+            "default": "missing",
+            "enum": [
+              "missing",
+              "ambiguous",
+              "contradiction",
+              "inconsistency",
+              "open_question",
+              "assumption"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 1000,
+            "minLength": 10,
+            "title": "Question",
+            "type": "string"
+          },
+          "quotes": {
+            "items": {
+              "$ref": "#/components/schemas/Quote"
+            },
+            "maxItems": 6,
+            "title": "Quotes",
+            "type": "array"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "blocker",
+                  "major",
+                  "minor"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "GapRaiseBody",
         "type": "object"
       },
       "GapRunResult": {
@@ -3819,6 +4179,117 @@
           }
         },
         "title": "NoiseReport",
+        "type": "object"
+      },
+      "NoiseRuleBody": {
+        "additionalProperties": false,
+        "description": "``POST .../gaps/noise_rules``: a document (lineage or path), a section or a pattern that is not spec.",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "document",
+              "section",
+              "pattern"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "value",
+          "reason"
+        ],
+        "title": "NoiseRuleBody",
+        "type": "object"
+      },
+      "NoiseRuleCreated": {
+        "description": "The id of the added noise rule (the same scope and value is one rule).",
+        "properties": {
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "title": "NoiseRuleCreated",
+        "type": "object"
+      },
+      "NoiseRuleList": {
+        "description": "The project's noise rules, oldest first.",
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/NoiseRuleRow"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "title": "NoiseRuleList",
+        "type": "object"
+      },
+      "NoiseRuleRow": {
+        "additionalProperties": false,
+        "description": "``gap_noise_rule``: a document, section or pattern a person marked \"not spec\".",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "document",
+              "section",
+              "pattern"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "scope",
+          "value",
+          "reason",
+          "created_by",
+          "created_at"
+        ],
+        "title": "NoiseRuleRow",
         "type": "object"
       },
       "NoiseSection": {
@@ -5415,6 +5886,26 @@
         "title": "Quote",
         "type": "object"
       },
+      "RaisedGap": {
+        "additionalProperties": false,
+        "description": "What ``raise_gap`` returns: the gap id, and whether it is new (a raised question already open is that gap).",
+        "properties": {
+          "created": {
+            "default": true,
+            "title": "Created",
+            "type": "boolean"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id"
+        ],
+        "title": "RaisedGap",
+        "type": "object"
+      },
       "Reach": {
         "additionalProperties": false,
         "description": "Stories and tasks an answer reaches, computed at read time from trace and the plan.",
@@ -5707,6 +6198,56 @@
           "planned_by"
         ],
         "title": "ReportedTask",
+        "type": "object"
+      },
+      "SectionPreview": {
+        "additionalProperties": false,
+        "description": "One edit of a preview: where it goes (fragment and document lineage, or the clarifications document), the\nsection's heading path, its current text and its text after the edit.",
+        "properties": {
+          "after": {
+            "title": "After",
+            "type": "string"
+          },
+          "before": {
+            "default": "",
+            "title": "Before",
+            "type": "string"
+          },
+          "fragment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fragment Id"
+          },
+          "heading_path": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Heading Path",
+            "type": "array"
+          },
+          "lineage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lineage"
+          }
+        },
+        "required": [
+          "after"
+        ],
+        "title": "SectionPreview",
         "type": "object"
       },
       "SimilarHit": {
@@ -10993,6 +11534,245 @@
         "tags": [
           "gaps"
         ]
+      },
+      "post": {
+        "description": "Raise a gap by hand (origin ``person``): it is open at once and a ``site`` run adds options, the nodes an\nanswer impacts and a severity. The same open question about the same ids is that gap (``created`` false).",
+        "operationId": "raise_gap_api_v1_projects__pid__gaps_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapRaiseBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RaisedGap"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Raise Gap",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/apply": {
+      "post": {
+        "description": "Apply the project's pending answers now (\"Apply now\"): one update build is requested.",
+        "operationId": "apply_answers_api_v1_projects__pid__gaps_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Answers",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/noise_rules": {
+      "get": {
+        "description": "The sections, documents and patterns a member marked \"not spec\"; the relevance filter treats them as tracking.",
+        "operationId": "list_noise_rules_api_v1_projects__pid__gaps_noise_rules_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoiseRuleList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Noise Rules",
+        "tags": [
+          "gaps"
+        ]
+      },
+      "post": {
+        "description": "Add a noise rule; the next gap run's relevance filter applies it. A pattern must compile.",
+        "operationId": "add_noise_rule_api_v1_projects__pid__gaps_noise_rules_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoiseRuleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoiseRuleCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Noise Rule",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/noise_rules/{rule_id}": {
+      "delete": {
+        "description": "Remove a noise rule.",
+        "operationId": "remove_noise_rule_api_v1_projects__pid__gaps_noise_rules__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "pattern": "^NR::[0-9A-F]{12}$",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Noise Rule",
+        "tags": [
+          "gaps"
+        ]
       }
     },
     "/api/v1/projects/{pid}/gaps/{gap_id}": {
@@ -11045,6 +11825,194 @@
           }
         },
         "summary": "Get Gap",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/{gap_id}/answer": {
+      "post": {
+        "description": "Answer a gap with an option or own text: a pending clarification and its amendments; the answers of the\nproject are applied after the quiet period (or at once for a development gap that blocks its story).",
+        "operationId": "answer_gap_api_v1_projects__pid__gaps__gap_id__answer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "gap_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Gap Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapAnswerBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer Gap",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/{gap_id}/dismiss": {
+      "post": {
+        "description": "Close an open gap that is not one: the node goes, its signature stays quiet until its inputs change.",
+        "operationId": "dismiss_gap_api_v1_projects__pid__gaps__gap_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "gap_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Gap Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapDismissBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dismiss Gap",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/{gap_id}/edits_preview": {
+      "post": {
+        "description": "The edits an answer would make, each target section before and after; nothing is stored. Own text is turned\ninto edits by the model (``drafted``), or goes to the clarifications document as written (``fallback``).",
+        "operationId": "preview_edits_api_v1_projects__pid__gaps__gap_id__edits_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "gap_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Gap Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapEditsPreviewBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Edits",
         "tags": [
           "gaps"
         ]

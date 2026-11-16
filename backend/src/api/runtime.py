@@ -226,7 +226,8 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
 
 def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSettings, stack: AsyncExitStack) -> None:
     """The graph build, gap and plan runners of the runtime. The gap runner (``GAP_ENABLED``) hears of every returned
-    build and the plan runner waits for its runs; its relational ports use the runtime's transactions."""
+    build and the plan runner waits for its runs; its relational ports use the runtime's transactions, and it applies
+    answers through update builds of the graph build runner (``BuildRequests``)."""
 
     if gap.enabled:
         runtime.gaps = GapRunner(graph_build, gap, store=runtime.graph_store, transaction=runtime.transaction)
@@ -239,6 +240,8 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
         session_factory=runtime.session_factory,
         gaps=runtime.gaps,
     )
+    if runtime.gaps is not None:  # answers are applied by update builds of this runner
+        runtime.gaps.use_builds(runtime.graph_builds)
     runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps)
     # Pushed last, so they run first: plan runs, builds and then gap runs stop before the store and engine close.
     stack.push_async_callback(runtime.graph_builds.aclose)

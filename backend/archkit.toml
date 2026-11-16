@@ -64,6 +64,10 @@ codes = [
     { code = "gap_not_found", http = 404 },
     { code = "gap_run_not_found", http = 404 },
     { code = "gap_unavailable", http = 503 },
+    { code = "gap_wrong_state", http = 409 },
+    { code = "gap_stale", http = 409 },
+    { code = "answer_invalid", http = 400 },
+    { code = "noise_rule_not_found", http = 404 },
     { code = "internal_error", http = 500 },
     { code = "http_error", http = 400 },
 ]
@@ -108,6 +112,10 @@ probes = [
     { name = "probe-33", class = "api.errors:ApiError", args = [404, "gap_not_found", "The gap does not exist."] },
     { name = "probe-34", class = "api.errors:ApiError", args = [404, "gap_run_not_found", "The gap run does not exist."] },
     { name = "probe-35", class = "api.errors:ApiError", args = [503, "gap_unavailable", "Gap runs are not configured."] },
+    { name = "probe-36", class = "api.errors:ApiError", args = [409, "gap_wrong_state", "The gap is not in a state this action applies to."] },
+    { name = "probe-37", class = "api.errors:ApiError", args = [409, "gap_stale", "The gap changed since it was read. Reload it."] },
+    { name = "probe-38", class = "api.errors:ApiError", args = [400, "answer_invalid", "The answer is not valid."] },
+    { name = "probe-39", class = "api.errors:ApiError", args = [404, "noise_rule_not_found", "The noise rule does not exist."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

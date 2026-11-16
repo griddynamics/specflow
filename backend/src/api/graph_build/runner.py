@@ -6,6 +6,9 @@ dimension check and ``ensure_schema`` once per process, then ``run_build``. The 
 call before the schema and any extraction, so a ``GRAPH_EMBEDDING_DIM`` that does not match the
 embedding model fails the build in seconds and never creates vector indexes of the wrong size.
 After a build returns, the gap runner (``api.gap.runner``, when configured) queues its gap run, before any plan run.
+``request_update_build`` is the gap module's ``BuildRequests`` port (answers.md "Applying answers"): it starts the
+project's build, or, while one runs, notes one request that starts the next build when the running one ends (one
+build at a time per project; any number of requests made during a build share that next build).
 A project's unfinished build (interrupted by a shutdown, or failed) is resumed by the next start;
 a new build retries the follow-up lineages of the latest finished one. ``status`` combines the
 running task with the build store, so it survives a restart.
@@ -39,6 +42,8 @@ logger = get_logger("api.graph_build.runner")
 MAX_CONCURRENT_BUILDS: Final = 1  # projects building at once in this process; the rest wait
 INTERRUPTED: Final = "interrupted"  # a stored build left running by a stopped process
 UNEXPECTED_ERROR: Final = "unexpected_error"
+STARTED: Final = "started"  # request_update_build: a build started now
+QUEUED: Final = "queued"  # request_update_build: the next build starts when the running one ends
 # The text embedded once per process to check that the model's vectors have ``GRAPH_EMBEDDING_DIM`` dimensions.
 DIMENSION_PROBE: Final = "SpecFlow embedding dimension check"
 
@@ -128,6 +133,7 @@ class GraphBuildRunner:
         self._slots = asyncio.Semaphore(MAX_CONCURRENT_BUILDS)
         self._runs: dict[str, _Run] = {}
         self._failures: dict[str, _Failure] = {}
+        self._requested: set[str] = set()  # projects whose next build starts when the running one ends
         self._closed = False
 
     # Public ------------------------------------------------------------------
@@ -142,11 +148,37 @@ class GraphBuildRunner:
         if self._closed:
             raise RunnerClosedError("the graph build runner is closed")
         if not self.running(project_id):
-            run = _Run(started_at=datetime.now(UTC))
-            run.task = asyncio.create_task(self._run(project_id, run), name=f"graph-build-{project_id}")
-            self._runs[project_id] = run
-            self._failures.pop(project_id, None)
+            self._launch(project_id)
         return await self.status(project_id)
+
+    async def request_update_build(self, project_id: str, reason: str, *, immediate: bool) -> str:
+        """``BuildRequests`` of the gap module: start an update build of the project now (``started``), or, while
+        one runs, start the next one when it ends (``queued``); never a second build beside the running one.
+        ``immediate`` only says the caller skipped its quiet period: the request is served the same way."""
+
+        if self._closed:
+            raise RunnerClosedError("the graph build runner is closed")
+        outcome = QUEUED if self.running(project_id) else STARTED
+        if outcome == QUEUED:
+            self._requested.add(project_id)
+        else:
+            self._launch(project_id)
+        log_event(
+            logger,
+            INFO,
+            "api.graph_build.requested",
+            project_id=project_id,
+            reason=reason,
+            immediate=immediate,
+            outcome=outcome,
+        )
+        return outcome
+
+    def _launch(self, project_id: str) -> None:
+        run = _Run(started_at=datetime.now(UTC))
+        run.task = asyncio.create_task(self._run(project_id, run), name=f"graph-build-{project_id}")
+        self._runs[project_id] = run
+        self._failures.pop(project_id, None)
 
     async def status(self, project_id: str) -> BuildState:
         """The running build, else the latest stored build (or a failure before one was stored)."""
@@ -220,6 +252,9 @@ class GraphBuildRunner:
             except asyncio.CancelledError:
                 log_event(logger, INFO, "api.graph_build.cancelled", project_id=project_id)
                 raise
+        if project_id in self._requested and not self._closed:  # a request made while this build ran
+            self._requested.discard(project_id)
+            self._launch(project_id)
         if build.error is None:
             return
         error = build.error
