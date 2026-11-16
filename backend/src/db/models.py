@@ -345,7 +345,7 @@ GAP_SITE_OUTCOMES: Final = ("gap", "not_a_gap", "not_spec", "duplicate", "skippe
 GAP_DECIDED_BY: Final = ("rules", "model", "person")
 GAP_NOISE_SCOPES: Final = ("document", "section", "pattern")
 AMENDMENT_OPERATIONS: Final = ("insert_after", "replace", "append_section")
-AMENDMENT_STATUSES: Final = ("active", "retired", "suspended", "orphaned", "reverted", "undecided")
+AMENDMENT_STATUSES: Final = ("pending", "active", "retired", "suspended", "orphaned", "reverted", "undecided")
 GAP_OPTIONS_MAX: Final = 4
 
 

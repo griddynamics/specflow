@@ -21,6 +21,7 @@ detection; the sites to investigate are returned and written by the steps after 
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 from collections import Counter, defaultdict
@@ -30,7 +31,7 @@ from typing import Any, Final, Literal
 
 from graph.core.reader import GraphNode
 from graph.gap.identity import canonical_json, sha256_hex
-from graph.gap.models import SeedRow, SiteRow, VerdictRow
+from graph.gap.models import SeedRow, SiteRow, VerdictRow, Witness
 from graph.gap.names import RunMode
 from graph.gap.ports import GapRecords, PlanView
 from graph.gap.rules import GapRules
@@ -54,6 +55,9 @@ PLANNED: Final = "planned_dependency"
 MIXED_SIGNALS: Final = 2
 """A weak seed from a mixed section needs obligation wording and one more signal."""
 SiteState = Literal["investigate", "skipped", "deferred"]
+RAISED_ORIGINS: Final = frozenset({"person", "development"})
+"""Gaps raised by a person or a coding agent: no detector seed names them, so a ``site`` run seeds their site."""
+RAISED_FACT: Final = "Raised question: {question}"
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,9 @@ class ExistingGap:
     status: str
     about: tuple[str, ...] = ()
     origin: str = "analysis"
+    kind: str = ""
+    question: str = ""
+    witness: tuple[Witness, ...] = ()
 
     @property
     def hashed(self) -> bool:
@@ -305,6 +312,7 @@ async def form_sites(snapshot: GraphSnapshot, detection: DetectOutcome, run: Sit
     if run.mode == "site" or run.site_ids:
         named = set(run.site_ids)
         sites = [site for site in sites if site.site_id in named or (site.gap_id is not None and site.gap_id in named)]
+        sites += await _raised_sites(snapshot, run, named - {site.gap_id for site in sites if site.gap_id})
     sites = await _states(sites, run)
     seed_site = {seed.signature: site.site_id for site in sites for seed in site.seeds}
     rows = tuple(
@@ -334,6 +342,34 @@ async def form_sites(snapshot: GraphSnapshot, detection: DetectOutcome, run: Sit
         investigate=sum(1 for site in sites if site.state == "investigate"),
     )
     return SitesOutcome(sites=tuple(sites), seed_rows=rows, counts=_counts(detection, corroborated, suppressed, sites))
+
+
+def raised_seed(gap: ExistingGap) -> Seed:
+    """The seed of a gap a person or a coding agent raised (detector ``person`` or ``development``): the asker's
+    question as a fact (so the question is part of the site's input hash and shown to the investigator), the quoted
+    lines, the ``ABOUT`` nodes (investigation.md "Development gaps")."""
+
+    kind: Any = gap.kind or "missing"
+    return Seed(
+        detector=gap.origin,
+        kind=kind,
+        family="text",
+        strength="strong",
+        about=gap.about,
+        witness=(Witness(fact=RAISED_FACT.format(question=gap.question)), *gap.witness),
+    )
+
+
+async def _raised_sites(snapshot: GraphSnapshot, run: SiteRun, named: Collection[str]) -> list[Site]:
+    """One site per open raised gap a ``site`` run names (no detector seed formed it), joined to that gap."""
+
+    found: list[Site] = []
+    for gap in run.existing:
+        if gap.gap_id in named and gap.origin in RAISED_ORIGINS and gap.status == "open":
+            found += [
+                dataclasses.replace(site, gap_id=gap.gap_id) for site in await _sites(snapshot, [raised_seed(gap)], run)
+            ]
+    return found
 
 
 async def _corroborated(snapshot: GraphSnapshot, seeds: Sequence[Seed], run: SiteRun) -> list[Seed]:

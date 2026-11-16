@@ -65,7 +65,7 @@ from graph.gap.names import (
 from graph.gap.ports import GapRecords
 from graph.gap.resolve import SpecRef, resolve_spec_ids
 from graph.gap.steps.investigate import primary_seed
-from graph.gap.steps.sites import Site
+from graph.gap.steps.sites import RAISED_ORIGINS, Site
 from graph.gap.steps.snapshot import GraphSnapshot
 from logger.logger import INFO, get_logger, log_event
 
@@ -509,8 +509,10 @@ class Recorder:
                 added += await self._links(tx, owner, known.gap_id, ABOUT, nodes=about, keys=keys)
                 added += await self._links(tx, owner, known.gap_id, IMPACTS, nodes=impacts, keys=keys)
                 added += await self._cites(tx, owner, known.gap_id, quotes, keys)
-                if added:
-                    await tx.upsert_node(GAP, owner.key, {"updated_at": run.now().isoformat(timespec="milliseconds")})
+                changed = _raised_changes(known, decision, report)
+                if added or changed:
+                    now = run.now().isoformat(timespec="milliseconds")
+                    await tx.upsert_node(GAP, owner.key, {**changed, "updated_at": now})
         if known.status == OPEN and report.options and decision.mode != POINTER:
             self.options[known.gap_id] = self._option_rows(known.gap_id, report)
         kind = str(known.props.get("kind") or report.kind)
@@ -559,6 +561,22 @@ class Recorder:
 
     def _writer(self) -> OwnedWriter:
         return OwnedWriter(self.run.source, self.run.ontology, OWNER, self.run.project_id, database=self.run.database)
+
+
+def _raised_changes(known: StoredGap, decision: SiteDecision, report: GapReport) -> dict[str, Any]:
+    """What the investigation of a gap a person or a coding agent raised refines (investigation.md "Development
+    gaps"): severity, kind, title and why; the asker's question stays, the route stays ``ask``."""
+
+    if known.origin not in RAISED_ORIGINS or decision.severity in {None, "info"}:
+        return {}
+    changed: dict[str, Any] = {"severity": decision.severity}
+    if report.kind is not None:
+        changed["kind"] = report.kind
+    if report.title:
+        changed["title"] = report.title
+    if report.why:
+        changed["why"] = report.why
+    return changed
 
 
 async def record_sites(

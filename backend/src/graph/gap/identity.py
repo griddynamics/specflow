@@ -18,6 +18,7 @@ from typing import Any, Final
 from graph.gap.names import CLR_PREFIX, GAP_PREFIX
 
 DEVELOPMENT_DETECTOR: Final = "development"
+PERSON_DETECTOR: Final = "person"
 ID_HEX: Final = 12
 ID_EXTENSION_HEX: Final = 4
 _SINGLE_QUOTES: Final = (0x2018, 0x2019, 0x201A, 0x201B, 0x2032)
@@ -81,6 +82,15 @@ def development_signature(task_id: str, spec_ids: Iterable[str], question: str) 
             "about": sorted(set(spec_ids)),
             "question": normalise_question(question),
         }
+    )
+
+
+def person_signature(spec_ids: Iterable[str], question: str) -> str:
+    """The signature of a gap a person raised: ``person``, sorted spec ids and the normalised question (the
+    development signature without a task)."""
+
+    return sha256_hex(
+        {"detector": PERSON_DETECTOR, "about": sorted(set(spec_ids)), "question": normalise_question(question)}
     )
 
 

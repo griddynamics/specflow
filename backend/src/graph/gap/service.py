@@ -1,61 +1,111 @@
 """``GapService``: the reads of the Gaps inbox, the routes and the plan's findings port (docs/graph/gap/api.md "Gap
 service"; lifecycle.md "Plan link").
 
-Session 05 implements the read calls: ``list_gaps``, ``get_gap``, ``open_counts`` and ``findings``. Answers,
-dismissals, raising gaps and noise rules come with later sessions. Every read binds and filters the project id
+The reads (``list_gaps``, ``get_gap``, ``open_counts``, ``findings``) and the writes of a person (``preview_edits``,
+``answer_gap``, ``apply_now``, ``dismiss_gap``, ``raise_gap``, the noise-rule calls; answers.md). Every read binds and
+filters the project id
 (FR-GOWN-02); spec ids asked for resolve through aliases (the core alias read), so a merged or rekeyed node's old id
 still finds its gaps. Reach is computed at read time (trace from the ``ABOUT`` and ``IMPACTS`` nodes along
 ``affects`` to depth 2, and the plan's tasks and stories of all of them), never stored.
 
 ``open_counts`` and ``findings`` satisfy the plan's ``FindingsReads`` structurally: the plan imports neither
 ``graph.gap`` nor this module.
+
+Every write is one transaction in the graph store (the gap owned writer) and relational rows through the ports; the
+relational rows the graph write depends on are written first and removed (or set back) when the graph write fails
+(api.md "Gap service"), and the event rows follow the graph write (the log is append-only). A ``StaleGapError`` refuses
+an answer to a gap whose ``updated_at`` moved since the caller read it. Logs carry ids, codes and counts only.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
+import re
+from collections import defaultdict
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, TypedDict, Unpack, get_args
 
 from pydantic import ValidationError
 
+from graph.core.errors import ConfigurationError, GraphError
 from graph.core.identity import validate_project_id
 from graph.core.ontology import Ontology
 from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.store import Executor, as_executor
-from graph.gap.errors import AnswerInvalidError, GapNotFoundError
-from graph.gap.gaps import StoredGap, read_gaps
+from graph.core.writer import FRAGMENT, OwnedWriter
+from graph.core.writer import NodeRef as WriterRef
+from graph.gap.answers import (
+    ANSWER_TEXT_CHARS,
+    REASON_CHARS,
+    AnswerGraph,
+    ClarificationWrite,
+    amendment_rows,
+    check_edits,
+    clarification_props,
+    document_edit,
+    draft_edits,
+    noise_rule_id,
+    option_of,
+    place,
+    section_preview,
+    text_ok,
+    write_clarification,
+)
+from graph.gap.errors import AnswerInvalidError, GapNotFoundError, GapStateError, StaleGapError
+from graph.gap.gaps import StoredGap, cite_key, clarification_uuid, gap_uuid, link_key, quote_hash, read_gaps
+from graph.gap.identity import clr_id, development_signature, gap_id, normalise_quote, person_signature
 from graph.gap.models import (
+    AnswerInput,
+    AnswerResult,
+    ApplyResult,
     ClarificationView,
+    Edit,
+    EditPreview,
+    EventRow,
     GapFinding,
     GapFindingPage,
     GapHistory,
     GapPage,
     GapView,
+    NewGap,
     NodeRef,
+    NoiseRuleRow,
     OptionRow,
     Quote,
+    RaisedGap,
     Reach,
+    SuppressionRow,
     WitnessView,
 )
 from graph.gap.names import (
+    ABOUT,
+    CITES,
+    CLARIFICATION,
+    GAP,
     GRAPH_STATUSES,
     OPEN_STATUSES,
+    OWNER,
     RUN_ACTOR,
+    EditPlacement,
     GapKind,
     GapOrigin,
     GapRoute,
     GapSeverity,
     GapStatus,
+    NoiseScope,
 )
 from graph.gap.ports import Amendments, BuildRequests, GapRecords, Investigator, PlanView, StoryHolds
 from graph.gap.resolve import resolve_spec_ids
 from graph.gap.rules import GapRules
 from graph.gap.settings import GapSettings
+from logger.logger import INFO, WARNING, get_logger, log_event
+
+logger = get_logger(__name__)
 
 PAGE_LIMITS: Final = (1, 200)
 REACH_DEPTH: Final = 2
@@ -64,6 +114,18 @@ SEVERITY_ORDER: Final[dict[str, int]] = {"blocker": 0, "major": 1, "minor": 2}
 CURRENT_CLARIFICATIONS: Final = frozenset({"pending", "applied"})
 YES: Final = "yes"
 CURSOR_PARTS: Final = 3
+ANSWERABLE: Final = ("open", "answered", "resolved")
+"""A resolved gap is answered again only while its clarification is applied (answers.md "Changing an answer")."""
+APPLIED_CLARIFICATIONS: Final = frozenset({"applied", "absorbed"})
+PENDING: Final = "pending"
+APPLY_MARK: Final = "apply_requested_at"
+"""Set on a pending clarification when its build is requested, so a later apply does not take it again (a re-answer of
+a resolved gap stays ``pending`` until the close check)."""
+QUESTION_CHARS: Final = (10, 1000)
+TITLE_CHARS: Final = 160
+ABOUT_MAX: Final = 20
+NOISE_VALUE_CHARS: Final = (1, 500)
+APPLY_REASON: Final = "gap_answers"
 
 Position = tuple[int, int, str]
 
@@ -259,6 +321,9 @@ class GapService:
         self._settings = self.settings or GapSettings()
         self._clock: Callable[[], datetime] = self.clock or (lambda: datetime.now(UTC))
         self._labels = tuple(label for label in self.ontology.labels if self.ontology.owner_of(label) == BUILD_OWNER)
+        # Answers, applies and dismissals of one project run one at a time in this process: each reads the gap, then
+        # writes on what it read (two answers on one gap would both commit a pending clarification).
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def list_gaps(
         self,
@@ -381,6 +446,494 @@ class GapService:
         )
         return GapFindingPage(findings=tuple(found[:limit]))
 
+    # Writes: answers, dismissals, raised gaps, noise rules
+
+    async def preview_edits(
+        self,
+        project_id: str,
+        gap_id: str,
+        *,
+        option_rank: int | None = None,
+        own_text: str | None = None,
+        placement: EditPlacement | None = None,
+    ) -> EditPreview:
+        """The edits an answer would make and each target section before and after; nothing is stored. An option's
+        edits are checked as they are; an own text is turned into edits by one ``gap_edits`` call, and when the call
+        fails or its edits do not check the text goes to the clarifications document as written (``fallback``)."""
+
+        project_id = validate_project_id(project_id)
+        if (option_rank is None) == (own_text is None):
+            raise AnswerInvalidError(field="answer", reason="one_of_option_or_text", gap_id=gap_id)
+        gap = await self._answerable(project_id, gap_id)
+        graph = await AnswerGraph.read(self._reader, project_id, self._ontology, gap)
+        drafted, fallback = False, None
+        if option_rank is not None:
+            edits = option_of(await self._records.options(project_id, gap_id), option_rank, gap_id).edits
+        else:
+            text = _own_text(own_text, gap_id)
+            found, fallback = await draft_edits(self.gateway, graph, text, placement)
+            drafted = found is not None
+            edits = found if found is not None else (document_edit(gap, text),)
+        checked, chosen = place(gap, check_edits(graph, edits), placement)
+        checked = check_edits(graph, checked)
+        log_event(
+            logger,
+            INFO,
+            "graph.gap.answer.previewed",
+            project_id=project_id,
+            gap_id=gap_id,
+            edits=len(checked),
+            drafted=drafted,
+            fallback=fallback,
+        )
+        return EditPreview(
+            gap_id=gap_id,
+            placement=chosen,
+            edits=checked,
+            sections=tuple(section_preview(graph, edit) for edit in checked),
+            drafted=drafted,
+            fallback=fallback,
+        )
+
+    async def answer_gap(self, project_id: str, answer: AnswerInput) -> AnswerResult:
+        """Record an answer (FR-GANS-01..04, FR-GANS-09): one ``pending`` clarification that ``ANSWERS`` the gap,
+        ``PLACED_IN`` each source document it amends, one ``pending`` amendment row per amend edit; the gap moves to
+        ``answered``. A pending answer of the gap is replaced (deleted with its amendments; the event log keeps it);
+        an answer to a resolved gap ``REPLACES`` its applied clarification when the answers are applied. A development
+        gap that blocks its story is applied at once (FR-GANS-08)."""
+
+        project_id = validate_project_id(project_id)
+        async with self._locks[project_id]:
+            return await self._answer(project_id, answer)
+
+    async def _answer(self, project_id: str, answer: AnswerInput) -> AnswerResult:
+        gap = await self._answerable(project_id, answer.gap_id)
+        if answer.updated_at is not None and _millis(answer.updated_at) != _millis(_updated_at(gap)):
+            raise StaleGapError(gap_id=gap.gap_id)
+        graph = await AnswerGraph.read(self._reader, project_id, self._ontology, gap)
+        mode, label, edits = await self._answer_edits(project_id, gap, answer)
+        checked, placement = place(gap, check_edits(graph, edits), answer.placement)
+        checked = check_edits(graph, checked)
+        now = self._clock()
+        body = "\n\n".join(edit.text for edit in checked)
+        clr = clr_id(gap.gap_id, body, now)
+        rows = amendment_rows(graph, clr, checked, now)
+        pending = [props for props in gap.clarifications if props.get("status") == PENDING]
+        applied = _latest(props for props in gap.clarifications if props.get("status") in APPLIED_CLARIFICATIONS)
+        replaces = applied if gap.status == "resolved" else None
+        props = clarification_props(
+            clr,
+            mode=mode,
+            placement=placement,
+            option_label=label,
+            text=body,
+            answered_by=answer.answered_by,
+            answered_at=now,
+        )
+        await self.amendments.put(project_id, rows)
+        try:
+            async with self._writer(project_id).transaction() as tx:
+                write = ClarificationWrite(clr, gap, props, tuple(sorted({row.lineage for row in rows})), replaces)
+                await write_clarification(tx, project_id, write)
+                for old in pending:
+                    await tx.delete_node(CLARIFICATION, clarification_uuid(project_id, str(old["clr_id"])))
+                changed: dict[str, Any] = {"updated_at": _iso(now)}
+                if gap.status != "resolved":
+                    changed["status"] = "answered"
+                await tx.upsert_node(GAP, gap_uuid(project_id, gap.gap_id), changed)
+        except BaseException:
+            await self.amendments.delete(project_id, [row.amendment_id for row in rows])
+            raise
+        events = await self._replaced(project_id, gap, pending, by=answer.answered_by, now=now)
+        events.append(
+            EventRow(
+                gap_id=gap.gap_id,
+                clr_id=clr,
+                at=now,
+                actor=answer.answered_by,
+                event="answered",
+                detail={"mode": mode, "placement": placement, "amendments": len(rows), "replaces": replaces},
+            )
+        )
+        await self._records.log(project_id, events)
+        immediate = gap.origin == "development" and _blocking(gap)
+        log_event(
+            logger,
+            INFO,
+            "graph.gap.answer.recorded",
+            project_id=project_id,
+            gap_id=gap.gap_id,
+            clr_id=clr,
+            mode=mode,
+            placement=placement,
+            amendments=len(rows),
+            replaced=len(pending),
+            immediate=immediate,
+        )
+        if immediate:
+            try:
+                await self._apply(project_id, by=answer.answered_by, immediate=True)
+            except GraphError as error:  # the answer is recorded: it waits for the quiet period instead
+                log_event(
+                    logger, WARNING, "graph.gap.answer.apply_failed", project_id=project_id, error_code=error.code
+                )
+                immediate = False
+        return AnswerResult(
+            gap_id=gap.gap_id,
+            clr_id=clr,
+            replaced=str(pending[-1]["clr_id"]) if pending else None,
+            placement=placement,
+            amendments=tuple(row.amendment_id for row in rows),
+            apply_at=now if immediate else now + timedelta(seconds=self.quiet_seconds()),
+            immediate=immediate,
+        )
+
+    def quiet_seconds(self) -> int:
+        """The quiet period after the last answer of a project before its answers are applied."""
+
+        return self._settings.effective_limits(self.rules.limits).apply_quiet_seconds
+
+    async def apply_now(self, project_id: str, *, by: str, immediate: bool = False) -> ApplyResult:
+        """Apply the project's pending answers in one update build (FR-GANS-08): their amendments become ``active``,
+        the gaps ``answered`` move to ``applying``, a resolved gap's applied clarification that a pending one replaces
+        becomes ``superseded`` (its amendments ``reverted``), then ``BuildRequests.request_update_build``.
+        ``GapStateError`` when nothing is pending; ``ConfigurationError`` without a ``BuildRequests`` port."""
+
+        project_id = validate_project_id(project_id)
+        async with self._locks[project_id]:
+            return await self._apply(project_id, by=by, immediate=immediate)
+
+    async def _apply(self, project_id: str, *, by: str, immediate: bool) -> ApplyResult:
+        if self.builds is None:
+            raise ConfigurationError("gap_builds_missing")
+        gaps = await read_gaps(self._executor, project_id, self._ontology, statuses=("answered", "resolved"))
+        batch = [
+            (gap, props)
+            for gap in gaps
+            for props in gap.clarifications
+            if props.get("status") == PENDING and not props.get(APPLY_MARK)  # a marked one waits for its build
+        ]
+        if not batch:
+            raise GapStateError(status="nothing_pending", allowed=("answered",))
+        new_ids = [str(props["clr_id"]) for _, props in batch]
+        old_ids = [
+            str(props["clr_id"])
+            for gap, _ in batch
+            if gap.status == "resolved"
+            for props in gap.clarifications
+            if props.get("status") in APPLIED_CLARIFICATIONS
+        ]
+        activate = [
+            row.amendment_id
+            for clr in new_ids
+            for row in await self.amendments.for_clarification(project_id, clr)
+            if row.status == PENDING
+        ]
+        revert = [
+            row.amendment_id
+            for clr in old_ids
+            for row in await self.amendments.for_clarification(project_id, clr)
+            if row.status == "active"
+        ]
+        now = self._clock()
+        moved = [gap.gap_id for gap, _ in batch if gap.status == "answered"]
+        try:
+            await self.amendments.set_status(project_id, activate, "active")
+            await self.amendments.set_status(project_id, revert, "reverted")
+            async with self._writer(project_id).transaction() as tx:
+                for clr in new_ids:
+                    await tx.upsert_node(CLARIFICATION, clarification_uuid(project_id, clr), {APPLY_MARK: _iso(now)})
+                for gap_id in dict.fromkeys(moved):
+                    await tx.upsert_node(
+                        GAP, gap_uuid(project_id, gap_id), {"status": "applying", "updated_at": _iso(now)}
+                    )
+                for clr in old_ids:
+                    await tx.upsert_node(CLARIFICATION, clarification_uuid(project_id, clr), {"status": "superseded"})
+        except BaseException:
+            await self.amendments.set_status(project_id, activate, PENDING)
+            await self.amendments.set_status(project_id, revert, "active")
+            raise
+        events = [
+            EventRow(
+                gap_id=gap.gap_id,
+                clr_id=str(props["clr_id"]),
+                at=now,
+                actor=by,
+                event="applying",
+                detail={"immediate": immediate, "status": gap.status if gap.status == "resolved" else "applying"},
+            )
+            for gap, props in batch
+        ]
+        events += [
+            EventRow(gap_id=gap.gap_id, clr_id=str(props["clr_id"]), at=now, actor=by, event="superseded")
+            for gap, _ in batch
+            if gap.status == "resolved"
+            for props in gap.clarifications
+            if props.get("status") in APPLIED_CLARIFICATIONS
+        ]
+        await self._records.log(project_id, events)
+        build = await self.builds.request_update_build(project_id, APPLY_REASON, immediate=immediate)
+        log_event(
+            logger,
+            INFO,
+            "graph.gap.answers.applied",
+            project_id=project_id,
+            gaps=len(set(moved)),
+            clarifications=len(new_ids),
+            amendments=len(activate),
+            superseded=len(old_ids),
+            immediate=immediate,
+            build=build,
+        )
+        return ApplyResult(
+            gap_ids=tuple(dict.fromkeys(gap.gap_id for gap, _ in batch)),
+            clr_ids=tuple(new_ids),
+            amendments=tuple(activate),
+            build=build,
+        )
+
+    async def dismiss_gap(self, project_id: str, gap_id: str, *, reason: str, by: str) -> None:
+        """Close an open gap a person judges not to be one (FR-GANS-11): its signature becomes a suppression, the
+        node and its relations are deleted, its options too; the event log keeps the reason. A blocker hold of the
+        gap ends (``StoryHolds.release_gap``)."""
+
+        project_id = validate_project_id(project_id)
+        if not text_ok(reason, REASON_CHARS):
+            raise AnswerInvalidError(field="reason", reason="length", gap_id=gap_id)
+        async with self._locks[project_id]:
+            await self._dismiss(project_id, gap_id, reason=reason, by=by)
+
+    async def _dismiss(self, project_id: str, gap_id: str, *, reason: str, by: str) -> None:
+        gap = await self._stored(project_id, gap_id)
+        if gap.status != "open":
+            raise GapStateError(status=gap.status, allowed=("open",), gap_id=gap_id)
+        now = self._clock()
+        row = SuppressionRow(
+            signature=gap.signature or gap.gap_id,
+            gap_id=gap.gap_id,
+            question=str(gap.props.get("question") or ""),
+            reason=reason.strip(),
+            dismissed_by=by,
+            dismissed_at=now,
+        )
+        known = bool(await self._records.suppressed(project_id, [row.signature]))  # kept when the delete fails
+        await self._records.suppress(project_id, row)
+        try:
+            async with self._writer(project_id).transaction() as tx:
+                for props in gap.clarifications:
+                    await tx.delete_node(CLARIFICATION, clarification_uuid(project_id, str(props["clr_id"])))
+                await tx.delete_node(GAP, gap_uuid(project_id, gap.gap_id))
+        except BaseException:
+            if not known:
+                await self._records.unsuppress(project_id, row.signature)
+            raise
+        released = await self.holds.release_gap(project_id, gap.gap_id) if self.holds is not None else ()
+        await self._records.put_options(project_id, gap.gap_id, ())
+        await self._records.log(
+            project_id,
+            [EventRow(gap_id=gap.gap_id, at=now, actor=by, event="dismissed", detail={"reason": row.reason})],
+        )
+        log_event(logger, INFO, "graph.gap.dismissed", project_id=project_id, gap_id=gap.gap_id, released=len(released))
+
+    async def raise_gap(self, project_id: str, new: NewGap) -> RaisedGap:
+        """Open a gap by hand (FR-GANS-12): after the checks of a report (the ids resolve, the quotes are found in
+        their active fragments), an ``open`` gap with the asker's question, severity ``major`` unless given, route
+        ``ask``, ``ABOUT`` the ids and ``CITES`` the quotes. The host then runs a ``site`` run on it for options,
+        ``IMPACTS`` and a severity. The same question about the same ids while it is open is that gap."""
+
+        project_id = validate_project_id(project_id)
+        question = new.question.strip()
+        if not text_ok(question, QUESTION_CHARS):
+            raise AnswerInvalidError(field="question", reason="length")
+        ids = tuple(dict.fromkeys(item.strip() for item in new.about if item.strip()))
+        if len(ids) > ABOUT_MAX or (not ids and not new.quotes):
+            raise AnswerInvalidError(field="about", reason="count")
+        refs = await resolve_spec_ids(self._executor, project_id, ids, self._labels) if ids else {}
+        if set(ids) - set(refs):
+            raise AnswerInvalidError(field="about", reason="unknown_ids")
+        nodes = sorted({ref.spec_id: ref for ref in refs.values()}.values(), key=lambda ref: ref.spec_id)
+        quotes = await self._quoted(project_id, new)
+        about = [ref for ref in nodes if self._ontology.is_legal(ABOUT, GAP, ref.label)]
+        current = [ref.spec_id for ref in nodes]
+        signature = (
+            development_signature(new.story_id or "", current, question)
+            if new.origin == "development"
+            else person_signature(current, question)
+        )
+        existing = await read_gaps(self._executor, project_id, self._ontology, statuses=GRAPH_STATUSES)
+        same = next((gap for gap in existing if gap.signature == signature and gap.status in OPEN_STATUSES), None)
+        if same is not None:
+            return RaisedGap(gap_id=same.gap_id, created=False)
+        new_id = gap_id(signature, {gap.gap_id: gap.signature for gap in existing})
+        now = self._clock()
+        props: dict[str, Any] = {
+            "gap_id": new_id,
+            "kind": new.kind,
+            "severity": new.severity or "major",
+            "status": "open",
+            "origin": new.origin,
+            "route": "ask",
+            "title": _title(question),
+            "question": question,
+            "why": "",
+            "detector": new.origin,
+            "signature": signature,
+            "blocking": YES if new.blocking else "no",
+            "held_back": "no",
+            "created_by": new.created_by,
+            "created_at": _iso(now),
+            "updated_at": _iso(now),
+        }
+        if new.story_id:
+            props["story_id"] = new.story_id
+        owner = WriterRef(GAP, gap_uuid(project_id, new_id))
+        async with self._writer(project_id).transaction() as tx:
+            await tx.upsert_node(GAP, owner.key, props)
+            for ref in about:
+                await tx.upsert_relationship(
+                    ABOUT, owner, WriterRef(ref.label, ref.uuid), link_key(new_id, ABOUT, ref.spec_id), {}
+                )
+            for fragment_id, quote, line in quotes:
+                digest = quote_hash(quote)
+                cite: dict[str, Any] = {"quote": quote, "quote_hash": digest}
+                if line is not None:
+                    cite |= {"line_start": line, "line_end": line}
+                await tx.upsert_relationship(
+                    CITES, owner, WriterRef(FRAGMENT, fragment_id), cite_key(new_id, fragment_id, digest), cite
+                )
+        await self._records.log(
+            project_id,
+            [
+                EventRow(
+                    gap_id=new_id,
+                    at=now,
+                    actor=new.created_by,
+                    event="created",
+                    detail={"origin": new.origin, "kind": new.kind, "about": len(about), "cites": len(quotes)},
+                )
+            ],
+        )
+        log_event(
+            logger, INFO, "graph.gap.raised", project_id=project_id, gap_id=new_id, origin=new.origin, about=len(about)
+        )
+        return RaisedGap(gap_id=new_id)
+
+    async def noise_rules(self, project_id: str) -> Sequence[NoiseRuleRow]:
+        """The project's noise rules: sections and patterns a person marked "not spec" (detection.md)."""
+
+        return await self._records.noise_rules(validate_project_id(project_id))
+
+    async def add_noise_rule(self, project_id: str, scope: NoiseScope, value: str, reason: str, by: str) -> str:
+        """Add a noise rule (the next run's relevance filter treats what it names as tracking); the same scope and
+        value is one rule. ``AnswerInvalidError`` for an empty value or reason, or a pattern that does not compile."""
+
+        project_id = validate_project_id(project_id)
+        if scope not in get_args(NoiseScope):
+            raise AnswerInvalidError(field="scope", reason="unknown_value")
+        clean = value.strip()
+        if not text_ok(clean, NOISE_VALUE_CHARS):
+            raise AnswerInvalidError(field="value", reason="length")
+        if not text_ok(reason, REASON_CHARS):
+            raise AnswerInvalidError(field="reason", reason="length")
+        if scope == "pattern":
+            try:
+                re.compile(clean)
+            except re.error:
+                raise AnswerInvalidError(field="value", reason="pattern_invalid") from None
+        rule_id = noise_rule_id(scope, clean)
+        row = NoiseRuleRow(
+            rule_id=rule_id, scope=scope, value=clean, reason=reason.strip(), created_by=by, created_at=self._clock()
+        )
+        await self._records.put_noise_rule(project_id, row)
+        log_event(logger, INFO, "graph.gap.noise_rule.added", project_id=project_id, rule_id=rule_id, scope=scope)
+        return rule_id
+
+    async def remove_noise_rule(self, project_id: str, rule_id: str, by: str) -> bool:
+        """Remove a noise rule; False when the project has no such rule."""
+
+        project_id = validate_project_id(project_id)
+        removed = await self._records.delete_noise_rule(project_id, rule_id)
+        log_event(
+            logger, INFO, "graph.gap.noise_rule.removed", project_id=project_id, rule_id=rule_id, removed=removed, by=by
+        )
+        return removed
+
+    # Write helpers
+
+    def _writer(self, project_id: str) -> OwnedWriter:
+        return OwnedWriter(self._executor, self._ontology, OWNER, project_id)
+
+    async def _stored(self, project_id: str, gap_id: str) -> StoredGap:
+        found = await read_gaps(self._executor, project_id, self._ontology, statuses=GRAPH_STATUSES, gap_ids=[gap_id])
+        if not found:
+            raise GapNotFoundError(gap_id=gap_id)
+        return found[0]
+
+    async def _answerable(self, project_id: str, gap_id: str) -> StoredGap:
+        """The gap, when an answer applies to it: ``open`` or ``answered``, or ``resolved`` with an applied
+        clarification (answered again from its history); else ``GapStateError``."""
+
+        gap = await self._stored(project_id, gap_id)
+        applied = any(props.get("status") in APPLIED_CLARIFICATIONS for props in gap.clarifications)
+        if gap.status not in ANSWERABLE or (gap.status == "resolved" and not applied):
+            raise GapStateError(status=gap.status, allowed=ANSWERABLE, gap_id=gap_id)
+        return gap
+
+    async def _answer_edits(
+        self, project_id: str, gap: StoredGap, answer: AnswerInput
+    ) -> tuple[str, str, tuple[Edit, ...]]:
+        """The mode, the option label and the edits of an answer before placement and checks."""
+
+        if answer.option_rank is not None:
+            option = option_of(await self._records.options(project_id, gap.gap_id), answer.option_rank, gap.gap_id)
+            edits = answer.edits if answer.edits is not None else option.edits
+            return "option", option.label, tuple(edits)
+        text = _own_text(answer.own_text, gap.gap_id)
+        return "own", "", tuple(answer.edits) if answer.edits else (document_edit(gap, text),)
+
+    async def _replaced(
+        self, project_id: str, gap: StoredGap, pending: Sequence[Any], *, by: str, now: datetime
+    ) -> list[EventRow]:
+        """Delete the amendments of the pending clarifications an answer replaced; their ``replaced`` events."""
+
+        events: list[EventRow] = []
+        for props in pending:
+            old = str(props["clr_id"])
+            rows = await self.amendments.for_clarification(project_id, old)
+            await self.amendments.delete(project_id, [row.amendment_id for row in rows])
+            events.append(
+                EventRow(
+                    gap_id=gap.gap_id,
+                    clr_id=old,
+                    at=now,
+                    actor=by,
+                    event="replaced",
+                    detail={"mode": props.get("mode"), "placement": props.get("placement"), "amendments": len(rows)},
+                )
+            )
+        return events
+
+    async def _quoted(self, project_id: str, new: NewGap) -> list[tuple[str, str, int | None]]:
+        """The quotes of a raised gap with the document line each starts on; ``AnswerInvalidError`` for a quote not
+        found in its active fragment."""
+
+        if not new.quotes:
+            return []
+        fragments = {fragment.fragment_id: fragment for fragment in await self._reader.fragments(project_id)}
+        found: list[tuple[str, str, int | None]] = []
+        for item in new.quotes:
+            fragment = fragments.get(item.fragment_id)
+            wanted = normalise_quote(item.quote)
+            active = fragment is not None and (fragment.status or "active") == "active"
+            if fragment is None or not active or not wanted or wanted not in normalise_quote(fragment.text):
+                raise AnswerInvalidError(field="quotes", reason="not_found")
+            offset = next(
+                (n for n, line in enumerate(fragment.text.splitlines()) if wanted in normalise_quote(line)), None
+            )
+            start = fragment.line_start
+            found.append((item.fragment_id, item.quote, None if offset is None or start is None else start + offset))
+        return found
+
     async def _current(self, project_id: str, spec_ids: Sequence[str]) -> set[str]:
         """The ids asked for and the current ids they resolve to."""
 
@@ -395,3 +948,36 @@ class GapService:
         stories = await self._plan.stories_for(project_id, ids) if ids else {}
         nodes = {spec_id for spec_id, found in stories.items() if story_id in found}
         return [gap for gap in gaps if nodes & set(gap.about_ids)]
+
+
+def _own_text(text: str | None, gap_id: str) -> str:
+    if not text_ok(text, ANSWER_TEXT_CHARS):
+        raise AnswerInvalidError(field="own_text", reason="length", gap_id=gap_id)
+    return str(text).strip()
+
+
+def _updated_at(gap: StoredGap) -> datetime:
+    return _instant(gap.props.get("updated_at") or gap.props["created_at"])
+
+
+def _millis(value: datetime) -> int:
+    return int(_instant(value).timestamp() * 1000)
+
+
+def _iso(value: datetime) -> str:
+    return value.isoformat(timespec="milliseconds")
+
+
+def _latest(clarifications: Any) -> str | None:
+    found = sorted(clarifications, key=lambda props: str(props.get("answered_at") or ""))
+    return str(found[-1]["clr_id"]) if found else None
+
+
+def _title(question: str) -> str:
+    """The first line of a raised question, cut to ``TITLE_CHARS`` at a word break."""
+
+    line = question.strip().splitlines()[0].strip()
+    if len(line) <= TITLE_CHARS:
+        return line
+    cut = line[: TITLE_CHARS - 1].rsplit(" ", 1)[0]
+    return f"{cut}\u2026"

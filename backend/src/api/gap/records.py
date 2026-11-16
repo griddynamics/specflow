@@ -17,7 +17,9 @@ fakes (``tests/gap_port_fakes.py``) and proven by ``tests/gap_records_contract.p
   gap's events by ``at``, then id.
 - ``put_seeds``/``put_sites`` refuse a row of another run (``ConformanceError("gap_rows_of_another_run")``); a site
   stored again for its run takes the new values. ``put_notes`` files every note under the given run.
-- ``verdict``, ``relevance``, ``suppress`` and amendments ``put`` are keyed upserts.
+- ``verdict``, ``relevance``, ``suppress``, ``put_noise_rule`` and amendments ``put`` are keyed upserts;
+  ``unsuppress``, ``delete_noise_rule`` (True when the rule existed) and amendments ``delete`` remove only the
+  project's rows.
 - ``Amendments.set_status`` changes only the project's amendments among the ids (others are ignored) and moves
   ``updated_at``; ``for_lineage``/``for_clarification`` return rows by ``created_at`` then id.
 
@@ -186,6 +188,14 @@ class PostgresGapRecords:
             rows = await repo.noise_rules(session, _project(project_id))
         return tuple(_row(NoiseRuleRow, row) for row in rows)
 
+    async def put_noise_rule(self, project_id: str, row: NoiseRuleRow) -> None:
+        async with self._transaction() as session:
+            await repo.upsert_noise_rule(session, _project(project_id), _values(row))
+
+    async def delete_noise_rule(self, project_id: str, rule_id: str) -> bool:
+        async with self._transaction() as session:
+            return await repo.delete_noise_rule(session, _project(project_id), rule_id)
+
     async def suppressed(self, project_id: str, signatures: Sequence[str]) -> frozenset[str]:
         async with self._transaction() as session:
             return frozenset(await repo.suppressed(session, _project(project_id), list(signatures)))
@@ -193,6 +203,10 @@ class PostgresGapRecords:
     async def suppress(self, project_id: str, row: SuppressionRow) -> None:
         async with self._transaction() as session:
             await repo.upsert_suppression(session, _project(project_id), _values(row))
+
+    async def unsuppress(self, project_id: str, signature: str) -> None:
+        async with self._transaction() as session:
+            await repo.delete_suppression(session, _project(project_id), signature)
 
     async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None:
         values = [_values(note) | {"run_id": run_id} for note in notes]
@@ -243,6 +257,10 @@ class PostgresAmendments:
         _check_status(status)
         async with self._transaction() as session:
             await repo.set_amendment_status(session, _project(project_id), list(amendment_ids), status, revision_id)
+
+    async def delete(self, project_id: str, amendment_ids: Sequence[str]) -> None:
+        async with self._transaction() as session:
+            await repo.delete_amendments(session, _project(project_id), list(amendment_ids))
 
     async def pending_lineages(self, project_id: str) -> Sequence[str]:
         async with self._transaction() as session:

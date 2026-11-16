@@ -143,7 +143,7 @@ GAP_SITE_OUTCOMES = ("gap", "not_a_gap", "not_spec", "duplicate", "skipped", "de
 GAP_DECIDED_BY = ("rules", "model", "person")
 GAP_NOISE_SCOPES = ("document", "section", "pattern")
 AMENDMENT_OPERATIONS = ("insert_after", "replace", "append_section")
-AMENDMENT_STATUSES = ("active", "retired", "suspended", "orphaned", "reverted", "undecided")
+AMENDMENT_STATUSES = ("pending", "active", "retired", "suspended", "orphaned", "reverted", "undecided")
 
 
 def read_migration_sql(name: str) -> str:

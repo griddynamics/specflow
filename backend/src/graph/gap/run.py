@@ -380,11 +380,7 @@ class _Run:
     async def _sites(self) -> Payload:
         previous = await self.store.latest_run(self.project_id, finished_only=True)
         last = None if previous is None else await self.store.get_result(self.project_id, previous.run_id)
-        existing = [
-            ExistingGap(gap.gap_id, gap.signature, gap.status, gap.about_ids, gap.origin)
-            for gap in await self.gaps()
-            if gap.signature
-        ]
+        existing = [existing_gap(gap) for gap in await self.gaps() if gap.signature]
         outcome = await form_sites(
             await self.snapshot(),
             await self.detection(),
@@ -832,11 +828,7 @@ async def estimate_gap(ctx: GapContext, *, mode: Literal["update", "full"] = "up
             records=ctx.records,
             reader=ctx.reader,
             plan=ctx.plan,
-            existing=[
-                ExistingGap(gap.gap_id, gap.signature, gap.status, gap.about_ids, gap.origin)
-                for gap in gaps
-                if gap.signature
-            ],
+            existing=[existing_gap(gap) for gap in gaps if gap.signature],
             deferred_first=() if last is None else last.deferred_sites,
             prompt_versions=prompt_versions(ctx),
             use_cache=not ctx.settings.ignore_cache,
@@ -868,3 +860,21 @@ async def estimate_gap(ctx: GapContext, *, mode: Literal["update", "full"] = "up
         cached=len(sites.skipped),
     )
     return GapEstimate(sites=investigate, cached=len(sites.skipped), calls=calls, tokens=tokens)
+
+
+def existing_gap(gap: StoredGap) -> ExistingGap:
+    """A stored gap as the sites step knows it (a raised gap with its question, kind and quoted lines)."""
+
+    return ExistingGap(
+        gap.gap_id,
+        gap.signature,
+        gap.status,
+        gap.about_ids,
+        gap.origin,
+        kind=str(gap.props.get("kind") or ""),
+        question=str(gap.props.get("question") or ""),
+        witness=tuple(
+            Witness(fragment_id=cite.fragment_id, quote=cite.quote, line_start=cite.line_start, line_end=cite.line_end)
+            for cite in gap.cites
+        ),
+    )

@@ -35,3 +35,5 @@ INVESTIGATE_PROMPT: Final = gateway_prompt("investigate")
 REPAIR_PROMPT: Final = f"{INVESTIGATE_PROMPT}.repair"
 """The repair call of the check step: role ``gap_investigate``, same system text, one corrected report."""
 JUDGE_PROMPT: Final = gateway_prompt("judge")
+EDITS_PROMPT: Final = gateway_prompt("edits")
+"""``preview_edits`` for own text: role ``gap_edits``, the person's answer turned into edits (answers.md)."""

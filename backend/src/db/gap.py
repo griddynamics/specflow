@@ -193,6 +193,23 @@ async def noise_rules(session: AsyncSession, project_id: uuid.UUID) -> Sequence[
     return (await session.execute(statement)).mappings().all()
 
 
+async def upsert_noise_rule(session: AsyncSession, project_id: uuid.UUID, row: Values) -> None:
+    statement = pg_insert(GapNoiseRule).values(_scoped(project_id, [row]))
+    keys = ("project_id", "rule_id")
+    await session.execute(statement.on_conflict_do_update(index_elements=keys, set_=_set_excluded(statement, keys)))
+
+
+async def delete_noise_rule(session: AsyncSession, project_id: uuid.UUID, rule_id: str) -> bool:
+    """Delete the project's noise rule; True when it existed."""
+
+    result = await session.execute(
+        delete(GapNoiseRule)
+        .where(GapNoiseRule.project_id == project_id, GapNoiseRule.rule_id == rule_id)
+        .returning(GapNoiseRule.rule_id)
+    )
+    return result.first() is not None
+
+
 async def suppressed(session: AsyncSession, project_id: uuid.UUID, signatures: Sequence[str]) -> Sequence[str]:
     """The given signatures that are suppressed in the project."""
 
@@ -208,6 +225,12 @@ async def upsert_suppression(session: AsyncSession, project_id: uuid.UUID, row: 
     statement = pg_insert(GapSuppression).values(_scoped(project_id, [row]))
     keys = ("project_id", "signature")
     await session.execute(statement.on_conflict_do_update(index_elements=keys, set_=_set_excluded(statement, keys)))
+
+
+async def delete_suppression(session: AsyncSession, project_id: uuid.UUID, signature: str) -> None:
+    await session.execute(
+        delete(GapSuppression).where(GapSuppression.project_id == project_id, GapSuppression.signature == signature)
+    )
 
 
 # corpus_amendment
@@ -268,6 +291,18 @@ async def set_amendment_status(
         update(CorpusAmendment)
         .where(CorpusAmendment.project_id == project_id, CorpusAmendment.amendment_id.in_(list(amendment_ids)))
         .values(**values)
+    )
+
+
+async def delete_amendments(session: AsyncSession, project_id: uuid.UUID, amendment_ids: Sequence[str]) -> None:
+    """Delete the project's amendments among ``amendment_ids`` (a pending answer replaced or written back)."""
+
+    if not amendment_ids:
+        return
+    await session.execute(
+        delete(CorpusAmendment).where(
+            CorpusAmendment.project_id == project_id, CorpusAmendment.amendment_id.in_(list(amendment_ids))
+        )
     )
 
 

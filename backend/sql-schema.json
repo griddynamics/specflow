@@ -792,9 +792,12 @@
   "hard_delete_allowlist": [
     "connection_items",
     "connections",
+    "corpus_amendment",
     "documents",
     "edge",
+    "gap_noise_rule",
     "gap_option",
+    "gap_suppression",
     "node"
   ],
   "append_only_tables": [

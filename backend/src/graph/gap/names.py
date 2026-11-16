@@ -26,6 +26,8 @@ CITES: Final = "CITES"
 FOLLOWS_UP: Final = "FOLLOWS_UP"
 ANSWERS: Final = "ANSWERS"
 GROUNDED_IN: Final = "GROUNDED_IN"
+PLACED_IN: Final = "PLACED_IN"
+REPLACES: Final = "REPLACES"
 AI_ACTOR: Final = "ai"
 """The ``answered_by`` of an answer a gap run makes (AI or pointer)."""
 RUN_ACTOR: Final = "gap-run"
@@ -75,7 +77,9 @@ Relevance = Literal["spec", "tracking", "mixed"]
 DecidedBy = Literal["rules", "model", "person"]
 NoiseScope = Literal["document", "section", "pattern"]
 AmendmentOperation = Literal["insert_after", "replace", "append_section"]
-AmendmentStatus = Literal["active", "retired", "suspended", "orphaned", "reverted", "undecided"]
+AmendmentStatus = Literal["pending", "active", "retired", "suspended", "orphaned", "reverted", "undecided"]
+"""``pending``: recorded with an answer, not yet applied; the apply step makes it ``active`` (answers.md "Applying
+answers")."""
 ReconcileOutcome = Literal["applied", "reanchored", "absorbed", "conflict", "orphaned"]
 FollowUpReason = Literal["not_fixed", "orphaned", "conflict", "reverted"]
 Verdict = Literal["gap", "not_a_gap", "not_spec", "duplicate_of"]

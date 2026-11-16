@@ -610,7 +610,10 @@ class GapFindingPage(GapModel):
 
 
 class AnswerInput(GapModel):
-    """An answer to a gap: an offered option by rank or the person's own text (exactly one)."""
+    """An answer to a gap: an offered option by rank or the person's own text (exactly one). ``edits`` are the edits
+    confirmed in ``preview_edits`` (an option's own edits when None; an own text without edits goes to the
+    clarifications document as written). ``updated_at`` is the gap's ``updated_at`` as the caller read it: a gap
+    changed since then refuses the answer (``StaleGapError``); None skips the check."""
 
     gap_id: str
     option_rank: int | None = Field(default=None, ge=1)
@@ -618,6 +621,7 @@ class AnswerInput(GapModel):
     placement: EditPlacement | None = None
     edits: tuple[Edit, ...] | None = None
     answered_by: str
+    updated_at: AwareDatetime | None = None
 
     @model_validator(mode="after")
     def _one_answer(self) -> Self:
@@ -646,6 +650,60 @@ class NewGap(GapModel):
         if self.blocking and (self.origin != "development" or not self.story_id or not self.claim_token):
             raise ValueError("a blocking gap is a development gap with a story id and a claim token")
         return self
+
+
+class AnswerResult(GapModel):
+    """What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and when the
+    answers of the project are applied (``immediate``: at once, for a development gap that blocks its story)."""
+
+    gap_id: str
+    clr_id: str
+    replaced: str | None = None
+    placement: ClarificationPlacement
+    amendments: tuple[str, ...] = ()
+    apply_at: AwareDatetime
+    immediate: bool = False
+
+
+class ApplyResult(GapModel):
+    """What ``apply_now`` (and the quiet-period apply) returns: the gaps moved to ``applying``, the clarifications
+    whose amendments became active and the build request's answer (``None`` without a ``BuildRequests`` port)."""
+
+    gap_ids: tuple[str, ...] = ()
+    clr_ids: tuple[str, ...] = ()
+    amendments: tuple[str, ...] = ()
+    build: str | None = None
+
+
+class SectionPreview(GapModel):
+    """One edit of a preview: where it goes (fragment and document lineage, or the clarifications document), the
+    section's heading path, its current text and its text after the edit."""
+
+    fragment_id: str | None = None
+    lineage: str | None = None
+    heading_path: tuple[str, ...] = ()
+    before: str = ""
+    after: str
+
+
+class EditPreview(GapModel):
+    """What ``preview_edits`` returns: the checked edits an answer would make and each target section before and
+    after. ``drafted`` when ``gap_edits`` wrote the edits of an own text; ``fallback`` names why the text goes to the
+    clarifications document as written instead (the call failed or its edits did not check)."""
+
+    gap_id: str
+    placement: EditPlacement
+    edits: tuple[Edit, ...]
+    sections: tuple[SectionPreview, ...]
+    drafted: bool = False
+    fallback: str | None = None
+
+
+class RaisedGap(GapModel):
+    """What ``raise_gap`` returns: the gap id, and whether it is new (a raised question already open is that gap)."""
+
+    gap_id: str
+    created: bool = True
 
 
 # Reconcile
