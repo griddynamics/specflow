@@ -53,11 +53,14 @@ def check_chain(
     """Validate the report chain, in build order; ``first`` accepts no changes.
 
     Build order is the passed chain itself, never the ordering of build ids. An ``update`` requires
-    the chain to start at ``last_build_id``, continue without a gap and end at ``build_id``.
+    the chain to start at ``last_build_id``, continue without a gap and end at ``build_id``; an ``update`` of
+    the build the plan already consumed (``last_build_id`` is ``build_id``) takes the empty chain.
     """
 
     ordered = tuple(reports)
     if mode in ("first", "replan") and not ordered:
+        return ()
+    if mode == "update" and not ordered and last_build_id is not None and last_build_id == build_id:
         return ()
     if mode == "first":
         raise _MissingReportsError((), None)
