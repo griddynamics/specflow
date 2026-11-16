@@ -120,10 +120,11 @@ site joined to an existing gap, re-checks that gap: an open gap gets the relatio
 | `GapEstimate` | `sites`, `cached`, `calls` and `tokens` per role (expected investigation calls are the loop's bound: `rounds_per_site` plus the forced report call per site, each of at most `context_tokens`) |
 | `GapRunRecord` | The run store's record of one run ("Gap runs" above) |
 | `GapFinding`, `GapFindingPage` | What `GapService.findings` returns: an open gap as the plan's `FindingLike` (`finding_id`, `kind`, `text`, `blocking`, `about_spec_ids`, `story_id`, `created_by`, `created_at`, `orphaned`) and the page of them |
-| `GapView` | What reads return: the gap's properties (`held_back` true while the gap is a new question its run held back from the inbox's default view), `about` and `impacts` (id, type, name), `witness` (fragment id, quote, lines), `options` (from `gap_option`), `clarification` (current one), `history` (events, follow-up chain), `reach` (stories and tasks found by trace and the plan, computed at read time) |
+| `GapView` | What reads return: the gap's properties (`held_back` true while the gap is a new question its run held back from the inbox's default view), `about` and `impacts` (id, type, name), `witness` (`WitnessView`: fragment id, quote, lines, `document_id` (the corpus lineage of the cited fragment); from `get_gap` also `document_title`, `document_path` and the section's `heading_path`), `options` (from `gap_option`), `clarification` (current one), `history` (events, follow-up chain), `reach` (stories and tasks found by trace and the plan, computed at read time) |
 | `AnswerInput` | `gap_id`, `option_rank` or `own_text` (exactly one), `placement` (`amend`, `document`; default from the option's edits), `edits` (optional: edits confirmed from `preview_edits`), `answered_by`, `updated_at` (the gap's as the caller read it; None skips the stale check) |
 | `AnswerResult`, `ApplyResult`, `EditPreview` (with `SectionPreview`), `RaisedGap` | What `answer_gap`, `apply_now`, `preview_edits` and `raise_gap` return ("Gap service" below) |
 | `AiAnswerList`, `AiAnswer` | The review list: per AI or pointer clarification, `gap_id`, `title`, `question`, `gap_status`, `clarification` (`ClarificationView`) and `follow_up` (the gap a revert opened) |
+| `DocumentAnswers` | What `document_answers` returns: `lineages` (`LineageAnswers`: `lineage`, `answers`), `clarifications_lineage` and `clarifications` (the sections of the generated clarifications document); each answer a `DocumentAnswer` (`clr_id`, `gap_id`, `title` of the gap, `status`: the rows' `active` or `undecided`, for the clarifications document the clarification's `applied` or `pending`; `amendments`, its rows in that lineage) |
 | `RevertResult` | What `revert_clarification` returns: `clr_id`, `gap_id` (the gap a person answers next: the follow-up, or the gap itself back `open`), `follow_up`, `amendments` (reverted), `build` (the build request's answer, None when no text left the corpus) |
 | `NewGap` | `kind`, `question`, `about` (spec ids), `quotes` (fragment id and quote, optional), `severity` (optional), `origin` (`person` or `development`), `blocking`, `story_id` and `claim_token` (development), `created_by` |
 | `ReconcileResult` | `amendments`: per amendment an `AmendmentResult` (`amendment_id`, `clr_id`, outcome `applied`, `reanchored`, `absorbed`, `conflict`, `orphaned` or `undecided`, the new anchor when re-anchored or suspended on the owner's line, the deciding line, similarity, judge verdict and confidence); `text` (the effective text the build must read); `changed` (rows to store); `applied` (rows applied to `text`); `follow_ups` (clarifications whose amendments became `suspended` or `orphaned`) |
@@ -138,8 +139,9 @@ serves the inbox, the routes and the MCP tools. `plan` gives the story filter an
 
 | Call | Returns | Errors |
 |---|---|---|
-| `list_gaps(project_id, *, status=None, kind=None, severity=None, origin=None, route=None, about=None, story_id=None, document=None, held_back=None, cursor=None, limit=50)` | A page of `GapView` (no options, history or reach) and the next cursor, by severity (blocker, major, minor), newest first, then gap id; `status` (default `open`, `answered`, `applying`), `kind`, `severity`, `origin` and `route` take one value or several; `about` filters by spec ids (aliases resolved), `story_id` by the nodes the story's tasks implement (an empty page without a plan), `document` (a document id) by the gaps citing a fragment of it or `ABOUT` a node with evidence in it; `held_back=False` is the inbox's default view (the new questions a run held back are left out until the next run, FR-GRTE-06), `True` lists only those, `None` both | `AnswerInvalidError` (`field` `limit` outside 1 to 200, `cursor`, or a filter value outside its vocabulary) |
-| `get_gap(project_id, gap_id)` | `GapView` with options, history (events of `GapRecords.events`, follow-up chain) and reach (trace from the `ABOUT` and `IMPACTS` nodes along `affects`, depth 2; the plan's tasks of all of them and their stories; empty without a plan) | `GapNotFoundError` |
+| `list_gaps(project_id, *, status=None, kind=None, severity=None, origin=None, route=None, about=None, story_id=None, document=None, held_back=None, cursor=None, limit=50)` | A page of `GapView` (no options, history or reach) and the next cursor, by severity (blocker, major, minor), then reach (the number of plan tasks implementing the gap's `ABOUT` and `IMPACTS` nodes, one `PlanView.tasks_for` read per list; 0 without a plan), newest first, then gap id; `status` (default `open`, `answered`, `applying`), `kind`, `severity`, `origin` and `route` take one value or several; `about` filters by spec ids (aliases resolved), `story_id` by the nodes the story's tasks implement (an empty page without a plan), `document` (a document id) by the gaps citing a fragment of it or `ABOUT` a node with evidence in it; `held_back=False` is the inbox's default view (the new questions a run held back are left out until the next run, FR-GRTE-06), `True` lists only those, `None` both | `AnswerInvalidError` (`field` `limit` outside 1 to 200, `cursor`, or a filter value outside its vocabulary) |
+| `get_gap(project_id, gap_id)` | `GapView` with options, history (events of `GapRecords.events`, follow-up chain), reach (trace from the `ABOUT` and `IMPACTS` nodes along `affects`, depth 2; the plan's tasks of all of them and their stories; empty without a plan) and each witness line's document title, path and heading path (the reader's documents and the fragments of each cited document) | `GapNotFoundError` |
+| `document_answers(project_id)` | `DocumentAnswers`: per lineage with `active` or `undecided` amendments, one entry per clarification (its gap and title, the number of its rows there); and the sections of the clarifications document as the next corpus read generates them ([reconcile.md](reconcile.md) "Download with answers") | — |
 | `preview_edits(project_id, gap_id, *, option_rank=None, own_text=None, placement=None)` | An `EditPreview`: the checked edits an answer would make and each target section before and after (`SectionPreview`); for own text, one `gap_edits` call drafts the edits (`drafted`), and when it fails or its edits do not check the text goes to the clarifications document as written (`fallback` names why); nothing is stored | `GapNotFoundError`, `GapStateError`, `AnswerInvalidError` (as for `answer_gap`) |
 | `answer_gap(project_id, answer: AnswerInput)` | An `AnswerResult`: the clarification id, the pending one it replaced, placement, amendment ids, the apply time (now plus the quiet period) and `immediate` (a blocking development gap, applied at once) | `GapNotFoundError`, `GapStateError` (gap not `open` or `answered`, or `resolved` without an applied clarification), `AnswerInvalidError` ([answers.md](answers.md) "Answering"), `StaleGapError` (its `updated_at` differs from `AnswerInput.updated_at`: the person must reload) |
 | `dismiss_gap(project_id, gap_id, *, reason, by)` | Nothing | `GapNotFoundError`, `GapStateError` (not `open`) |
@@ -371,6 +373,7 @@ Under `/projects/{pid}`, in the style of the existing project routers. Project m
 | `POST /projects/{pid}/gaps/{gap_id}/edits_preview` | `preview_edits` |
 | `POST /projects/{pid}/gaps/{gap_id}/answer` | `answer_gap` |
 | `POST /projects/{pid}/gaps/{gap_id}/dismiss` | `dismiss_gap` |
+| `GET /projects/{pid}/gaps/documents` | The document view: `{documents: [{document_id, lineage, path, title, generated, answers: [DocumentAnswer]}]}`, every corpus document (newest of its lineage, path order) with `document_answers` of its lineage, then the generated clarifications document (`generated` true, its `document_id` the UUID of `doc:<uuid5>`) while it has a section; registered before `GET .../gaps/{gap_id}` |
 | `GET /projects/{pid}/gaps/ai_answers` | `ai_answers` (query `limit`, 1 to 200); registered before `GET .../gaps/{gap_id}` |
 | `POST /projects/{pid}/gaps/clarifications/{clr_id}/revert` | `revert_clarification` (body `reason`), the member as `by`; `RevertResult` |
 | `POST /projects/{pid}/gaps/apply` | `apply_now` |
@@ -380,7 +383,7 @@ Under `/projects/{pid}`, in the style of the existing project routers. Project m
 | `GET /projects/{pid}/gaps/noise_rules` | `noise_rules` |
 | `POST /projects/{pid}/gaps/noise_rules` | `add_noise_rule` |
 | `DELETE /projects/{pid}/gaps/noise_rules/{rule_id}` | `remove_noise_rule` |
-| `GET /projects/{pid}/documents/{document_id}/export?answers=1` | The newest text of the document's corpus lineage, with `answers=1` its applied amendments (marker lines included), as the last build read it: `text/markdown` attachment named after the document; `404 document_not_found` outside the corpus; without the gap module the source text ([reconcile.md](reconcile.md) "Download with answers"). Served by `api.routers.gaps` |
+| `GET /projects/{pid}/documents/{document_id}/export?answers=1` | The newest text of the document's corpus lineage, with `answers=1` its applied amendments (marker lines included), as the last build read it: `text/markdown` attachment named after the document; `404 document_not_found` outside the corpus; without the gap module the source text ([reconcile.md](reconcile.md) "Download with answers"). The clarifications document's id downloads the generated text (`Clarifications.md`; `404 document_not_found` without the gap module or a section). Served by `api.routers.gaps` |
 
 A write answers `400 answer_invalid` (`details`: `field`, `reason`), `409 gap_wrong_state` (`details`: `status`,
 `allowed`), `409 gap_stale` (the answer's `updated_at` is not the gap's: reload), `404 gap_not_found` or
@@ -408,21 +411,20 @@ dismiss for one release, then go.
 
 | Screen or element | Content |
 |---|---|
-| Gaps screen, inbox | Open gaps with filters (kind, severity, origin, story, document), sorted by severity and reach; development gaps that hold tasks first |
-| Gaps screen, card | Title, question, why, chips for `ABOUT` and `IMPACTS` nodes, quoted witness lines with their source, reach (stories, tasks), options with the recommended one marked, "Other" with free text and an edits preview, placement choice, "Not a gap" with a reason |
+| Gaps screen, inbox | Open gaps with filters (kind, severity, origin, story, document), sorted by severity and reach; development gaps that hold tasks first; "Apply now"; "Raise a gap" |
+| Gaps screen, card | Title, question, why, chips for `ABOUT` and `IMPACTS` nodes, quoted witness lines with their source (document, section, lines), reach (stories, tasks), options with the recommended one marked, "Other" with free text and an edits preview, placement choice, "Not a gap" with a reason, the history (events, follow-up chain), "Withdraw answer" for an answered gap |
 | Gaps screen, answered by AI | AI answers with their basis and confidence; Revert per row |
-| Gaps screen, noise report | Sections judged tracking or mixed, their signals, "Mark as not spec" and the noise rules |
+| Gaps screen, noise report | Sections judged tracking or mixed, their signals, "Mark as not spec" and the noise rules (add, remove) |
+| Gaps screen, documents | The document view: every document with the banner "N answers are not in the source file yet", its answers linked to their cards and "Download with answers"; the clarifications document marked "Generated by Specflow" |
 | Plan screens | Stories and tasks show open gaps and held tasks with a link to the card |
-| Document view | Banner "N answers are not in the source file yet" and "Download with answers" |
 
-Read-only first version (the Gaps screen replaces the Decisions screen at `/projects/{pid}/gaps`): the inbox lists
-gaps of route `ask` with `held_back=false`, in the service's order (severity, newest first) with development gaps
-that hold tasks first (ordering by reach needs reach on list items and comes with the interactive screen); a second
-read with `held_back=true` fills a collapsed "More found in this run" section; the card shows the witness as fragment
-and lines (`WitnessView` names no document or section yet), `ABOUT` and `IMPACTS` chips (spec id, label, name),
-options with the recommended mark, and reach; the noise report tab reads the latest run's `result.noise`. No answer,
-dismiss, revert, noise-rule or run control exists until the write routes do.
-
-The screen is built from the existing decision components (`components/decisions`: questions, option
-cards, severity badge), with a "recommended" mark added to the option cards and a real data port in place of
-the unavailable one.
+As built: the Gaps screen at `/projects/{pid}/gaps` (it replaced the Decisions screen) has the tabs Inbox, Answered by
+AI, Noise report and Documents. The inbox lists gaps of route `ask` with `held_back=false` in the service's order
+(severity, reach, newest) with development gaps that hold tasks first; a second read with `held_back=true` fills a
+collapsed "More found in this run" section. The card answers through `edits_preview` and `answer` (with the gap's
+`updated_at` as read; `409 gap_stale` offers a reload), dismisses with a reason ("Not spec" also offers a section noise
+rule), and withdraws an answer through the revert route. The document view is the Documents tab (the app has no
+document reader of its own): it reads `GET .../gaps/documents` and downloads through the export route. The plan
+screens read the open gaps once (status open, answered, applying; any route) and show on a task the gaps whose `ABOUT`
+ids meet the task's implemented spec ids, and on a story those of its tasks, each linking to the card (`?gap=<id>`).
+"Mark as spec" for a noise section (no route yet) and a control that starts a full run are not on the screen.

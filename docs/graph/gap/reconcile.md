@@ -315,10 +315,10 @@ Amendments are meant to fade into the sources, so Specflow does not stay a secon
 
 | Feature | Detail |
 |---|---|
-| Banner | Each document view shows "N answers are not in the source file yet", with the list of active amendments and their gaps |
+| Banner | Each document view shows "N answers are not in the source file yet", with the list of active amendments and their gaps: N counts the clarifications with `active` or `undecided` rows in the document's lineage (`GapService.document_answers`; the document view is the Documents tab of the Gaps screen, [api.md](api.md) "User interface") |
 | Download | `GET /documents/{id}/export?answers=1` returns the effective text (Markdown, as an attachment) of the document's lineage: the newest revision with its answers applied, marker lines included, as a build reads it (the snapshot is reconciled as a dry run: nothing stored, no judge asked, so an undecided answer reads as the build read it); without `answers=1`, or without the gap module, the source text; `404 document_not_found` when the document is not in the corpus |
 | Adoption | When the owner pastes the text into their file and the file comes back, reconcile finds the answers (question 2) and retires the amendments; the banner count falls |
-| Clarifications document | Downloadable the same way, for owners who want to move the answers into their own documents (comes with the document view; it is not a `documents` row) |
+| Clarifications document | Downloadable the same way, for owners who want to move the answers into their own documents: it is not a `documents` row, so its `document_id` is the UUID of its lineage (`doc:<uuid5>`), and the export answers the generated text |
 
 ## Edge cases
 
