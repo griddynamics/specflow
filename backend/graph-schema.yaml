@@ -1,7 +1,7 @@
 # Graph schema of the Neo4j spec graph, read by validation/cypher (cypher-checks).
 # Source of truth: docs/graph/data-model.md and src/graph/core/ontology/spec-ontology.yaml
 # (domain labels and relation names), src/graph/plan/ontology.yaml (plan labels and relation
-# names) and src/graph/gap/ontology.yaml (finding labels and relation names); constraints and indexes: the
+# names) and src/graph/gap/ontology.yaml (gap, clarification and finding labels and relation names); constraints and indexes: the
 # static DDL files under src/graph/core/ddl/, src/graph/plan/ddl/ and src/graph/gap/ddl/, applied by
 # src/graph/core/schema.py (ensure_schema).
 #
@@ -177,6 +177,44 @@ nodes:
       last_run_id: {type: string}
       _lock: {type: boolean}
 
+  Gap:
+    properties:
+      uuid: {type: string}
+      gap_id: {type: string}
+      kind: {type: string, enum: [missing, ambiguous, contradiction, inconsistency, open_question, assumption]}
+      severity: {type: string, enum: [blocker, major, minor]}
+      status: {type: string, enum: [open, answered, applying, resolved]}
+      origin: {type: string, enum: [analysis, development, person]}
+      route: {type: string, enum: [ask, ai]}
+      resolution: {type: string, enum: [answered, ai_answered, pointer, follow_up]}
+      title: {type: string}
+      question: {type: string}
+      why: {type: string}
+      detector: {type: string}
+      signature: {type: string}
+      blocking: {type: string, enum: ["yes", "no"]}
+      run_id: {type: string}
+      created_by: {type: string}
+      created_at: {type: timestamp}
+      updated_at: {type: timestamp}
+      resolved_at: {type: timestamp}
+  Clarification:
+    properties:
+      uuid: {type: string}
+      clr_id: {type: string}
+      mode: {type: string, enum: [option, own, ai, pointer]}
+      placement: {type: string, enum: [amend, document, none]}
+      status: {type: string, enum: [pending, applied, absorbed, conflict, orphaned, reverted, superseded]}
+      option_label: {type: string}
+      text: {type: string}
+      answered_by: {type: string}
+      answered_at: {type: timestamp}
+      applied_build_id: {type: string}
+      basis: {type: json}
+      confidence: {type: float}
+      created_at: {type: timestamp}
+      updated_at: {type: timestamp}
+  # First-slice findings (kept until the migration of first-slice findings, docs/graph/gap/lifecycle.md).
   Finding:
     properties:
       uuid: {type: string}
@@ -243,8 +281,36 @@ relationships:
     properties: [group_id, edge_key]
   # Gap relationships (owner: gap, src/graph/gap/ontology.yaml).
   ABOUT:
-    from: [Finding]
+    from: [Gap, Finding]
     to: [SpecNode, Module, Feature, Capability, Interface, DataEntity, FunctionalRequirement, QualityRequirement, Constraint, BusinessRule, IntegrationRequirement, DataRequirement, OpenQuestion, Fragment]
+    properties: [group_id, edge_key, added_by_run]
+  IMPACTS:
+    from: [Gap]
+    to: [SpecNode, Module, Feature, Capability, Interface, DataEntity, FunctionalRequirement, QualityRequirement, Constraint, BusinessRule, IntegrationRequirement, DataRequirement, OpenQuestion]
+    properties: [group_id, edge_key, added_by_run]
+  CITES:
+    from: [Gap]
+    to: [Fragment]
+    properties: [group_id, edge_key, quote, line_start, line_end, quote_hash]
+  FOLLOWS_UP:
+    from: [Gap]
+    to: [Gap]
+    properties: [group_id, edge_key, reason]
+  ANSWERS:
+    from: [Clarification]
+    to: [Gap]
+    properties: [group_id, edge_key]
+  PLACED_IN:
+    from: [Clarification]
+    to: [Document]
+    properties: [group_id, edge_key]
+  GROUNDED_IN:
+    from: [Clarification]
+    to: [Fragment]
+    properties: [group_id, edge_key, build_id]
+  REPLACES:
+    from: [Clarification]
+    to: [Clarification]
     properties: [group_id, edge_key]
   REFERS_TO:
     from: [Finding]
@@ -280,7 +346,8 @@ constraints:
   # Parity expands the entry to the concrete labels of policy.placeholder_labels.__FOREIGN_LABEL__.
   unique: [SpecNode.spec_id, SpecNode.uuid, Document.document_id, Fragment.fragment_id, __FOREIGN_LABEL__.uuid,
            Plan.plan_id, Plan.uuid, WorkArea.area_id, WorkArea.uuid, Story.story_id, Story.uuid,
-           Task.task_id, Task.uuid, Finding.finding_id, Finding.uuid, ExternalRef.uuid]
+           Task.task_id, Task.uuid, Gap.gap_id, Gap.uuid, Clarification.clr_id, Clarification.uuid,
+           Finding.finding_id, Finding.uuid, ExternalRef.uuid]
   # src/graph/core/ddl/node_indexes.cypher, relationship_indexes.cypher and
   # src/graph/plan/ddl/plan_schema.cypher (range): the (group_id, edge_key) index of every relation
   # of the shipped ontology plus the plan data-model lookup indexes.
@@ -288,8 +355,9 @@ constraints:
             DEPLOYED_TO.edge_key, GROUPED_BY.edge_key, INTEGRATES_WITH.edge_key, PART_OF.edge_key,
             PROVIDED_BY.edge_key, REALIZED_BY.edge_key, RELATES_TO.edge_key, STORED_IN.edge_key,
             IN_AREA.edge_key, IN_STORY.edge_key, IMPLEMENTS.edge_key, WAITS_FOR.edge_key,
-            SUPERSEDES.edge_key, Task.status, Task.story_id, Story.area_id, ABOUT.edge_key, REFERS_TO.edge_key,
-            Finding.status, Finding.dedupe_key]
+            SUPERSEDES.edge_key, Task.status, Task.story_id, Story.area_id, ABOUT.edge_key, IMPACTS.edge_key,
+            CITES.edge_key, FOLLOWS_UP.edge_key, ANSWERS.edge_key, PLACED_IN.edge_key, GROUNDED_IN.edge_key,
+            REPLACES.edge_key, Gap.status, Gap.signature, REFERS_TO.edge_key, Finding.status, Finding.dedupe_key]
 
 policy:
   # Schema DDL: the static CREATE ... IF NOT EXISTS statements of the constraints and indexes.
@@ -306,7 +374,7 @@ policy:
   # declared). __FOREIGN_LABEL__: the foreign labels of the shipped ontology, graph.core.schema.foreign_labels
   # (the plan and finding labels), each needing its graph_foreign_uuid_<label> DDL.
   placeholder_labels:
-    __FOREIGN_LABEL__: [ExternalRef, Finding, Plan, Story, Task, WorkArea]
+    __FOREIGN_LABEL__: [Clarification, ExternalRef, Finding, Gap, Plan, Story, Task, WorkArea]
   # project: batch writes whose MERGE key is a row property bound by an UNWIND of $rows (or of a list
   # of such a row) that is not the statement's first clause: the fragment upsert first matches the
   # fragment's document (a row without one writes nothing), and the link replacement stubs each
