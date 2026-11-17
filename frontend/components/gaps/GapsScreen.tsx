@@ -12,6 +12,8 @@
 //  - `?gap=<id>` opens the question card (GapCard, answerable here), also when the filters hide the row; closing removes the parameter
 //    (history.replaceState). After an answer, a withdrawal or a dismissal the lists read again without a loading state.
 //  - "Answered by AI" (AiAnswers), the noise report with its rules (NoiseReport) and "Documents" (FR-GWEB-05, DocumentsTab) are tabs.
+//  - Above every tab: the gap check status line (GapCheckStatus): whether the build or the gap run after it runs now, with the step and
+//    progress, or when the last check finished and what it found; when a run ends the lists read again.
 //  - `503 gap_unavailable` (gap runs not configured) shows "Gaps are not available", never an error page.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -32,6 +34,7 @@ import type { Gap, GapDocument, GapsPort } from "@/lib/domain/gaps";
 import { parseGapsQuery } from "@/lib/routes";
 import { AiAnswers } from "./AiAnswers";
 import { DocumentsTab } from "./DocumentsTab";
+import { GapCheckStatus } from "./GapCheckStatus";
 import { GapCard, type CardControl } from "./GapCard";
 import { RaiseGapDialog } from "./GapDialogs";
 import { GapsUnavailable } from "./GapsUnavailable";
@@ -513,6 +516,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
           ) : undefined
         }
       />
+      <GapCheckStatus gaps={gaps} projectId={projectId} onFinished={changed} />
       {content}
       {card ? <GapCard key={card.id} gap={card} onClose={close} control={control} /> : null}
       {raising ? (

@@ -128,6 +128,7 @@ const control = {
     list: never,
     get: never,
     noise: never,
+    check: never,
     documents: never,
     previewEdits: never,
     answer: never,

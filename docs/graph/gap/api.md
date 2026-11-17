@@ -431,6 +431,7 @@ answers `409 plan_applying` the same way: `dismiss_gap` releases the holds befor
 
 | Screen or element | Content |
 |---|---|
+| Gaps screen, gap check line | Above every tab: "Waiting for the knowledge build" while the build runs, "Looking for gaps" with the step, its items and a progress bar while the gap run runs, then when the last check finished and what it found (new, updated, resolved gaps), or that it failed |
 | Gaps screen, inbox | Open gaps with filters (kind, severity, origin, story, document), sorted by severity and reach; development gaps that hold tasks first; "Apply now"; "Raise a gap" |
 | Gaps screen, card | Title, question, why, chips for `ABOUT` and `IMPACTS` nodes, quoted witness lines with their source (document, section, lines), reach (stories, tasks), options with the recommended one marked, "Other" with free text and an edits preview, placement choice, "Not a gap" with a reason, the history (events, follow-up chain), "Withdraw answer" for an answered gap |
 | Gaps screen, answered by AI | AI answers with their basis and confidence; Revert per row |
@@ -447,7 +448,8 @@ rule), and withdraws an answer through the revert route. The document view is th
 document reader of its own): it reads `GET .../gaps/documents` and downloads through the export route. The plan
 screens read the open gaps once (status open, answered, applying; any route) and show on a task the gaps whose `ABOUT`
 ids meet the task's implemented spec ids, and on a story those of its tasks, each linking to the card (`?gap=<id>`).
-"Mark as spec" for a noise section (no route yet) and a control that starts a full run are not on the screen. The old Decisions URL `/projects/{pid}/decisions`
+The gap check line reads `GET .../gap/runs/latest` and `GET .../graph_build` every 3 s while the build or the gap
+run runs and every 30 s otherwise; when a run it saw running ends, the lists read again. "Mark as spec" for a noise section (no route yet) and a control that starts a full run are not on the screen. The old Decisions URL `/projects/{pid}/decisions`
 redirects to the Gaps screen (query kept). A task's gaps match its implemented ids against each `ABOUT` node's id or
 `aliases`. The Work tab's findings (the `/findings` alias routes) link each row to its gap card; `?gap=` takes a
 gap id or an alias (a migrated `FND::` id).

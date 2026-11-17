@@ -14,6 +14,7 @@ import {
   GAP_ORIGINS,
   GAP_SEVERITIES,
   type Gap,
+  type GapCheck,
   type GapClarification,
   type GapKind,
   type GapOrigin,
@@ -400,4 +401,92 @@ export const openGapsText = (n: number): string => `${String(n)} open ${n === 1 
 export function notInSourceText(n: number): string | null {
   if (n === 0) return null;
   return n === 1 ? "1 answer is not in the source file yet" : `${String(n)} answers are not in the source file yet`;
+}
+
+// ---- the gap check status line ----
+
+/** The gap run's steps in words (docs/graph/gap/how-it-works.md; `RUN_STEPS` of graph.gap). */
+export const GAP_STEP_LABEL: Readonly<Record<string, string>> = {
+  scope: "Reading what changed",
+  close: "Checking answered gaps",
+  relevance: "Separating specification from notes",
+  detect: "Looking for signals",
+  sites: "Grouping the signals",
+  investigate: "Investigating",
+  check: "Checking the findings",
+  route: "Choosing who answers",
+  record: "Saving the gaps",
+};
+
+/** Whether the line must be read again soon: the build or the gap run is under way. */
+export const checkActive = (c: GapCheck): boolean => c.phase === "building" || c.phase === "queued" || c.phase === "running";
+
+/** How far the running gap run is, 0..100: its done steps plus the share of the current step's items. */
+export function checkProgress(c: GapCheck): number {
+  if (c.stepsTotal <= 0) return 0;
+  const part = c.itemsTotal !== null && c.itemsTotal > 0 && c.itemsDone !== null ? Math.min(c.itemsDone / c.itemsTotal, 1) : 0;
+  return Math.min(100, Math.round(((Math.min(c.stepsDone, c.stepsTotal) + part) / c.stepsTotal) * 100));
+}
+
+/** The step the running gap run is on, in words: "Step 6 of 9: Investigating (7 of 21)". */
+export function checkStepText(c: GapCheck): string {
+  const label = c.step === null ? "Starting" : (GAP_STEP_LABEL[c.step] ?? c.step);
+  const hasItems = c.itemsDone !== null && c.itemsTotal !== null && c.itemsTotal > 0;
+  const items = hasItems ? ` (${String(c.itemsDone)} of ${String(c.itemsTotal)})` : "";
+  if (c.stepsTotal <= 0) return label + items;
+  const n = Math.min(c.stepsDone + 1, c.stepsTotal);
+  return `Step ${String(n)} of ${String(c.stepsTotal)}: ${label}${items}`;
+}
+
+/** "2 new gaps" / "1 new gap" / "no new gaps". */
+function newGapsText(n: number): string {
+  if (n === 0) return "no new gaps";
+  return `${String(n)} new ${n === 1 ? "gap" : "gaps"}`;
+}
+
+/** What the latest finished gap run found: "2 new gaps, 9 updated, 1 resolved", or "No new gaps". */
+export function checkFoundText(c: GapCheck): string {
+  const parts: string[] = [];
+  if (c.newGaps !== null) parts.push(newGapsText(c.newGaps));
+  if (c.updatedGaps !== null && c.updatedGaps > 0) parts.push(`${String(c.updatedGaps)} updated`);
+  if (c.resolvedGaps !== null && c.resolvedGaps > 0) parts.push(`${String(c.resolvedGaps)} resolved`);
+  const text = parts.join(", ");
+  return text === "" ? "" : text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** The words of a finished check: when it finished and what it found; a degraded one says some parts were not checked. */
+function finishedText(c: GapCheck): { title: string; detail: string } {
+  const when = c.finishedAt === null ? "" : ` ${whenText(c.finishedAt)}`;
+  const found = checkFoundText(c);
+  if (c.phase !== "degraded") return { title: `Gaps checked${when}`, detail: found };
+  const lead = found === "" ? "" : `${found}. `;
+  return {
+    title: `Gap check finished with problems${when}`,
+    detail: `${lead}Some parts could not be checked; the next build tries again.`,
+  };
+}
+
+/** The words of a failed check, with its error code when the API sent one. */
+function failedText(c: GapCheck): { title: string; detail: string } {
+  const code = c.errorCode === null ? "" : `Error code: ${c.errorCode}. `;
+  return { title: "The last gap check failed", detail: `${code}The gaps of earlier checks are still shown. The next build checks again.` };
+}
+
+/** The status line's title and detail for each phase. */
+export function checkText(c: GapCheck): { title: string; detail: string } {
+  switch (c.phase) {
+    case "building":
+      return { title: "Waiting for the knowledge build", detail: "Specflow looks for gaps as soon as the build finishes." };
+    case "queued":
+      return { title: "Gap check starting", detail: "It starts in a moment." };
+    case "running":
+      return { title: "Looking for gaps", detail: checkStepText(c) };
+    case "never":
+      return { title: "No gap check yet", detail: "Specflow looks for gaps after each knowledge build." };
+    case "failed":
+      return failedText(c);
+    case "done":
+    case "degraded":
+      return finishedText(c);
+  }
 }

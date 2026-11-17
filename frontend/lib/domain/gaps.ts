@@ -168,6 +168,27 @@ export interface GapNoise {
   sections: NoiseSection[];
 }
 
+/**
+ * Whether Specflow is looking for gaps now (docs/graph/gap/lifecycle.md: build, then gap run, then plan run): `building` while the knowledge
+ * build runs (the gap run follows it), `queued` / `running` for the gap run, else the latest run's outcome (`done`, `degraded`, `failed`)
+ * or `never`. `step` is the run's step name; `itemsDone` of `itemsTotal` while a step reports items. The counts are the latest finished
+ * run's (null before one).
+ */
+export interface GapCheck {
+  phase: "building" | "queued" | "running" | "done" | "degraded" | "failed" | "never";
+  step: string | null;
+  stepsDone: number;
+  stepsTotal: number;
+  itemsDone: number | null;
+  itemsTotal: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  newGaps: number | null;
+  updatedGaps: number | null;
+  resolvedGaps: number | null;
+  errorCode: string | null;
+}
+
 /** A document of the project, for the Document filter. */
 export interface GapDocument {
   id: string;
@@ -303,6 +324,8 @@ export interface GapsPort {
   list(projectId: string, query: GapQuery): Promise<GapPage>;
   get(projectId: string, gapId: string): Promise<Gap>;
   noise(projectId: string): Promise<GapNoise>;
+  /** Whether the gap run (or the build it follows) runs now, and what the latest finished run found. */
+  check(projectId: string): Promise<GapCheck>;
   documents(projectId: string): Promise<GapDocument[]>;
   previewEdits(projectId: string, gapId: string, choice: GapAnswerChoice, placement?: EditPlacement): Promise<EditPreview>;
   answer(projectId: string, gapId: string, input: AnswerInput): Promise<AnswerResult>;

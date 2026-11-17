@@ -1,7 +1,7 @@
 // FR-GWEB-04 (read part), FR-GRTE-06: the Gaps screen on the PRODUCTION routes against the stub API through the real BFF, with shop-corpus
 // gaps seeded through the stub's control port (no paid model call): the inbox (held_back=false) and "More found in this run" (held_back=true),
 // the filters going to the server, the question card with its recommended option preselected, quotes and ABOUT/IMPACTS chips, the noise
-// report tab and the "not available" state of `503 gap_unavailable`. Opening the screen and a card only reads (GETs); the writes are in
+// report tab, the gap check status line and the "not available" state of `503 gap_unavailable`. Opening the screen and a card only reads (GETs); the writes are in
 // gaps-write-production.spec.ts.
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
@@ -231,6 +231,38 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(notes.getByTestId("noise-mark-not-spec")).toBeVisible();
   });
 
+  test("the gap check line shows a running gap run with its step and progress, then when it finished and what it found", async ({
+    page,
+  }) => {
+    const { pid } = await shopProject(page);
+    const result = { ...NOISE_RUN.result, counts: { gaps_new: { total: 2 }, gaps_updated: { total: 9 }, close: { resolved: 1 } } };
+    await seedGaps(pid, {
+      run: {
+        ...NOISE_RUN,
+        status: "running",
+        step: "investigate",
+        steps_done: 5,
+        steps_total: 9,
+        step_items_done: 7,
+        step_items_total: 21,
+        result,
+      },
+    });
+    await page.goto(`/projects/${pid}/gaps`);
+    const line = page.getByTestId("gap-check");
+    await expect(line).toHaveAttribute("data-phase", "running");
+    await expect(line.getByTestId("gap-check-title")).toHaveText("Looking for gaps");
+    await expect(line.getByTestId("gap-check-detail")).toHaveText("Step 6 of 9: Investigating (7 of 21)");
+    await expect(line.getByRole("progressbar", { name: "Gap check progress" })).toHaveAttribute("aria-valuenow", "59");
+
+    // The run ends: the line reads again within seconds, says what the run found, and the inbox reads again.
+    await seedGaps(pid, { run: { ...NOISE_RUN, steps_done: 9, steps_total: 9, finished_at: "2026-11-17T12:28:46Z", result } });
+    await expect(line).toHaveAttribute("data-phase", "done", { timeout: 10_000 });
+    await expect(line.getByTestId("gap-check-title")).toHaveText(/^Gaps checked /);
+    await expect(line.getByTestId("gap-check-detail")).toHaveText("2 new gaps, 9 updated, 1 resolved");
+    await expect(line.getByRole("progressbar")).toHaveCount(0);
+  });
+
   test("FR-GWEB-04: before any finished gap run the noise report says so; with gap runs not configured (503 gap_unavailable) both tabs say Gaps are not available", async ({
     page,
   }) => {
@@ -241,12 +273,14 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expectUploadReady(page);
     await page.goto(`/projects/${pid}/gaps`);
     await expect(page.getByTestId("gaps-none")).toBeVisible();
+    await expect(page.getByTestId("gap-check-title")).toHaveText("No gap check yet");
     await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Noise report", exact: true }).click();
     await expect(page.getByTestId("noise-none").getByRole("heading", { name: "No gap run has finished yet" })).toBeVisible();
 
     await stubTiming({ gapFail: "gap_unavailable" });
     await page.goto(`/projects/${pid}/gaps`);
     await expect(page.getByTestId("gaps-unavailable").getByRole("heading", { name: "Gaps are not available" })).toBeVisible();
+    await expect(page.getByTestId("gap-check")).toHaveCount(0);
     await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Noise report", exact: true }).click();
     await expect(page.getByTestId("gaps-unavailable")).toBeVisible();
   });

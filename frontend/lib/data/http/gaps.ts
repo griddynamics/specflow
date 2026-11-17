@@ -1,7 +1,7 @@
 // FR-GWEB-04, FR-GWEB-05 (docs/graph/gap/api.md "Web routes", "Models"): the production `GapsPort`. Reads: `GET /projects/{pid}/gaps` (the
 // filters as query parameters, a list filter repeating its parameter; the inbox sends `held_back=false` and "More found in this run"
 // `held_back=true`, FR-GRTE-06; the Plan screens send none), `GET .../gaps/{gap_id}`, `GET .../gap/runs/latest` (the noise report of the
-// latest finished run), `GET .../documents` (the Document filter), `GET .../gaps/ai_answers`, `GET .../gaps/noise_rules` and
+// latest finished run, and with `GET .../graph_build` the gap check status line), `GET .../documents` (the Document filter), `GET .../gaps/ai_answers`, `GET .../gaps/noise_rules` and
 // `GET .../gaps/documents` (the documents with the answers not in their source file yet). Writes: `POST .../gaps/{gap_id}/edits_preview`,
 // `.../answer`, `.../dismiss`, `POST .../gaps` (raise), `POST .../gaps/apply`, `POST .../gaps/clarifications/{clr_id}/revert`,
 // `POST .../gaps/noise_rules` and `DELETE .../gaps/noise_rules/{rule_id}`. Bodies are parsed strictly: any other shape is
@@ -17,6 +17,7 @@ import {
   getGap,
   getGapDocuments,
   getGaps,
+  getGraphBuild,
   getLatestGapRun,
   getNoiseRules,
   listDocuments,
@@ -53,6 +54,7 @@ import {
   type GapFollowUp,
   type GapHistory,
   type GapNode,
+  type GapCheck,
   type GapNoise,
   type GapOption,
   type GapQuery,
@@ -251,6 +253,50 @@ export function toNoise(v: unknown): GapNoise {
   return { status, runId: v.result.run_id, sections: listOf(noise?.sections, toSection) };
 }
 
+/** A count of the run result (`counts.gaps_new.total`, `counts.close.resolved`): null when the run has no such number. */
+function resultCount(counts: unknown, group: string, key: string): number | null {
+  if (!isRecord(counts)) return null;
+  const inner = counts[group];
+  if (!isRecord(inner)) return null;
+  const n = inner[key];
+  return typeof n === "number" && Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+const PHASE_OF_RUN = {
+  idle: "never",
+  queued: "queued",
+  running: "running",
+  completed: "done",
+  degraded: "degraded",
+  failed: "failed",
+} as const;
+
+/**
+ * `GET .../gap/runs/latest` and the knowledge build's status (`GET .../graph_build`, null when it could not be read) as one `GapCheck`: a
+ * queued or running gap run wins; else a running build is `building` (its gap run follows); else the latest run's outcome.
+ */
+export function toGapCheck(run: unknown, build: unknown): GapCheck {
+  expectShape(isRecord(run));
+  const status = oneOf(RUN_STATUSES, run.status);
+  const building = isRecord(build) && build.status === "running";
+  const active = status === "queued" || status === "running";
+  const counts = isRecord(run.result) ? run.result.counts : undefined;
+  return {
+    phase: !active && building ? "building" : PHASE_OF_RUN[status],
+    step: textOrNull(run.step),
+    stepsDone: count(run.steps_done),
+    stepsTotal: count(run.steps_total),
+    itemsDone: lineOrNull(run.step_items_done),
+    itemsTotal: lineOrNull(run.step_items_total),
+    startedAt: textOrNull(run.started_at),
+    finishedAt: textOrNull(run.finished_at),
+    newGaps: resultCount(counts, "gaps_new", "total"),
+    updatedGaps: resultCount(counts, "gaps_updated", "total"),
+    resolvedGaps: resultCount(counts, "close", "resolved"),
+    errorCode: textOrNull(run.error_code),
+  };
+}
+
 /** The query string of `list_gaps`: one parameter per value of a list filter. */
 export function gapQueryString(q: GapQuery): string {
   const params = new URLSearchParams();
@@ -422,6 +468,13 @@ export function createHttpGaps(): GapsPort {
     async noise(projectId) {
       const body = await guard(() => getLatestGapRun(projectId));
       return checked(() => toNoise(body));
+    },
+    async check(projectId) {
+      const [run, build] = await Promise.all([
+        guard(() => getLatestGapRun(projectId)),
+        guard(() => getGraphBuild(projectId)).catch(() => null), // the build's state only adds "building"
+      ]);
+      return checked(() => toGapCheck(run, build));
     },
     async documents(projectId) {
       const body = await guard(() => listDocuments(projectId));

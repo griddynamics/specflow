@@ -112,7 +112,7 @@ test("FE-DEC-02.AC5 (P3): when the sources status read fails (503) the Gaps gate
 
 // P4: AC5, AC8, AC12
 test(
-  "FE-DEC-01.AC1, FE-BP-03.AC8, FE-DS-08.AC3, FR-GWEB-04 (P4): a Ready project shows no gate and no scene but 'No open gaps'; the screen reads only the gap routes (held_back=false and true), the documents and the plan, all GETs",
+  "FE-DEC-01.AC1, FE-BP-03.AC8, FE-DS-08.AC3, FR-GWEB-04 (P4): a Ready project shows no gate and no scene but 'No open gaps'; the screen reads only the gap routes (held_back=false and true, the latest gap run), the build state, the documents and the plan, all GETs",
   { tag: "@production" },
   async ({ page, requests }) => {
     await login(page);
@@ -130,11 +130,13 @@ test(
     await expect(gapRows(page)).toHaveCount(0);
     await expect(page.getByTestId("gap-count")).toHaveText("");
     await expect(page.getByTestId("gaps-held-back")).toHaveCount(0);
-    const gapReads = new RegExp(`^/api/backend/projects/${pid}/(?:gaps|documents|plan)$`);
+    const gapReads = new RegExp(`^/api/backend/projects/${pid}/(?:gaps|documents|plan|gap/runs/latest|graph_build)$`);
     const allowed = allowedGateCalls(pid);
     await expectGateNetwork(page, requests, from, pid, (r) => allowed(r) || (r.method === "GET" && gapReads.test(r.path)));
     const made = calls(requests.slice(from)).map((r) => r.path + r.search);
     expect(made).toContain(`/api/backend/projects/${pid}/gaps?route=ask&held_back=false`);
     expect(made).toContain(`/api/backend/projects/${pid}/gaps?route=ask&held_back=true`);
+    expect(made).toContain(`/api/backend/projects/${pid}/gap/runs/latest`); // the gap check line
+    await expect(page.getByTestId("gap-check-title")).toHaveText("No gap check yet");
   },
 );

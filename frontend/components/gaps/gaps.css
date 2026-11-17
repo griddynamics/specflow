@@ -346,3 +346,41 @@
   gap: var(--space-sm);
   max-width: 48rem;
 }
+
+/* The gap check status line above the tabs' content: whether Specflow is looking for gaps now, and what the last check found. A strong
+   glass strip with a status edge (the phase is also in words, never by colour alone). */
+.gap-check {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid var(--ink-3);
+  background: var(--glass-fill-strong);
+  color: var(--ink);
+}
+.gap-check[data-phase="running"],
+.gap-check[data-phase="queued"],
+.gap-check[data-phase="building"] {
+  border-inline-start-color: var(--yellow);
+}
+.gap-check[data-phase="done"] {
+  border-inline-start-color: var(--success);
+}
+.gap-check[data-phase="degraded"],
+.gap-check[data-phase="failed"] {
+  border-inline-start-color: var(--danger);
+}
+.gap-check__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.gap-check__title {
+  margin: 0;
+  font-weight: 600;
+}
+.gap-check__detail {
+  margin: 0;
+  color: var(--ink-2);
+}
