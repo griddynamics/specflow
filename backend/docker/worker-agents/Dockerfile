@@ -15,7 +15,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
-    UV_PYTHON_PREFERENCE=only-system
+    UV_PYTHON_PREFERENCE=only-system \
+    SSL_CERT_FILE=/etc/ssl/build-ca.pem \
+    PIP_CERT=/etc/ssl/build-ca.pem \
+    REQUESTS_CA_BUNDLE=/etc/ssl/build-ca.pem
+# The CA bundle of the build stages: the image's own bundle plus, when the build gets the secret extra_ca, the CA of a
+# proxy that inspects TLS (`make up EXTRA_CA=<file>`, docs/configuration.md "Behind a TLS-inspecting proxy"). Without
+# the secret it is the image's bundle unchanged. The runtime stage starts from the base image again, so the image has
+# neither this bundle nor these variables.
+RUN --mount=type=secret,id=extra_ca \
+    cat /etc/ssl/certs/ca-certificates.crt > /etc/ssl/build-ca.pem \
+    && if [ -s /run/secrets/extra_ca ]; then cat /run/secrets/extra_ca >> /etc/ssl/build-ca.pem; fi
 RUN pip install uv==0.11.21
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./

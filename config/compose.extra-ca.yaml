@@ -1,0 +1,34 @@
+# Added by `make up EXTRA_CA=<file>` (the Makefile passes it after docker-compose.yml and first copies <file> to
+# .extra-ca/ca-bundle.pem): the stack behind a proxy that inspects TLS, such as a corporate proxy or the agent proxy of
+# a Claude Code cloud session. <file> is a PEM bundle: what a client of that proxy must trust.
+# - Builds: the five images get the bundle as the build secret extra_ca. Their build stages trust it next to the
+#   image's own bundle (pip, uv, the Hugging Face download, npm); no image keeps it.
+# - Run time: api, worker-parse and worker-agents (the LLM gateway, the cloud APIs) trust exactly this bundle, so it
+#   must also hold the public roots of the hosts that the proxy does not inspect.
+# docs/configuration.md "Behind a TLS-inspecting proxy".
+x-extra-ca-client: &extra-ca-client
+  build:
+    secrets: [extra_ca]
+  environment:
+    SSL_CERT_FILE: /etc/specflow/extra-ca.pem
+    REQUESTS_CA_BUNDLE: /etc/specflow/extra-ca.pem
+  volumes:
+    - type: bind
+      source: ./.extra-ca/ca-bundle.pem
+      target: /etc/specflow/extra-ca.pem
+      read_only: true
+
+services:
+  api: *extra-ca-client
+  worker-parse: *extra-ca-client
+  worker-agents: *extra-ca-client
+  mcp:
+    build:
+      secrets: [extra_ca]
+  frontend:
+    build:
+      secrets: [extra_ca]
+
+secrets:
+  extra_ca:
+    file: ./.extra-ca/ca-bundle.pem

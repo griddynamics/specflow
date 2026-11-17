@@ -55,6 +55,21 @@ POSTGRES_TLS_DIR := $(CURDIR)/.postgres-tls
 .PHONY: postgres-tls-certs
 postgres-tls-certs:
 	@sh "$(CURDIR)/scripts/postgres-tls.sh" "$(POSTGRES_TLS_DIR)"
+# Behind a proxy that inspects TLS (docs/configuration.md "Behind a TLS-inspecting proxy"): `make up EXTRA_CA=<file>`
+# (and `make images EXTRA_CA=<file>`) copies the PEM bundle <file> to .extra-ca/ca-bundle.pem (git-ignored: a compose
+# build reads no file outside the project) and adds config/compose.extra-ca.yaml. The image builds trust the bundle
+# next to their own; api and the two workers trust it at run time. Unset, nothing changes.
+EXTRA_CA ?=
+EXTRA_CA_DIR := $(CURDIR)/.extra-ca
+ifneq ($(EXTRA_CA),)
+ifeq ($(wildcard $(EXTRA_CA)),)
+$(error EXTRA_CA: no such file: $(EXTRA_CA))
+endif
+endif
+.PHONY: extra-ca
+extra-ca:
+	@test -n "$(EXTRA_CA)" || { echo "extra-ca: set EXTRA_CA=<file>, the CA bundle of the proxy" >&2; exit 1; }
+	@install -d "$(EXTRA_CA_DIR)" && install -m 0644 "$(EXTRA_CA)" "$(EXTRA_CA_DIR)/ca-bundle.pem"
 WITH_PROFILES := temporal langfuse $(GRAPH_STORE_PROFILES)
 WITH_NAMES := $(strip $(WITH_PROFILES) $(filter-out $(WITH_PROFILES),$(GRAPH_STORE_NAMES)) tls)
 BAD_WITH := $(filter-out $(WITH_NAMES),$(WITH_LIST))
@@ -129,7 +144,7 @@ COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
 	$(if $(STACK_PROFILES),COMPOSE_PROFILES=$(subst $(space),$(comma),$(STACK_PROFILES))) \
 	$(STACK_ENV_$(STACK_STORE))
 COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml $(STACK_FILES_$(STACK_STORE)) \
-	$(if $(STACK_TLS),-f config/compose.postgres-tls.yaml)
+	$(if $(STACK_TLS),-f config/compose.postgres-tls.yaml) $(if $(EXTRA_CA),-f config/compose.extra-ca.yaml)
 COMPOSE := $(COMPOSE_ENV) $(COMPOSE_BASE)
 COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_PROFILES))) $(COMPOSE_BASE)
 
@@ -180,7 +195,8 @@ check-graph-store-env:
 # `WITH=arcadedb` starts arcadedb and arcadedb-init instead, `WITH=postgres` no server: the graph lives in
 # postgres), rustfs, rustfs-init, keycloak (the realm is imported from the env file), api, mcp, worker-parse,
 # worker-agents, frontend. `WITH=temporal,langfuse` adds the bundled Temporal and Langfuse; `WITH=tls` puts
-# postgres behind verified TLS. Logs are JSON on stdout only (`make logs`).
+# postgres behind verified TLS; `EXTRA_CA=<file>` builds and runs behind a TLS-inspecting proxy. Logs are JSON on
+# stdout only (`make logs`).
 # An env file written before GRAPH_STORE_PASSWORD existed has only NEO4J_PASSWORD. The services fall back to it in
 # docker-compose.yml; the ArcadeDB root password secret is read from the environment, so it gets the same fallback here
 # (exported to the recipe, never printed).
@@ -189,7 +205,7 @@ ifneq ($(call envval,NEO4J_PASSWORD),)
 up: export GRAPH_STORE_PASSWORD = $(call envval,NEO4J_PASSWORD)
 endif
 endif
-up: check-keycloak-env check-graph-store-env $(if $(STACK_TLS),postgres-tls-certs)
+up: check-keycloak-env check-graph-store-env $(if $(STACK_TLS),postgres-tls-certs) $(if $(EXTRA_CA),extra-ca)
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 
 # Stops and removes the containers. The volumes (databases) stay; use `down-volumes` to drop them.
@@ -213,7 +229,7 @@ ps:
 	$(COMPOSE_ALL) ps
 
 # Build the api, mcp, worker-parse, worker-agents and frontend images, then run the image tests against them.
-images:
+images: $(if $(EXTRA_CA),extra-ca)
 	$(COMPOSE) build api mcp worker-parse worker-agents frontend
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) image-test
 
