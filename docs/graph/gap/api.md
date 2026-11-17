@@ -86,7 +86,8 @@ How a run uses it:
 Investigation ([investigation.md](investigation.md)): the step `investigate` builds each site's context pack
 (`steps/pack.py`) and its read menu `GraphSiteReads` (`steps/reads.py`, bound to the project and the run) and calls
 `ctx.investigator`; the host passes `LoopInvestigator(gateway)` (exported), the structured loop over the run's
-gateway. The step's artifact keeps, per site, the `InvestigationResult` and the spec ids and fragment ids the pack and
+gateway, or with `investigator = "agents"` the host's `AgentsInvestigator` on the same gateway configuration
+([investigation.md](investigation.md) "Tool agent adapter"). The step's artifact keeps, per site, the `InvestigationResult` and the spec ids and fragment ids the pack and
 the reads showed (the check step's "No new ids"). `check` validates every report, repairs it once when only its
 options failed, finds duplicates and runs the second check of a pointer and of an AI-answer candidate; `route`
 applies [answers.md](answers.md) "Severity", "Routing", "Gates" and "The valve" and holds back the new `ask` gaps
@@ -332,7 +333,9 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
   `PlanReader` (tasks per spec node by `IMPLEMENTS`, aliases resolved, closed tasks included). `fragments_changed`
   and `documents` stay empty: the build's change report names neither.
   `gateway`: one `Gateway` per run on the host's graph-build model settings; `investigator`:
-  `GapRunnerDependencies.investigator(gateway)`, by default `LoopInvestigator` over that gateway.
+  `GapRunnerDependencies.investigator(gateway)`, by default the factory `investigator_for(GapSettings.investigator)`
+  names: `LoopInvestigator` over that gateway (`loop`), or `AgentsInvestigator.from_gateway` (`agents`), whose HTTP
+  client the runner closes after the run.
 - **Resume.** A project's unfinished run (interrupted by a shutdown, or failed) is resumed by the project's next
   run, with its own mode, build and sites, before the requested run (which is skipped when the resumed run covers
   it: an update of the same build, or a full run).

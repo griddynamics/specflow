@@ -98,7 +98,7 @@ sites only.
 | `graph.gap` imports `graph.core` and the standard library, pydantic and its own modules only | import-linter contract |
 | `graph.build` and `graph.plan` never import `graph.gap` | import-linter contract |
 | The host (`api`, `mcp_server`, `temporal`) may import all three | |
-| An `Investigator` adapter that uses an agent runtime lives in the host, never in `graph.gap` | import-linter contract |
+| An `Investigator` adapter that uses an agent runtime lives in the host (`agent_runtime/gap_investigator.py`), never in `graph.gap` | import-linter contract `gap-no-agent-runtime` (`graph.gap` imports neither `agent_runtime`, `temporal` nor the SDKs `agents`, `temporalio`) |
 
 ## Write ownership
 
@@ -114,7 +114,7 @@ plan's own calls behind `StoryHolds`. Relational rows are written only through `
 |---|---|
 | `GapRecords` | Host: PostgreSQL tables of [data-model.md](data-model.md) "Relational store" |
 | `Amendments` | Host: the `corpus_amendment` table, also read by the corpus reader |
-| `Investigator` | `graph.gap`: the structured loop over the core gateway (`investigator = "loop"`); host: an adapter on the Temporal agent runtime with function tools (`"agents"`, [investigation.md](investigation.md)) |
+| `Investigator` | `graph.gap`: the structured loop over the core gateway (`investigator = "loop"`); host: `AgentsInvestigator` on the agent runtime with function tools (`"agents"`, `agent_runtime/gap_investigator.py`, [investigation.md](investigation.md) "Tool agent adapter"); the gap runner picks the factory by `GapSettings.investigator` (`api.gap.runner.investigator_for`) |
 | `StoryHolds` | Host: the plan service (guard, block, unblock, the blocker hold) |
 | `BuildRequests` | Host: the build runner's queue |
 | `PlanView` | Host: the plan reader |
@@ -156,6 +156,7 @@ The build and plan ontologies do not change. These changes are needed elsewhere:
 | Corpus reader (host) | Apply amendments, add the clarifications document, call reconcile, report the effective revision id ([api.md](api.md) "Host runner") |
 | Relational store (host) | One migration adding the tables of [data-model.md](data-model.md) |
 | Gap runner (host, new) | `api/gap/runner.py`, the routes and their models |
+| Agent runtime (host) | `agent_runtime/gap_investigator.py`: the optional tool agent `Investigator` (`AgentsInvestigator`, [investigation.md](investigation.md) "Tool agent adapter") |
 | MCP server (host) | `add_finding` mapped to `raise_gap` (`api/routers/agent_writes.py`, kinds and shapes in `api/gap/development.py`, `refers_to` checks in `api/finding_refs.py`; a `note` to `add_note`); new read `list_gaps` (agent route `api/routers/agent_gaps.py`); briefs and `get_node` show gaps through the plan's findings port, filled by `api/gap/findings.py` (`OpenGaps`) |
 | Frontend | The Gaps screen from the decision components, with a recommended mark on option cards; plan screens and the document view link to it |
 | First slice of `graph.gap` | `Finding`, `ExternalRef`, `FindingFlow` and their library are removed; the `/findings` web routes are aliases of the development gaps' routes; existing data is migrated ([lifecycle.md](lifecycle.md) "Migration of first-slice findings") |

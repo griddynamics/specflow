@@ -62,15 +62,25 @@ site's prompt is the same in every run whose inputs are the same.
 
 ### Tool agent adapter
 
-An optional host adapter on the existing Temporal agent runtime (`agent_runtime/`, `temporal/agents/`: the
-OpenAI Agents SDK with function tools through the LLM gateway model provider, used today by the document
-summariser). The read menu becomes function tools. As in the summariser, every id the tools send comes
-from the run context the workflow builds from its own input: no tool parameter carries a project id, a
-query or a key, and a failed tool raises out of the run instead of returning error text to the model. The
-adapter enforces the same budget (turns map to rounds, tool calls to reads) and ends with a `report` tool
-whose argument is the report schema. It suits the later, freer agent hypotheses ([later.md](later.md));
-the structured loop stays the default. Every model call still goes through the host's LLM gateway
-configuration (constraint GC1, [overview.md](overview.md)).
+An optional host adapter on the existing agent runtime (`agent_runtime/`: the OpenAI Agents SDK, used by the
+document summariser), `agent_runtime/gap_investigator.py` (`AgentsInvestigator`), chosen by
+`GapSettings.investigator = "agents"`; the structured loop stays the default. The read menu becomes function tools,
+and the report is a `report` tool whose argument is the loop's strict report schema (`WireReport`); the adapter
+returns the same report, which the check step checks the same way (FR-GINV-09).
+
+| Part | As built |
+|---|---|
+| Where it runs | In the process of the gap run (`Runner.run`, which outside a Temporal workflow uses the SDK's own runner), not as a Temporal workflow: its tools are the site's `SiteReads`, which remember the ids they showed for "No new ids" |
+| Tools | `node(spec_id)`, `evidence(spec_id)`, `neighbours(spec_id, relations)`, `trace(spec_id, direction, depth)`, `paths(spec_id, target)`, `similar(subject, limit)`, `find_nodes(words, labels)`, `find_fragments(words)`, `report(report)`. Every id the tools read with comes from the run context (the site's `SiteReads`, bound to the project): no tool parameter carries a project id, a query or a key. A tool that raises (anything but the empty results reads return) raises out of the run, so no error text reaches the model, and the site is deferred |
+| Budget | A turn is a round and a tool call a read: at most `reads_per_round` reads a turn (more, and reads after turn `rounds`, answer an empty result with `read_limit`); after turn `rounds` the tool choice becomes `report` (before it any tool is required), so a site costs at most `rounds + 1` calls; the last read results carry the note to report now |
+| Context | When the input would exceed `context_tokens`, the oldest read results are replaced by one-line summaries (read name, argument names, item count), as in the loop |
+| Messages | The first message is the loop's pack message; each tool result is a JSON head (read, item count, reason) and the items in one untrusted data block. The instructions are the investigate prompt with its JSON turn format replaced by the tools, plus the untrusted-data rule |
+| Model | The endpoint, key and `extraction` model of the run's gateway configuration (constraint GC1, [overview.md](overview.md)), with that call class's timeout and attempts, through the Responses API with `store` off (the gateway's reasoning models refuse function tools on Chat Completions unless reasoning is off, which the loop does not do). Tracing is off: traces would carry document text |
+| Prompt version | `gap.investigate.<revision>.agents.<adapter revision>` (part of every site's input hash, so verdicts of the two adapters are cached apart) |
+| Cost | `InvestigationResult.model_calls` counts the calls, `tokens` the input and output tokens the endpoint reported (the loop's are estimated input tokens); the calls bypass the core gateway's limiter and usage, so the host's run log counts only the gateway's calls |
+| Failures | Too many turns or no `report` call: `llm_report_missing`; an invalid report or an unknown tool: `llm_malformed`; the endpoint unreachable: `llm_unreachable`; a rejected request (400, 401, 403, 404, 422): `llm_fatal`; other endpoint errors: `llm_exhausted`; a raising tool: `investigator_failed`. Each defers the site |
+
+It suits the later, freer agent hypotheses ([later.md](later.md)).
 
 ## Context pack
 
@@ -294,7 +304,7 @@ re-investigates on the next `full` run, not on `update` runs. The gateway roles 
 |---|---|
 | A model call fails or returns invalid JSON after the gateway's retries | The site gets `outcome` `deferred` and is first in the next run; the run continues |
 | The budget runs out without a report | One final report-only call; if it fails, the site is deferred |
-| The tool agent adapter's workflow fails | As a failed model call |
+| The tool agent adapter's run fails (a raising tool included) | As a failed model call |
 | A read fails | The read returns an empty result with the reason |
 | Every investigation of a run fails | The run still finishes; `GapRunResult.status` is `degraded` |
 
