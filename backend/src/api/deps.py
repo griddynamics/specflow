@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, Request, Response
 
 from agent_contracts import USER_ID_HEADER
-from api.errors import AGENT_USER_STATE_KEY, agent_unavailable, project_not_found
+from api.errors import AGENT_USER_STATE_KEY, agent_unavailable, owner_required, project_not_found
 from api.runtime import Runtime
 from auth.claims import Principal
 from auth.dependencies import AGENT_VERIFIER_STATE_ATTR, current_agent_principal, current_principal
@@ -82,3 +83,47 @@ async def agent_project(project_id: str, runtime: RuntimeDep, user: AgentUserDep
 
 
 AgentProjectDep = Annotated[Project, Depends(agent_project)]
+
+
+@dataclass(frozen=True)
+class Membership:
+    """The caller's standing in a project: the project and the caller's role (``owner`` or ``collaborator``)."""
+
+    project: Project
+    role: str
+
+    @property
+    def is_owner(self) -> bool:
+        return self.role == "owner"
+
+
+async def project_member(pid: str, runtime: RuntimeDep, user: UserDep) -> Membership:
+    """The caller's ``Membership`` in ``pid``: one query (``get_membership``) before anything else is read.
+
+    ``pid`` is caller text: a malformed id is ``project_not_found`` with no query and is never logged; a
+    non-member and a missing project answer identically (AC3).
+    """
+
+    try:
+        parsed = uuid.UUID(pid)
+    except ValueError:
+        raise project_not_found() from None
+    async with runtime.transaction() as session:
+        found = await repo.get_membership(session, user.id, parsed)
+    if found is None:
+        raise project_not_found()
+    return Membership(*found)
+
+
+MemberDep = Annotated[Membership, Depends(project_member)]
+
+
+async def project_owner(membership: MemberDep) -> Membership:
+    """``project_member`` plus the owner role: a collaborator is ``403 owner_required`` (no body is read further)."""
+
+    if not membership.is_owner:
+        raise owner_required()
+    return membership
+
+
+OwnerDep = Annotated[Membership, Depends(project_owner)]

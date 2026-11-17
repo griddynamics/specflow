@@ -269,6 +269,25 @@ export async function seedWork(
   await control("POST", "/seed-work", { pid, work });
 }
 
+/** The stub's collaborator knobs; `resetPeopleState` puts them back so one case never decides another. */
+export const PEOPLE_STATE = { allowedDomains: ["example.test"], claimsReleased: 0, claimsFailed: false };
+export interface SeedMembers extends Record<string, unknown> {
+  name: string;
+  role?: "owner" | "collaborator";
+  members?: { email: string; name?: string | null; role?: string }[];
+  invites?: string[];
+  state?: Partial<typeof PEOPLE_STATE>;
+}
+export const resetPeopleState = (): Promise<void> => seedMembersState(PEOPLE_STATE);
+const seedMembersState = async (state: Partial<typeof PEOPLE_STATE>): Promise<void> => {
+  await control("POST", "/seed-members", { state });
+};
+
+/** Seeds a project in the stub where the caller is owner or collaborator, with chosen members and invites (stub-members.mjs `seed`). */
+export async function seedMembers(spec: SeedMembers): Promise<{ id: string; name: string }> {
+  return (await control("POST", "/seed-members", spec)) as { id: string; name: string };
+}
+
 /** Removes a source in the stub as if another tab had (the details modal then finds it gone). */
 export async function removeSourceElsewhere(pid: string, sid: string): Promise<void> {
   await control("POST", "/remove-source", { pid, sid });

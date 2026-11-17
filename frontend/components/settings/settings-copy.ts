@@ -1,0 +1,28 @@
+// Texts only the Settings screen uses (dialogs, toasts, placeholders, row captions). The shared captions and the error texts of
+// docs/projects/ui.md#errors-shown stay in `lib/copy.ts` (written by the data layer); this file adds the rest, once.
+export const SETTINGS_COPY = {
+  emailPlaceholder: "Add by email",
+  suggestionsLabel: "Suggested people",
+  listLabel: "Collaborators",
+  loadFailed: "The collaborators could not be loaded.",
+  tryAgain: "Try again",
+  saving: "Saving",
+  remove: "Remove",
+  cancelInvite: "Cancel invite",
+  removeTitle: "Remove this collaborator?",
+  removeBody: "loses access to this project. Their story claims are freed.",
+  cancelTitle: "Cancel this invite?",
+  cancelBody: "will not get access when they sign in.",
+  leaveTitle: "Leave this project?",
+  leaveBody: "You lose access to it. Your story claims are freed.",
+  keep: "Keep",
+  toastRenamed: "Project renamed",
+  toastAdded: "Collaborator added",
+  toastInvited: "Invite saved",
+  toastRemoved: "Collaborator removed",
+  toastInviteCancelled: "Invite cancelled",
+  toastLeft: "You left the project",
+} as const;
+
+/** "4 of 50" (FR-PRJ-UI-06). */
+export const countText = (n: number, limit: number): string => `${String(n)} of ${String(limit)}`;

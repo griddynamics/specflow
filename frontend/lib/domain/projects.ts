@@ -13,7 +13,8 @@ export interface Project {
 export interface ProjectsPort {
   list(): Promise<Project[]>; // newest first in both adapters
   get(projectId: string): Promise<Project>; // rejects not_found
-  subscribe(listener: () => void): Unsubscribe; // list or a status changed
+  rename(projectId: string, name: string): Promise<Project>; // owner only; notifies `subscribe` listeners
+  subscribe(listener: () => void): Unsubscribe; // list, a name or a status changed
 }
 
 export const PROJECT_NAME_MAX = 200; // backend/src/api/schemas.py:12, 32-38

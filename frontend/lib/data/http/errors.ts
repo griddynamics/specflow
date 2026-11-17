@@ -28,6 +28,17 @@ const BY_CODE: Record<string, DataErrorCode> = {
   removal_unavailable: "unavailable",
   invalid_response: "invalid_response",
   csrf_rejected: "unknown", // a bug in the client, not a user error
+  // Members, invites and leave (docs/projects/api.md#errors). The screens branch on `detail.apiCode`; the code is the family.
+  owner_required: "forbidden",
+  invalid_email: "validation",
+  email_domain_not_allowed: "validation",
+  already_member: "conflict",
+  already_invited: "conflict",
+  member_limit: "conflict",
+  cannot_remove_owner: "conflict",
+  owner_cannot_leave: "conflict",
+  member_not_found: "not_found",
+  invite_not_found: "not_found",
 };
 
 /** Retryable codes (TECH-SPECS §2.13): the same request may succeed later. */
@@ -42,7 +53,7 @@ export function codeOfStatus(status: number): DataErrorCode {
   if (status === 415) return "unsupported_format";
   if (status === 400 || status === 422) return "validation";
   if (status >= 500) return "unavailable";
-  return "unknown"; // 403 csrf_rejected and anything else
+  return "unknown"; // a bare 403 too: only the envelope code `owner_required` is `forbidden`; `csrf_rejected` stays `unknown`
 }
 
 export const isRetryableCode = (code: DataErrorCode): boolean => RETRYABLE.has(code);
@@ -55,8 +66,12 @@ export function toDataError(e: unknown): DataError {
   if (isDataError(e)) return e;
   if (e instanceof ApiError) {
     const code = Object.hasOwn(BY_CODE, e.code) ? BY_CODE[e.code] : codeOfStatus(e.status);
-    const detail = { status: e.status, apiCode: e.code };
-    return make(code, e.maxBytes === undefined ? detail : { ...detail, maxBytes: e.maxBytes });
+    return make(code, {
+      status: e.status,
+      apiCode: e.code,
+      ...(e.maxBytes === undefined ? {} : { maxBytes: e.maxBytes }),
+      ...(e.errors === undefined ? {} : { errors: e.errors }),
+    });
   }
   if (e instanceof Error && e.name === "AbortError") return make("aborted");
   // A TypeError is `network` only where the caller knows it came from the fetch call itself (`guard`, `client.ts`); anywhere

@@ -31,7 +31,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
 
-PROJECT_ROLES: Final = ("owner",)
+PROJECT_ROLES: Final = ("owner", "collaborator")
 DOCUMENT_STATUSES: Final = (
     "uploaded",
     "processing",
@@ -127,6 +127,8 @@ class User(Base):
             unique=True,
             postgresql_where=text("auth_subject IS NOT NULL"),
         ),
+        # Case-insensitive email lookups (collaborator add, invite adoption).
+        Index("ix_users_email_lower", text("lower(email)")),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -160,13 +162,37 @@ class ProjectMember(Base):
         PrimaryKeyConstraint("project_id", "user_id"),
         CheckConstraint(_one_of("role", PROJECT_ROLES), name="role"),
         Index("ix_project_members_user_id", "user_id"),
+        # DM1: exactly one owner per project.
+        Index(
+            "ux_project_members_one_owner",
+            "project_id",
+            unique=True,
+            postgresql_where=text("role = 'owner'"),
+        ),
     )
 
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'owner'"))
+    role: Mapped[str] = mapped_column(Text, nullable=False)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     joined_at: Mapped[datetime] = _created_at()
+
+
+class ProjectInvite(Base):
+    """An email invited to a project that no user row had yet; the first sign-in adopts it."""
+
+    __tablename__ = "project_invites"
+    __table_args__ = (
+        UniqueConstraint("project_id", "email_norm", name="uq_project_invites_project_id_email_norm"),
+        CheckConstraint("email_norm = lower(btrim(email_norm))", name="email_norm"),
+        Index("ix_project_invites_email_norm", "email_norm"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    email_norm: Mapped[str] = mapped_column(Text, nullable=False)
+    invited_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = _created_at()
 
 
 class Document(Base):

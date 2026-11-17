@@ -155,7 +155,7 @@ class SummarizeStack:
             project = Project(name=f"pytest-{tag}", created_by=user.id)
             session.add(project)
             await session.flush()
-            session.add(ProjectMember(project_id=project.id, user_id=user.id))
+            session.add(ProjectMember(project_id=project.id, user_id=user.id, role="owner"))
             document = Document(
                 project_id=project.id,
                 content_hash=hashlib.sha256(tag.encode()).hexdigest(),

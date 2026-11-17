@@ -16,7 +16,7 @@ after(async () => {
   await env.stop();
 });
 
-const newProject = async (http: HttpPorts, name: string) => (await http.createProject.create({ name, contributorIds: [] })).id;
+const newProject = async (http: HttpPorts, name: string) => (await http.createProject.create({ name })).id;
 const envelope = (code: string) => JSON.stringify({ error: { code, message: "SERVER TEXT MUST NOT SHOW", details: {} } });
 async function rejection(p: Promise<unknown>): Promise<DataError> {
   try {

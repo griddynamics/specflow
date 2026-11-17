@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 NAME_MAX = 200
+COLLABORATORS_MAX = 49
+SUGGESTION_Q_MIN, SUGGESTION_Q_MAX = 3, 254
 
 
 class InvalidNameError(ValueError):
     """A project name is blank or too long."""
+
+
+class InvalidSuggestionTextError(ValueError):
+    """The suggestion text is shorter than 3 or longer than 254 characters."""
 
 
 class Page[T](BaseModel):
@@ -42,7 +48,29 @@ class MeOut(BaseModel):
     display_name: str
 
 
+def clean_name(value: str) -> str:
+    """The project name rule (create and rename): trimmed, 1-200 characters."""
+
+    value = value.strip()
+    if not value or len(value) > NAME_MAX:
+        raise InvalidNameError(f"name must be 1-{NAME_MAX} characters")
+    return value
+
+
 class ProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    # Emails are checked as a list by ``auth.emails.check_collaborators`` (api.md "Create with collaborators").
+    collaborators: list[str] | None = Field(default=None, max_length=COLLABORATORS_MAX)
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        return clean_name(value)
+
+
+class ProjectRename(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -50,10 +78,7 @@ class ProjectCreate(BaseModel):
     @field_validator("name")
     @classmethod
     def _name(cls, value: str) -> str:
-        value = value.strip()
-        if not value or len(value) > NAME_MAX:
-            raise InvalidNameError(f"name must be 1-{NAME_MAX} characters")
-        return value
+        return clean_name(value)
 
 
 class ProjectOut(BaseModel):
@@ -469,3 +494,76 @@ class BatchFileOut(BaseModel):
     outcome: BatchOutcomeName
     file: FileOut | None
     holder: HolderOut | None
+
+
+Role = Literal["owner", "collaborator"]
+
+
+class MemberOut(BaseModel):
+    user_id: uuid.UUID
+    name: str | None
+    email: str
+    role: Role
+    joined_at: datetime
+    is_you: bool
+
+
+class InviteOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    invited_at: datetime
+
+
+class MembersOut(BaseModel):
+    role: Role
+    limit: int
+    members: list[MemberOut]
+    invites: list[InviteOut]
+
+
+class MemberAddedMember(BaseModel):
+    kind: Literal["member"] = "member"
+    member: MemberOut
+
+
+class MemberAddedInvite(BaseModel):
+    kind: Literal["invite"] = "invite"
+    invite: InviteOut
+
+
+MemberAdded = Annotated[MemberAddedMember | MemberAddedInvite, Field(discriminator="kind")]
+
+
+class ClaimsOutcome(BaseModel):
+    claims_released: int
+    claims_release_failed: bool
+
+
+class MemberAdd(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+
+
+class SuggestionsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    q: str
+    project_id: str | None = None  # caller text: a malformed id is project_not_found, as a path id is
+
+    @field_validator("q")
+    @classmethod
+    def _q(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not SUGGESTION_Q_MIN <= len(value) <= SUGGESTION_Q_MAX:
+            raise InvalidSuggestionTextError(f"q must be {SUGGESTION_Q_MIN}-{SUGGESTION_Q_MAX} characters")
+        return value
+
+
+class SuggestionOut(BaseModel):
+    name: str | None
+    email: str
+
+
+class SuggestionsOut(BaseModel):
+    items: list[SuggestionOut]

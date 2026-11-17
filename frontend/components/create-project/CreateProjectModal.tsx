@@ -2,18 +2,20 @@
 // FE-CRT-01, FE-CRT-02, FE-CRT-06, FE-DEMO-08, FE-DOD-05, FE-SHELL-02.AC4 (PLAN a.4, TECH-SPECS §2.5, §5.2): the Create project modal.
 // The form is local state of an inner component that exists only while the modal is open, so every way of closing it (Esc, X, Cancel,
 // scrim) or leaving (Reset demo remounts the shell, a reload rebuilds everything) drops the form (FE-DEMO-08.AC1/AC2).
-// Data only through ports (R7): people.directory, createProject.create. Production creates through POST /projects with the name
-// only (A9). Owner decision 2026-10-15 (both trees): the form has the name and the contributors only; the source links, Test access
-// and the Jira/Confluence switches are gone (sources are added on Mission Control).
+// Data only through ports (R7): members.suggest (through useEmailSuggestions), createProject.create. Production creates through
+// POST /projects with the name and, when chips are set, the collaborator emails (docs/projects/ui.md#create-project-modal). The form
+// has the name and the collaborators only; sources are added on Mission Control.
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { PeoplePicker } from "@/components/ui/PeoplePicker";
+import { useEmailSuggestions } from "@/components/members/use-email-suggestions";
+import { normaliseEmail } from "@/components/ui/app-logic";
+import { PeoplePicker, type PickerCommit } from "@/components/ui/PeoplePicker";
 import { TextField } from "@/components/ui/TextField";
 import type { Person } from "@/lib/domain/people";
 import { usePorts, useRoutes } from "@/lib/data/provider";
-import { buildInput, createFailure, initialForm, nameError, type FormState } from "./form-logic";
+import { buildInput, COLLABORATOR_CHIPS_MAX, createFailure, initialForm, nameError, rejectText, type FormState } from "./form-logic";
 import "./cp-gaps.css";
 import { COPY } from "@/lib/copy";
 
@@ -34,13 +36,16 @@ function CreateProjectForm({ onClose: closeSlot }: Readonly<{ onClose: () => voi
   const router = useRouter();
   const [form, setForm] = useState<FormState>(initialForm);
   const [nameMsg, setNameMsg] = useState<string | null>(null);
-  const [people, setPeople] = useState<Person[]>([]);
+  const [text, setText] = useState(""); // the Collaborators field text, the suggestions' query
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
+  const [chipMsgs, setChipMsgs] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   // Set once the modal is closed by the user (Esc, X, Cancel, scrim) or unmounted: a create that completes afterwards still happens
   // (the port call is not cancellable) but the route is NOT opened (fix1 #8: both or neither; here "create, no navigation").
   const closed = useRef(false);
   const fields = useRef<HTMLDivElement>(null);
+  const picker = useRef<PickerCommit>(null);
   const isClosed = () => closed.current;
   const focusName = () => {
     fields.current?.querySelector<HTMLInputElement>(`#${NAME_ID}`)?.focus();
@@ -59,33 +64,33 @@ function CreateProjectForm({ onClose: closeSlot }: Readonly<{ onClose: () => voi
     setForm((f) => ({ ...f, ...p }));
   };
 
-  // FE-CRT-02: suggestions come from the people port (people only, FE-PPL-02).
-  useEffect(() => {
-    let live = true;
-    ports.people.directory().then(
-      (list) => {
-        if (live) setPeople(list);
-      },
-      () => {
-        if (live) setPeople([]);
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [ports]);
+  // FE-CRT-02, FR-PRJ-UI-09: suggestions by email from the members port (no project yet, so no project id).
+  const { items } = useEmailSuggestions(text);
+  const watchQuery = useCallback((q: string) => {
+    setText(q);
+    setEmailMsg(null);
+  }, []);
+  const people = useMemo<Person[]>(
+    () => items.map((x) => ({ id: normaliseEmail(x.email), name: x.name, email: x.email, kind: "person" })),
+    [items],
+  );
 
   async function submit() {
     if (busy || isClosed()) return;
     const msg = nameError(form.name);
     setNameMsg(msg);
-    const input = buildInput(form);
+    // An email typed but not committed (no Enter or comma) counts: a valid one becomes a chip, an invalid one shows the field error
+    // (through whenRejected) and nothing is created, so it is never dropped silently.
+    const typed = picker.current?.commit() ?? { kind: "empty" as const };
+    if (typed.kind === "refused") return;
+    const input = buildInput(typed.kind === "added" ? { ...form, emails: typed.ids } : form);
     if (msg !== null || input === null) {
       focusName();
       return;
     }
     setBusy(true);
     setFailed(false);
+    setChipMsgs({});
     try {
       const project = await ports.createProject.create(input);
       if (isClosed()) return; // closed while the create was pending: the project exists, the route stays
@@ -97,14 +102,21 @@ function CreateProjectForm({ onClose: closeSlot }: Readonly<{ onClose: () => voi
       const f = createFailure(e, form.name);
       setNameMsg(f.nameMsg);
       setFailed(f.alert);
-      focusName();
+      setChipMsgs(f.chipMsgs);
+      if (Object.keys(f.chipMsgs).length === 0) focusName();
     }
+  }
+
+  const chipErrors: Record<string, string> = {};
+  for (const [i, msg] of Object.entries(chipMsgs)) {
+    const email = form.emails.at(Number(i));
+    if (email !== undefined) chipErrors[email] = msg;
   }
 
   return (
     <Modal
       title="Create project"
-      description={"Name the project and add its contributors. You connect its sources in Mission Control."}
+      description={"Name the project and add its collaborators. You connect its sources in Mission Control."}
       onClose={onClose}
       footer={
         <>
@@ -142,11 +154,23 @@ function CreateProjectForm({ onClose: closeSlot }: Readonly<{ onClose: () => voi
           }}
         />
         <PeoplePicker
-          label="Contributors"
+          label={COPY.collaboratorsHeading}
+          placeholder={COPY.collaboratorEmail}
           people={people}
-          value={form.contributorIds}
-          onChange={(ids) => {
-            patch({ contributorIds: ids });
+          value={form.emails}
+          allowTyped
+          max={COLLABORATOR_CHIPS_MAX}
+          error={emailMsg ?? undefined}
+          chipErrors={chipErrors}
+          commitRef={picker}
+          watchQuery={watchQuery}
+          whenRejected={(reason) => {
+            setEmailMsg(rejectText(reason));
+          }}
+          onChange={(emails) => {
+            patch({ emails });
+            setEmailMsg(null);
+            setChipMsgs({}); // the indexes of an earlier answer no longer match the chips
           }}
         />
         {failed ? (

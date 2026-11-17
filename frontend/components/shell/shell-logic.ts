@@ -6,7 +6,7 @@ import type { IconName } from "@/components/ui/Icon";
 import { truthy } from "@/components/ui/utils";
 
 /**
- * The six sections, in order (FE-SHELL-01.AC2); the sidebar shows `SIDEBAR_SECTIONS`. Icons are Phosphor Regular names from the icon map.
+ * The seven sections, in order (FE-SHELL-01.AC2); the sidebar shows `SIDEBAR_SECTIONS`. Icons are Phosphor Regular names from the icon map.
  * The same tree is declared in `validation/nav-spec.json`, which the nav-tree check compares this array to.
  */
 export const SECTIONS: readonly { readonly value: SectionKey; readonly label: string; readonly icon: IconName }[] = [
@@ -14,11 +14,12 @@ export const SECTIONS: readonly { readonly value: SectionKey; readonly label: st
   { value: "decisions", label: "Decisions", icon: "list-checks" },
   { value: "plan", label: "Plan", icon: "kanban" },
   { value: "specbot", label: "SpecBot", icon: "sparkle" },
+  { value: "settings", label: "Settings", icon: "gear-six" },
   { value: "connections", label: "Connections", icon: "plug" },
   { value: "guides", label: "Guides", icon: "question" },
 ];
 
-export type SectionKey = "missionControl" | "decisions" | "plan" | "specbot" | "connections" | "guides";
+export type SectionKey = "missionControl" | "decisions" | "plan" | "specbot" | "settings" | "connections" | "guides";
 
 /**
  * The sidebar's items (owner decision 2026-10-15): Connections is hidden from the sidebar; its page, route and components stay for reuse
@@ -53,6 +54,7 @@ export function sectionHref(routes: RouteBuilder, key: SectionKey, projectId: st
   if (!truthy(projectId)) return routes.home();
   if (key === "missionControl") return routes.missionControl(projectId);
   if (key === "decisions") return routes.decisions(projectId);
+  if (key === "settings") return routes.settings(projectId);
   return key === "plan" ? routes.plan(projectId) : routes.specbot(projectId);
 }
 

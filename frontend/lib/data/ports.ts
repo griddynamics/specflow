@@ -6,6 +6,7 @@ import type { CreateProjectPort } from "@/lib/domain/create-project";
 import type { DecisionsPort } from "@/lib/domain/decisions";
 import type { DiagramsPort } from "@/lib/domain/diagrams";
 import type { FilesPort } from "@/lib/domain/files";
+import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
 import type { PlanPort } from "@/lib/domain/plan";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
@@ -29,6 +30,7 @@ export interface DataPorts {
   sources: SourcesPort;
   knowledge: KnowledgePort;
   work: WorkPort; // MCP-TOOLING session 10: findings list and claims board of the Plan page
+  members: MembersPort; // project collaborators: Settings (General tab) and the Create Project suggestions
 }
 
 /** In-memory hand-over between screens (§1.5);  */

@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from db import members
 from db import repositories as repo
 from db.models import ProjectMember
 from db.session import build_engine, build_session_factory
@@ -47,10 +48,25 @@ async def test_names_come_from_the_projects_members_only_and_the_email_fallback_
         cy = await repo.upsert_user(session, Principal("cy@example.com", "Cy"))
         project = await repo.create_project(session, ana.id, "Alpha")
         other = await repo.create_project(session, cy.id, "Beta")
-        session.add(ProjectMember(project_id=project.id, user_id=bob.id, role="owner"))
+        session.add(ProjectMember(project_id=project.id, user_id=bob.id, role="collaborator"))
         await session.flush()
         names = await repo.member_names(session, project.id, {ana.id, bob.id, cy.id, uuid.uuid4()})
         elsewhere = await repo.member_names(session, other.id, [cy.id, ana.id])
     assert [names[ana.id], names[bob.id], names[cy.id]] == ["Ana", None, None]
     assert sorted(value for value in names.values() if value is not None) == ["Ana"] and len(names) == 4
     assert elsewhere == {cy.id: "Cy", ana.id: None}
+
+
+async def test_a_removed_member_has_no_name_in_the_project_any_more(factory):
+    """FR-PRJ-CLM-04 (data side): the removal keeps what the person wrote, which then lists with a ``None`` name."""
+
+    async with factory() as session, session.begin():
+        ana = await repo.upsert_user(session, Principal("ana@example.com", "Ana"))
+        ben = await repo.upsert_user(session, Principal("ben@example.com", "Ben"))
+        project = await repo.create_project(session, ana.id, "Alpha")
+        session.add(ProjectMember(project_id=project.id, user_id=ben.id, role="collaborator"))
+        await session.flush()
+        assert (await repo.member_names(session, project.id, [ben.id]))[ben.id] == "Ben"
+        await members.remove_member(session, project.id, ben.id)
+        after = await repo.member_names(session, project.id, [ana.id, ben.id])
+    assert after == {ana.id: "Ana", ben.id: None}

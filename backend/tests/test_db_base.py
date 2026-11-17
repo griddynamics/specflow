@@ -47,6 +47,7 @@ def test_the_base_metadata_holds_exactly_the_app_tables() -> None:
         "users",
         "projects",
         "project_members",
+        "project_invites",
         "documents",
         "connections",
         "connection_items",

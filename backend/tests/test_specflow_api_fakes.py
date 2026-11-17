@@ -10,13 +10,47 @@ from types import SimpleNamespace
 
 import pytest
 
+from auth.emails import domain_allowed, normalise_email
+from db import members as members_module
 from db import repositories as repo
+from db.members import (
+    COLLABORATOR,
+    MEMBER_LIMIT,
+    SUGGESTION_LIMIT,
+    AlreadyInvitedError,
+    AlreadyMemberError,
+    CannotRemoveOwnerError,
+    EmailDomainNotAllowedError,
+    InvalidEmailError,
+    InviteAdded,
+    InviteNotFoundError,
+    InviteRow,
+    MemberAdded,
+    MemberLimitError,
+    MemberNotFoundError,
+    MemberRow,
+    Members,
+    OwnerCannotLeaveError,
+    Suggestion,
+    shown_name,
+)
 
 _TICK = itertools.count()
 
 
 def _stamp() -> datetime:
     return datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=next(_TICK))
+
+
+MEMBER_FUNCTIONS = (
+    "list_members",
+    "add_member_or_invite",
+    "remove_member",
+    "leave_project",
+    "cancel_invite",
+    "rename_project",
+    "suggest_users",
+)
 
 
 class FakeSession:
@@ -43,6 +77,9 @@ class FakeRepo:
         self.members: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.roles: dict[tuple[uuid.UUID, uuid.UUID], str] = {}
         self.documents: dict[uuid.UUID, SimpleNamespace] = {}
+        # project id -> invite id -> (normalised email, invited_by, created_at)
+        self.invites: dict[uuid.UUID, dict[uuid.UUID, tuple[str, uuid.UUID, datetime]]] = {}
+        self.joined: dict[tuple[uuid.UUID, uuid.UUID], datetime] = {}
 
     def __call__(self) -> FakeSession:  # the session factory
         return FakeSession(self)
@@ -52,6 +89,7 @@ class FakeRepo:
             "upsert_user",
             "create_project",
             "list_projects",
+            "get_membership",
             "get_member_project",
             "member_names",
             "insert_document",
@@ -65,6 +103,9 @@ class FakeRepo:
             "mark_summarization_failed",
         ]:
             monkeypatch.setattr(repo, name, getattr(self, name))
+        # ``db.members`` functions are module attributes the API reads through ``members.<name>``.
+        for name in MEMBER_FUNCTIONS:
+            monkeypatch.setattr(members_module, name, getattr(self, name))
 
     async def upsert_user(self, _session, principal):
         user = self.users.get(principal.subject)
@@ -76,20 +117,153 @@ class FakeRepo:
                 auth_subject=principal.subject,
                 email=principal.email,
                 display_name=name,
+                created_at=_stamp(),
             )
             self.users[principal.subject] = user
         user.email, user.display_name = principal.email, name
+        self._adopt(user.id, principal.email)
         return user
 
-    async def create_project(self, _session, user_id, name):
+    def _adopt(self, user_id, email) -> None:
+        """Invite adoption (every ``upsert_user`` return path): a rejected email adopts nothing."""
+
+        norm = normalise_email(email)
+        if norm is None:
+            return
+        for project_id, invites in self.invites.items():
+            for invite_id in [i for i, (e, _, _) in invites.items() if e == norm]:
+                del invites[invite_id]
+                self._join(project_id, user_id, COLLABORATOR)
+
+    def _role(self, key) -> str:
+        """Tests also add members straight to ``members``: such a member is a plain collaborator."""
+
+        return self.roles.get(key, COLLABORATOR)
+
+    def _joined(self, key) -> datetime:
+        return self.joined.setdefault(key, _stamp())
+
+    def _join(self, project_id, user_id, role) -> datetime:
+        key = (project_id, user_id)
+        if key not in self.members:
+            self.members.add(key)
+            self.roles[key] = role
+            self.joined[key] = _stamp()
+        return self._joined(key)
+
+    async def create_project(self, _session, user_id, name, collaborators=()):
         project = SimpleNamespace(id=uuid.uuid4(), name=name, created_by=user_id, created_at=_stamp())
         self.projects[project.id] = project
-        self.members.add((project.id, user_id))
-        self.roles[(project.id, user_id)] = "owner"
+        self._join(project.id, user_id, "owner")
+        for email in collaborators:
+            user = self._newest_user(email)
+            if user is None:
+                self._invite(project.id, user_id, email)
+            elif user.id != user_id:
+                self._join(project.id, user.id, COLLABORATOR)
         return project
 
+    async def get_membership(self, _session, user_id, project_id):
+        if (project_id, user_id) not in self.members:
+            return None
+        return self.projects[project_id], self._role((project_id, user_id))
+
     async def get_member_project(self, _session, user_id, project_id):
-        return self.projects.get(project_id) if (project_id, user_id) in self.members else None
+        found = await self.get_membership(_session, user_id, project_id)
+        return None if found is None else found[0]
+
+    # -- db.members ---------------------------------------------------------
+
+    def _newest_user(self, norm):
+        found = [u for u in self.users.values() if u.email.lower() == norm]
+        return max(found, key=lambda u: u.created_at, default=None)
+
+    def _invite(self, project_id, invited_by, norm) -> InviteRow:
+        invite_id, at = uuid.uuid4(), _stamp()
+        self.invites.setdefault(project_id, {})[invite_id] = (norm, invited_by, at)
+        return InviteRow(invite_id, norm, at)
+
+    def _member_row(self, project_id, user, caller_id=None) -> MemberRow:
+        key = (project_id, user.id)
+        return MemberRow(
+            user.id,
+            shown_name(user.display_name, user.email),
+            user.email,
+            self._role(key),
+            self._joined(key),
+            user.id == caller_id,
+        )
+
+    async def list_members(self, _session, project_id, caller_id):
+        by_id = {u.id: u for u in self.users.values()}
+        keys = [k for k in self.members if k[0] == project_id]
+        keys.sort(key=lambda k: (self._role(k) != "owner", self._joined(k), k[1]))
+        rows = [self._member_row(project_id, by_id[k[1]], caller_id) for k in keys]
+        invites = sorted(self.invites.get(project_id, {}).items(), key=lambda kv: kv[1][2])
+        return Members(MEMBER_LIMIT, rows, [InviteRow(i, e, at) for i, (e, _, at) in invites])
+
+    async def add_member_or_invite(self, _session, project_id, invited_by, email, allowed_domains):
+        norm = normalise_email(email)
+        if norm is None:
+            raise InvalidEmailError
+        if not domain_allowed(norm, allowed_domains):
+            raise EmailDomainNotAllowedError
+        user = self._newest_user(norm)
+        if user is not None and (project_id, user.id) in self.members:
+            raise AlreadyMemberError
+        people = len([k for k in self.members if k[0] == project_id]) + len(self.invites.get(project_id, {}))
+        if people >= MEMBER_LIMIT:
+            raise MemberLimitError
+        if user is not None:
+            self._join(project_id, user.id, COLLABORATOR)
+            return MemberAdded(self._member_row(project_id, user))
+        if any(e == norm for e, _, _ in self.invites.get(project_id, {}).values()):
+            raise AlreadyInvitedError
+        return InviteAdded(self._invite(project_id, invited_by, norm))
+
+    async def _drop(self, project_id, user_id, owner_error) -> None:
+        key = (project_id, user_id)
+        if key not in self.members:
+            raise MemberNotFoundError
+        if self._role(key) == "owner":
+            raise owner_error
+        self.members.discard(key)
+        self.roles.pop(key, None)
+        self.joined.pop(key, None)
+
+    async def remove_member(self, _session, project_id, user_id):
+        await self._drop(project_id, user_id, CannotRemoveOwnerError)
+
+    async def leave_project(self, _session, project_id, user_id):
+        await self._drop(project_id, user_id, OwnerCannotLeaveError)
+
+    async def cancel_invite(self, _session, project_id, invite_id):
+        if self.invites.get(project_id, {}).pop(invite_id, None) is None:
+            raise InviteNotFoundError
+
+    async def rename_project(self, _session, project_id, name):
+        project = self.projects.get(project_id)
+        if project is not None:
+            project.name = name
+        return project
+
+    async def suggest_users(self, _session, caller_id, q, allowed_domains, project_id=None):
+        needle = q.strip().lower()
+        invited = {e for e, _, _ in self.invites.get(project_id, {}).values()} if project_id else set()
+        items: dict[str, Suggestion] = {}
+        for user in sorted(self.users.values(), key=lambda u: (u.display_name.lower(), u.email.lower())):
+            name = user.display_name.lower()
+            hit = user.email.lower().startswith(needle) or any(w.startswith(needle) for w in name.split(" "))
+            if (
+                not hit
+                or user.id == caller_id
+                or not domain_allowed(user.email, allowed_domains)
+                or (project_id is not None and (project_id, user.id) in self.members)
+                or user.email.lower() in invited
+            ):
+                continue
+            items.setdefault(user.email.lower(), Suggestion(shown_name(user.display_name, user.email), user.email))
+        return list(items.values())[:SUGGESTION_LIMIT]
 
     async def member_names(self, _session, project_id, user_ids):
         by_id = {user.id: user for user in self.users.values()}

@@ -45,10 +45,19 @@ AGENT_CRED = "agent-canary-pw-51d"
 SKIP_COMMENT = "-- agent role existence check skipped (offline)"
 AGENT_GRANT = "GRANT SELECT (id, project_id, original_filename, version, status, markdown) ON documents TO {role}"
 HEAD = "0001_initial"
-APP_TABLES = ("users", "projects", "project_members", "connections", "documents", "connection_items")
+APP_TABLES = (
+    "users",
+    "projects",
+    "project_members",
+    "project_invites",
+    "connections",
+    "documents",
+    "connection_items",
+)
 SCOPED_TABLES = (
     ("projects", "id"),
     ("project_members", "project_id"),
+    ("project_invites", "project_id"),
     ("documents", "project_id"),
     ("connections", "project_id"),
     ("connection_items", "project_id"),
@@ -273,3 +282,30 @@ def test_offline_downgrade_to_base_drops_every_table_newest_first() -> None:
     assert re.findall(r"DROP TABLE (\w+)", sql) == list(reversed(APP_TABLES))
     assert "DELETE FROM alembic_version" in sql
     assert SKIP_COMMENT not in sql  # the downgrade needs no agent role
+
+
+# The collaborator schema, folded into 0001_initial (no incremental revision) ---------
+
+
+def test_the_members_table_has_the_role_check_without_a_default_and_one_owner_per_project() -> None:
+    sql = upgrade_sql(*offline_config())
+
+    assert "CONSTRAINT ck_project_members_role CHECK (role IN ('owner', 'collaborator'))" in sql
+    members = sql[sql.index("CREATE TABLE project_members (") : sql.index("CREATE TABLE project_invites (")]
+    assert "role TEXT NOT NULL," in members  # every insert states its role
+    assert "DEFAULT 'owner'" not in members
+    assert (
+        "CREATE UNIQUE INDEX ux_project_members_one_owner ON project_members (project_id) WHERE role = 'owner'" in sql
+    )
+    assert "admin" not in sql.lower()
+
+
+def test_the_invites_table_and_the_email_index_are_part_of_the_initial_revision() -> None:
+    sql = upgrade_sql(*offline_config())
+
+    assert "CONSTRAINT uq_project_invites_project_id_email_norm UNIQUE (project_id, email_norm)" in sql
+    assert "CONSTRAINT ck_project_invites_email_norm CHECK (email_norm = lower(btrim(email_norm)))" in sql
+    assert "CREATE INDEX ix_project_invites_email_norm ON project_invites (email_norm)" in sql
+    assert "CREATE INDEX ix_users_email_lower ON users (lower(email))" in sql
+    assert "TRIGGER" not in sql.upper()  # no legacy trigger, no data rewrite
+    assert "UPDATE project_members" not in sql

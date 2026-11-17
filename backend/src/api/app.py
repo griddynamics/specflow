@@ -24,11 +24,13 @@ from api.routers import (
     graph_build,
     health,
     me,
+    members,
     plan,
     projects,
     source_batches,
     source_removal,
     sources,
+    users,
 )
 from api.runtime import DriveTimeoutError, Runtime, RuntimeFactory, build_runtime
 from auth.dependencies import AGENT_VERIFIER_STATE_ATTR, VERIFIER_STATE_ATTR
@@ -172,6 +174,8 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         agent_stories.router,
         agent_writes.router,
         projects.router,
+        members.router,
+        users.router,
         documents.router,
         graph_build.router,
         plan.router,

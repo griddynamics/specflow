@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
+import { createMembersModel, StubError as MembersError } from "./stub-members.mjs";
 
 const LEEWAY_SECONDS = 60; // as backend/src/auth/claims.py
 const DEFAULT_CLIENT_ID = "specflow-web";
@@ -95,6 +96,21 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const sourcesOf = (pid) => sources.get(pid) ?? sources.set(pid, []).get(pid);
   /** sources-ux (SPECS §4): the v2 status, file list, removal and Local files batches. Documents of an upload carry `batchId`. */
   const model = createSourcesModel({ docs, sourcesOf });
+  /** Project collaborators (docs/projects/api.md): members, invites, leave, rename, suggestions, create with collaborators. */
+  const people = createMembersModel();
+  const readJson = async (req) => {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const text = Buffer.concat(chunks).toString();
+    try {
+      return text === "" ? {} : JSON.parse(text);
+    } catch {
+      throw new MembersError(422, "validation_failed", { errors: [{ loc: ["body"], type: "json_invalid" }] });
+    }
+  };
+  const drainBody = async (req) => {
+    for await (const c of req) void c;
+  };
   const progressOf = (pid) => {
     const parts = sourcesOf(pid).map((c) => c.progress);
     const mine = [...docs.values()].filter((d) => d.pid === pid);
@@ -582,6 +598,22 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return json(res, r.outcome === "added" ? 201 : 200, { outcome: r.outcome, file: r.file, holder: r.holder });
   }
 
+  /** `/projects/{pid}/members[/{user_id}]`, `/invites/{invite_id}` and `/leave` (api.md#routes). */
+  async function membersRoute({ req, res, pid, b, did }) {
+    const m = req.method;
+    if (b === "members" && !did && m === "GET") return json(res, 200, people.list(pid));
+    if (b === "members" && !did && m === "POST") return json(res, 201, people.add(pid, await readJson(req)));
+    if (b === "members" && did && m === "DELETE") return json(res, 200, people.remove(pid, did));
+    if (b === "invites" && did && m === "DELETE") {
+      people.cancel(pid, did);
+      res.writeHead(204);
+      return res.end();
+    }
+    if (b === "leave" && !did && m === "POST") return json(res, 200, people.leave(pid));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   async function authOk(req) {
     const header = req.headers.authorization ?? "";
     if (!header.startsWith("Bearer ")) return false;
@@ -641,25 +673,50 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return route({ req, res, url, a, pid, b, did, action, entry });
   });
 
-  async function route({ req, res, url, a, pid, b, did, action, entry }) {
+  async function route(ctx) {
+    try {
+      return await routeInner(ctx);
+    } catch (e) {
+      if (!(e instanceof MembersError)) throw e;
+      await drainBody(ctx.req);
+      return err(ctx.res, e.status, e.code, e.details);
+    }
+  }
+
+  async function routeInner({ req, res, url, a, pid, b, did, action, entry }) {
+    if (a === "users") {
+      if (pid !== "suggestions" || req.method !== "POST") {
+        await drainBody(req);
+        return err(res, 404, "not_found");
+      }
+      return json(res, 200, people.suggest(await readJson(req)));
+    }
     if (a !== "projects") return err(res, 404, "not_found");
     if (!pid) {
-      if (req.method === "GET") return json(res, 200, { items: [...projects.values()].reverse(), next_cursor: null });
-      // POST /projects
-      const chunks = [];
-      for await (const c of req) chunks.push(c);
-      const name = String(JSON.parse(Buffer.concat(chunks).toString() || "{}").name ?? "").trim();
-      if (!name || name.length > 200) return err(res, 422, "validation_failed");
+      if (req.method === "GET")
+        return json(res, 200, { items: [...projects.values()].filter((p) => people.has(p.id)).reverse(), next_cursor: null });
+      // POST /projects: {name, collaborators?} (docs/projects/api.md#create-with-collaborators)
+      const body = await readJson(req);
+      const extra = typeof body !== "object" || body === null || Object.keys(body).some((k) => k !== "name" && k !== "collaborators");
+      const name = String(body?.name ?? "").trim();
+      if (extra || !name || Array.from(name).length > 200) return err(res, 422, "validation_failed");
+      const collaborators = people.collaboratorsOf(body);
       const project = { id: crypto.randomUUID(), name, created_at: new Date().toISOString() };
       projects.set(project.id, project);
+      people.create(project.id, collaborators);
       return json(res, 201, project);
     }
     const project = projects.get(pid);
-    if (!project) {
+    if (!project || !people.has(pid)) {
       for await (const c of req) void c;
-      return err(res, 404, "project_not_found");
+      return err(res, 404, "project_not_found"); // not a member (or never there): one answer
+    }
+    if (!b && req.method === "PATCH") {
+      project.name = people.rename(pid, await readJson(req));
+      return json(res, 200, project);
     }
     if (!b) return json(res, 200, project);
+    if (b === "members" || b === "invites" || b === "leave") return membersRoute({ req, res, pid, b, did });
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
     if (b === "graph_build") return graphRoute({ req, res, pid, entry });
     if (b === "findings" || (b === "plan" && did === "claims"))
@@ -733,6 +790,15 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     sources,
     model,
     drive,
+    /** Project collaborators: `people.state` (allowedDomains, directory, claimsReleased, claimsFailed) and `people.seed(pid, ...)`. */
+    people,
+    /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */
+    seedProject: (name, spec) => {
+      const project = { id: crypto.randomUUID(), name, created_at: new Date().toISOString() };
+      projects.set(project.id, project);
+      people.seed(project.id, spec);
+      return project;
+    },
     seedWork: (pid, work) => {
       const mine = workOf(pid);
       if (work.findings) mine.findings = work.findings;

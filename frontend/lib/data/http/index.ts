@@ -3,6 +3,7 @@
 // (`lib/data/compose.ts`). All calls go through `lib/api.ts` (browser -> `/api/backend/*` -> API `/api/v1/*`), except `GET /me`
 // (`client.ts`, G01-10). No fixture is imported here (R7).
 import type { CreateProjectPort } from "@/lib/domain/create-project";
+import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
 import type { PlanPort } from "@/lib/domain/plan";
@@ -10,6 +11,7 @@ import type { ProjectsPort } from "@/lib/domain/projects";
 import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
 import { createHttpKnowledge } from "./knowledge";
+import { createHttpMembers } from "./members";
 import { createHttpPeople } from "./me";
 import { createHttpPlan } from "./plan";
 import { createHttpProjects } from "./projects";
@@ -26,6 +28,7 @@ export interface HttpPorts {
   knowledge: KnowledgePort;
   plan: PlanPort;
   work: WorkPort;
+  members: MembersPort;
 }
 
 /** TECH-SPECS §3.1. `pollMs` and `idleMs` are constructor options for the stub-API tests; production uses the defaults. */
@@ -45,5 +48,6 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     knowledge,
     plan: createHttpPlan({ pollMs: opts?.planPollMs }),
     work: createHttpWork(),
+    members: createHttpMembers(),
   };
 }

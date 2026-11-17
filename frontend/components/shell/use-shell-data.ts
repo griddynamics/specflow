@@ -25,8 +25,11 @@ export function useMe(): Person | null {
   return me;
 }
 
-/** The switcher list, newest first. Re-reads when the port says the list or a status changed. null until loaded. */
-export function useProjectList(): Project[] | null {
+/**
+ * The switcher list, newest first. Re-reads when the port says the list or a status changed, and when `refreshKey` changes
+ * (Settings: a collaborator left, which the port does not announce). null until loaded.
+ */
+export function useProjectList(refreshKey?: string): Project[] | null {
   const { projects } = usePorts();
   const [list, setList] = useState<Project[] | null>(null);
   useEffect(() => {
@@ -45,7 +48,7 @@ export function useProjectList(): Project[] | null {
       live = false;
       off();
     };
-  }, [projects]);
+  }, [projects, refreshKey]);
   return list;
 }
 

@@ -40,20 +40,20 @@ test("FE-PPL-01.AC3, FE-BP-02.AC8: people.me reads GET /me once and maps display
   assert.equal(defined(calls.at(-1)).headers["x-requested-with"], "specflow");
 });
 
-test('FE-BP-02.AC2 (A9): create sends exactly one POST /projects with the body {"name":"Pilot"} only and tells subscribers', async () => {
+test('FE-BP-02.AC2, FR-PRJ-UI-09: create sends exactly one POST /projects with the body {"name","collaborators"} and tells subscribers', async () => {
   const http = createHttpAdapter();
   let changed = 0;
   const off = http.projects.subscribe(() => changed++);
   const n = env.sent.length;
   const p = await http.createProject.create({
     name: "  Pilot ",
-    contributorIds: ["user-2"],
+    collaboratorEmails: ["user-2@example.test"],
   });
   off();
   const posts = env.sent.slice(n).filter((s) => s.method === "POST");
   assert.equal(posts.length, 1);
   assert.equal(posts[0].path, "/api/backend/projects");
-  assert.equal(posts[0].body, JSON.stringify({ name: "Pilot" }));
+  assert.equal(posts[0].body, JSON.stringify({ name: "Pilot", collaborators: ["user-2@example.test"] }));
   assert.equal(posts[0].headers["x-requested-with"], "specflow");
   assert.equal(posts[0].headers["content-type"], "application/json");
   assert.equal(p.name, "Pilot");
@@ -64,8 +64,8 @@ test('FE-BP-02.AC2 (A9): create sends exactly one POST /projects with the body {
 
 test("FE-BP-02.AC1: list returns the projects of the projects list, newest first, status unknown (TECH-SPECS §3.5)", async () => {
   const http = createHttpAdapter();
-  const a = await http.createProject.create({ name: "Alpha", contributorIds: [] });
-  const b = await http.createProject.create({ name: "Beta", contributorIds: [] });
+  const a = await http.createProject.create({ name: "Alpha" });
+  const b = await http.createProject.create({ name: "Beta" });
   const list = await http.projects.list();
   assert.deepEqual(
     list.slice(0, 2).map((p) => p.id),
@@ -77,7 +77,7 @@ test("FE-BP-02.AC1: list returns the projects of the projects list, newest first
 
 test("FE-BP-02: get returns one project; an unknown or non-member id rejects not_found (TECH-SPECS §1.8)", async () => {
   const http = createHttpAdapter();
-  const p = await http.createProject.create({ name: "Gamma", contributorIds: [] });
+  const p = await http.createProject.create({ name: "Gamma" });
   assert.deepEqual(await http.projects.get(p.id), p);
   const e = await rejection(http.projects.get("00000000-0000-4000-8000-000000000000"));
   assert.equal(e.code, "not_found");
@@ -87,8 +87,8 @@ test("FE-BP-02: get returns one project; an unknown or non-member id rejects not
 test("FE-BP-02.AC4: an invalid name rejects validation (locally, no request; and the stub's 422 maps to validation)", async () => {
   const http = createHttpAdapter();
   const n = env.sent.length;
-  assert.equal((await rejection(http.createProject.create({ name: "   ", contributorIds: [] }))).code, "validation");
-  assert.equal((await rejection(http.createProject.create({ name: "x".repeat(201), contributorIds: [] }))).code, "validation");
+  assert.equal((await rejection(http.createProject.create({ name: "   " }))).code, "validation");
+  assert.equal((await rejection(http.createProject.create({ name: "x".repeat(201) }))).code, "validation");
   assert.equal(env.sent.length, n, "no request for a name the backend would refuse");
   // The same rule on the server: lib/api.ts -> BFF -> stub 422 validation_failed -> validation.
   const e = toDataError(await apiCreateProject("").catch((x: unknown) => x));
@@ -99,7 +99,7 @@ test("FE-BP-02.AC4: an invalid name rejects validation (locally, no request; and
 test("FE-BP-08.AC1: documents upload the raw file body with application/pdf and X-Requested-With, one file per request", async () => {
   const http = createHttpAdapter();
   const docs = createHttpDocuments();
-  const p = await http.createProject.create({ name: "Docs", contributorIds: [] });
+  const p = await http.createProject.create({ name: "Docs" });
   const file = pdfFile("spec one.pdf", 4096);
   const n = env.sent.length;
   const first = await docs.upload(p.id, file);
@@ -144,7 +144,7 @@ test("FE-BP-02 (BFF rules): a mutation without X-Requested-With is refused by th
 
 test("NFR-SEC-0002.AC2: a DELETE of a source without X-Requested-With is refused by the BFF (403 csrf_rejected); the adapter's DELETE carries it", async () => {
   const http = createHttpAdapter();
-  const p = await http.createProject.create({ name: "Delete CSRF", contributorIds: [] });
+  const p = await http.createProject.create({ name: "Delete CSRF" });
   const sid = env.api.model.seed(p.id, { kind: "upload", files: [{ name: "a.pdf", state: "done" }] });
   const path = `/api/backend/projects/${p.id}/sources/${sid}`;
   const n = env.api.log.length;

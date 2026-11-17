@@ -60,6 +60,45 @@ def project_not_found() -> ApiError:
     return ApiError(404, "project_not_found", "The project does not exist.")
 
 
+def owner_required() -> ApiError:
+    return ApiError(403, "owner_required", "Only the project owner can do this.")
+
+
+_MEMBER_ERRORS: Final[dict[str, tuple[int, str]]] = {
+    "invalid_email": (422, "The email address is not valid."),
+    "email_domain_not_allowed": (422, "The email domain is not allowed."),
+    "already_member": (409, "This person is already a member of the project."),
+    "already_invited": (409, "This person is already invited to the project."),
+    "member_limit": (409, "The project has reached its limit of people."),
+    "member_not_found": (404, "The member does not exist."),
+    "cannot_remove_owner": (409, "The project owner cannot be removed."),
+    "invite_not_found": (404, "The invite does not exist."),
+    "owner_cannot_leave": (409, "The project owner cannot leave the project."),
+    "project_not_found": (404, "The project does not exist."),
+}
+
+
+def member_error(code: str) -> ApiError:
+    """The API error of a ``db.members`` failure ``code`` (fixed sentence, never a submitted value)."""
+
+    status, message = _MEMBER_ERRORS[code]
+    return ApiError(status, code, message)
+
+
+def member_not_found() -> ApiError:
+    return member_error("member_not_found")
+
+
+def invite_not_found() -> ApiError:
+    return member_error("invite_not_found")
+
+
+def validation_failed(errors: list[dict[str, Any]]) -> ApiError:
+    """422 ``validation_failed`` with ``details.errors[{loc, type}]`` (the shape every body rule answers)."""
+
+    return ApiError(422, "validation_failed", "The request is invalid.", details={"errors": errors})
+
+
 def document_not_found() -> ApiError:
     return ApiError(404, "document_not_found", "The document does not exist.")
 
