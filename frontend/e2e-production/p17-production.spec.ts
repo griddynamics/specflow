@@ -2,7 +2,7 @@
 // against the stub API through the real BFF (scripts/serve-production.mjs; no backend, no model call). Every case signs in over
 // OIDC (the stub issuer) and makes its own projects, so the shared stub never decides an outcome; the specs run one at a time (workers 1).
 import { randomBytes } from "node:crypto";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { networkQuiet } from "../e2e/support";
 import {
   allowConsoleErrors,
@@ -36,6 +36,7 @@ import {
 
 type ButtonState = "running" | "failed" | "ready" | "off";
 const dialogOf = (page: Page) => page.getByRole("dialog");
+const chipsOf = (modal: Locator) => modal.getByTestId("people-chip");
 const confirmButton = (page: Page) => page.getByTestId("kb-build-dialog-confirm");
 const expectState = (page: Page, state: ButtonState) => expect(kbBuild(page)).toHaveAttribute("data-state", state);
 
@@ -109,18 +110,18 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await field.press("Enter");
     await field.fill("second.person@example.test");
     await field.press(",");
-    await expect(modal.getByTestId("people-chip")).toContainText(["first.person@example.test", "second.person@example.test"]);
+    await expect(chipsOf(modal)).toContainText(["first.person@example.test", "second.person@example.test"]);
     // A chip whose domain may not sign in: the API refuses all of it, the chip is marked, nothing is created.
     await field.fill("stranger@refused.test");
     await field.press("Enter");
     await page.getByTestId("cp-create").click();
-    await expect(modal.getByTestId("people-chip").filter({ hasText: "stranger@refused.test" })).toHaveAttribute("data-invalid", "true");
+    await expect(chipsOf(modal).filter({ hasText: "stranger@refused.test" })).toHaveAttribute("data-invalid", "true");
     await expect(modal).toContainText("This email domain cannot sign in to SpecFlow.");
     await expect(modal).toBeVisible();
     expect(page.url()).toBe(before); // still on the page the modal opened over
     // Take the refused chip away (Backspace on the empty field) and create.
     await field.press("Backspace");
-    await expect(modal.getByTestId("people-chip")).toHaveCount(2);
+    await expect(chipsOf(modal)).toHaveCount(2);
     await page.getByTestId("cp-create").click();
     await page.waitForURL((u) => /\/projects\/[0-9a-f-]{36}\/mission-control$/.test(u.pathname) && u.href !== before);
     await expect(topbarProjectName(page)).toHaveText(name);
@@ -158,8 +159,8 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await field.press("Enter");
     // The list is cleared once the pick is made: wait for that settled state, then the chip must still carry the name.
     await expect(list).toHaveCount(0);
-    await expect(modal.getByTestId("people-chip")).toContainText(["Alan Turner"]);
-    await expect(modal.getByTestId("people-chip")).not.toContainText("@");
+    await expect(chipsOf(modal)).toContainText(["Alan Turner"]);
+    await expect(chipsOf(modal)).not.toContainText("@");
     expect(suggestions().map((r): unknown => JSON.parse(r.postData ?? "{}"))).toEqual([{ q: "ala" }]);
     expect(requests.some((r) => r.path.includes("@") || r.search.includes("@"))).toBe(false);
   });

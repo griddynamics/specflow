@@ -76,7 +76,7 @@ export function PeoplePicker({
   useOutside(ref, open, () => {
     setOpen(false);
   });
-  const [picked, setPicked] = useState<Record<string, Person>>({}); // people picked from the list: a chip keeps its name after an async list is cleared
+  const [picked, setPicked] = useState<ReadonlyMap<string, Person>>(new Map()); // people picked from the list: a chip keeps its name after an async list is cleared
   const [navigated, setNavigated] = useState(false); // an arrow key moved onto a suggestion: Enter then picks it, not the typed text
   const asyncList = watchQuery !== undefined;
   useEffect(() => {
@@ -95,7 +95,7 @@ export function PeoplePicker({
       whenRejected?.("full", x.id);
       return;
     }
-    setPicked((m) => ({ ...m, [x.id]: x }));
+    setPicked((m) => new Map(m).set(x.id, x));
     set(sel.concat([x.id]));
     changeQuery("");
   }
@@ -173,7 +173,7 @@ export function PeoplePicker({
         }}
       >
         {sel.map((pid) => {
-          const x = picked[pid] ?? people.find((y) => y.id === pid) ?? (allowTyped === true ? { id: pid, name: pid } : undefined);
+          const x = picked.get(pid) ?? people.find((y) => y.id === pid) ?? (allowTyped === true ? { id: pid, name: pid } : undefined);
           if (!x) return null;
           const bad = chipErrors?.[pid];
           return (
