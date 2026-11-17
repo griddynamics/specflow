@@ -536,20 +536,29 @@ PLAN_INPUTS: Final = DiffInputs(ontology_version="2.0", plan_ontology_version="2
 
 @dataclass(frozen=True)
 class PlannedUpdate:
-    """The plan's ``update`` run over an apply build: the task operations and the stories of the tasks it wrote."""
+    """The plan's ``update`` run over an apply build: the task operations, the stories of the tasks it wrote, the
+    planning parts the Tasks step planned again (``replanned``) or reused, and the stories of each part."""
 
     tasks: Mapping[str, str]
     stories: frozenset[str]
     kept_stories: frozenset[str]
+    replanned: frozenset[str] = frozenset()
+    reused: frozenset[str] = frozenset()
+    part_stories: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
 
-async def _plan(view: Any, store: Path) -> DiffArtifact:
+async def _planned(view: Any, store: Path) -> tuple[DiffArtifact, Any]:
     rules = view.rules
     shop = await planned_shop(view, open_plan_store(store), generic_planners(rules))
     stitched = stitch(view, shop.project, shop.tasks)
-    return diff(
+    artifact = diff(
         view, describe=shop.describe, project=shop.project, tasks=shop.tasks, stitch=stitched, inputs=PLAN_INPUTS
     )
+    return artifact, shop
+
+
+async def _plan(view: Any, store: Path) -> DiffArtifact:
+    return (await _planned(view, store))[0]
 
 
 async def plan_update(world: GapWorld, rebuilt: Rebuilt, root: Path) -> PlannedUpdate:
@@ -559,7 +568,7 @@ async def plan_update(world: GapWorld, rebuilt: Rebuilt, root: Path) -> PlannedU
 
     rules = load_plan_rules(ontology=world.ontology)
     before = await fixture_view(gap_corpus_graph().reader, world.ontology, rules)
-    current = applied_plan(before, await _plan(before, root / "first"))
+    current = applied_plan(before, await _plan(before, root / "plans"))
     report = rebuilt.report
     changed = (
         dict.fromkeys(report.added, "added")
@@ -568,11 +577,19 @@ async def plan_update(world: GapWorld, rebuilt: Rebuilt, root: Path) -> PlannedU
         | dict.fromkeys(report.changed_meaning, "changed_meaning")
     )
     after = next_view(await fixture_view(world.reader.base, world.ontology, rules), current, changed=changed)
-    artifact = await _plan(after, root / "update")
+    artifact, shop = await _planned(after, root / "plans")
+    outcomes = shop.tasks.outcomes
     in_story = {link.source: link.target for link in current.links if link.type == "IN_STORY"}
     in_story |= {
         link.key.split("|")[0]: link.key.split("|")[-1] for link in artifact.links_create if link.type == "IN_STORY"
     }
     tasks = {op.id: op.op for op in artifact.tasks}
     stories = frozenset(in_story[task] for task in tasks)
-    return PlannedUpdate(tasks, stories, frozenset(story.story_id for story in current.stories) - stories)
+    return PlannedUpdate(
+        tasks,
+        stories,
+        frozenset(story.story_id for story in current.stories) - stories,
+        replanned=frozenset(part for part, outcome in outcomes.items() if not outcome.reused),
+        reused=frozenset(part for part, outcome in outcomes.items() if outcome.reused),
+        part_stories={part.part_id: frozenset(part.story_ids) for part in after.partition.parts},
+    )

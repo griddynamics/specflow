@@ -102,9 +102,9 @@ async def test_fr_gpln_04_held_tasks_released_gap_resolves_dismissed_becomes(mon
     assert claimed.status_code == 200 and dev.store.tasks[API_LOGIC]["status"] == "in_progress"
 
 
-async def test_fr_gpln_05_gap_answer_re_plan_stories_whose_members(tmp_path: Path) -> None:
-    """Given the cancel-paid-order answer applied, then only `STORY::ORDERS_SERVICE::PLACE_ORDER` is re-planned and
-    every other story is reused.
+async def test_fr_gpln_05_gap_answer_re_plan_parts_whose_members(tmp_path: Path) -> None:
+    """Given the cancel-paid-order answer applied, then the part that holds `STORY::ORDERS_SERVICE::PLACE_ORDER` is
+    planned again, every other part is reused, and only stories of re-planned parts get new tasks.
 
     The plan is made of the corpus graph with planners that answer from the request; the apply build is simulated
     (``gap_close_support.apply_build``) and the plan runs ``update`` over its change report.
@@ -114,5 +114,9 @@ async def test_fr_gpln_05_gap_answer_re_plan_stories_whose_members(tmp_path: Pat
 
     planned = await plan_update(rig.world, rebuilt, tmp_path)
 
-    assert planned.stories == {PLACE_STORY}
+    place_parts = {part for part, stories in planned.part_stories.items() if PLACE_STORY in stories}
+    assert place_parts and place_parts <= planned.replanned
+    assert planned.reused and not planned.reused & planned.replanned
+    in_replanned = set().union(*(planned.part_stories[part] for part in planned.replanned))
+    assert PLACE_STORY in planned.stories and planned.stories <= in_replanned
     assert planned.kept_stories and PLACE_STORY not in planned.kept_stories

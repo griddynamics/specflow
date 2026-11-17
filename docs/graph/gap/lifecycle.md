@@ -210,7 +210,7 @@ during a persist) or a store error is logged and left; the next repetition holds
 next end of the gap or a person's unblock in the plan.
 
 **Change reports.** When the update build that applied an answer returns, its change report reaches the plan
-as for any edit, and the plan re-plans only the stories whose members changed.
+as for any edit, and the plan re-plans only the planning parts whose members changed; every other part is reused.
 
 ## Development gaps
 

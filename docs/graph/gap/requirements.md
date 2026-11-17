@@ -130,7 +130,7 @@ slice of agent findings.
 | FR-GCOR-01 | The corpus reader shall apply every active amendment of a lineage to the newest document text before the build reads it, without changing the stored document. | Given an amendment on `orders-spec.md`, then the build reads the amended text and the stored document is byte-identical. |
 | FR-GCOR-02 | The effective revision id shall be the hash of the source revision id with the applied amendments, so that the build sees a change only when the text it reads changes. | Given an unchanged document and unchanged amendments, then two corpus reads give the same effective revision id. |
 | FR-GCOR-03 | The clarifications document shall be generated from the applied and pending clarifications of placement `document` on every corpus read, with origin `todo_answer`. | Given one reverted and one applied clarification, then the document holds only the applied one's section. |
-| FR-GCOR-04 | After an apply build, only the amended fragments shall be re-extracted. | Given one amended section, then the build's change report touches only that fragment's nodes and the plan re-plans only their stories. |
+| FR-GCOR-04 | After an apply build, only the amended fragments shall be re-extracted. | Given one amended section, then the build's change report touches only that fragment's nodes and the plan re-plans only the planning parts that hold them. |
 | FR-GCOR-05 | "Download with answers" shall export the effective text of one document. | Given an amended document, then the export equals the text the build read. |
 
 ## Reconcile ([reconcile.md](reconcile.md))
@@ -165,7 +165,7 @@ slice of agent findings.
 | FR-GPLN-02 | `GapService` shall satisfy the plan's findings read port, so briefs, previews and story counts show open gaps. | Given an open gap about a requirement, then the brief of the task implementing it lists the gap with its question. |
 | FR-GPLN-03 | A task that implements a node an open blocker gap is `ABOUT` shall not be claimable, and the refusal shall name the gap. | Given a blocker gap about `REQ::FR::PLACE_ORDER`, when an agent claims the Place order story, then the claim is refused naming the gap id. |
 | FR-GPLN-04 | Held tasks shall be released when the gap resolves, is dismissed or becomes obsolete. | Given the blocker gap resolved, then the story can be claimed. |
-| FR-GPLN-05 | A gap answer shall re-plan only the stories whose members the apply build changed. | Given the cancel-paid-order answer applied, then only `STORY::ORDERS_SERVICE::PLACE_ORDER` is re-planned and every other story is reused. |
+| FR-GPLN-05 | A gap answer shall re-plan only the planning parts whose members the apply build changed; every other part is reused (graph.plan reuses planner answers per part, `docs/graph/plan/plan.md` "Reuse"). | Given the cancel-paid-order answer applied, then the part that holds `STORY::ORDERS_SERVICE::PLACE_ORDER` is planned again, every other part is reused, and only stories of re-planned parts get new tasks. |
 
 ## Development gaps ([lifecycle.md](lifecycle.md) "Development gaps")
 

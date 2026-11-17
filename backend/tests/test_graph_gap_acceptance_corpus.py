@@ -98,7 +98,7 @@ async def test_fr_gcor_03_clarifications_document_generated_applied_pending_clar
 
 async def test_fr_gcor_04_after_apply_build_amended_fragments_re_extracted(tmp_path: Path) -> None:
     """Given one amended section, then the build's change report touches only that fragment's nodes and the plan
-    re-plans only their stories.
+    re-plans only the planning parts that hold them.
 
     The update build is simulated (``gap_close_support.apply_build``): only the Place order section's text changed,
     so only its fragment is new; the plan runs ``update`` over that build's change report.
@@ -112,7 +112,8 @@ async def test_fr_gcor_04_after_apply_build_amended_fragments_re_extracted(tmp_p
     nodes = {node.spec_id: node for node in await rig.world.reader.nodes(rig.project_id)}
     touched = {*rebuilt.report.added, *rebuilt.report.changed_evidence}
     assert all(any(item.fragment_id == fragment for item in nodes[spec_id].provenance) for spec_id in touched)
-    assert planned.stories == {PLACE_STORY}
+    holding = {part for part, stories in planned.part_stories.items() if stories & planned.stories}
+    assert planned.stories == {PLACE_STORY} and planned.replanned == holding
     assert corpus_text(ORDERS).count(Planted.STATED_QUESTION_LINE) == 1
 
 

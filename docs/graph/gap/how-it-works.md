@@ -63,8 +63,8 @@ The shop spec says, under "Place order": "Can a customer cancel a paid order?". 
    that fragment: the question node is removed and `REQ::FR::CANCEL_PAID_ORDER` is added.
 9. **Close.** The gap run after the build finds OQ-STATED silent on that line and the answer grounded in the
    new fragment: the gap is resolved, and the clarification gets `GROUNDED_IN`.
-10. **Re-plan.** The plan run receives the change report and re-plans only the "Place order" story, which
-    gets one new task. Every other story is reused.
+10. **Re-plan.** The plan run receives the change report and plans again only the planning part that holds the
+    "Place order" story; the "Place order" story gets one new task. Every other part is reused.
 
 Months later anyone can walk from `REQ::FR::CANCEL_PAID_ORDER` to its fragment, to the clarification, to the
 gap, and read who decided and why.
