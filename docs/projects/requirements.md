@@ -17,7 +17,7 @@ and link the section that defines it; values live only there. Decisions (D1-D29)
 |---|---|---|
 | FR-PRJ-ROLE-01 | When a user creates a project, the API shall make that user its `owner` (D1). | Given `POST /projects`, then one member row with the caller and role `owner`. |
 | FR-PRJ-ROLE-02 | The database shall refuse a second `owner` row in a project (D1). | Given a project with an owner, when another `owner` row is inserted, then a unique violation. |
-| FR-PRJ-ROLE-03 | The schema shall allow only the roles `owner` and `collaborator`, with no default role (D31, D32). | Given a database created by `0001_initial`, inserting `role='editor'` or an insert without a role fails. |
+| FR-PRJ-ROLE-03 | The schema shall allow only the roles `owner` and `collaborator`, with no default role (D31, D33). | Given a database at the head revision, inserting `role='editor'` or an insert without a role fails. |
 
 ## Access ([api.md](api.md#access))
 

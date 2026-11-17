@@ -1,7 +1,7 @@
 ---
 type: DataModel
 title: "Project collaborators data model"
-description: "Roles, the project_invites table, invite adoption, the limit, the migration (folded into 0001), row-level security and indexes"
+description: "Roles, the project_invites table, invite adoption, the limit, the migration (0002), row-level security and indexes"
 status: stable
 tags: [projects, database]
 ---
@@ -15,7 +15,7 @@ tags: [projects, database]
 |---|---|---|
 | DM1 | Every project has exactly one `owner` row, its creator (`projects.created_by`). | `create_project` inserts it; unique index `ux_project_members_one_owner` |
 | DM2 | The owner row is never deleted and its role never changes. | API: no route removes or demotes the owner; the owner cannot leave |
-| DM3 | Every insert states its role; the column has no default. | `0001_initial` |
+| DM3 | Every insert states its role; the column has no default. | revision `0002_project_collaborators` |
 | DM4 | Access to a project = a member row, whatever the role ([../mcp-server/access-control.md](../mcp-server/access-control.md)). | `db.repositories.get_membership` (one query; `get_member_project` uses it) |
 
 ## Invites
@@ -70,17 +70,34 @@ members and leaves the count unchanged.
 
 ## Migration
 
-There is no incremental migration (the repository's development rule, `backend/migrations/README`; decision D32). The
-whole schema above lives in `0001_initial`, in its final shape:
+The schema change is the revision `0002_project_collaborators` (down revision `0001_initial`), written by hand
+(decision D33; `backend/migrations/README`). `0001_initial` is the 2.0.0 schema and is frozen. `specflow migrate`
+(`alembic upgrade head`) upgrades a deployed database in place; nothing is recreated and no data is lost. The revision:
 
-- `project_members.role` with `ck_project_members_role` as `role IN ('owner', 'collaborator')` and no default;
-- the unique partial index `ux_project_members_one_owner`: UNIQUE `(project_id) WHERE role = 'owner'`;
-- `project_invites` with its constraints and indexes, row-level security on and the `agent_project_scope` policy; no grant;
-- `ix_users_email_lower` on `lower(email)`.
+- replaces `ck_project_members_role` with `role IN ('owner', 'collaborator')` and drops the default of `project_members.role`;
+- creates the unique partial index `ux_project_members_one_owner`: UNIQUE `(project_id) WHERE role = 'owner'`;
+- creates `project_invites` with its constraints and indexes, turns row-level security on and adds the `agent_project_scope`
+  policy; no grant;
+- creates `ix_users_email_lower` on `lower(email)`.
 
-There is no trigger, data rewrite or upgrade path. A database created before this change must be recreated
-(`make down-volumes`, then `make up`); the data in it is lost. Deployments only run `alembic upgrade`, which on an empty
-database creates the schema.
+Existing members keep their role (always `owner`), with one exception. A project that holds more than one `owner` row
+(the 2.0.0 application never wrote one, but a seed script or a manual insert could have) cannot take the one-owner
+index, so the revision normalises it after the new CHECK exists and before the index is created: the project's creator
+(`projects.created_by`) stays `owner` when that user is an owner member of the project, otherwise the owner row with the
+earliest `joined_at` stays (ties: the smallest `user_id`). Every other owner row of that project becomes `collaborator`
+and keeps its access. It is one `UPDATE` (SQLAlchemy Core, in the revision); a project with a single owner is not
+touched, so a second run changes nothing. There is no trigger and no other data rewrite.
+
+The first online statement of the upgrade and of the downgrade is `SET LOCAL lock_timeout = '10s'`. If a lock is not
+granted in time, the whole transaction rolls back (nothing is half applied) and the next start of the api retries it.
+
+The revision can be run again. A database built from a temporary `0001_initial` that already held these objects is
+stamped `0001_initial`, and for it the revision changes nothing: every statement is `IF [NOT] EXISTS`, or drops and
+re-creates what the revision owns. The SQL is in `backend/migrations/sql/0002_*.sql`.
+
+The downgrade returns to the 2.0.0 schema: it deletes the `collaborator` rows, drops `project_invites` (with its policy and
+indexes) and the two new indexes, and restores `role IN ('owner')` and the default `'owner'`. The collaborators and the
+pending invites are lost (story claims of those users in the graph store have no foreign key and stay behind).
 
 ## Row-level security
 

@@ -1,11 +1,11 @@
 ---
 type: Questions
 title: "Project collaborators decisions"
-description: "Decision record of project collaborators: owner decisions and defaults (D1-D32), design choices with rejected options, follow-ups"
+description: "Decision record of project collaborators: owner decisions and defaults (D1-D33), design choices with rejected options, follow-ups"
 status: stable
 tags: [projects]
 ---
-# questions.md: decisions of project collaborators (D1-D32), design choices, follow-ups
+# questions.md: decisions of project collaborators (D1-D33), design choices, follow-ups
 
 Decided 2026-11-17. "Owner" = the product owner; "default" = proposed during design and kept after review. Every spec
 file is written as decided; this file records why.
@@ -44,7 +44,8 @@ file is written as decided; this file records why.
 | D28 | Confirmation before remove and cancel; "n of 50" count; Settings after SpecBot. | default |
 | D29 | Layout A2; a collaborator does not see the project name block; collaborator view = read-only list + "Leave project". | owner |
 | D31 | Roles are `owner` (the creator, one per project) and `collaborator`, in the database, the API and the frontend; the badge reads \"Owner\". Error codes `owner_required`, `cannot_remove_owner`, `owner_cannot_leave`; index `ux_project_members_one_owner`. | owner |
-| D32 | No incremental migration: the schema change is folded into `0001_initial` (the repository's development rule). Existing databases are recreated; deployments only run `alembic upgrade`. No legacy trigger. | owner |
+| D32 | Superseded by D33. The schema change was first folded into `0001_initial` (the repository's then development rule of one revision). | owner |
+| D33 | Incremental migrations from now on (2026-11-17); deployed databases are never recreated. `0001_initial` is frozen (the 2.0.0 schema) and the schema change is the revision `0002_project_collaborators`. 0002 is re-runnable (`IF [NOT] EXISTS`) because some databases were built from a temporary `0001_initial` that already held the change and are stamped `0001_initial`; for them it changes nothing. Supersedes D32. | owner |
 
 ## Design choices
 

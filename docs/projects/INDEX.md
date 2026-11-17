@@ -8,7 +8,7 @@ person's story claims. Membership stays the only rule for reading and working on
 # overview.md: purpose, scope, actors, non-goals, boundaries, key terms
 - [overview.md](overview.md)
 
-# data-model.md: roles, invites, email matching, invite adoption, limit, the migration (folded into 0001), row-level security
+# data-model.md: roles, invites, email matching, invite adoption, limit, the migration (0002), row-level security
 - [data-model.md](data-model.md)
 
 # api.md: access, routes, shapes, errors, email rules, add, remove/leave and claims, rename, suggestions, Create Project, log events
@@ -20,5 +20,5 @@ person's story claims. Membership stays the only rule for reading and working on
 # requirements.md: requirement units FR-PRJ-ROLE, ACC, MEM, INV, CLM, NAME, SUG, CRT, UI and NFR-PRJ
 - [requirements.md](requirements.md)
 
-# questions.md: decisions D1-D32, design choices with rejected options, follow-ups
+# questions.md: decisions D1-D33, design choices with rejected options, follow-ups
 - [questions.md](questions.md)

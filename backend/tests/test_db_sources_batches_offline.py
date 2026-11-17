@@ -179,7 +179,6 @@ def test_the_downgrade_only_drops_the_tables() -> None:
         "connection_items",
         "documents",
         "connections",
-        "project_invites",
         "project_members",
         "projects",
         "users",

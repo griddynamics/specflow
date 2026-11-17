@@ -320,17 +320,16 @@ The service (`src/db/`) owns the schema: models `User`,
 `Project`, `ProjectMember`, `Document` (`models.py`), an async asyncpg engine
 and session factory (`session.py`), repositories (`repositories.py`) and the
 RLS-scoped agent session (`agent_scope.py`). Alembic (`alembic.ini`,
-`migrations/`) has one hand-written revision, `0001_initial`: every table in its
-final shape (users, projects, project_members, connections, documents,
-connection_items), row-level security for the agent role on every project-scoped
-table and its column-level grant on `documents`. `DatabaseSettings` (in
+`migrations/`) has hand-written revisions: `0001_initial` (frozen, the 2.0.0 schema: users, projects,
+project_members, connections, documents, connection_items, row-level security for the
+agent role on every project-scoped table and its column-level grant on `documents`)
+and `0002_project_collaborators` (the second member role, `project_invites`). `DatabaseSettings` (in
 `src/settings.py`) reads `DATABASE_*`.
 
-While the application is in development there are no incremental migrations and no
-backfills: on a schema change, edit the models and `migrations/versions/0001_initial.py`
-together, then recreate the database from scratch with `make down-volumes` and
-`make up` (details in `migrations/README`). A database stamped with an older revision
-(such as `0005`) fails `alembic upgrade` and is recreated the same way.
+Every schema change is a new hand-written revision; an applied revision is never edited.
+Edit the models and `sql-schema.json` in step, then run `specflow migrate` (details in
+`migrations/README`). Only a database stamped with a revision that no longer exists
+(such as `0005`) is recreated.
 The `postgres` service of the root `docker-compose.yml` runs `pgvector/pgvector:0.8.7-pg17`
 (PostgreSQL 17 with the pgvector extension, for the PostgreSQL graph store) with `backend/postgres-init/`
 mounted as its init folder. On its first start
@@ -350,9 +349,9 @@ initialised with, so changing `.env.local` later does not change the database ro
 ```shell
 make up                        # repository root; postgres on 127.0.0.1:5433 (DATABASE_PORT)
 make db-upgrade                # alembic upgrade head from the host (root or backend/)
-cd backend && uv run --env-file ../.env.local alembic current   # 0001_initial (head)
+cd backend && uv run --env-file ../.env.local alembic current   # 0002_project_collaborators (head)
 cd backend && uv run --env-file ../.env.local alembic check     # the models match the revision
-make down-volumes && make up   # after editing 0001_initial: recreate the database from scratch
+# never recreate for a schema change; only a DB stamped with a vanished revision is recreated (make down-volumes && make up)
 ```
 
 `make db-upgrade` prints nothing on success, because Alembic's log records
