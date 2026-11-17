@@ -1,6 +1,6 @@
-"""Fill a scratch database at revision 0004 with synthetic sources data (migration rehearsal).
+"""Fill a scratch database at revision 0002_project_collaborators with synthetic sources data (migration rehearsal).
 
-Run from ``backend/``, against a LOCAL scratch database that is migrated to 0004 and
+Run from ``backend/``, against a LOCAL scratch database that is migrated to 0002_project_collaborators and
 empty (SPECS sources-ux 3.2 "Rehearsal", H1(01)):
 
     uv run --env-file ../.env.local examples/seed_synthetic_sources.py --database specflow_rehearsal
@@ -25,7 +25,7 @@ seed, a summary of what was generated (counts and ids only, no names).
 
 Safety (each refusal exits 2): ``--database`` is required and must start with
 ``specflow_rehearsal`` or ``specflow_pytest_``; the host must be local (localhost, 127.0.0.1
-or ::1); a seed needs ``alembic_version = '0004'`` and no user yet. ``--counts`` only reads.
+or ::1); a seed needs ``alembic_version = '0002_project_collaborators'`` and no user yet. ``--counts`` only reads.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ from settings import DatabaseConfigurationError, DatabaseSettings
 
 SAFE_NAMES: Final = ("specflow_rehearsal", "specflow_pytest_")
 LOCAL_HOSTS: Final = frozenset({"localhost", "127.0.0.1", "::1"})
-REVISION: Final = "0004"
+REVISION: Final = "0002_project_collaborators"
 TABLES: Final = (
     "users",
     "projects",
@@ -94,7 +94,7 @@ ERROR_REASONS: Final = (
 )
 INSERT_USER: Final = text("INSERT INTO users (id, actor_id, display_name, email) VALUES (:id, :actor, :name, :email)")
 INSERT_PROJECT: Final = text("INSERT INTO projects (id, name, created_by) VALUES (:id, :name, :by)")
-INSERT_MEMBER: Final = text("INSERT INTO project_members (project_id, user_id, role) VALUES (:p, :u, 'owner')")
+INSERT_MEMBER: Final = text("INSERT INTO project_members (project_id, user_id, role) VALUES (:p, :u, :role)")
 INSERT_DOCUMENT: Final = text(
     "INSERT INTO documents (id, project_id, content_hash, original_filename, media_type, size_bytes, "
     "origin, original_key, status, error, uploaded_by, created_at, updated_at) VALUES (:id, :p, :hash, "
@@ -169,8 +169,11 @@ class Generator:
                 "by": owner["id"],
             }
             self.projects.append(project)
-            for user in {owner["id"], self.users[(n + 1) % len(self.users)]["id"]}:
-                self.members.append({"p": project["id"], "u": user})
+            # one owner per project (ux_project_members_one_owner); the second member collaborates
+            self.members.append({"p": project["id"], "u": owner["id"], "role": "owner"})
+            other = self.users[(n + 1) % len(self.users)]["id"]
+            if other != owner["id"]:
+                self.members.append({"p": project["id"], "u": other, "role": "collaborator"})
 
     def _members_of(self, project: dict[str, Any]) -> list[uuid.UUID]:
         return [m["u"] for m in self.members if m["p"] == project["id"]]

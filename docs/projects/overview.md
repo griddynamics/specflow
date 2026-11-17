@@ -53,7 +53,7 @@ Membership stays the one access rule for reading and working on a project, on ev
 
 | Component | Change |
 |---|---|
-| Postgres | `project_members.role` values, new `project_invites` table, the schema folded into `0001_initial` ([data-model.md](data-model.md)) |
+| Postgres | `project_members.role` values, new `project_invites` table, the revision `0002_project_collaborators` ([data-model.md](data-model.md)) |
 | API (`backend/src/api`) | member, invite, leave, rename and suggestion routes; `POST /projects` accepts collaborator emails ([api.md](api.md)) |
 | `db.repositories.upsert_user` | also adopts pending invites (both surfaces call it) |
 | Graph store | none; removal calls the existing forced story release |

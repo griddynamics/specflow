@@ -8,17 +8,15 @@ recreated (``make down-volumes`` and ``make up``).
 Written out by hand (not from the models); ``alembic check`` proves the models still
 match. It never imports ``src``.
 
-Tables: users, projects, project_members, project_invites, connections, documents,
-connection_items. A member is the project ``owner`` (the creator, exactly one per project) or
-a ``collaborator``; project_invites holds emails invited before their first sign-in.
+Tables: users, projects, project_members, connections, documents, connection_items.
 A Drive folder and a Local files batch (kind ``upload``) are both ``connections``
 rows; ``documents.source_id`` is the one source that holds each piece of content.
 
 Agent access, per the project-scoped data access design:
 the agent role (``DATABASE_AGENT_USER``, resolved in migrations/env.py into
 ``config.attributes["agent_user"]``) gets the policy ``agent_project_scope`` on every
-project-scoped table (projects, project_members, project_invites, documents,
-connections, connection_items) and exactly one grant: SELECT on the ``documents`` columns its tools
+project-scoped table (projects, project_members, documents, connections,
+connection_items) and exactly one grant: SELECT on the ``documents`` columns its tools
 read, including ``markdown`` (DEV-2b). No grant on any other table; those policies stay
 as defense in depth. The table owner (the application role) is not subject to RLS.
 
@@ -28,8 +26,8 @@ locally and on a managed deployment. Online, a missing role, or one with SUPERUS
 (RLS would not apply to it), fails this revision; offline (``--sql``) the check is
 skipped with a comment.
 
-downgrade() drops the seven tables this revision creates, users, projects,
-project_members, project_invites, connections, documents and connection_items, which also drops their
+downgrade() drops the six tables this revision creates, users, projects,
+project_members, connections, documents and connection_items, which also drops their
 indexes, constraints, the agent_project_scope policies and the agent role's grant.
 
 Revision ID: 0001_initial
@@ -62,7 +60,6 @@ POLICY = "agent_project_scope"
 SCOPED_TABLES = (
     ("projects", "id"),
     ("project_members", "project_id"),
-    ("project_invites", "project_id"),
     ("documents", "project_id"),
     ("connections", "project_id"),
     ("connection_items", "project_id"),
@@ -70,15 +67,7 @@ SCOPED_TABLES = (
 AGENT_DOCUMENT_COLUMNS = ("id", "project_id", "original_filename", "version", "status", "markdown")
 SCOPE = "NULLIF(current_setting('app.project_id', true), '')::uuid"
 # In creation order; downgrade() drops them in reverse, each before the tables it references.
-CREATED_TABLES = (
-    "users",
-    "projects",
-    "project_members",
-    "project_invites",
-    "connections",
-    "documents",
-    "connection_items",
-)
+CREATED_TABLES = ("users", "projects", "project_members", "connections", "documents", "connection_items")
 
 CONNECTION_KINDS = ("gdrive", "upload")
 CONNECTION_STATES = ("listing", "importing", "done", "failed")
@@ -191,8 +180,6 @@ def _create_users() -> None:
         unique=True,
         postgresql_where=sa.text("auth_subject IS NOT NULL"),
     )
-    # Case-insensitive email lookups (collaborator add, invite adoption).
-    op.create_index("ix_users_email_lower", "users", [sa.text("lower(email)")])
 
 
 def _create_projects() -> None:
@@ -218,41 +205,15 @@ def _create_project_members() -> None:
         "project_members",
         sa.Column("project_id", UUID, nullable=False),
         sa.Column("user_id", UUID, nullable=False),
-        sa.Column("role", sa.Text(), nullable=False),
+        sa.Column("role", sa.Text(), server_default=sa.text("'owner'"), nullable=False),
         sa.Column("bio", sa.Text(), nullable=True),
         _timestamp("joined_at"),
-        sa.CheckConstraint("role IN ('owner', 'collaborator')", name=op.f("ck_project_members_role")),
+        sa.CheckConstraint("role IN ('owner')", name=op.f("ck_project_members_role")),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], name="fk_project_members_project_id_projects"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], name="fk_project_members_user_id_users"),
         sa.PrimaryKeyConstraint("project_id", "user_id", name="pk_project_members"),
     )
     op.create_index("ix_project_members_user_id", "project_members", ["user_id"])
-    # Exactly one owner per project.
-    op.create_index(
-        "ux_project_members_one_owner",
-        "project_members",
-        ["project_id"],
-        unique=True,
-        postgresql_where=sa.text("role = 'owner'"),
-    )
-
-
-def _create_project_invites() -> None:
-    # An email invited before its first sign-in; the first sign-in adopts it. No agent grant.
-    op.create_table(
-        "project_invites",
-        sa.Column("id", UUID, nullable=False),
-        sa.Column("project_id", UUID, nullable=False),
-        sa.Column("email_norm", sa.Text(), nullable=False),
-        sa.Column("invited_by", UUID, nullable=False),
-        _timestamp(),
-        sa.CheckConstraint("email_norm = lower(btrim(email_norm))", name=op.f("ck_project_invites_email_norm")),
-        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], name="fk_project_invites_project_id_projects"),
-        sa.ForeignKeyConstraint(["invited_by"], ["users.id"], name="fk_project_invites_invited_by_users"),
-        sa.PrimaryKeyConstraint("id", name="pk_project_invites"),
-        sa.UniqueConstraint("project_id", "email_norm", name="uq_project_invites_project_id_email_norm"),
-    )
-    op.create_index("ix_project_invites_email_norm", "project_invites", ["email_norm"])
 
 
 def _create_connections() -> None:
@@ -475,7 +436,6 @@ def upgrade() -> None:
     _create_users()
     _create_projects()
     _create_project_members()
-    _create_project_invites()
     _create_connections()
     _create_documents()
     _create_connection_items()
