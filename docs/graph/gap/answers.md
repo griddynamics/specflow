@@ -416,7 +416,8 @@ line. "Won't decide now" is a suppression too; the gap returns when its lines ch
 ## Who answers
 
 Any member of the project may answer, dismiss or revert a gap; the host checks membership. `answered_by`
-and every event record the user id. There are no roles in this release ([later.md](later.md)).
+and every event record the user id. The owner and the collaborators of a project answer alike: no role limits who
+answers which gap in this release ([later.md](later.md)).
 
 ## Raising a gap by hand
 

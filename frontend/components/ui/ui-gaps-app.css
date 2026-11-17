@@ -88,3 +88,23 @@
   justify-self: start;
   padding-top: var(--space-2xs);
 }
+
+/* PeoplePicker email mode: a chip the API refused, and the message lines under the field. */
+.gdg-chip.gdg-chip--error {
+  border-color: var(--danger);
+  border-width: 2px;
+  padding: 1px 3px 1px 2px; /* the 2px border keeps the chip the same size */
+  color: var(--danger);
+  font-weight: 600;
+  background: var(--glass-fill-strong);
+}
+.gdg-chip.gdg-chip--error button {
+  color: var(--danger);
+}
+/* The text may start right after the chips: it needs far less than 160px, and the box wraps only when the line is really full. */
+.gdg-pp .gdg-pp__box input {
+  min-width: 96px;
+}
+.gdg-pp .gdg-pp__error {
+  color: var(--danger);
+}

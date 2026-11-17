@@ -73,7 +73,7 @@ draft: no tool, route or rule in it is built.
 | Identity | OAuth through the organization's identity provider. The user is the token's subject. No tool takes a user argument (AC9) |
 | OAuth client | One public client, `specflow-mcp`, with loopback redirects on port 8765 only ([auth.md](auth.md)) |
 | Assignment | None. A gap has `created_by` and, for a development gap, `story_id`. Stories have claims with one holder ([../graph/gap/data-model.md](../graph/gap/data-model.md)) |
-| Members | The only project role is `owner`, and there is no member route, so a project has only its creator as member |
+| Members | A project has one owner and collaborators ([../projects/overview.md](../projects/overview.md)); any member may answer a gap |
 | Web app | The Gaps screen already does the full answer flow with the GD Liquid Glass design system ([../design-system/USAGE.md](../design-system/USAGE.md)) |
 | Deferred items | [later.md](later.md) already lists "MCP Apps tables" and "Streamed responses" (elicitation) |
 
@@ -227,8 +227,8 @@ Deferred: assignment (D2), upload (D3), the CLI form.
 ## Deferred designs
 
 Assignment (D2). Three ways were weighed: derived (gaps about the stories I hold, and gaps I raised), explicit (a
-`gap_assignment` table with `take_gap` and `release_gap` that work like `claim_story`), or both. The precondition is a
-project with more than one member, which does not exist today.
+`gap_assignment` table with `take_gap` and `release_gap` that work like `claim_story`), or both. Its precondition, a
+project with more than one member, exists since the project collaborators.
 
 Upload (D3). Three meanings were weighed: the file becomes spec source through the existing corpus upload, the
 view reads a text file into Other, or the file is an attachment for people only. Three transports were weighed:

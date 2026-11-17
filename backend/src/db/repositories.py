@@ -13,19 +13,22 @@ import base64
 import binascii
 import re
 import uuid
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, make_dataclass
 from datetime import UTC, datetime
 from typing import Any, Final, Protocol
 
-from sqlalchemy import ColumnElement, Select, and_, func, or_, select, update
+from sqlalchemy import ColumnElement, Select, Text, and_, delete, func, literal, or_, select, update
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 
-from db.models import Document, Project, ProjectMember, User
+from auth.emails import normalise_email
+from db.members import COLLABORATOR, add_checked_collaborators, shown_name
+from db.models import Document, Project, ProjectInvite, ProjectMember, User
 from db.sources import UPLOAD_STALE_AFTER, DocumentFile
 from logger.logger import INFO, get_logger, log_event
 
@@ -164,12 +167,20 @@ async def _page[M: (Project, Document)](
 
 
 async def upsert_user(session: AsyncSession, principal: UserPrincipal) -> User:
-    """Find the user by ``auth_subject`` or create it just in time.
+    """Find the user by ``auth_subject`` or create it just in time, then adopt its pending invites.
 
     Email and display name are refreshed from the token on every call. The
     actor id is ``human:<local part>``, or ``human:<sub>`` when that is taken.
+    Whichever way the user was resolved (existing, new, or the winner of a
+    concurrent first sign-in), ``adopt_invites`` runs once before returning.
     """
 
+    user = await _resolve_user(session, principal)
+    await adopt_invites(session, user.id, principal.email)
+    return user
+
+
+async def _resolve_user(session: AsyncSession, principal: UserPrincipal) -> User:
     display_name = (principal.name or principal.email)[:DISPLAY_NAME_MAX]
     user = await session.scalar(select(User).where(User.auth_subject == principal.subject))
     if user is not None:
@@ -200,14 +211,54 @@ async def upsert_user(session: AsyncSession, principal: UserPrincipal) -> User:
     raise RuntimeError("could not provision the user: both actor ids are taken")
 
 
-async def create_project(session: AsyncSession, user_id: uuid.UUID, name: str) -> Project:
-    """Insert the project and its creator as the ``owner`` member."""
+async def adopt_invites(session: AsyncSession, user_id: uuid.UUID, email: str) -> list[uuid.UUID]:
+    """Turn every pending invite of ``email`` (normalised) into a ``collaborator`` row of ``user_id``.
+
+    One statement (docs/projects/data-model.md "Invite adoption"): the DELETE locks the rows, so a concurrent
+    request of the same user deletes none and inserts nothing. An email the normaliser rejects adopts nothing and
+    never fails the request. Returns the adopted project ids; one ``db.invite.adopted`` event each (ids only).
+    """
+
+    norm = normalise_email(email)
+    if norm is None:
+        return []
+    adopted = (
+        delete(ProjectInvite)
+        .where(ProjectInvite.email_norm == norm)
+        .returning(ProjectInvite.project_id)
+        .execution_options(synchronize_session=False)
+        .cte("adopted")
+    )
+    statement = (
+        postgresql.insert(ProjectMember)
+        .from_select(
+            ["project_id", "user_id", "role"],
+            select(adopted.c.project_id, literal(user_id, ProjectMember.user_id.type), literal(COLLABORATOR, Text)),
+        )
+        .on_conflict_do_nothing()
+        .returning(ProjectMember.project_id)
+    )
+    project_ids = list((await session.scalars(statement)).all())
+    for project_id in project_ids:
+        log_event(logger, INFO, "db.invite.adopted", user_id=str(user_id), project_id=str(project_id))
+    return project_ids
+
+
+async def create_project(
+    session: AsyncSession, user_id: uuid.UUID, name: str, collaborators: Sequence[str] = ()
+) -> Project:
+    """Insert the project and its creator as the ``owner`` member.
+
+    ``collaborators`` are checked, normalised emails (``auth.emails.check_collaborators``): each becomes a
+    ``collaborator`` row when a user has that email, else an invite, in this same transaction.
+    """
 
     project = Project(name=name, created_by=user_id)
     session.add(project)
     await session.flush()
     session.add(ProjectMember(project_id=project.id, user_id=user_id, role="owner"))
     await session.flush()
+    await add_checked_collaborators(session, project.id, user_id, collaborators)
     await session.refresh(project)
     return project
 
@@ -226,10 +277,27 @@ async def list_projects(
     return await _page(session, _member_projects(user_id), Project, limit, cursor)
 
 
-async def get_member_project(session: AsyncSession, user_id: uuid.UUID, project_id: uuid.UUID) -> Project | None:
-    """The project when ``user_id`` is a member, else ``None`` (the API answers 404)."""
+async def get_membership(
+    session: AsyncSession, user_id: uuid.UUID, project_id: uuid.UUID
+) -> tuple[Project, str] | None:
+    """``(project, role)`` when ``user_id`` is a member (any role), else ``None``: the one membership query that
+    decides 404 ``project_not_found`` and 403 ``owner_required`` (docs/projects/api.md "Access")."""
 
-    return await session.scalar(_member_projects(user_id).where(Project.id == project_id))
+    row = (
+        await session.execute(
+            select(Project, ProjectMember.role)
+            .join(ProjectMember, ProjectMember.project_id == Project.id)
+            .where(ProjectMember.user_id == user_id, Project.id == project_id)
+        )
+    ).one_or_none()
+    return None if row is None else (row[0], row[1])
+
+
+async def get_member_project(session: AsyncSession, user_id: uuid.UUID, project_id: uuid.UUID) -> Project | None:
+    """The project when ``user_id`` is a member, else ``None`` (the API answers 404). One query: ``get_membership``."""
+
+    found = await get_membership(session, user_id, project_id)
+    return None if found is None else found[0]
 
 
 async def member_names(
@@ -248,8 +316,7 @@ async def member_names(
         .where(ProjectMember.project_id == project_id, User.id.in_(list(names)))
     )
     for user_id, display_name, email in rows:
-        is_address = "@" in display_name or display_name.casefold() == (email or "").casefold()
-        names[user_id] = None if is_address else display_name
+        names[user_id] = shown_name(display_name, email)
     return names
 
 

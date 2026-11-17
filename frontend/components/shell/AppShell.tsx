@@ -66,7 +66,8 @@ function ShellFrame({ children, accountItems }: Readonly<{ children: ReactNode; 
   const routeProject = Array.isArray(params.projectId) ? params.projectId[0] : params.projectId;
   const slot = useCreateProjectSlot();
   const me = useMe();
-  const list = useProjectList();
+  // The home route is where a collaborator lands after leaving a project: read the list again there, so the switcher drops it.
+  const list = useProjectList(pathname === routes.home() ? "home" : undefined);
 
   const mainRef = useRef<HTMLElement>(null);
 
@@ -96,6 +97,14 @@ function ShellFrame({ children, accountItems }: Readonly<{ children: ReactNode; 
   // Writer 2: no project in the path (Connections) and none stored -> the default (§1.8).
   useEffect(() => {
     if (routeProject !== undefined || current !== null || list === null) return;
+    const fallback = fallbackProjectId(list.map((p) => p.id));
+    if (truthy(fallback)) setCurrentRef.current(fallback);
+  }, [routeProject, current, list]);
+
+  // Writer 3: the current project is no longer in the refreshed list (left, or removed) -> the newest remaining one.
+  useEffect(() => {
+    if (routeProject !== undefined || current === null || list === null) return;
+    if (list.some((p) => p.id === current)) return;
     const fallback = fallbackProjectId(list.map((p) => p.id));
     if (truthy(fallback)) setCurrentRef.current(fallback);
   }, [routeProject, current, list]);

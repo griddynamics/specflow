@@ -69,6 +69,7 @@ commands are in [**QUICKSTART.md**](QUICKSTART.md).
 - [QUICKSTART.md](QUICKSTART.md): run it, how it fits together, develop
 - [docs/configuration.md](docs/configuration.md): every setting
 - [docs/graph/](docs/graph/INDEX.md): how the knowledge graph is built; [docs/graph/plan/](docs/graph/plan/INDEX.md): implementation plans on the graph
+- [docs/projects/](docs/projects/INDEX.md): project collaborators and the Settings screen
 - [docs/file-parsers/](docs/file-parsers/INDEX.md): how uploads and Drive files become Markdown
 - [Rosetta](https://github.com/griddynamics/rosetta): the harness that turns plan steps into reviewed code
 

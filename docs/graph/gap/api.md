@@ -358,7 +358,8 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
   missed; it never raises (`api.gap.recover_failed`) ([answers.md](answers.md) "Restarts and failures").
 
 The host also:
-- adds the relational tables of [data-model.md](data-model.md) "Relational store" in one migration;
+- adds the relational tables of [data-model.md](data-model.md) "Relational store" in one migration, the revision
+  `0003_gap_module` (`backend/migrations/versions/`);
 - changes the corpus reader (`PostgresCorpusSource(session_factory, answers=...)`, `api/graph_build/corpus.py`) to
   apply answers when the gap module is on. `answers` is the gap runner (`CorpusAnswers.corpus_answers(project_id)` ->
   `CorpusAnswersRead`: the amendments to apply by lineage through `Amendments`, and the clarifications of the

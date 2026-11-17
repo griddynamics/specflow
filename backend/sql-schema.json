@@ -709,11 +709,51 @@
         }
       }
     },
+    "pg_roles": {
+      "columns": {
+        "rolname": {
+          "type": "text"
+        },
+        "rolsuper": {
+          "type": "bool"
+        },
+        "rolbypassrls": {
+          "type": "bool"
+        }
+      }
+    },
+    "project_invites": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "email_norm": {
+          "type": "text"
+        },
+        "invited_by": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "created_at": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        "email_norm"
+      ]
+    },
     "project_members": {
       "columns": {
         "project_id": {
           "type": "uuid",
-          "fk": "projects.id"
+          "fk": "projects.id",
+          "unique": {
+            "where": "role = 'owner'"
+          }
         },
         "user_id": {
           "type": "uuid",

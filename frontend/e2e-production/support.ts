@@ -289,6 +289,25 @@ export async function settleGaps(pid: string): Promise<void> {
   await control("POST", "/settle-gaps", { pid });
 }
 
+/** The stub's collaborator knobs; `resetPeopleState` puts them back so one case never decides another. */
+export const PEOPLE_STATE = { allowedDomains: ["example.test"], claimsReleased: 0, claimsFailed: false };
+export interface SeedMembers extends Record<string, unknown> {
+  name: string;
+  role?: "owner" | "collaborator";
+  members?: { email: string; name?: string | null; role?: string }[];
+  invites?: string[];
+  state?: Partial<typeof PEOPLE_STATE>;
+}
+export const resetPeopleState = (): Promise<void> => seedMembersState(PEOPLE_STATE);
+const seedMembersState = async (state: Partial<typeof PEOPLE_STATE>): Promise<void> => {
+  await control("POST", "/seed-members", { state });
+};
+
+/** Seeds a project in the stub where the caller is owner or collaborator, with chosen members and invites (stub-members.mjs `seed`). */
+export async function seedMembers(spec: SeedMembers): Promise<{ id: string; name: string }> {
+  return (await control("POST", "/seed-members", spec)) as { id: string; name: string };
+}
+
 /** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */
 export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> {
   expect((await bff(page, "POST", `/projects/${pid}/graph_build`, { reasoning_level: 3 })).status).toBe(202);

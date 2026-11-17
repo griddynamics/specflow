@@ -1185,6 +1185,24 @@
         "title": "ClaimsOut",
         "type": "object"
       },
+      "ClaimsOutcome": {
+        "properties": {
+          "claims_release_failed": {
+            "title": "Claims Release Failed",
+            "type": "boolean"
+          },
+          "claims_released": {
+            "title": "Claims Released",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "claims_released",
+          "claims_release_failed"
+        ],
+        "title": "ClaimsOutcome",
+        "type": "object"
+      },
       "ClarificationView": {
         "additionalProperties": false,
         "description": "A clarification as reads return it.",
@@ -3970,6 +3988,31 @@
         "title": "HolderOut",
         "type": "object"
       },
+      "InviteOut": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invited_at": {
+            "format": "date-time",
+            "title": "Invited At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "invited_at"
+        ],
+        "title": "InviteOut",
+        "type": "object"
+      },
       "MeOut": {
         "properties": {
           "actor_id": {
@@ -3997,6 +4040,145 @@
           "display_name"
         ],
         "title": "MeOut",
+        "type": "object"
+      },
+      "MemberAdd": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "MemberAdd",
+        "type": "object"
+      },
+      "MemberAddedInvite": {
+        "properties": {
+          "invite": {
+            "$ref": "#/components/schemas/InviteOut"
+          },
+          "kind": {
+            "const": "invite",
+            "default": "invite",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invite"
+        ],
+        "title": "MemberAddedInvite",
+        "type": "object"
+      },
+      "MemberAddedMember": {
+        "properties": {
+          "kind": {
+            "const": "member",
+            "default": "member",
+            "title": "Kind",
+            "type": "string"
+          },
+          "member": {
+            "$ref": "#/components/schemas/MemberOut"
+          }
+        },
+        "required": [
+          "member"
+        ],
+        "title": "MemberAddedMember",
+        "type": "object"
+      },
+      "MemberOut": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "is_you": {
+            "title": "Is You",
+            "type": "boolean"
+          },
+          "joined_at": {
+            "format": "date-time",
+            "title": "Joined At",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "collaborator"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "email",
+          "role",
+          "joined_at",
+          "is_you"
+        ],
+        "title": "MemberOut",
+        "type": "object"
+      },
+      "MembersOut": {
+        "properties": {
+          "invites": {
+            "items": {
+              "$ref": "#/components/schemas/InviteOut"
+            },
+            "title": "Invites",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberOut"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "collaborator"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "limit",
+          "members",
+          "invites"
+        ],
+        "title": "MembersOut",
         "type": "object"
       },
       "NodeBody": {
@@ -5989,6 +6171,21 @@
       "ProjectCreate": {
         "additionalProperties": false,
         "properties": {
+          "collaborators": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 49,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collaborators"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -6075,6 +6272,20 @@
           "created_at"
         ],
         "title": "ProjectOut",
+        "type": "object"
+      },
+      "ProjectRename": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ProjectRename",
         "type": "object"
       },
       "Quote": {
@@ -7850,6 +8061,72 @@
           "progress"
         ],
         "title": "StoryTaskItem",
+        "type": "object"
+      },
+      "SuggestionOut": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ],
+        "title": "SuggestionOut",
+        "type": "object"
+      },
+      "SuggestionsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "q": {
+            "title": "Q",
+            "type": "string"
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "title": "SuggestionsIn",
+        "type": "object"
+      },
+      "SuggestionsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SuggestionsOut",
         "type": "object"
       },
       "SummarizeRequest": {
@@ -10849,7 +11126,6 @@
             "name": "pid",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Pid",
               "type": "string"
             }
@@ -10878,6 +11154,56 @@
           }
         },
         "summary": "Get Project",
+        "tags": [
+          "projects"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_project_api_v1_projects__pid__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Project",
         "tags": [
           "projects"
         ]
@@ -12648,6 +12974,250 @@
         ]
       }
     },
+    "/api/v1/projects/{pid}/invites/{invite_id}": {
+      "delete": {
+        "operationId": "cancel_invite_api_v1_projects__pid__invites__invite_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invite_id",
+            "required": true,
+            "schema": {
+              "title": "Invite Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Invite",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/leave": {
+      "post": {
+        "operationId": "leave_project_api_v1_projects__pid__leave_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimsOutcome"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Leave Project",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/members": {
+      "get": {
+        "operationId": "list_members_api_v1_projects__pid__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Members",
+        "tags": [
+          "members"
+        ]
+      },
+      "post": {
+        "operationId": "add_member_api_v1_projects__pid__members_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "invite": "#/components/schemas/MemberAddedInvite",
+                      "member": "#/components/schemas/MemberAddedMember"
+                    },
+                    "propertyName": "kind"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MemberAddedMember"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MemberAddedInvite"
+                    }
+                  ],
+                  "title": "Response Add Member Api V1 Projects  Pid  Members Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Member",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/members/{user_id}": {
+      "delete": {
+        "operationId": "remove_member_api_v1_projects__pid__members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimsOutcome"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Member",
+        "tags": [
+          "members"
+        ]
+      }
+    },
     "/api/v1/projects/{pid}/plan": {
       "get": {
         "operationId": "plan_status_api_v1_projects__pid__plan_get",
@@ -13422,6 +13992,47 @@
         "summary": "Add Batch File",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/users/suggestions": {
+      "post": {
+        "operationId": "suggest_users_api_v1_users_suggestions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestionsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Users",
+        "tags": [
+          "users"
         ]
       }
     },

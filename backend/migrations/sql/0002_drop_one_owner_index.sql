@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS ux_project_members_one_owner

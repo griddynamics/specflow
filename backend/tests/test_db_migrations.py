@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import configparser
+import hashlib
 import re
 from io import StringIO
 from pathlib import Path
@@ -35,7 +36,13 @@ DATABASE_KEYS = (
 )
 DB_CRED = "dummy-pw-9f3"
 DUMMY_URL = DatabaseSettings(
-    host="offline.invalid", port=5432, name="dummy", user="dummy", password=DB_CRED, PGSSLMODE="", PGSSLROOTCERT=""
+    host="offline.invalid",
+    port=5432,
+    name="dummy",
+    user="dummy",
+    password=DB_CRED,
+    PGSSLMODE="",
+    PGSSLROOTCERT="",
 ).url()
 DUMMY_URL_STRING = DUMMY_URL.render_as_string(hide_password=False)
 
@@ -44,8 +51,20 @@ AGENT_KEYS = ("DATABASE_AGENT_USER", "DATABASE_AGENT_PASSWORD")
 AGENT_CRED = "agent-canary-pw-51d"
 SKIP_COMMENT = "-- agent role existence check skipped (offline)"
 AGENT_GRANT = "GRANT SELECT (id, project_id, original_filename, version, status, markdown) ON documents TO {role}"
-HEAD = "0001_initial"
-# The relational rows of the gap module (docs/graph/gap/data-model.md "Relational store").
+FIRST = "0001_initial"  # frozen: the 2.0.0 schema
+COLLABORATORS = "0002_project_collaborators"
+HEAD = "0003_gap_module"
+# SHA-256 of versions/0001_initial.py as 2.0.0 shipped it; a mismatch means a frozen revision was edited.
+FROZEN_0001_SHA256 = "ebc6d2e0f6ca8eef9bcbc5acde990ed151fe17fbc1945c75e5d6289a455948dc"
+INITIAL_TABLES = (
+    "users",
+    "projects",
+    "project_members",
+    "connections",
+    "documents",
+    "connection_items",
+)
+# The relational rows of the gap module (docs/graph/gap/data-model.md "Relational store"), added by 0003.
 GAP_TABLES = (
     "gap_option",
     "corpus_amendment",
@@ -59,7 +78,7 @@ GAP_TABLES = (
     "gap_note",
     "gap_event",
 )
-APP_TABLES = ("users", "projects", "project_members", "connections", "documents", "connection_items", *GAP_TABLES)
+APP_TABLES = (*INITIAL_TABLES, "project_invites", *GAP_TABLES)
 SCOPED_TABLES = (
     ("projects", "id"),
     ("project_members", "project_id"),
@@ -68,6 +87,7 @@ SCOPED_TABLES = (
     ("connection_items", "project_id"),
     *((table, "project_id") for table in GAP_TABLES),
 )
+INVITES = ("project_invites", "project_id")
 
 
 @pytest.fixture(autouse=True)
@@ -87,20 +107,22 @@ def offline_config(url: str | URL | None = DUMMY_URL) -> tuple[Config, StringIO]
 # T8 ------------------------------------------------------------------------
 
 
-def test_the_migration_history_is_the_single_initial_revision() -> None:
+def test_the_migration_history_is_the_initial_the_collaborators_and_the_gap_revision() -> None:
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
 
     assert script.get_heads() == [HEAD]
-    assert script.get_bases() == [HEAD]
-    assert [revision.revision for revision in script.walk_revisions()] == [HEAD]
-    assert script.get_revision(HEAD).down_revision is None
+    assert script.get_bases() == [FIRST]
+    assert [revision.revision for revision in script.walk_revisions()] == [HEAD, COLLABORATORS, FIRST]
+    assert script.get_revision(FIRST).down_revision is None
+    assert script.get_revision(COLLABORATORS).down_revision == FIRST
+    assert script.get_revision(HEAD).down_revision == COLLABORATORS
 
 
 # T9 ------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("url", [DUMMY_URL, DUMMY_URL_STRING], ids=["URL", "str"])
-def test_the_upgrade_creates_the_schema_and_stamps_the_initial_revision(
+def test_the_upgrade_creates_the_schema_and_stamps_the_head_revision(
     url: str | URL, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DATABASE_AGENT_PASSWORD", AGENT_CRED)
@@ -111,8 +133,12 @@ def test_the_upgrade_creates_the_schema_and_stamps_the_initial_revision(
     sql = buffer.getvalue()
     assert "CREATE TABLE alembic_version" in sql
     assert "INSERT INTO alembic_version (version_num) VALUES ('0001_initial')" in sql
-    assert "UPDATE alembic_version" not in sql  # one revision, no chain
-    assert re.findall(r"CREATE TABLE (\w+) \(", sql) == ["alembic_version", *APP_TABLES]
+    assert "UPDATE alembic_version SET version_num='0002_project_collaborators'" in sql
+    assert "UPDATE alembic_version SET version_num='0003_gap_module'" in sql
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == [
+        "alembic_version",
+        *APP_TABLES,
+    ]
     assert "CONSTRAINT uq_documents_project_id_content_hash UNIQUE (project_id, content_hash)" in sql
     assert "EXTENSION" not in sql
     assert DB_CRED not in sql
@@ -207,7 +233,7 @@ def test_env_py_without_a_url_reads_the_database_settings(
     command.upgrade(cfg, "head", sql=True)
 
     sql = buffer.getvalue()
-    assert "INSERT INTO alembic_version (version_num) VALUES ('0001_initial')" in sql
+    assert "UPDATE alembic_version SET version_num='0003_gap_module'" in sql
     assert DB_CRED not in sql
 
 
@@ -231,16 +257,19 @@ def test_offline_upgrade_enables_rls_and_creates_the_policy_on_each_scoped_table
     sql = upgrade_sql(*offline_config())
 
     scope = "NULLIF(current_setting('app.project_id', true), '')::uuid"
-    for table, column in SCOPED_TABLES:
+    for table, column in (*SCOPED_TABLES, INVITES):
         assert f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY" in sql
         assert (
             f'CREATE POLICY agent_project_scope ON {table} TO "specflow_agent" '
             f"USING ({column} = {scope}) WITH CHECK ({column} = {scope})"
-        ) in sql
+        ).lower() in sql.lower()  # revision 0002 spells the functions in its own letter case
         # RLS and its policy come after the table exists
-        assert sql.index(f"CREATE TABLE {table} (") < sql.index(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
-    assert sql.count("CREATE POLICY agent_project_scope") == len(SCOPED_TABLES)
-    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES)
+        assert re.search(rf"CREATE TABLE (IF NOT EXISTS )?{table} \(", sql)
+        assert re.search(rf"CREATE TABLE (IF NOT EXISTS )?{table} \(", sql).start() < sql.index(
+            f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
+        )
+    assert sql.count("CREATE POLICY agent_project_scope") == len(SCOPED_TABLES) + 1
+    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 1
     assert "users ENABLE ROW LEVEL SECURITY" not in sql  # users is not project-scoped
 
 
@@ -285,6 +314,196 @@ def test_offline_downgrade_to_base_drops_every_table_newest_first() -> None:
     command.downgrade(cfg, f"{HEAD}:base", sql=True)
 
     sql = buffer.getvalue()
-    assert re.findall(r"DROP TABLE (\w+)", sql) == list(reversed(APP_TABLES))
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == list(reversed(APP_TABLES))
     assert "DELETE FROM alembic_version" in sql
     assert SKIP_COMMENT not in sql  # the downgrade needs no agent role
+
+
+# The collaborator schema, added by revision 0002 on top of the frozen 0001_initial ---------------
+
+
+def collaborators_sql() -> str:
+    """The SQL of revision 0002 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{FIRST}:{COLLABORATORS}", sql=True)
+    return buffer.getvalue()
+
+
+def test_revision_0001_keeps_the_2_0_0_schema() -> None:
+    cfg, buffer = offline_config()
+
+    command.upgrade(cfg, FIRST, sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"CREATE TABLE (\w+) \(", sql) == [
+        "alembic_version",
+        *INITIAL_TABLES,
+    ]
+    assert "CONSTRAINT ck_project_members_role CHECK (role IN ('owner'))" in sql
+    assert "role TEXT DEFAULT 'owner' NOT NULL" in sql
+    assert "project_invites" not in sql
+    assert "ux_project_members_one_owner" not in sql
+    assert "ix_users_email_lower" not in sql
+
+
+def test_the_members_role_check_default_and_one_owner_index_are_changed_by_0002() -> None:
+    sql = collaborators_sql()
+
+    assert "ALTER TABLE project_members DROP CONSTRAINT IF EXISTS ck_project_members_role;" in sql
+    assert (
+        "ALTER TABLE project_members ADD CONSTRAINT ck_project_members_role CHECK (role IN ('owner', 'collaborator'));"
+    ) in sql
+    assert sql.index("DROP CONSTRAINT IF EXISTS ck_project_members_role") < sql.index(
+        "ADD CONSTRAINT ck_project_members_role"
+    )
+    assert "ALTER TABLE project_members ALTER COLUMN role DROP DEFAULT;" in sql
+    assert (
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_one_owner ON project_members (project_id) "
+        "WHERE role = 'owner';"
+    ) in sql
+    assert "admin" not in sql.lower()
+
+
+def test_the_invites_table_and_the_email_index_are_created_only_when_missing() -> None:
+    sql = collaborators_sql()
+
+    assert "CREATE TABLE IF NOT EXISTS project_invites (" in sql
+    assert "CONSTRAINT uq_project_invites_project_id_email_norm UNIQUE (project_id, email_norm)" in sql
+    assert "CONSTRAINT ck_project_invites_email_norm CHECK (email_norm = LOWER(BTRIM(email_norm)))" in sql
+    assert "CONSTRAINT fk_project_invites_project_id_projects FOREIGN KEY (project_id) REFERENCES projects (id)" in sql
+    assert "CONSTRAINT fk_project_invites_invited_by_users FOREIGN KEY (invited_by) REFERENCES users (id)" in sql
+    assert "CREATE INDEX IF NOT EXISTS ix_project_invites_email_norm ON project_invites (email_norm);" in sql
+    assert "CREATE INDEX IF NOT EXISTS ix_users_email_lower ON users (lower(email));" in sql
+    assert "TRIGGER" not in sql.upper()  # no legacy trigger, no data rewrite
+    assert "DELETE" not in sql.upper()  # the upgrade removes nothing
+
+
+def test_the_upgrade_demotes_extra_owners_after_the_check_and_before_the_one_owner_index() -> None:
+    sql = collaborators_sql()
+
+    assert sql.count("UPDATE project_members SET role='collaborator'") == 1  # the only data step
+    update = sql.index("UPDATE project_members SET role='collaborator'")
+    assert sql.index("ADD CONSTRAINT ck_project_members_role") < update < sql.index("CREATE UNIQUE INDEX")
+    statement = sql[update : sql.index(";", update)]
+    # creator first, then the earliest joined_at, then the smallest user_id; the first one stays owner
+    assert "ORDER BY project_members.user_id = projects.created_by DESC, project_members.joined_at, " in statement
+    assert "project_members.user_id) AS rank" in statement
+    assert "WHERE owners.rank > 1" in statement
+    assert "WHERE project_members.role = 'owner' AND" in statement
+
+
+def test_the_first_online_statement_sets_a_lock_timeout_and_offline_output_skips_it() -> None:
+    sql = collaborators_sql()
+
+    assert "-- lock_timeout skipped (offline)" in sql
+    assert "lock_timeout = '10s'" not in sql  # the session setting is online only
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("ALTER TABLE project_members DROP CONSTRAINT")
+    text = (ALEMBIC_INI.parent / "migrations" / "sql" / "0002_lock_timeout.sql").read_text("utf-8")
+    assert text.strip() == "SET LOCAL lock_timeout = '10s'"
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0002_project_collaborators.py").read_text("utf-8")
+    assert "WHOLE transaction" in doc
+
+
+def test_0002_enables_rls_on_the_invites_and_re_creates_the_policy_without_a_grant() -> None:
+    sql = collaborators_sql()
+
+    assert "ALTER TABLE project_invites ENABLE ROW LEVEL SECURITY;" in sql
+    assert sql.index("DROP POLICY IF EXISTS agent_project_scope ON project_invites;") < sql.index(
+        'CREATE POLICY agent_project_scope ON project_invites TO "specflow_agent"'
+    )
+    assert "GRANT" not in sql.upper()
+    assert SKIP_COMMENT in sql
+
+
+def test_the_downgrade_of_0002_returns_to_the_2_0_0_schema_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{COLLABORATORS}:{FIRST}", sql=True)
+
+    sql = buffer.getvalue()
+    assert "DELETE FROM project_members WHERE project_members.role = 'collaborator';" in sql
+    assert "DROP TABLE IF EXISTS project_invites;" in sql
+    assert "DROP INDEX IF EXISTS ux_project_members_one_owner;" in sql
+    assert "DROP INDEX IF EXISTS ix_users_email_lower;" in sql
+    assert "ADD CONSTRAINT ck_project_members_role CHECK (role IN ('owner'));" in sql
+    assert "ALTER TABLE project_members ALTER COLUMN role SET DEFAULT 'owner';" in sql
+    assert "UPDATE alembic_version SET version_num='0001_initial'" in sql
+    assert sql.index("DELETE FROM project_members") < sql.index("ADD CONSTRAINT ck_project_members_role")
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0002_project_collaborators.py").read_text("utf-8")
+    assert "DELETES every ``collaborator`` row" in doc
+
+
+def test_revision_0001_is_frozen() -> None:
+    """0001_initial is the 2.0.0 schema: a schema change is a new revision, never an edit of it."""
+
+    path = ALEMBIC_INI.parent / "migrations" / "versions" / "0001_initial.py"
+    unix_text = path.read_bytes().replace(b"\r\n", b"\n")  # a CRLF checkout must not fail the guard
+    assert hashlib.sha256(unix_text).hexdigest() == FROZEN_0001_SHA256
+
+
+# The gap module's tables, added by revision 0003 on top of 0002 ---------------------------------
+
+
+def gap_sql() -> str:
+    """The SQL of revision 0003 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{COLLABORATORS}:{HEAD}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0003_creates_only_the_gap_tables_and_stamps_the_head() -> None:
+    sql = gap_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == list(GAP_TABLES)
+    for table in GAP_TABLES:
+        assert f"CONSTRAINT fk_{table}_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in sql
+    index = "CREATE UNIQUE INDEX ix_gap_option_one_recommended ON gap_option (project_id, gap_id) WHERE recommended"
+    assert index in sql
+    assert "UPDATE alembic_version SET version_num='0003_gap_module'" in sql
+    # no existing table changes: the only ALTER TABLE statements enable row-level security on a gap table
+    assert sorted(re.findall(r"ALTER TABLE (\w+) ENABLE ROW LEVEL SECURITY;", sql)) == sorted(GAP_TABLES)
+    assert sql.count("ALTER TABLE") == len(GAP_TABLES)
+    assert "DROP" not in sql.upper()
+    assert "DELETE" not in sql.upper()
+
+
+def test_0003_checks_the_role_and_skips_the_lock_timeout_offline_before_any_ddl() -> None:
+    sql = gap_sql()
+
+    first_table = sql.index("CREATE TABLE gap_option")
+    assert sql.index("-- lock_timeout skipped (offline)") < first_table
+    assert sql.index(SKIP_COMMENT) < first_table
+    assert "lock_timeout = '10s'" not in sql  # the session setting is online only
+    text = (ALEMBIC_INI.parent / "migrations" / "sql" / "0003_lock_timeout.sql").read_text("utf-8")
+    assert text.strip() == "SET LOCAL lock_timeout = '10s'"
+
+
+def test_0003_scopes_every_gap_table_to_the_agent_role_without_a_grant() -> None:
+    sql = gap_sql()
+
+    scope = "nullif(current_setting('app.project_id', true), '')::uuid"
+    for table in GAP_TABLES:
+        assert f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;" in sql
+        assert (
+            f'CREATE POLICY agent_project_scope ON {table} TO "specflow_agent" '
+            f"USING (project_id = {scope}) WITH CHECK (project_id = {scope});"
+        ) in sql
+        assert sql.index(f"CREATE TABLE {table} (") < sql.index(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+    assert sql.count("CREATE POLICY agent_project_scope") == len(GAP_TABLES)
+    assert "GRANT" not in sql.upper()
+
+
+def test_the_downgrade_of_0003_drops_only_the_gap_tables_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD}:{COLLABORATORS}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == list(reversed(GAP_TABLES))
+    assert "UPDATE alembic_version SET version_num='0002_project_collaborators'" in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("DROP TABLE")
+    assert SKIP_COMMENT not in sql  # the downgrade needs no agent role
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0003_gap_module.py").read_text("utf-8")
+    assert "Every gap row is lost" in doc

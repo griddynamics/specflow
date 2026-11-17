@@ -154,7 +154,7 @@ The build and plan ontologies do not change. These changes are needed elsewhere:
 | Plan runner (host) | Pass the change reports since the plan's last consumed build to the plan run (the plan prerequisite, its own pull request first, [lifecycle.md](lifecycle.md)); wait until the project has no gap run queued or running before it plans (`wait_idle`) |
 | Plan service (host wiring) | Fill the findings port with `GapService` (`api/gap/findings.py`, `OpenGaps`); provide `StoryHolds` (`api/gap/holds.py`, `PlanHolds` over `PlanService`: `hold_tasks`, `unblock_finding`, `check_block`, `block_story`); a claim is refused when a task of the story is held: the plan's `blocked` status, the refusal names the gap through `OpenGaps.finding` |
 | Corpus reader (host) | Apply amendments, add the clarifications document, call reconcile, report the effective revision id ([api.md](api.md) "Host runner") |
-| Relational store (host) | One migration adding the tables of [data-model.md](data-model.md) |
+| Relational store (host) | One migration, the revision `0003_gap_module`, adding the tables of [data-model.md](data-model.md) |
 | Gap runner (host, new) | `api/gap/runner.py`, the routes and their models |
 | Agent runtime (host) | `agent_runtime/gap_investigator.py`: the optional tool agent `Investigator` (`AgentsInvestigator`, [investigation.md](investigation.md) "Tool agent adapter") |
 | MCP server (host) | `add_finding` mapped to `raise_gap` (`api/routers/agent_writes.py`, kinds and shapes in `api/gap/development.py`, `refers_to` checks in `api/finding_refs.py`; a `note` to `add_note`); new read `list_gaps` (agent route `api/routers/agent_gaps.py`); briefs and `get_node` show gaps through the plan's findings port, filled by `api/gap/findings.py` (`OpenGaps`) |

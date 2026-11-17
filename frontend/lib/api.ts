@@ -25,6 +25,11 @@ export interface Page<T> {
   next_cursor: string | null;
 }
 
+export interface ValidationEntry {
+  loc: (string | number)[];
+  type: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -32,6 +37,8 @@ export class ApiError extends Error {
     message: string = code,
     /** `details.max_bytes` of a 413 `file_too_large`: the cap of that file type. */
     readonly maxBytes?: number,
+    /** `details.errors` of a 422 `validation_failed`: where (`loc`) and which rule (`type`); never a submitted value. */
+    readonly errors?: ValidationEntry[],
     /** The envelope's `details` (e.g. `field` and `reason` of a 400 `answer_invalid`, `status` of a 409 `gap_wrong_state`). */
     readonly details?: Readonly<Record<string, unknown>>,
   ) {
@@ -44,7 +51,7 @@ const BASE = "/api/backend";
 const HEADERS = { "X-Requested-With": "specflow" };
 
 export interface ParsedEnvelope {
-  body: { error?: { code?: unknown; details?: { max_bytes?: unknown } & Record<string, unknown> } } | null;
+  body: { error?: { code?: unknown; details?: { max_bytes?: unknown; errors?: unknown } & Record<string, unknown> } } | null;
   parsed: boolean;
 }
 
@@ -67,6 +74,19 @@ export async function readEnvelope(res: Response): Promise<ParsedEnvelope> {
     }
   }
   return { body, parsed };
+}
+
+/** `details.errors` of an error envelope: the entries of the shape `{loc, type}`; anything else is dropped. */
+function validationEntries(raw: unknown): ValidationEntry[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ValidationEntry[] = [];
+  for (const e of raw as unknown[]) {
+    if (typeof e !== "object" || e === null) continue;
+    const { loc, type } = e as { loc?: unknown; type?: unknown };
+    if (!Array.isArray(loc) || typeof type !== "string") continue;
+    out.push({ loc: (loc as unknown[]).filter((p): p is string | number => typeof p === "string" || typeof p === "number"), type });
+  }
+  return out;
 }
 
 /** A same-origin GET of `/api/backend<path>`: the raw response, with the CSRF header and the session cookie. */
@@ -95,7 +115,14 @@ async function call(path: string, init: RequestInit = {}): Promise<{ status: num
     const details = body?.error?.details;
     const maxBytes = details?.max_bytes;
     if (parsed && code === body?.error?.code)
-      throw new ApiError(res.status, code, code, typeof maxBytes === "number" ? maxBytes : undefined, details ?? undefined);
+      throw new ApiError(
+        res.status,
+        code,
+        code,
+        typeof maxBytes === "number" ? maxBytes : undefined,
+        validationEntries(details?.errors),
+        details ?? undefined,
+      );
     throw new ApiError(res.status, code, `Request failed (HTTP ${String(res.status)}). Please try again.`);
   }
   if (!parsed) throw new ApiError(res.status, "invalid_response", `Unexpected response from the server (HTTP ${String(res.status)}).`);
@@ -106,6 +133,7 @@ async function call(path: string, init: RequestInit = {}): Promise<{ status: num
 // (backend/contracts/openapi.json, checked against frontend/validation/api-contracts.json). Paths are written in full at the call.
 const httpGet = (path: string) => call(path);
 const httpPost = (path: string, init: RequestInit = {}) => call(path, { ...init, method: "POST" });
+const httpPatch = (path: string, init: RequestInit = {}) => call(path, { ...init, method: "PATCH" });
 const httpDelete = (path: string) => call(path, { method: "DELETE" });
 
 const json = (value: unknown): RequestInit => ({
@@ -114,8 +142,27 @@ const json = (value: unknown): RequestInit => ({
 });
 
 export const listProjects = () => httpGet("/projects?limit=100").then((r) => r.body as Page<Project>);
-export const createProject = (name: string) => httpPost("/projects", json({ name })).then((r) => r.body as Project);
+/** `{name}`, or `{name, collaborators}` when `collaborators` holds at least one email (api.md#create-with-collaborators). */
+export const createProject = (name: string, collaborators: string[] = []) =>
+  httpPost("/projects", json(collaborators.length > 0 ? { name, collaborators } : { name })).then((r) => r.body as Project);
+export const renameProject = (pid: string, name: string) =>
+  httpPatch(`/projects/${encodeURIComponent(pid)}`, json({ name })).then((r) => r.body);
 export const getProject = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}`).then((r) => r.body as Project);
+
+// Members, invites, leave and suggestions (docs/projects/api.md#routes). Bodies stay `unknown`; the members port
+// (lib/data/http/members.ts) checks their shape. No email ever goes into a path or query: ids in paths, emails and the typed
+// suggestion text in POST bodies (NFR-PRJ-02).
+export const listMembers = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/members`).then((r) => r.body);
+export const addMember = (pid: string, email: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/members`, json({ email })).then((r) => r.body);
+export const removeMember = (pid: string, userId: string) =>
+  httpDelete(`/projects/${encodeURIComponent(pid)}/members/${encodeURIComponent(userId)}`).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const cancelInvite = (pid: string, inviteId: string) =>
+  httpDelete(`/projects/${encodeURIComponent(pid)}/invites/${encodeURIComponent(inviteId)}`).then((r) => r.status);
+export const leaveProject = (pid: string) => httpPost(`/projects/${encodeURIComponent(pid)}/leave`).then((r) => r.body);
+export const suggestUsers = (q: string, projectId?: string) =>
+  httpPost("/users/suggestions", json(projectId === undefined ? { q } : { q, project_id: projectId })).then((r) => r.body);
 
 // Sources (GDRIVE plan 04, architecture-notes B4). Bodies are returned as `unknown`: the http adapter (lib/data/http/sources.ts)
 // checks their shape. POSTs go through `call`, so they carry the CSRF header.

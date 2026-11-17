@@ -59,11 +59,13 @@ from api.routers import (
     gaps,
     graph_build,
     me,
+    members,
     plan,
     projects,
     source_batches,
     source_removal,
     sources,
+    users,
 )
 from auth.dependencies import current_agent_principal, current_principal
 from mcp_server.registry import TOOLS
@@ -127,6 +129,8 @@ ROUTER_MODULES = (
     agent_writes,
     agent_gaps,
     projects,
+    members,
+    users,
     documents,
     graph_build,
     plan,

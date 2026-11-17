@@ -4,6 +4,7 @@
 // (`client.ts`, G01-10). No fixture is imported here (R7).
 import type { GapsPort } from "@/lib/domain/gaps";
 import type { CreateProjectPort } from "@/lib/domain/create-project";
+import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
 import type { PlanPort } from "@/lib/domain/plan";
@@ -12,6 +13,7 @@ import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
 import { createHttpGaps } from "./gaps";
 import { createHttpKnowledge } from "./knowledge";
+import { createHttpMembers } from "./members";
 import { createHttpPeople } from "./me";
 import { createHttpPlan } from "./plan";
 import { createHttpProjects } from "./projects";
@@ -29,6 +31,7 @@ export interface HttpPorts {
   plan: PlanPort;
   work: WorkPort;
   gaps: GapsPort;
+  members: MembersPort;
 }
 
 /** TECH-SPECS §3.1. `pollMs` and `idleMs` are constructor options for the stub-API tests; production uses the defaults. */
@@ -49,5 +52,6 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     plan: createHttpPlan({ pollMs: opts?.planPollMs }),
     work: createHttpWork(),
     gaps: createHttpGaps(),
+    members: createHttpMembers(),
   };
 }

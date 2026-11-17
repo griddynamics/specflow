@@ -27,7 +27,7 @@ const filesOf = (pid: string) =>
 
 test("each accepted type is added to a Local files batch with its canonical Content-Type, whatever the browser said", async () => {
   const http = createHttpAdapter();
-  const pid = (await http.createProject.create({ name: "All types", contributorIds: [] })).id;
+  const pid = (await http.createProject.create({ name: "All types" })).id;
   const picked = UPLOAD_FORMATS.map((f) => documentFile(`doc${f.extension}`, BROWSER_TYPE[f.extension] ?? f.mediaType));
   const report = await http.sources.upload(pid, picked);
   assert.equal(report.added, 7, "all seven are added");
@@ -42,7 +42,7 @@ test("each accepted type is added to a Local files batch with its canonical Cont
 test("the single-document upload sends the canonical type too (a .md the browser called empty)", async () => {
   const http = createHttpAdapter();
   const docs = createHttpDocuments();
-  const pid = (await http.createProject.create({ name: "Docs md", contributorIds: [] })).id;
+  const pid = (await http.createProject.create({ name: "Docs md" })).id;
   const r = await docs.upload(pid, documentFile("notes.md", ""));
   assert.equal(r.outcome, "created");
   assert.equal(defined(stubCalls(env.api, pid, "upload").at(-1)).contentType, contentTypeFor("notes.md"));
@@ -50,7 +50,7 @@ test("the single-document upload sends the canonical type too (a .md the browser
 
 test("a legacy type that reaches the port is refused by the API (415), counted as not added, and the others stay", async () => {
   const http = createHttpAdapter();
-  const pid = (await http.createProject.create({ name: "Legacy", contributorIds: [] })).id;
+  const pid = (await http.createProject.create({ name: "Legacy" })).id;
   const legacy = new File([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0])], "old.doc", { type: "application/msword" });
   const report = await http.sources.upload(pid, [legacy, documentFile("new.docx", "")]);
   assert.deepEqual([report.added, report.notAdded, report.tooLarge], [1, 1, undefined]);
@@ -59,7 +59,7 @@ test("a legacy type that reaches the port is refused by the API (415), counted a
 
 test("a file over its cap is refused 413 with the cap of its type; the other files are still added", async () => {
   const http = createHttpAdapter();
-  const pid = (await http.createProject.create({ name: "Too large", contributorIds: [] })).id;
+  const pid = (await http.createProject.create({ name: "Too large" })).id;
   const big = documentFile("big.csv", "text/csv", 10 * MB); // the head is a few bytes: over the 10 MB cap
   const report = await http.sources.upload(pid, [big, documentFile("ok.md", "")]);
   assert.deepEqual([report.added, report.notAdded], [1, 1]);

@@ -143,7 +143,8 @@ async def test_other_users_projects_are_404_never_403(harness):
 async def test_an_unknown_route_and_a_bad_uuid_use_the_envelope(harness):
     missing = await harness.client.get("/api/v1/nope", headers=bearer())
     assert missing.status_code == 404 and missing.json()["error"]["code"] == "not_found"
-    bad = await harness.client.get("/api/v1/projects/not-a-uuid", headers=bearer())
+    # ``GET /projects/{pid}`` is a membership route now (a malformed id is its 404, B2); a typed path id still is 422.
+    bad = await harness.client.get("/api/v1/projects/not-a-uuid/documents", headers=bearer())
     assert bad.status_code == 422 and bad.json()["error"]["code"] == "validation_failed"
 
 

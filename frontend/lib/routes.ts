@@ -3,7 +3,8 @@
 export type AppMode = "production";
 export type MissionControlView = "readme" | "business" | "architecture" | "files" | "sources"; // "sources": Phase 1 sources screen only
 export type PlanView = "plan" | "work" | "develop"; // P20 (Plan page, AUTO-17)
-export type RouteKey = "home" | "missionControl" | "gaps" | "plan" | "specbot" | "connections" | "guides";
+export type SettingsTab = "general"; // the Settings tabs (docs/projects/ui.md#route-and-sidebar)
+export type RouteKey = "home" | "missionControl" | "gaps" | "plan" | "specbot" | "settings" | "connections" | "guides";
 /** The Guides topics (MCP-M10): `/guides/{topic}`. Any other topic answers 404. */
 export const GUIDE_TOPICS = ["specflow-101", "best-practices", "mcp-server"] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
@@ -15,6 +16,7 @@ export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMod
   gaps: { template: "/projects/{projectId}/gaps", trees: ["production"] }, // FR-GWEB-04: the Gaps screen (was Decisions)
   plan: { template: "/projects/{projectId}/plan", trees: ["production"] }, // P20; page files in P21
   specbot: { template: "/projects/{projectId}/specbot", trees: ["production"] },
+  settings: { template: "/projects/{projectId}/settings", trees: ["production"] }, // ?tab=general (the only tab)
   connections: { template: "/connections", trees: ["production"] },
   guides: { template: "/guides", trees: ["production"] }, // + "/guides/{topic}": app/(app)/guides/[topic]/page.tsx
 };
@@ -28,6 +30,7 @@ export interface RouteBuilder {
   gaps(projectId: string, opts?: { gapId?: string }): string; // `?gap=<id>` opens that gap's card
   plan(projectId: string, opts?: { view?: PlanView }): string; // no `view` → clean path (Stage 2 opens on Plan)
   specbot(projectId: string): string;
+  settings(projectId: string, opts?: { tab?: SettingsTab }): string; // no `tab` -> clean path (opens on General)
   connections(): string;
   guides(topic?: GuideTopic): string; // "/guides" or "/guides/{topic}"
   login(): string; // "/login"
@@ -36,6 +39,7 @@ export interface RouteBuilder {
 
 const VIEWS: readonly MissionControlView[] = ["readme", "business", "architecture", "files", "sources"];
 const PLAN_VIEWS: readonly PlanView[] = ["plan", "work", "develop"];
+const SETTINGS_TABS: readonly SettingsTab[] = ["general"];
 
 function withQuery(path: string, params: Record<string, string | undefined>): string {
   const q = new URLSearchParams();
@@ -58,6 +62,7 @@ export function routesFor(mode: AppMode): RouteBuilder {
     gaps: (projectId, opts) => withQuery(at("gaps", { projectId }), { gap: opts?.gapId }),
     plan: (projectId, opts) => withQuery(at("plan", { projectId }), { view: opts?.view }),
     specbot: (projectId) => at("specbot", { projectId }),
+    settings: (projectId, opts) => withQuery(at("settings", { projectId }), { tab: opts?.tab }),
     connections: () => at("connections"),
     guides: (topic) => at("guides") + (topic === undefined ? "" : `/${encodeURIComponent(topic)}`),
     login: () => "/login",
@@ -87,6 +92,12 @@ export function parseGapsQuery(q: URLSearchParams): { gapId: string | null } {
 export function parsePlanQuery(q: URLSearchParams): { view: PlanView | null } {
   const v = q.get("view");
   return { view: PLAN_VIEWS.includes(v as PlanView) ? (v as PlanView) : null };
+}
+
+/** `tab` of the Settings route; missing or unknown -> `general`, never an error (docs/projects/ui.md#route-and-sidebar). */
+export function parseSettingsQuery(q: URLSearchParams): { tab: SettingsTab } {
+  const t = q.get("tab");
+  return { tab: SETTINGS_TABS.includes(t as SettingsTab) ? (t as SettingsTab) : "general" };
 }
 
 /** A `{topic}` path segment as a known Guides topic; anything else -> null (the page answers 404). */

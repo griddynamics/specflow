@@ -35,7 +35,12 @@ const me: Person = { id: "u1", name: "Dana Example", email: "dana@example.test",
 const project: Project = { id: UUID, name: "P", createdAt: "", status: "unknown" };
 const http: HttpPorts = {
   people: { me: () => Promise.resolve(me) },
-  projects: { list: () => Promise.resolve([project]), get: () => Promise.resolve(project), subscribe: () => () => undefined },
+  projects: {
+    list: () => Promise.resolve([project]),
+    get: () => Promise.resolve(project),
+    rename: never,
+    subscribe: () => () => undefined,
+  },
   createProject: { create: (i) => Promise.resolve({ ...project, name: i.name }) },
   missionControl: { snapshot: never, subscribe: never, start: never, retry: never, dismiss: never, leave: never },
   sources: {
@@ -72,12 +77,13 @@ const http: HttpPorts = {
     answerDocuments: never,
     exportUrl: () => "",
   },
+  members: { list: never, add: never, remove: never, cancelInvite: never, leave: never, suggest: never },
 };
 const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
@@ -86,7 +92,8 @@ test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects
   assert.equal(ports.plan, http.plan);
   assert.equal(ports.work, http.work);
   assert.equal(ports.gaps, http.gaps); // FR-GWEB-04: the Gaps screen reads the real gap routes (no unavailable port)
-  assert.equal((await ports.createProject.create({ name: "X", contributorIds: [] })).id, UUID);
+  assert.equal(ports.members, http.members);
+  assert.equal((await ports.createProject.create({ name: "X", collaboratorEmails: [] })).id, UUID);
   assert.deepEqual(Object.keys(ports.createProject), ["create"]);
 });
 
@@ -157,6 +164,7 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "files",
       "gaps",
       "knowledge",
+      "members",
       "missionControl",
       "people",
       "plan",

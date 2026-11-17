@@ -2,6 +2,7 @@
   "callees": {
     "httpGet": "GET",
     "httpPost": "POST",
+    "httpPatch": "PATCH",
     "httpDelete": "DELETE",
     "getJson": "GET"
   },
@@ -30,6 +31,41 @@
       "id": "get_project_api_v1_projects__pid__get",
       "method": "GET",
       "path": "/projects/{pid}"
+    },
+    {
+      "id": "list_members_api_v1_projects__pid__members_get",
+      "method": "GET",
+      "path": "/projects/{pid}/members"
+    },
+    {
+      "id": "add_member_api_v1_projects__pid__members_post",
+      "method": "POST",
+      "path": "/projects/{pid}/members"
+    },
+    {
+      "id": "remove_member_api_v1_projects__pid__members__user_id__delete",
+      "method": "DELETE",
+      "path": "/projects/{pid}/members/{user_id}"
+    },
+    {
+      "id": "cancel_invite_api_v1_projects__pid__invites__invite_id__delete",
+      "method": "DELETE",
+      "path": "/projects/{pid}/invites/{invite_id}"
+    },
+    {
+      "id": "leave_project_api_v1_projects__pid__leave_post",
+      "method": "POST",
+      "path": "/projects/{pid}/leave"
+    },
+    {
+      "id": "rename_project_api_v1_projects__pid__patch",
+      "method": "PATCH",
+      "path": "/projects/{pid}"
+    },
+    {
+      "id": "suggest_users_api_v1_users_suggestions_post",
+      "method": "POST",
+      "path": "/users/suggestions"
     },
     {
       "id": "list_documents_api_v1_projects__pid__documents_get",

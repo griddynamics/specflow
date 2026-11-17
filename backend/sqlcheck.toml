@@ -4,11 +4,12 @@
 # Layout of this project:
 #   src/db/models.py        SQLAlchemy models (module `db.models`), Base in `db.base`
 #   src/db/session.py       the one place that builds engines and session factories
-#   src/db/*.py             repositories and stores (no `repositories/` folder, no `.sql` files)
-#   migrations/versions/    the one Alembic revision, 0001_initial; alembic.ini sits in backend/
+#   src/db/*.py             repositories and stores (no `repositories/` folder)
+#   migrations/sql/         the statements of the revisions (one per file; the only place a DROP may be)
+#   migrations/versions/    the Alembic revisions (0001_initial is frozen); alembic.ini sits in backend/
 #   sql-schema.json         the declared schema (bootstrapped with `sqlcheck build-schema`)
-# Statements are SQLAlchemy Core/ORM expressions; there are no `.sql` files, so the SQL file
-# steps (sqlfluff, sql-rules) find nothing to read.
+# Statements in src/ are SQLAlchemy Core/ORM expressions; the SQL file steps (sqlfluff, sql-rules)
+# read only migrations/sql/ (and src/graph's own .sql files).
 
 [run]
 # Static steps only (the kit's own environment). The dynamic steps need the backend's
@@ -30,7 +31,7 @@ sql = ["src", "migrations"]
 python = ["src"]
 schema = "sql-schema.json"
 alembic_versions = "migrations/versions"
-migration_sql_dirs = []
+migration_sql_dirs = ["migrations/sql"]
 
 [sqlfluff]
 config = ".sqlfluff"
@@ -67,7 +68,7 @@ exclude = [
 [inline_queries.loaders]
 # Loader function name = directory (relative to this file) its path argument is relative to.
 read_query = "src/db/queries"           # db.query_files.read_query
-read_migration_sql = "migrations/sql"   # defined in migration 0001_initial (it never imports src)
+read_migration_sql = "migrations/sql"   # defined in each revision that reads SQL files (a revision never imports src)
 load_core_sql = "src/graph/stores/postgres/queries/core"   # graph.stores.postgres.sqlfiles.load_core_sql
 load_build_sql = "src/graph/stores/postgres/queries/build"   # graph.stores.postgres.sqlfiles.load_build_sql
 load_plan_sql = "src/graph/stores/postgres/queries/plan"     # graph.stores.postgres.sqlfiles.load_plan_sql
@@ -80,7 +81,8 @@ paths_include = ["**/src/**"]
 
 [schema_parity]
 metadata = "db.models:Base.metadata"   # db.models registers every table on the shared Base
-# The graph store tables and the system catalogs of the PostgreSQL graph store's SQL are declared in
+# The graph store tables, the system catalogs of the PostgreSQL graph store's SQL and pg_roles (read by
+# migration 0003's agent role check) are declared in
 # sql-schema.json for the sql-rules step, but no ORM model owns them (design D5: Alembic does not).
 ignore_tables = [
     "alembic_version",
@@ -93,6 +95,7 @@ ignore_tables = [
     "pg_constraint",
     "pg_extension",
     "pg_proc",
+    "pg_roles",
 ]
 implicit_columns = []
 conditional_unique_dialects = ["postgresql"]

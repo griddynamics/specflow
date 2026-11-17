@@ -24,7 +24,7 @@ after(async () => {
 });
 
 const folder = (id: string) => `https://drive.google.com/drive/folders/${id}`;
-const newProject = async (http: HttpPorts, name: string) => (await http.createProject.create({ name, contributorIds: [] })).id;
+const newProject = async (http: HttpPorts, name: string) => (await http.createProject.create({ name })).id;
 const REASONS: DriveReason[] = ["no_access", "not_a_folder", "drive_unavailable", "setup_error", "too_slow", "unknown_error"];
 const envelope = (code: string) => JSON.stringify({ error: { code, message: "SERVER TEXT MUST NOT SHOW", details: {} } });
 async function rejection(p: Promise<unknown>): Promise<DataError> {

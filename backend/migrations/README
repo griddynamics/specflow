@@ -1,24 +1,33 @@
 Alembic migrations of the backend (async dbapi; env.py builds the URL from DATABASE_*).
 
-Development policy: the application is in development, so there are no incremental
-migrations. The whole schema is one hand-written revision, versions/0001_initial.py
-(down_revision None): every table, index and constraint in its final shape, the
-row-level security policies of the agent role and its column grant on documents. It
-has no backfill and no upgrade path from an older database.
+Policy: incremental migrations. A database is never recreated to take a schema change.
+
+- versions/0001_initial.py (down_revision None) is the 2.0.0 schema: every table, index
+  and constraint of that release, the row-level security policies of the agent role and
+  its column grant on documents. It is FROZEN: never edit it.
+- Every later schema change is a new hand-written revision with its own number
+  (0002_..., 0003_...), whose down_revision is the previous head. Do not autogenerate
+  it. Never edit a revision that has been applied anywhere.
+- Keep the models (src/db/models.py) and sql-schema.json in step with the head revision.
+- Write SQL as .sql files in migrations/sql/ that the revision reads with its own
+  read_migration_sql (the revision never imports src/). A DROP statement may appear only in migrations/sql/ (sql-rules-drop-outside-migration).
+  Give downgrade() a body that returns to the previous schema, and say in the revision
+  docstring what data it loses.
 
 On a schema change:
 
-1. Edit the models (src/db/models.py) and edit 0001_initial.py to match them by hand
-   (do not autogenerate it, and do not add a new revision).
-2. Recreate the database from scratch: `make down-volumes` and then `make up`
-   (repository root). The api container runs `specflow migrate` on start.
-3. Check it: `make db-upgrade`, then from backend/
-   `uv run --env-file ../.env.local alembic check` (the models match the revision) and
-   `uv run --env-file ../.env.local alembic current` (prints `0001_initial (head)`).
+1. Edit the models and sql-schema.json, and add the revision.
+2. Run `make db-upgrade` (repository root), or `specflow migrate`; the api container runs
+   it on start. Deployed databases upgrade in place.
+3. Check it: from backend/ `uv run --env-file ../.env.local alembic check` (the models
+   match the revisions) and `uv run --env-file ../.env.local alembic current`, which
+   prints the head, `0003_gap_module (head)` at the time of writing.
 
-A database stamped with a revision that no longer exists (for example `0005` from the
-old chain) makes `alembic upgrade` fail with "Can't locate revision"; recreate it as in
-step 2. downgrade() drops every table the revision created.
+Recreate a database only when it is stamped with a revision that no longer exists (for
+example `0005` from the old chain): `alembic upgrade` fails there with "Can't locate
+revision". Then `make down-volumes` and `make up`.
 
-migrations/sql/ holds the SQL text the revision reads with its own read_migration_sql
-(the revision never imports src/).
+0002_project_collaborators is re-runnable (every statement is IF [NOT] EXISTS, or drops
+and re-creates what it owns). Some databases were built from a temporary 0001_initial
+that already held its objects and are stamped 0001_initial; for them 0002 changes
+nothing. A new revision does not need this unless the same situation arises again.
