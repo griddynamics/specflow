@@ -23,7 +23,7 @@ _STATEMENT: Final = re.compile(
     r"FOR (?:\(\w+:(?P<label>\w+)\)|\(\)-\[\w+:(?P<relation>\w+)\]-\(\)) "
     r"(?:REQUIRE|ON) \((?P<properties>[^)]*)\)"
 )
-GAP_OBJECTS: Final = 20
+GAP_OBJECTS: Final = 14
 
 
 def _gap_objects() -> dict[str, tuple[str, str, tuple[str, ...]]]:

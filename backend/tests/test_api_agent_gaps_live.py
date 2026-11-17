@@ -66,7 +66,7 @@ async def test_briefs_and_list_gaps_show_the_open_gap_on_live_stores(
             await runner.wait_idle(project_id)
             assert (await runner.status(project_id)).status == "completed"
 
-            port = OpenGaps(None, lambda: runner)
+            port = OpenGaps(lambda: runner)
             store = mini_plan(project_id)
             store.set_task(API_LOGIC, implements=[Planted.PLACE_ORDER])
             graph = GraphReader(as_executor(graph_project.store), ontology)
