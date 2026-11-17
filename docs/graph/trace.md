@@ -159,7 +159,7 @@ A project without a plan still traces: the plan fields are null, `stories` is em
 **Findings.** The overlay carries each node's open finding count (`findings`), also on the seeds' context.
 `graph.plan` never imports `graph.gap`: `PlanService` asks a structural `FindingsReads` port for
 `open_counts` over the sources, the context and the reached nodes in one call, and the host fills the port
-with `graph.gap.Findings` ([gap.md](gap.md) "Library: Findings"; [plan/api.md](plan/api.md) "Plan service"). A
+with the open gaps of `graph.gap` ([gap/lifecycle.md](gap/lifecycle.md) "Plan link"; [plan/api.md](plan/api.md) "Plan service"). A
 service built without a port counts 0. The plan reads one graph trace, one plan load and one count call
 for the whole answer.
 

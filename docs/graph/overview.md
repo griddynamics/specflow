@@ -40,7 +40,7 @@ Quality is shown by tests, verification checks and the metrics each build report
 ## Non-goals
 
 1. Relations from world knowledge: inference only links existing nodes when the texts support it.
-2. Contradiction or gap detection (`graph.gap`; its findings are in [gap.md](gap.md)); planning (`graph.plan`,
+2. Contradiction or gap detection (`graph.gap`, specified apart in [gap/](gap/INDEX.md)); planning (`graph.plan`,
    specified apart in [plan/](plan/INDEX.md)).
 3. Ingestion: lineages, versions, file parsing.
 4. Scheduling, queues, HTTP endpoints, user interfaces, a "ready" flag for users.

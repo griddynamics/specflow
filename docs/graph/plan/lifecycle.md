@@ -60,8 +60,9 @@ A task is ready when:
 `ready_tasks(project_id, *, story_id=None, area_id=None, limit=None)` returns them ordered by `task_id`, optionally
 only those of one story or area. On a fresh plan only the setup root is ready: every area's root tasks
 wait for the setup sinks. The plan does not limit parallelism; any number of agents may claim ready
-tasks. A blocking finding blocks the tasks of a claimed story ([../gap.md](../gap.md) "Blocking link");
-holding tasks back on other open findings stays later ([later.md](later.md)).
+tasks. A blocking finding (a development gap) blocks the tasks of a claimed story
+([../gap/lifecycle.md](../gap/lifecycle.md) "Development gaps"); an open blocker gap holds back the unclaimed tasks
+that implement its nodes through `hold_tasks` (decision GD2, [../gap/lifecycle.md](../gap/lifecycle.md) "Plan link").
 
 ## Claims
 
@@ -114,7 +115,8 @@ adds to a held story stays `pending`, outside the claim.
 | `report_progress(task_id, claimed_by, claim_token, progress, note=None)` | The task is a claimed task of a story `claimed_by` holds and the token matches | `progress` set (`done`, `skipped`, `todo`), `note` stored when given; status unchanged |
 | `complete_story(story_id, claim_token, completed_by, merge_commit, pr_url=None, done=None)` | `completed_by` holds the story and the token matches; `merge_commit` 40 or 64 hex; `done` only claimed task ids | Tasks in `done` (default: every claimed task) → `completed` in topological order with `commit` = `merge_commit` (lower case), `completed_by`, `completed_at`; the other claimed tasks → `pending`; `pr_url` stored; the claim ends |
 | `block_story(story_id, claim_token, reason, finding_id)` | Token matches; `reason` is `spec_ambiguous`, `spec_contradiction` or `spec_missing` | Every claimed task → `blocked` with `block_reason` and `blocked_by` = `finding_id`; the claim ends |
-| `unblock_finding(finding_id)` | Host only, after a person resolved or dismissed the finding | Tasks still `blocked` with that `blocked_by` → `pending`, block cleared; others untouched |
+| `hold_tasks(finding_id, spec_ids, reason)` | Host only, for an open blocker gap; `reason` is `spec_ambiguous`, `spec_contradiction` or `spec_missing` | Every `pending` or `failed` task implementing a node of `spec_ids` (merged ids resolved on both sides) → `blocked` with `block_reason` and `blocked_by` = `finding_id`; `in_progress` tasks are left alone and listed; tasks already `blocked` stay as they are; no claim ends |
+| `unblock_finding(finding_id)` | Host only, after the finding (gap) resolved, was dismissed or became obsolete | Tasks still `blocked` with that `blocked_by` → `pending`, block cleared; others untouched |
 
 The claim ends: `claimed_by`, `claimed_at` and `agent_label` are cleared on the unit's stories,
 `claim_token` and `token_holder` stay until the next claim; every task leaving `in_progress` loses its claim fields and
@@ -163,7 +165,7 @@ unit are its **cycle**: they wait on each other and are claimed together.
 **Plan runs.** A run never writes `in_progress` tasks, so claimed tasks keep their token and
 `progress`; it never writes story claim fields. A reset of a `blocked` task clears `blocked_by`; the
 finding stays open ([plan.md](plan.md) "Diff"). Claims refuse while a persist is in progress, and so do
-the story calls that lock stories and tasks (`report_progress`, `complete_story`, `block_story`, `unblock_finding`,
+the story calls that lock stories and tasks (`report_progress`, `complete_story`, `block_story`, `hold_tasks`, `unblock_finding`,
 `release_story` with a token): a persist locks a task before its story, those calls the other way round. A forced
 `release_story` does not check it.
 
@@ -222,7 +224,7 @@ A retired or unknown story raises `PlanReadError("story_not_found")`. The brief 
 the open findings about the anchor and the implemented nodes (`finding_id`, `kind`, `text`, `blocking`,
 `about_spec_ids`, `story_id`, `created_by`, `created_at`, `orphaned`), blocking first, then newest first, at
 most 200. `graph.plan` never imports `graph.gap`: `PlanService` reads them through a structural
-`FindingsReads` port that the host fills with `graph.gap.Findings` ([../gap.md](../gap.md)). A service built
+`FindingsReads` port that the host fills with the open gaps of `graph.gap` ([../gap/lifecycle.md](../gap/lifecycle.md) "Plan link"). A service built
 without the port has an empty `findings` list. The agent route of the brief adds an `expansion` hint (what
 `expand_brief` would return around the story, [../../mcp-server/tools.md](../../mcp-server/tools.md#get_story_brief));
 the plan library does not compute it.

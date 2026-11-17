@@ -38,7 +38,10 @@ graph/gap/
   corpus.py            amendments applied to a revision, effective revision id, the clarifications document
   reconcile.py         reconcile_document, reconcile_corpus: amendments against a new source revision
   follow_ups.py        what answers to follow-up gaps replace (predecessors), options that settle at once
-  service.py           GapService: inbox reads, answers, dismissals, raise, the plan's findings port
+  service.py           GapService: inbox reads, answers, dismissals, raise (development gaps and their holds), notes,
+                       the plan's findings port
+  holds.py             blocker holds and their release through StoryHolds (gap id and aliases)
+  migrate.py           the migration of first-slice findings (run by ensure_gap_schema)
   prompts.py           prompt revisions and gateway prompt names (gap.<name>.<revision>)
   services/
     vector_similarity.py  cosine of vectors no store holds (question embeddings of the duplicate check)
@@ -147,12 +150,12 @@ The build and plan ontologies do not change. These changes are needed elsewhere:
 
 | Where | Change |
 |---|---|
-| Build runner (host) | Store each build's change report with the build; call the gap runner (`after_build`) after a build, before the plan run; stop calling the first-slice findings refresh |
+| Build runner (host) | Store each build's change report with the build; call the gap runner (`after_build`) after a build, before the plan run (the first-slice findings refresh is gone) |
 | Plan runner (host) | Pass the change reports since the plan's last consumed build to the plan run (the plan prerequisite, its own pull request first, [lifecycle.md](lifecycle.md)); wait until the project has no gap run queued or running before it plans (`wait_idle`) |
-| Plan service (host wiring) | Fill the findings port with `GapService`; provide `StoryHolds`; a claim is refused when a task of the story is held by a blocker gap |
+| Plan service (host wiring) | Fill the findings port with `GapService` (`api/gap/findings.py`, `OpenGaps`); provide `StoryHolds` (`api/gap/holds.py`, `PlanHolds` over `PlanService`: `hold_tasks`, `unblock_finding`, `check_block`, `block_story`); a claim is refused when a task of the story is held: the plan's `blocked` status, the refusal names the gap through `OpenGaps.finding` |
 | Corpus reader (host) | Apply amendments, add the clarifications document, call reconcile, report the effective revision id ([api.md](api.md) "Host runner") |
 | Relational store (host) | One migration adding the tables of [data-model.md](data-model.md) |
 | Gap runner (host, new) | `api/gap/runner.py`, the routes and their models |
-| MCP server (host) | `add_finding` mapped to `raise_gap`; new read `list_gaps` (agent route `api/routers/agent_gaps.py`); briefs and `get_node` show gaps through the plan's findings port, filled by `api/gap/findings.py` (`OpenGaps`) |
+| MCP server (host) | `add_finding` mapped to `raise_gap` (`api/routers/agent_writes.py`, kinds and shapes in `api/gap/development.py`, `refers_to` checks in `api/finding_refs.py`; a `note` to `add_note`); new read `list_gaps` (agent route `api/routers/agent_gaps.py`); briefs and `get_node` show gaps through the plan's findings port, filled by `api/gap/findings.py` (`OpenGaps`) |
 | Frontend | The Gaps screen from the decision components, with a recommended mark on option cards; plan screens and the document view link to it |
-| First slice of `graph.gap` | `Finding`, `ExternalRef`, `FindingFlow` and their routes are replaced; existing data is migrated ([lifecycle.md](lifecycle.md) "Migration of first-slice findings") |
+| First slice of `graph.gap` | `Finding`, `ExternalRef`, `FindingFlow` and their library are removed; the `/findings` web routes are aliases of the development gaps' routes; existing data is migrated ([lifecycle.md](lifecycle.md) "Migration of first-slice findings") |

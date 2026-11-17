@@ -14,7 +14,7 @@ Q1, PT23). The cost estimate (`estimate_plan`) is in scope ([api.md](api.md), PT
 | Feature | What it adds |
 |---|---|
 | Host runtime | The MCP tools over the plan API; settlement read from the build store (the runner already passes the change reports from it, [api.md](api.md) "HTTP endpoints (host)"); a Temporal workflow with Postgres-backed `PlanStore` (Q15, PT23) |
-| Findings hold tasks back | A task that implements a spec node with an open finding or open question is not ready; a clarification unblocks or triggers a plan run (PT13). A blocking finding already blocks its story's tasks and names itself in `blocked_by` ([../gap.md](../gap.md) "Blocking link") |
+| Findings hold tasks back | A task that implements a spec node with an open finding or open question is not ready; a clarification unblocks or triggers a plan run (PT13). A blocking development gap already blocks its story's tasks and an open blocker gap holds the tasks of its nodes, each naming itself in `blocked_by` ([../gap/lifecycle.md](../gap/lifecycle.md) "Plan link", "Development gaps") |
 | Release filter | A plan option `releases` that plans only the given releases; later releases stay unplanned until added (PT12 E) |
 | Release ordering | Tasks of a later release wait for the same area's earlier-release tasks; needs a release order the text does not give (PT12 F) |
 | Confidence floor for placement | A minimum edge confidence (for example 0.8) for inferred edges used in placement (PT8 D) |

@@ -34,6 +34,7 @@ answer does not hold, a follow-up gap opens and points back to it, so the histor
 | `resolved` | `resolved` | Person, `revert_clarification` | The clarification becomes `reverted`, its amendments are reverted, an update build is requested when its text was in the corpus, and a follow-up gap with reason `reverted` (route `ask`, the old question, nodes, quotes and options) opens for a person |
 | `open` | dismissed | Person, `dismiss_gap` with a reason | The node and its relations are deleted; the signature goes to `gap_suppression` |
 | `open` | obsolete | Gap run | Every node the gap was `ABOUT` left the graph, or its detector no longer fires on unchanged witness ids, before anyone answered; the node is deleted |
+| `open` | closed as a note | Gap run, a development gap's investigation answers `not_spec` | The node is deleted, a `gap_note` keeps the agent's question, its held tasks are released (event `obsolete`, reason `not_spec`) |
 
 A gap with status `answered` or `applying` is never dismissed; the answer is withdrawn or reverted first.
 
@@ -95,7 +96,7 @@ How the shipped close step (`steps/close.py`) decides:
 | Not grounded twice | The first close check writes the event `not_grounded`; the next one resolves with resolution `follow_up` and opens a follow-up; the clarification stays `pending` |
 | Obsolete | An `open` gap whose `ABOUT` nodes all left and whose quotes no longer hold (`nodes_gone`), or whose detector no longer fires on it (`detector_silent`); its option rows go with it; event `obsolete` |
 | Follow-up | Kind, severity, origin, title, question, why and detector of the old gap; its `ABOUT` and `IMPACTS` nodes that are left and its quotes that still hold; route `ask`. The run's `sites` step seeds it like a raised gap, so detector seeds on its nodes join its site and it is investigated in the same run; the resolved gap it continues joins no site any more |
-| Held tasks | Released by the blocker-hold wiring of development gaps (not part of the close step yet) |
+| Held tasks | After the step, the run releases the holds of every gap it resolved or took out as obsolete (`StoryHolds.release_gap` for the gap id and each of its `aliases`; the run's artifact lists the released task ids); a release the plan refuses is logged and left |
 | Reconciled answers | Every `resolved` gap whose current clarification is `applied` with placement `amend`: the step reads its amendments and compares their ids, statuses, anchor hashes and revisions with the clarification's `reconcile_state` (written when it was resolved or last looked at); only a changed state is acted on. A `suspended` amendment: clarification `conflict` and the conflict follow-up; an `orphaned` one: clarification `orphaned` and the orphaned follow-up; all `retired`: clarification `absorbed`, `GROUNDED_IN` the fragment holding the answer text, else the fragments under its heading; otherwise (applied again, re-anchored, undecided) the re-check of an applying gap: grounded again, and a `not_fixed` follow-up when the detector fires again and the gap has none yet ([reconcile.md](reconcile.md) "Outcomes") |
 | Reconciled before applied | An `applying` gap whose clarification's amendments an upload in the same build made `suspended`, `orphaned` or all `retired`: the same outcome as for an applied answer, and the gap resolves (resolution `follow_up` with the conflict or orphaned follow-up, or `answered` when absorbed) |
 | Reconcile follow-ups | Have no detector and are never obsolete; get the fixed options of reconcile.md, not a site; are not counted in `follow_ups` (counts `close.reconciled`) |
@@ -173,9 +174,8 @@ failure is logged and never stops the plan run.
 Task and story briefs, story lists and previews therefore show open gaps on their nodes, blocking first,
 with no change to `graph.plan`. The host fills the port with `api.gap.findings.OpenGaps`: the gap runner's
 `GapService` (read on each call; none while gap runs are not configured, and a service that cannot be built for a
-configuration fault is logged and left out) merged with the first-slice findings store, which keeps serving
-development findings until the first-slice migration; counts add up and findings are united by id in the port's
-order. The plan's `OpenFinding` has no severity, so the host's agent views look the severities of the shown gaps up
+configuration fault is logged and left out). A coding agent's findings are development gaps, so they show through the
+same port; a `note` is no gap and shows nowhere in the briefs. The plan's `OpenFinding` has no severity, so the host's agent views look the severities of the shown gaps up
 with one `list_gaps(about=...)` read. `IMPACTS` nodes are not counted as "about"; briefs list them under the
 gap as "an answer will change".
 
@@ -187,6 +187,27 @@ gap module calls the plan's existing hold and release calls through the `StoryHo
 `ABOUT` nodes `blocked` with `blocked_by` set to the gap id (tasks already `in_progress` are left alone and
 listed in the run result); when the gap resolves, is dismissed or becomes obsolete, `release_gap` returns
 those tasks to `pending`. Major and minor gaps never hold a task.
+
+As built: the existing block calls need a claim (`check_block`, `block_story`), so they cannot hold tasks nobody
+claimed; the plan got one host call for GD2, `PlanService.hold_tasks(project_id, gap_id, spec_ids, *, reason)`
+([../plan/api.md](../plan/api.md)): in one locked transaction every `pending` or `failed` task implementing a node
+of `spec_ids` (merged ids resolved) becomes `blocked` with the reason of the gap's kind (`missing` →
+`spec_missing`, `contradiction` and `inconsistency` → `spec_contradiction`, else `spec_ambiguous`) and `blocked_by`
+the gap id; `in_progress` tasks are left alone. The plan ontology does not change. Holding is idempotent and is
+repeated (`graph.gap.holds.hold_blockers`, every open gap of severity `blocker`, development gaps included: GD2 holds
+the tasks of a blocker's nodes whatever its origin, while a development gap below blocker holds only its reporting
+story through the block call): when a person raises a gap with severity `blocker`, at the end of every gap run's
+`record` step (the run result's `held_tasks`), and before every `claim_story` (the agent route holds the open
+blockers about the story's nodes first). So a task a plan run reset (its nodes changed), a task that was
+`in_progress` when the hold came and was released later, and the follow-up that inherits a blocker's severity are
+held again before anyone claims them. A claim of a story with a held task is refused `not_available` (the plan's
+`blocked` state) and the refusal's `details.findings` name the gap; the plan's own `claim_task` and `claim_next`
+(no agent route) refuse a blocked task without naming it. Releases (`graph.gap.holds.release`, for the gap id and
+every alias the gap keeps, read before the step that deletes the gap): the close step's resolved and obsolete
+gaps, a gap the `record` step resolved by a pointer, closed as not spec or refined below `blocker` (a raised
+blocker the investigation rates `major`), and `dismiss_gap`. A hold or release the plan refuses (`plan_applying`
+during a persist) or a store error is logged and left; the next repetition holds again, a release is repeated by the
+next end of the gap or a person's unblock in the plan.
 
 **Change reports.** When the update build that applied an answer returns, its change report reaches the plan
 as for any edit, and the plan re-plans only the stories whose members changed.
@@ -227,6 +248,21 @@ A development gap uses the same inbox, card, answer path and close check as any 
 it is investigated and applied at once, and it holds only the tasks of the story that reported it (even when
 its severity is not blocker).
 
+As built (`GapService.raise_gap` with origin `development`, the MCP route `POST /agent/findings`):
+
+| Step | Rule |
+|---|---|
+| Arguments | The route checks `refers_to` (forms of [../../mcp-server/tools.md](../../mcp-server/tools.md) "add_finding") and that a blocking finding has a kind other than `note`, a story and a claim token, before any read; the question is 10 to 1000 characters (the `answers.md` limits); unknown ids are `node_not_found` |
+| Note | `GapService.add_note`: a `gap_note` row (detector `development`, no run); the answer's id is `NOTE::` and 12 hex |
+| Dedupe | The development signature (story, current `ABOUT` ids, normalised question): an open gap with it is returned (`created` false), nothing held |
+| Limit | At most 50 open development gaps per agent and story (`AnswerInvalidError` field `limit`, the tool's `finding_limit`) |
+| Hold | `blocking`: `StoryHolds.check_block` before anything is written, then the gap, then `block_story` with `finding_id` the gap id; a failed block deletes the gap again and its error passes; `RaisedGap.held` lists the blocked tasks |
+| Refs | The checked `refers_to` go into the `detail` of the gap's `created` event |
+| Investigate | The route queues the `site` run at the head of the project's queue (`GapRunner.start_site`); the run refines kind, severity, title and why, adds `ABOUT`, `IMPACTS` and options and keeps the agent's question; the route is always `ask` (routing never answers a gap of origin other than `analysis` by AI) |
+| Pointer | A confirmed pointer on the raised gap (the `record` step's re-check): the gap resolves (resolution `pointer`) with a `pointer` clarification `GROUNDED_IN` the answering fragment; its holds are released; `list_gaps` shows the answering lines as its `answer` |
+| Not spec | A `not_spec` verdict on an open development gap: the gap is deleted, a `gap_note` keeps its question, its holds are released (event `obsolete`, reason `not_spec`); its nodes are not marked as noise |
+| Answer | An answer to a development gap with `blocking` `yes` is applied at once (`AnswerResult.immediate`); the close check after the update build resolves it and releases the story |
+
 ## Migration of first-slice findings
 
 The first slice ([../gap.md](../gap.md)) stores `Finding` nodes with `ABOUT` relations, `ExternalRef` nodes with
@@ -244,5 +280,17 @@ finds `Finding` nodes in a project:
 | `ExternalRef` and `REFERS_TO` | The refs (type and value) in the `detail` of the gap's first `gap_event` |
 | `FND::` id | Kept as `alias` in the first `gap_event`; plan tasks with `blocked_by` an `FND::` id are rewritten to the new gap id |
 
-The `Finding` and `ExternalRef` nodes are deleted after the migration commits. The MCP tool, the story
+The `Finding` and `ExternalRef` nodes are deleted after the migration commits. As built (`graph/gap/migrate.py`, `migrate_first_slice`
+through `ensure_gap_schema`):
+
+| Rule | As built |
+|---|---|
+| Reads and deletes | Its own named queries (`gap_read_first_slice`, `gap_delete_first_slice_findings`, `gap_delete_first_slice_refs`, each with its PostgreSQL port): the ontology no longer declares `Finding`, `ExternalRef` or `REFERS_TO`; the deletes run in one transaction after the gap writes |
+| Question and title | The text, trimmed and cut to 1000 characters at a word break (the `question` limit); the title its first line cut to 160 |
+| Identity | Signature `development_signature(story_id, current ids, question)`; the `FND::` id goes into the gap's `aliases` property and the first event's `alias`. Plan tasks are not rewritten: the gap's aliases keep the blocking link (`get_gap` and the release of holds resolve them) |
+| Resolved | A clarification of mode `own`, placement `none`, status `applied` with the closing note (or a fixed sentence without one), answered by the person who resolved it, not grounded (no fragment holds it) |
+| Events | `created` (actor and time of the finding; `migrated: true`, the alias, the refs, counts) and, for a resolved finding, `resolved` |
+| Same signature | A finding whose signature an open gap already has adds its id to that gap's `aliases` (event `aliased`); a finding already migrated by an earlier attempt is skipped, so a second run changes nothing |
+| Notes and dismissals | A `note` is a `gap_note` row (run id `first-slice-migration`, detector `development`); a dismissed finding a `gap_suppression` row of its signature |
+| Nothing to point at | A finding whose ids resolve to no node and that is about no fragment still becomes a gap (with no `ABOUT`); the close check takes it out as obsolete when it is open | The MCP tool, the story
 blocking and the plan's findings port keep working throughout, now backed by `GapService`.

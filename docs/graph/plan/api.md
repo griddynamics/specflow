@@ -137,11 +137,11 @@ A project without a plan raises `PlanReadError("no_plan")`.
 | `node_plan(project_id, spec_id, aliases=()) -> NodePlan \| None` | The plan state (`completed`, `in_progress`, `open`, `unplanned`) and the open and completed tasks (`TraceTask`, no claim token) that implement a node or one of its aliases; `None` without a plan |
 | `plan_states(project_id, nodes) -> dict[str, PlanState] \| None` | The plan state of each node of `nodes` (`spec_id` to its aliases), as `node_plan` decides it, from one plan load; `None` without a plan |
 | `trace(project_id, *, story_id=None, spec_ids=None, **options) -> PlanTrace` | The plan overlay of [../trace.md](../trace.md) "Plan overlay". `options` is a `TraceOptions`: `direction` (required), `depth` (2), `basis` (`trusted`), `relations` (none), `include_owner` (true), `limit` (100). Exactly one of `story_id` and `spec_ids`, else `ConfigurationError("invalid_arguments")`; the graph arguments are checked by `GraphReader.trace` ([../trace.md](../trace.md) "Library") |
-| `check_block(project_id, story_id, *, claimed_by, claim_token, spec_ids) -> None` | The guard of a blocking finding, a host call: `claimed_by` holds the story under `claim_token` and a node of `spec_ids` is implemented by an open or completed task of the story; else `TaskStateError("claim_mismatch")`, the same answer for an unknown story, a story nobody holds and a wrong token ([../gap.md](../gap.md) "Blocking link") |
+| `check_block(project_id, story_id, *, claimed_by, claim_token, spec_ids) -> None` | The guard of a blocking finding, a host call: `claimed_by` holds the story under `claim_token` and a node of `spec_ids` is implemented by an open or completed task of the story; else `TaskStateError("claim_mismatch")`, the same answer for an unknown story, a story nobody holds and a wrong token ([../gap/lifecycle.md](../gap/lifecycle.md) "Development gaps") |
 
 `PlanService` takes its graph reads (`graph`, default a `GraphReader` over the same executor), its plan loader
 (`load`) and its clock (`clock`) as arguments so tests can replace them. `findings` is the optional
-`FindingsReads` port ("Ports") that the host fills with `graph.gap.Findings`; without it every findings field
+`FindingsReads` port ("Ports") that the host fills with the open gaps of `graph.gap.GapService`; without it every findings field
 below is empty and every count 0.
 
 A `TaskItem` names its area and story (`AreaRef`, `StoryRef`; the story title only while the story is active), its
@@ -178,7 +178,8 @@ task outside the claim (`invalid_done`). State refusals raise `TaskStateError`.
 | `release_story(project_id, story_id, *, claimed_by=None, claim_token=None, force=False, note=None, branch=None) -> StoryRelease` | `released` (task ids), `repeat`; `claimed_by` (the caller) and `claim_token` are required unless `force=True`, a host operation |
 | `report_progress(project_id, task_id, *, claimed_by, claim_token, progress, note=None) -> StoryTask` | The task after the report. A task that is not `in_progress`, not under the held token or of a story `claimed_by` does not hold: `claim_mismatch`; an unknown task: `unknown_task` |
 | `complete_story(project_id, story_id, *, claim_token, completed_by, merge_commit, pr_url=None, done=None) -> StoryCompletion` | `completed`, `released`, `now_available` (story ids), `spec_changed` (spec ids: the implemented nodes a build wrote after the plan's consumed builds), `repeat`; `completed_by` must hold the story |
-| `block_story(project_id, story_id, *, claim_token, reason, finding_id) -> StoryRelease` | `released` holds the blocked task ids; called by the host for a blocking finding ([../gap.md](../gap.md) "Blocking link") |
+| `block_story(project_id, story_id, *, claim_token, reason, finding_id) -> StoryRelease` | `released` holds the blocked task ids; called by the host for a blocking development gap ([../gap/lifecycle.md](../gap/lifecycle.md) "Development gaps") |
+| `hold_tasks(project_id, finding_id, spec_ids, *, reason="spec_ambiguous") -> TaskHold` | `held`: the `pending` and `failed` tasks implementing a node of `spec_ids` it blocked with `blocked_by` = `finding_id`; `in_progress`: the claimed ones it left alone ([lifecycle.md](lifecycle.md) "Task transitions"); called by the host for an open blocker gap (decision GD2 of [../gap/questions.md](../gap/questions.md)); one locked transaction over the stories of those tasks; refused with `plan_applying` during a persist |
 | `unblock_finding(project_id, finding_id) -> tuple[str, ...]` | The task ids moved back to `pending`; a host operation |
 
 ## Errors
@@ -204,7 +205,7 @@ Port methods are `async`.
 | Port | Methods |
 |---|---|
 | `PlanStore` | `create_run(record)`, `get_run(project_id, run_id)`, `latest_run(project_id, *, finished_only=False, modes=None)`, `put_progress(project_id, run_id, step, state)`, `finish_run(result)`, `get_result(project_id, run_id)`; `put_artifact(project_id, run_id, step, payload)`, `get_artifact(project_id, run_id, step)`; `get_answer(project_id, kind, key, reuse_key, *, run_id=None)`, `put_answer(project_id, kind, key, reuse_key, run_id, *, payload)` with kinds `describe`, `project`, `tasks`; `get_revisions(project_id)`, `put_revisions(project_id, revisions)` exchanging `MeaningRevisions` (`nodes`: `spec_id` → build id of its meaning revision; `consumed`: the consumed build chain) |
-| `FindingsReads` | `open_counts(project_id, spec_ids) -> Mapping[str, int]`, `findings(project_id, *, spec_ids=None, limit=50) -> page with .findings`: structural, satisfied by `graph.gap.Findings` as it is; `graph.plan` never imports `graph.gap`. Optional: `PlanService(..., findings=)` |
+| `FindingsReads` | `open_counts(project_id, spec_ids) -> Mapping[str, int]`, `findings(project_id, *, spec_ids=None, limit=50) -> page with .findings`: structural, satisfied by `graph.gap.GapService` as it is; `graph.plan` never imports `graph.gap`. Optional: `PlanService(..., findings=)` |
 
 `open_plan_store(root)` stores per-project paths, gzip-compressed JSON, atomic writes (write then
 rename), like the build file stores. One contract test suite runs against every implementation.
@@ -253,7 +254,7 @@ every client.
 | `list_areas`, `list_stories`, `preview_story` | `PlanService.area_summary`, `story_list`, `story_preview` |
 | `claim_story`, `release_story`, `report_task`, `complete_story` | `PlanService.claim_story`, `release_story` (without `force`), `report_progress`, `complete_story` |
 | `get_story_brief`, `trace` | `PlanService.story_brief`, `trace` |
-| `add_finding` with `blocking` | `PlanService.check_block` before the finding is written, `block_story` after it ([../gap.md](../gap.md) "Blocking link"): composed by `graph.gap.FindingFlow` with `PlanService` as its `StoryBlocks` port |
+| `add_finding` with `blocking` | `PlanService.check_block` before the development gap is written, `block_story` after it ([../gap/lifecycle.md](../gap/lifecycle.md) "Development gaps"): composed by `GapService.raise_gap` with the host's `PlanHolds` (`PlanService`) as its `StoryHolds` port |
 
 The API maps library error codes to the tool's by one table, which also covers the renames (`TaskStateError`
 `unknown_task` becomes `task_not_found`, `unknown_story` and a retired story's `wrong_state` become

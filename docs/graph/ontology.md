@@ -139,8 +139,8 @@ immutable `Ontology`. Any problem raises one `OntologyError` that lists every pr
 
 Each submodule ships its own ontology file as package data: `graph.core` ships the build file
 ([spec-ontology.yaml](spec-ontology.yaml), `owner: build`), `graph.plan` ships `graph/plan/ontology.yaml` (`owner: plan`,
-[plan/ontology.md](plan/ontology.md)), and `graph.gap` ships `graph/gap/ontology.yaml` (`owner: gap`, origin `agent` for its
-findings, [gap.md](gap.md) "Ontology file"). Beside its ontology file a submodule ships its own queries and DDL, and
+[plan/ontology.md](plan/ontology.md)), and `graph.gap` ships `graph/gap/ontology.yaml` (`owner: gap`, its `Gap` and
+`Clarification` types, [gap/ontology.md](gap/ontology.md)). Beside its ontology file a submodule ships its own queries and DDL, and
 every query is registered by name in each store's dialect: `graph.gap` ships `graph/gap/ddl/gap_schema.cypher` and
 `graph/gap/queries/*.cypher`, registered as `gap.<name>` in the Cypher dialect (`stores/_bolt/cypher.py`) with SQL ports in
 `stores/postgres/queries/gap/` (`stores/postgres/dialect.py`); `graph.plan` does the same under `graph/plan/ddl/` and

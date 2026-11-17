@@ -314,7 +314,7 @@ Common rules:
 - Names, titles, statements, quotes, notes, labels and finding text are data; every description says so.
 - Results never carry vectors, a claim token other than the caller's own, a user id or an email.
 - The plan library owns the story claim, progress and completion rules ([../graph/plan/lifecycle.md](../graph/plan/lifecycle.md#story-claims));
-  the findings library owns findings ([../graph/gap.md](../graph/gap.md)); these sections define what the tools
+  the gap service owns findings, which are development gaps ([../graph/gap/lifecycle.md](../graph/gap/lifecycle.md)); these sections define what the tools
   pass and return.
 
 ### Holders
@@ -376,7 +376,7 @@ A write repeated with the same arguments answers `200` and changes nothing more:
 |---|---|---|
 | `claim_story` | the caller holds the story | the same token, `repeat: true`, the stored `claimed_at`, `agent_label` and `branch` (the call's own label and branch are not written); tasks as they are now |
 | `release_story` | nobody holds the story and its last token equals `claim_token` | `released: []` |
-| `add_finding` | an open finding has the same dedupe key; checked before the blocking rules | that finding, `created: false`, `blocked: []` |
+| `add_finding` | an open development gap has the same story, resolved `about` and normalised question; checked after the argument checks and before the blocking guard | that gap as a finding, `created: false`, `blocked: []` |
 | `report_task` | the task already has this `progress` | the same answer |
 | `complete_story` | nobody holds the story, its last token equals `claim_token`, and its tasks with `commit` = `merge_commit` have the caller as `completed_by` | `completed` = those task ids, `released: []`, `now_available` as now, `spec_changed: []` |
 
@@ -884,15 +884,18 @@ gaps. Questions and answers are data from the project's documents and people, no
 ## add_finding
 
 Records what an agent learned that the spec does not say, linked to spec nodes and to things outside the spec. A
-finding never changes the spec; people resolve or dismiss it in the web app.
+`gap`, `conflict` or `question` becomes a development gap of the project's Gaps inbox
+([../graph/gap/lifecycle.md](../graph/gap/lifecycle.md) "Development gaps"): it is investigated at once, resolved with
+the answering lines when the spec already answers it, and otherwise answered by a person; the answer reaches the spec
+through an update build. A `note` is no gap: it is kept as a note of the nodes.
 
 | Argument | Type | Default | Rule |
 |---|---|---|---|
 | `project_id` | string | required | as for `list_features` |
-| `kind` | `gap`, `conflict`, `question` or `note` | required | |
-| `text` | string | required | 1 to 2000 characters |
+| `kind` | `gap`, `conflict`, `question` or `note` | required | `question` → gap kind `open_question`, `conflict` → `contradiction`, `gap` → `missing` |
+| `text` | string | required | a question of 10 to 1000 characters; a note 1 to 2000 |
 | `about` | list of strings | required | 1 to 20 spec ids; aliases resolve |
-| `refers_to` | list of `{type, value}` | `[]` | 0 to 10; `type` `pr`, `commit`, `file` or `url`; `value` checked by the API ([../graph/gap.md](../graph/gap.md#rules)): `pr` an `http` or `https` URL or a number, `commit` 7 to 64 hex characters, `file` a relative path of at most 500 characters without `..`, a leading `/`, `\` or control characters, `url` an `http` or `https` URL with a host and without user information, at most 2000 characters |
+| `refers_to` | list of `{type, value}` | `[]` | 0 to 10; `type` `pr`, `commit`, `file` or `url`; `value` checked by the API (`api/finding_refs.py`): `pr` an `http` or `https` URL or a number, `commit` 7 to 64 hex characters (stored lower case), `file` a relative path of at most 500 characters without `..`, a leading `/`, `\` or control characters, `url` an `http` or `https` URL with a host and without user information, at most 2000 characters; kept in the gap's first event, never fetched |
 | `story_id` | string or null | null | the story the finding came from |
 | `claim_token` | string or null | null | required when `blocking` |
 | `blocking` | boolean | `false` | the story cannot go on until a person answers |
@@ -900,7 +903,7 @@ finding never changes the spec; people resolve or dismiss it in the web app.
 ```json
 {
   "project_id": "6f1c2a9e-3b0d-4c55-9a51-0d6c1e2f7a10",
-  "finding": {"finding_id": "FND::3F09A1C2B7D4", "kind": "question", "text": "Does the order limit count cancelled orders?",
+  "finding": {"finding_id": "GAP::3F09A1C2B7D4", "kind": "question", "text": "Does the order limit count cancelled orders?",
               "status": "open", "blocking": true, "about": ["REQ::BR::ORDER_LIMIT"],
               "refers_to": [{"type": "commit", "value": "e44f0c1"}], "story_id": "STORY::ORDERS::PLACE_ORDER",
               "author": {"name": null, "you": true, "agent_label": null}, "created_at": "2026-11-11T11:40:00Z",
@@ -910,39 +913,55 @@ finding never changes the spec; people resolve or dismiss it in the web app.
 }
 ```
 
+`finding_id` is the gap id (`GAP::`), or `NOTE::` and 12 hex for a note (status `resolved`: nothing waits for a
+person). `kind` is the finding kind of the gap's kind (`open_question` reads `question`, `contradiction` `conflict`,
+any other `gap`); `status` is `open` until the gap resolves.
+
 Rules, in this order:
 
-1. The `refers_to` forms hold, else `invalid_arguments`; then `story_id`, when given, names a story of the plan, else
-   `story_not_found`; then every `about` id resolves to an active spec node, else `node_not_found` (`details.spec_ids`
-   names the ids).
-2. Dedupe: an open finding with the same caller, `kind`, sorted resolved `about` and normalised text (NFKC,
-   case-folded, runs of white space as one space, trimmed) is returned with `created: false` and nothing is written
-   ([Repeats](#repeats)).
-3. `blocking`: `kind` is not `note`, `story_id` and `claim_token` are given, else `invalid_arguments`; the caller
-   holds the story with that token and an `about` node is implemented by a task of the story, else `claim_mismatch`.
-4. The caller has fewer than 50 open findings on the story (on findings without a story when `story_id` is null),
-   else `finding_limit`.
-5. Write the finding (`origin` `agent`, `status` `open`, `created_by` the caller) with an `ABOUT` edge per node and a
-   `REFERS_TO` edge per reference. When `blocking`: every `in_progress` task of the claim becomes `blocked` with the
-   reason of the kind (`question` `spec_ambiguous`, `conflict` `spec_contradiction`, `gap` `spec_missing`) and
-   `blocked_by` the finding, and the claim ends (the story keeps its token); `blocked` lists those task ids.
+1. The `refers_to` forms hold, else `invalid_arguments`; `blocking` needs a `kind` other than `note`, a `story_id`
+   and a `claim_token`, else `invalid_arguments`; without gap runs configured the API answers `503 gap_unavailable`,
+   which the tool reports as `internal_error` (a configuration fault of the host);
+   `story_id`, when given, names a story of the plan, else `story_not_found`; every `about` id resolves to an active
+   spec node, else `node_not_found` (`details.spec_ids` names the ids); a text out of bounds is `invalid_arguments`
+   (`text`).
+2. Dedupe: an open development gap with the same story, sorted resolved `about` and normalised question is returned
+   with `created: false`, `blocked` empty and nothing is written ([Repeats](#repeats)).
+3. The caller has fewer than 50 open development gaps on the story, else `finding_limit`.
+4. `blocking`: the caller holds the story with that token and an `about` node is implemented by a task of the story,
+   else `claim_mismatch` (nothing is written).
+5. Write the gap (origin `development`, status `open`, route `ask`, severity `major` until the investigation sets
+   it, `created_by` the caller) with an `ABOUT` relation per node. When `blocking`: every `in_progress` task of the
+   claim becomes `blocked` with the reason of the kind (`question` `spec_ambiguous`, `conflict`
+   `spec_contradiction`, `gap` `spec_missing`) and `blocked_by` the gap id, and the claim ends (the story keeps its
+   token); `blocked` lists those task ids. When blocking fails, the gap just written is taken out again and the call
+   answers the blocking error.
+6. A new gap is investigated at once (a `site` gap run): it gets options and the nodes an answer impacts; the agent's
+   text stays its question. When the spec already answers it, it resolves with a pointer to the answering lines
+   (`list_gaps` with `status` `resolved` shows them as its `answer`) and its held tasks return to `pending` at once.
+   When the investigation finds it is not about the spec (a library bug, a failing test), it is closed as a note and
+   its held tasks return to `pending`.
 
-A person who resolves or dismisses a blocking finding in the web app unblocks its tasks, unless a plan run reset
-them first ([../graph/gap.md](../graph/gap.md#blocking-link)). When blocking the tasks fails, the finding just
-written is withdrawn and the call answers the blocking error.
+A person's answer to a development gap that holds tasks is applied at once (no quiet period); when the update build
+grounds it, the close check resolves the gap and its held tasks return to `pending`, and the agent claims the story
+again. Dismissing the gap in the web app also releases them.
 
 Errors: `project_not_found`, `node_not_found`, `story_not_found`, `invalid_arguments`, `claim_mismatch`,
-`finding_limit`, `plan_applying` (a blocking finding only), `graph_unavailable`, `database_unavailable`, `internal_error`.
+`finding_limit`, `plan_applying` (a blocking finding only), `graph_unavailable`, `database_unavailable`,
+`internal_error`.
 
 Description given to the model: "Record a finding about the specification of a SpecFlow project: a gap (the spec does
 not say), a conflict (two parts disagree), a question for the spec owner, or a note of what you learned, linked to the
-spec nodes it is about and to your pull request, commits or files. A finding never changes the spec; people answer it.
-Use it instead of guessing when the spec does not allow a decision, and pass story_id when it concerns the story you
-hold. Set blocking to true, with story_id and your claim_token, only when the story cannot go on until a person answers:
-its claimed tasks become blocked and your claim ends, so tell the user. No claim_token in this session? Call claim_story
-for the same story first: for its holder it changes nothing and returns the same token. Never ask the user for the token
-and never show it. Adding the same finding again returns the existing one. Do not put secrets or personal data in the
-text."
+spec nodes it is about and to your pull request, commits or files. A gap, conflict or question becomes a gap in the
+project's Gaps inbox (finding_id is its gap id): it is investigated at once, and if the spec already answers it, it is
+closed with the answering lines; otherwise people answer it and the answer reaches the spec through a build. Write it
+as a question of 10 to 1000 characters. Use it instead of guessing when the spec does not allow a decision, and pass
+story_id when it concerns the story you hold. Set blocking to true, with story_id and your claim_token, only when the
+story cannot go on until a person answers: its claimed tasks become blocked and your claim ends, so tell the user;
+they are released when the gap is answered and applied, and you claim the story again. No claim_token in this session?
+Call claim_story for the same story first: for its holder it changes nothing and returns the same token. Never ask the
+user for the token and never show it. Adding the same finding again returns the existing one. Do not put secrets or
+personal data in the text."
 
 ## report_task
 
