@@ -41,8 +41,8 @@ const gap = (over: Partial<Gap> = {}): Gap => ({
   heldBack: false,
   createdAt: "2026-01-01T10:00:00Z",
   updatedAt: "2026-01-01T10:00:00Z",
-  about: [{ specId: "REQ::FR::PLACE_ORDER", label: "Requirement", name: "Place order" }],
-  impacts: [{ specId: "REQ::FR::REFUND", label: "Requirement", name: "Refund" }],
+  about: [{ specId: "REQ::FR::PLACE_ORDER", label: "Requirement", name: "Place order", aliases: [] }],
+  impacts: [{ specId: "REQ::FR::REFUND", label: "Requirement", name: "Refund", aliases: [] }],
   witness: [{ fragmentId: "FRAG::orders::3", quote: "A customer may cancel an order.", lineStart: 12, lineEnd: 14 }],
   options: [
     { rank: 1, label: "Refund in full and cancel", detail: "", recommended: true, edits: 1 },

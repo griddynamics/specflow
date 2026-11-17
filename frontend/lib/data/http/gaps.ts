@@ -100,7 +100,7 @@ const text = (v: unknown): string => {
 
 function toNode(v: unknown): GapNode {
   expectShape(isRecord(v) && isString(v.spec_id) && isString(v.label) && isString(v.name));
-  return { specId: v.spec_id, label: v.label, name: v.name };
+  return { specId: v.spec_id, label: v.label, name: v.name, aliases: listOf(v.aliases ?? undefined, text) }; // aliases: absent or null in older APIs
 }
 
 function toQuote(v: unknown): GapQuote {

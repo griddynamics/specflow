@@ -1,8 +1,8 @@
 "use client";
 // FR-GWEB-04 (api.md "User interface", Plan screens): the open gaps of the plan's tasks and stories, linked to their cards. The open gaps
 // (status open, answered or applying; any route; up to 200) are read once when the Plan tab is shown; a task's gaps are those whose ABOUT
-// ids meet the spec ids the task implements, a story's the union of its tasks'. A failed read (or 503 gap_unavailable) shows nothing:
-// the plan never breaks for it.
+// ids (a node's spec id or one of its aliases) meet the spec ids the task implements, a story's the union of its tasks'. A failed read (or
+// 503 gap_unavailable) shows nothing: the plan never breaks for it.
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { gapLink } from "@/components/gaps/gap-links";

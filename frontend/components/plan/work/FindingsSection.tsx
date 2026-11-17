@@ -1,26 +1,29 @@
 "use client";
 // MCP-TOOLING session 10: the findings list of the Plan page. The status filter (Open by default) and an optional node filter (set by a
 // click on a spec node of a finding) go to the API; the list comes back blocking first. States: skeleton, failure with "Try again", empty,
-// the list. `refresh` (a number) re-reads after an answer or a release elsewhere on the page.
+// the list, each row linking to its gap card. `refresh` (a number) re-reads after an answer or a release elsewhere on the page.
 import { useEffect, useState } from "react";
+import { gapLink } from "@/components/gaps/gap-links";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { CloseAction, Finding, FindingFilter, FindingList } from "@/lib/domain/work";
-import { useWorkPort } from "../use-plan-ports";
+import { usePlanRoutes, useWorkPort } from "../use-plan-ports";
 import { CloseFindingDialog } from "./CloseFindingDialog";
 import { FindingRow } from "./FindingRow";
 import { EMPTY_FINDINGS, EMPTY_FINDINGS_HELP, FILTER_OPTIONS } from "./work-logic";
 
 /** The list, or what stands in for it: the skeleton, the failure with "Try again", the empty note. */
 function FindingsBody({
+  gapHref,
   list,
   status,
   onRetry,
   onAction,
   onNode,
 }: Readonly<{
+  gapHref: (findingId: string) => string;
   list: FindingList | "failed" | null;
   status: FindingFilter;
   onRetry: () => void;
@@ -55,6 +58,7 @@ function FindingsBody({
           <FindingRow
             key={finding.findingId}
             finding={finding}
+            gapHref={gapHref(finding.findingId)}
             onAction={(action) => {
               onAction(finding, action);
             }}
@@ -77,6 +81,7 @@ export function FindingsSection({
   onChanged,
 }: Readonly<{ projectId: string; refresh: number; onChanged: () => void }>) {
   const work = useWorkPort();
+  const routes = usePlanRoutes();
   const [status, setStatus] = useState<FindingFilter>("open");
   const [node, setNode] = useState<string | undefined>(undefined);
   const [list, setList] = useState<FindingList | "failed" | null>(null);
@@ -137,6 +142,7 @@ export function FindingsSection({
         </p>
       ) : null}
       <FindingsBody
+        gapHref={(findingId) => gapLink(routes, projectId, findingId)}
         list={list}
         status={status}
         onRetry={reload}

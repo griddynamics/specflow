@@ -187,21 +187,22 @@ function useFilterSources(projectId: string) {
   return { stories, documents };
 }
 
-/** The gap `?gap=` names, once loaded; an unknown id opens nothing and drops the parameter. `reload` reads it again. */
+/** The gap `?gap=` names, once loaded; an unknown id opens nothing and drops the parameter. `reload` reads it again. The id may be an
+ * alias the API resolves (a migrated finding's old `FND::` id), so the card is matched by the id asked for, not by the gap's own id. */
 function useOpenGap(projectId: string, openId: string | null): { card: Gap | null; reload: () => Promise<void> } {
   const { gaps, routes } = useGapsDeps();
-  const [fetched, setFetched] = useState<Gap | null>(null);
+  const [fetched, setFetched] = useState<{ asked: string; gap: Gap } | null>(null);
   const reload = useCallback(async () => {
     if (openId === null || openId === "") return;
     const g = await gaps.get(projectId, openId);
-    setFetched(g);
+    setFetched({ asked: openId, gap: g });
   }, [gaps, projectId, openId]);
   useEffect(() => {
     if (openId === null || openId === "") return;
     let alive = true;
     gaps.get(projectId, openId).then(
       (g) => {
-        if (alive) setFetched(g);
+        if (alive) setFetched({ asked: openId, gap: g });
       },
       () => {
         if (alive) window.history.replaceState(null, "", routes.gaps(projectId));
@@ -211,7 +212,7 @@ function useOpenGap(projectId: string, openId: string | null): { card: Gap | nul
       alive = false;
     };
   }, [gaps, projectId, openId, routes]);
-  return { card: openId !== null && fetched?.id === openId ? fetched : null, reload };
+  return { card: openId !== null && fetched?.asked === openId ? fetched.gap : null, reload };
 }
 
 // ---- view ----

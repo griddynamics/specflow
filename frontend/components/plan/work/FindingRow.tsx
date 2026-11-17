@@ -1,7 +1,9 @@
 "use client";
 // MCP-TOOLING session 10: one finding of the list. Blocking first (the list order), a Blocking tag and the kind as words, the text, the spec
 // nodes it is about (a kit button that shows only the findings about that node: the web app has no node page), its external references as links,
-// who wrote it and when, and "Resolve" / "Dismiss" for an open one. A closed one shows who answered, when and the note.
+// who wrote it and when, a link to its card on the Gaps screen (`gapHref`: a finding is a development gap, its id is the gap's id), and
+// "Resolve" / "Dismiss" for an open one. A closed one shows who answered, when and the note.
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Tag } from "@/components/ui/Tag";
@@ -110,9 +112,10 @@ function FindingFooter({ finding, onAction }: Readonly<{ finding: Finding; onAct
 
 export function FindingRow({
   finding,
+  gapHref,
   onAction,
   onNode,
-}: Readonly<{ finding: Finding; onAction: (action: CloseAction) => void; onNode: (specId: string) => void }>) {
+}: Readonly<{ finding: Finding; gapHref: string; onAction: (action: CloseAction) => void; onNode: (specId: string) => void }>) {
   return (
     <li
       className="work-finding"
@@ -128,7 +131,15 @@ export function FindingRow({
       {finding.about.length > 0 ? <FindingNodes finding={finding} onNode={onNode} /> : null}
       {finding.refersTo.length > 0 ? <FindingRefs finding={finding} /> : null}
       <p className="work-finding__meta body-sm">
-        {personName(finding.author)} · {formatWhen(finding.createdAt)}
+        {personName(finding.author)} · {formatWhen(finding.createdAt)} ·{" "}
+        <Link
+          className="work-ref__link"
+          href={gapHref}
+          aria-label={`Open the gap card of finding ${finding.findingId}`}
+          data-testid="finding-gap-link"
+        >
+          Open gap card
+        </Link>
       </p>
       <FindingFooter finding={finding} onAction={onAction} />
     </li>

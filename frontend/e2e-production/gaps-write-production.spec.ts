@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { Page, Request } from "@playwright/test";
 import { colourViolations, tabWalk } from "./audits";
-import { CANCEL_TITLE, CORPUS, NOISE_RUN, ORDERS_DOC_ID, shopGaps } from "./gaps-fixtures";
+import { CANCEL_TITLE, CORPUS, gap, node, NOISE_RUN, ORDERS_DOC_ID, shopGaps } from "./gaps-fixtures";
 import {
   allowConsoleErrors,
   bff,
@@ -378,6 +378,35 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await link.click();
     await expect(page).toHaveURL(new RegExp(`/projects/${pid}/gaps\\?gap=GAP%3A%3ACANCEL_PAID$`));
     await expect(card(page, CANCEL_TITLE)).toBeVisible();
+  });
+
+  test("FR-GWEB-04: a task's gap is found through an alias of its ABOUT node; a node without a matching id or alias links nothing", async ({
+    page,
+  }) => {
+    const pid = await shopProject(page, { plan: true });
+    const ALIAS_TITLE = "The checkout flow has no timeout";
+    await seedGaps(pid, {
+      gaps: [
+        gap("GAP::ALIAS", {
+          title: ALIAS_TITLE,
+          question: "How long may a checkout stay open?",
+          about: [node("FEAT::CHECKOUT_FLOW", "Feature", "Checkout flow", ["FEAT::CHECKOUT"])],
+        }),
+        gap("GAP::ELSEWHERE", {
+          title: "Search has no ranking",
+          question: "How are search results ranked?",
+          about: [node("FEAT::SEARCH", "Feature", "Search", ["FEAT::FIND"])],
+        }),
+      ],
+    });
+    await page.goto(`/projects/${pid}/plan`);
+    await expect(page.getByTestId("screen-plan")).toHaveAttribute("data-stage", "ready", { timeout: 15_000 });
+    const pay = page.getByTestId("plan-task").filter({ hasText: "Take the payment" });
+    await expect(pay.getByTestId("plan-task-gaps")).toHaveText("1 open gap");
+    await pay.getByTestId("plan-task-head").click();
+    const link = pay.getByTestId("plan-task-gap-link");
+    await expect(link).toHaveText(ALIAS_TITLE);
+    await expect(link).toHaveAttribute("href", cardLink(pid, "GAP::ALIAS"));
   });
 
   test("FR-GWEB-04: a failed gap read leaves the Plan as it is (no gap tags, no error)", async ({ page }) => {

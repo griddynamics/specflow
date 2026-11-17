@@ -5,7 +5,7 @@
 // gaps-write-production.spec.ts.
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { CANCEL_TITLE, CORPUS, NOISE_RUN, shopGaps } from "./gaps-fixtures";
+import { CANCEL_TITLE, CORPUS, NOISE_RUN, PAYMENT_PROVIDER_FINDING, PAYMENT_PROVIDER_TITLE, shopGaps } from "./gaps-fixtures";
 import {
   allowConsoleErrors,
   bff,
@@ -198,6 +198,19 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(inboxRows(page)).toHaveCount(4);
     await expect(page).toHaveURL(new RegExp(`/projects/${pid}/gaps$`));
     await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  test("FR-GWEB-04: the old Decisions URL redirects to the Gaps screen with its query; a migrated finding's old id opens its gap's card", async ({
+    page,
+  }) => {
+    const { pid } = await shopProject(page);
+    await page.goto(`/projects/${pid}/decisions`);
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/gaps$`));
+    await expect(inboxRows(page)).toHaveCount(4);
+    const old = encodeURIComponent(PAYMENT_PROVIDER_FINDING);
+    await page.goto(`/projects/${pid}/decisions?gap=${old}`);
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/gaps\\?gap=${old}$`));
+    await expect(page.getByRole("dialog", { name: PAYMENT_PROVIDER_TITLE })).toBeVisible();
   });
 
   test("FR-GWEB-04: the noise report tab lists the sections the latest run judged tracking or mixed, with their signals", async ({

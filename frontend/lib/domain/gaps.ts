@@ -15,11 +15,13 @@ export type GapStatus = (typeof GAP_STATUSES)[number];
 export type GapOrigin = (typeof GAP_ORIGINS)[number];
 export type GapRoute = (typeof GAP_ROUTES)[number];
 
-/** A spec node of an `ABOUT` or `IMPACTS` relation: its id, its type label and its name. */
+/** A spec node of an `ABOUT` or `IMPACTS` relation: its id, its type label, its name and the other spec ids it answers to (`aliases`,
+ * empty when the API sent none). */
 export interface GapNode {
   specId: string;
   label: string;
   name: string;
+  aliases: string[];
 }
 
 /** A `CITES` witness line: the fragment, the verbatim quote and its line numbers when known. `get` also names its document (the lineage

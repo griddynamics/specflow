@@ -2,7 +2,16 @@
 // `stories` and `documents` filter lists), the latest gap run with its noise report, and the corpus documents of the Documents tab.
 export const REQUIREMENT = "Requirement";
 export const CANCEL_TITLE = "Cancelling a paid order is not specified";
-export const node = (specId: string, label: string, name: string) => ({ spec_id: specId, label, name });
+export const PAYMENT_PROVIDER_TITLE = "Which payment provider takes the payment?";
+/** The old `FND::` id of the coding agent's question, a finding before the gap module (an alias of GAP::PAYMENT_PROVIDER). */
+export const PAYMENT_PROVIDER_FINDING = "FND::PAYMENT_PROVIDER";
+/** An `ABOUT` / `IMPACTS` node; `aliases` (its other spec ids) only when given, as an older API sends none. */
+export const node = (specId: string, label: string, name: string, aliases?: string[]) => ({
+  spec_id: specId,
+  label,
+  name,
+  ...(aliases === undefined ? {} : { aliases }),
+});
 export const option = (gapId: string, rank: number, label: string, detail: string, recommended = false) => ({
   gap_id: gapId,
   rank,
@@ -81,9 +90,9 @@ export const gap = (id: string, over: Record<string, unknown>) => ({
 });
 
 /** The shop corpus: the cancel-paid-order gap (3 options, A recommended; its first witness names its document and section), a blocker
- *  contradiction, a person's minor gap, a coding agent's blocking question, a gap AI answered (resolved, its answer in the clarifications
- *  document; not in the inbox), a resolved gap whose own answer amends the orders specification, and one question the run held back
- *  (FR-GRTE-06). */
+ *  contradiction, a person's minor gap, a coding agent's blocking question (a migrated finding: its old FND id resolves to it), a gap AI
+ *  answered (resolved, its answer in the clarifications document; not in the inbox), a resolved gap whose own answer amends the orders
+ *  specification, and one question the run held back (FR-GRTE-06). */
 export function shopGaps(documentId: string) {
   return [
     gap("GAP::CANCEL_PAID", {
@@ -126,10 +135,11 @@ export function shopGaps(documentId: string) {
       severity: "major",
       origin: "development",
       blocking: true,
-      title: "Which payment provider takes the payment?",
+      title: PAYMENT_PROVIDER_TITLE,
       question: "Which payment provider should the order API call?",
       created_at: "2026-11-01T10:00:00Z",
       about: [node("REQ::FR::PAY", REQUIREMENT, "Take the payment")],
+      old_ids: [PAYMENT_PROVIDER_FINDING], // stub-only: a migrated finding's old id, which `GET /gaps/{id}` resolves
     }),
     gap("GAP::AI_CURRENCY", {
       route: "ai",

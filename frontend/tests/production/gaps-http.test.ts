@@ -91,7 +91,7 @@ test("FR-GWEB-04: toGap reads a gap with its nodes, quotes, options by rank, the
     ],
   );
   assert.equal(g.options[0].edits, 1);
-  assert.deepEqual(g.about, [{ specId: "REQ::FR::PLACE_ORDER", label: "Requirement", name: "Place order" }]);
+  assert.deepEqual(g.about, [{ specId: "REQ::FR::PLACE_ORDER", label: "Requirement", name: "Place order", aliases: [] }]);
   assert.deepEqual(g.witness[0], {
     fragmentId: "FRAG::orders::3",
     quote: "A customer may cancel an order.",
@@ -391,13 +391,28 @@ test("FR-GWEB-04: refusals in words: answer_invalid by field, gap_wrong_state by
 });
 
 test("FR-GWEB-04, FR-GWEB-05: section rule values, the plan's gap links and the not-in-source banner", () => {
+  const CHECKOUT = "FEAT::CHECKOUT";
   assert.equal(sectionRuleValue("upload:roadmap", ["Shop roadmap", "Release plan"]), "upload:roadmap › Shop roadmap › Release plan");
-  const a = toGap(wireGap({ gap_id: "A", about: [{ spec_id: "FEAT::CHECKOUT", label: "", name: "" }] }));
+  const a = toGap(wireGap({ gap_id: "A", about: [{ spec_id: CHECKOUT, label: "", name: "" }] }));
   const b = toGap(wireGap({ gap_id: "B", about: [{ spec_id: "REQ::X", label: "", name: "" }] }));
   assert.deepEqual(
-    gapsForSpecIds([a, b], ["FEAT::CHECKOUT"]).map((g) => g.id),
+    gapsForSpecIds([a, b], [CHECKOUT]).map((g) => g.id),
     ["A"],
   );
+  // An ABOUT node also meets a task's implemented id through one of its aliases; missing or null aliases read as none.
+  const c = toGap(wireGap({ gap_id: "C", about: [{ spec_id: "FEAT::CHECKOUT_FLOW", label: "", name: "", aliases: [CHECKOUT] }] }));
+  const d = toGap(wireGap({ gap_id: "D", about: [{ spec_id: "FEAT::SEARCH", label: "", name: "", aliases: null }] }));
+  assert.deepEqual(c.about[0].aliases, [CHECKOUT]);
+  assert.deepEqual(d.about[0].aliases, []);
+  assert.deepEqual(
+    gapsForSpecIds([a, b, c, d], [CHECKOUT]).map((g) => g.id),
+    ["A", "C"],
+  );
+  assert.deepEqual(
+    gapsForSpecIds([c, d], ["FEAT::CHECKOUT_FLOW", "FEAT::FIND"]).map((g) => g.id),
+    ["C"],
+  );
+  assert.throws(() => toGap(wireGap({ about: [{ spec_id: "X", label: "", name: "", aliases: [1] }] })), invalid);
   assert.deepEqual(
     unionGaps([[a], [a, b]]).map((g) => g.id),
     ["A", "B"],

@@ -417,7 +417,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   }
 
   // Gaps (FR-GWEB-04, FR-GWEB-05): per project, seeded through the control port (`seedGaps`: full `GapView` rows plus stub-only `stories`
-  // and `documents` id lists for the story and document filters, the latest `GapRunStatus`, the noise rules and the `corpus` documents of
+  // and `documents` id lists for the story and document filters and `old_ids`, the old `FND::` ids of a migrated finding that `GET
+  // /gaps/{id}` resolves to the gap, as the API does; an `ABOUT` / `IMPACTS` node may carry `aliases`, its other spec ids), the latest `GapRunStatus`, the noise rules and the `corpus` documents of
   // the Documents tab: `{document_id, lineage, path, title, markdown}`). Reads: `GET /gaps` filters as `list_gaps` does (status default
   // open, answered, applying; kind, severity, origin, route repeat; story_id; document; held_back when sent; limit), sorts by severity, reach
   // (tasks), then newest, and drops options, history and reach from the items; `cursor` is an offset. Writes, in memory, with the API's
@@ -437,7 +438,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       .set(pid, { gaps: [], run: { status: "idle", result: null }, rules: [], corpus: [], edits: new Map(), reverted: [], seq: 0 })
       .get(pid);
   const SEVERITY_RANK = { blocker: 0, major: 1, minor: 2 };
-  const STUB_FIELDS = new Set(["stories", "documents"]);
+  const STUB_FIELDS = new Set(["stories", "documents", "old_ids"]);
   const publicGap = (g, full) => {
     const view = Object.fromEntries(Object.entries(g).filter(([k]) => !STUB_FIELDS.has(k)));
     return full ? { history: { events: [], follow_ups: [] }, ...view } : { ...view, options: [], history: null, reach: null };
@@ -708,7 +709,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       created_at: now,
       updated_at: now,
       resolved_at: null,
-      about: about.map((spec_id) => ({ spec_id, label: "", name: "" })),
+      about: about.map((spec_id) => ({ spec_id, label: "", name: "", aliases: [] })),
       impacts: [],
       witness: [],
       options: [],
@@ -839,7 +840,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (did === "ai_answers") return json(res, 200, { answers: aiAnswers(set).slice(0, Number(url.searchParams.get("limit") ?? 50)) });
     if (did === "documents") return json(res, 200, { documents: answerDocuments(set) });
     if (did) {
-      const g = set.gaps.find((x) => x.gap_id === decodeURIComponent(did));
+      const id = decodeURIComponent(did);
+      const g = set.gaps.find((x) => x.gap_id === id || (x.old_ids ?? []).includes(id));
       return g ? json(res, 200, publicGap(g, true)) : err(res, 404, "gap_not_found");
     }
     const q = url.searchParams;

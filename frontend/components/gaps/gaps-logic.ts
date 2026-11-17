@@ -378,10 +378,10 @@ export function eventText(e: GapEvent): string {
 
 // ---- plan links ----
 
-/** The open gaps about the spec ids a task implements (`ABOUT` ∩ `implements`). */
+/** The open gaps about the spec ids a task implements (`ABOUT` ∩ `implements`); an `ABOUT` node meets an id by its spec id or an alias. */
 export function gapsForSpecIds(gaps: readonly Gap[], specIds: readonly string[]): Gap[] {
   const ids = new Set(specIds);
-  return gaps.filter((g) => g.about.some((n) => ids.has(n.specId)));
+  return gaps.filter((g) => g.about.some((n) => ids.has(n.specId) || n.aliases.some((a) => ids.has(a))));
 }
 
 /** The union of the gaps of several tasks, each gap once, in the first-seen order. */
