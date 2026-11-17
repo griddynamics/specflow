@@ -35,6 +35,9 @@ the merge commit), and the `start` prompt.
 # implementation.md: implementation log: milestone status and a quick summary per milestone or change
 - [implementation.md](implementation.md)
 
+# apps.md: research and draft design of an MCP Apps interface for gaps (draft)
+- [apps.md](apps.md)
+
 # later.md, questions.md: deferred features, open questions
 - [later.md](later.md), [questions.md](questions.md)
 
