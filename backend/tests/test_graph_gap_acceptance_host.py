@@ -19,6 +19,7 @@ from gap_agent_support import ALPHA, API_STORY, QUESTION, serve_gaps
 from gap_host_support import StubGapRun, drained, make_gap_runner, store_build
 from specflow_api_agent_support import agent_env
 from specflow_api_support import bearer
+from test_api_gap_routes import READ_ROUTES, WRITE_ROUTES, gap_project, url
 
 FRONTEND: Final = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -63,8 +64,6 @@ async def test_fr_gweb_02_web_routes_serve_members_only(harness, monkeypatch) ->
     ``404 project_not_found`` and calls nothing.
     """
 
-    from test_api_gap_routes import READ_ROUTES, WRITE_ROUTES, gap_project, url  # noqa: PLC0415
-
     async def no_corpus(*_: object) -> list[object]:
         return []
 
@@ -100,7 +99,7 @@ async def test_fr_gweb_02_web_routes_serve_members_only(harness, monkeypatch) ->
 def _template(tail: str) -> str:
     """A route table's path as the router's template: ids become their parameters."""
 
-    tail = tail.split("?")[0]
+    tail = tail.split("?", 1)[0]
     tail = re.sub(r"/gaps/GAP::[^/]+", "/gaps/{gap_id}", tail)
     tail = re.sub(r"/clarifications/[^/]+/", "/clarifications/{clr_id}/", tail)
     tail = re.sub(r"/noise_rules/[^/]+$", "/noise_rules/{rule_id}", tail)
@@ -173,9 +172,9 @@ def _e2e_titles(unit_id: str) -> list[str]:
 
     config = (FRONTEND / "playwright.production.config.ts").read_text(encoding="utf-8")
     assert "e2e-production" in config
-    titles = []
-    for spec in sorted((FRONTEND / "e2e-production").glob("gaps*-production.spec.ts")):
-        for match in re.finditer(r"test\(\s*[\"`]([^\"`]+)[\"`]", spec.read_text(encoding="utf-8")):
-            if unit_id in match.group(1):
-                titles.append(match.group(1))
-    return titles
+    return [
+        match.group(1)
+        for spec in sorted((FRONTEND / "e2e-production").glob("gaps*-production.spec.ts"))
+        for match in re.finditer(r"test\(\s*[\"`]([^\"`]+)[\"`]", spec.read_text(encoding="utf-8"))
+        if unit_id in match.group(1)
+    ]

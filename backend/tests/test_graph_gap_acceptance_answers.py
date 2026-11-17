@@ -145,9 +145,9 @@ async def test_fr_gans_04_every_edit_is_one_amendment() -> None:
 async def test_fr_gans_05_contradiction_answered_amend_placement_replace_losing_line() -> None:
     """Given the review-limit answer applied, then the build's graph holds one review-limit rule of 500 EUR.
 
-    The losing line "Only orders over 1,000 EUR are held for manual review." is replaced in the text the build reads; the simulated
-    build (``apply_build``) merges the two rules, as dedup does once both say 500 EUR, and the close check resolves
-    the contradiction.
+    The losing line "Only orders over 1,000 EUR are held for manual review." is replaced in the text the build reads;
+    the simulated build (``apply_build``) merges the two rules, as dedup does once both say 500 EUR, and the close
+    check resolves the contradiction.
     """
 
     rig = await answer_world()

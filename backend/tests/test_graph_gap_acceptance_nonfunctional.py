@@ -20,8 +20,8 @@ from gap_acceptance_support import (
     assert_all_recorded,
     corpus_text,
 )
-from gap_detection_support import PROJECT, corpus_reader
 from gap_detect_bench import run_gap_detect_bench
+from gap_detection_support import PROJECT, corpus_reader
 from gap_investigation_support import NOT_A_GAP, loop_world, round_of, site_about
 from gap_run_support import corpus_world
 from graph.core.llm.gateway import UNTRUSTED_CLOSE, UNTRUSTED_OPEN

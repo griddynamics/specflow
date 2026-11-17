@@ -11,13 +11,16 @@ import tomllib
 from pathlib import Path
 from typing import Final
 
+import test_graph_gap_ontology as ontology_checks
+import test_graph_gap_rules as rules_checks
+import test_graph_gap_schema as schema_checks
 from gap_acceptance_support import Planted
 from gap_answer_support import MEMBER, answer_world, service_of
 from gap_close_support import answer_and_apply, apply_build, update_run
 from gap_run_support import corpus_world
+from graph.core import load_ontology
 from graph.gap import GapService, run_gap
 from graph.gap.models import AnswerInput
-from graph.core import load_ontology
 from graph.gap.prompts import RELEVANCE_PROMPT
 
 BACKEND: Final = Path(__file__).resolve().parents[1]
@@ -33,14 +36,12 @@ def test_fr_gont_01_load_ontology_merge_shipped_gap_ontology_file() -> None:
     with and without the gap file).
     """
 
-    import test_graph_gap_ontology as checks  # noqa: PLC0415 (imported here so pytest collects its tests once)
-
     ontology = load_ontology()
     assert {name: ontology.owner_of(name) for name in GAP_TYPES | {"REPLACES"}} == dict.fromkeys(
         GAP_TYPES | {"REPLACES"}, "gap"
     )
-    checks.test_fr_gont_01_the_merged_ontology_holds_gap_and_clarification_owned_by_gap()
-    checks.test_fr_gont_01_no_build_or_plan_type_relation_or_vocabulary_differs_with_the_gap_file()
+    ontology_checks.test_fr_gont_01_the_merged_ontology_holds_gap_and_clarification_owned_by_gap()
+    ontology_checks.test_fr_gont_01_no_build_or_plan_type_relation_or_vocabulary_differs_with_the_gap_file()
 
 
 def test_fr_gont_02_installing_changing_gap_ontology_file_change_extraction() -> None:
@@ -52,10 +53,8 @@ def test_fr_gont_02_installing_changing_gap_ontology_file_change_extraction() ->
     version are the same with and without the gap file (``test_graph_gap_ontology``).
     """
 
-    import test_graph_gap_ontology as checks  # noqa: PLC0415
-
-    checks.test_the_gap_file_changes_no_extraction_fingerprint_label_set_or_version()
-    checks.test_the_gap_file_alone_does_not_change_the_fingerprint_either()
+    ontology_checks.test_the_gap_file_changes_no_extraction_fingerprint_label_set_or_version()
+    ontology_checks.test_the_gap_file_alone_does_not_change_the_fingerprint_either()
 
 
 def test_fr_gont_03_load_gap_rules_validate_rules_against_merged(tmp_path) -> None:
@@ -65,13 +64,11 @@ def test_fr_gont_03_load_gap_rules_validate_rules_against_merged(tmp_path) -> No
     The case of ``test_graph_gap_rules`` on the merged ontology: one error lists every problem.
     """
 
-    import test_graph_gap_rules as checks  # noqa: PLC0415
-
     ontology = load_ontology()
     for name in ("one", "all"):
         (tmp_path / name).mkdir()
-    checks.test_fr_gont_03_an_unknown_type_relation_and_kind_are_all_named(tmp_path / "one", ontology)
-    checks.test_fr_gont_03_every_section_reports_its_problems_in_one_error(tmp_path / "all", ontology)
+    rules_checks.test_fr_gont_03_an_unknown_type_relation_and_kind_are_all_named(tmp_path / "one", ontology)
+    rules_checks.test_fr_gont_03_every_section_reports_its_problems_in_one_error(tmp_path / "all", ontology)
 
 
 def test_fr_gont_04_graph_gap_reach_spec_types_relations_attributes() -> None:
@@ -81,9 +78,7 @@ def test_fr_gont_04_graph_gap_reach_spec_types_relations_attributes() -> None:
     The structure test of ``test_graph_gap_rules`` over every module of the package.
     """
 
-    import test_graph_gap_rules as checks  # noqa: PLC0415
-
-    checks.test_fr_gont_04_no_spec_label_relation_or_attribute_is_a_literal_of_the_gap_modules()
+    rules_checks.test_fr_gont_04_no_spec_label_relation_or_attribute_is_a_literal_of_the_gap_modules()
 
 
 async def test_fr_gont_05_ensure_gap_schema_create_graph_gap_constraint() -> None:
@@ -93,9 +88,7 @@ async def test_fr_gont_05_ensure_gap_schema_create_graph_gap_constraint() -> Non
     ``test_graph_gap_schema_live``.
     """
 
-    import test_graph_gap_schema as checks  # noqa: PLC0415
-
-    await checks.test_fr_gont_05_ensure_gap_schema_creates_the_gap_objects_and_is_idempotent()
+    await schema_checks.test_fr_gont_05_ensure_gap_schema_creates_the_gap_objects_and_is_idempotent()
 
 
 async def test_fr_gown_01_graph_gap_write_types_ontology_file_never() -> None:

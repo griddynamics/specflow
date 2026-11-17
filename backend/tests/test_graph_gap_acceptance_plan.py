@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import test_specflow_plan_host as plan_host_checks
 from agent_contracts import AGENT_ROUTES
 from gap_acceptance_support import Planted
 from gap_agent_support import ALPHA, API_LOGIC, API_STORY, QUESTION, serve_gaps
@@ -27,9 +28,9 @@ async def test_fr_gpln_01_host_pass_plan_run_build_change_report(tmp_path, caplo
     ``test_graph_plan_host_live``.
     """
 
-    import test_specflow_plan_host as checks  # noqa: PLC0415 (imported here so pytest collects its tests once)
-
-    await checks.test_fr_gpln_01_several_builds_after_the_plan_pass_every_report_in_build_order(tmp_path, caplog)
+    await plan_host_checks.test_fr_gpln_01_several_builds_after_the_plan_pass_every_report_in_build_order(
+        tmp_path, caplog
+    )
 
 
 async def test_fr_gpln_02_gap_service_satisfies_the_plan_findings_port(monkeypatch, valid_env) -> None:
