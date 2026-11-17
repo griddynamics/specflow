@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from api.gap import runner as gap_runner
 from api.gap.plan_view import PlanReaderView
 from api.gap.runner import RunnerClosedError
 from api.plan.state import NoGraphBuildError
@@ -18,6 +19,7 @@ from gap_host_support import (
     NOISE,
     OTHER,
     PROJECT,
+    T0,
     StubGapRun,
     StubGateway,
     drained,
@@ -28,7 +30,7 @@ from gap_host_support import (
 from graph.build.models import ChangedNode, ChangeReport, DedupRefusal, QuarantinedEdge, Settlement
 from graph.core import ConfigurationError, load_ontology
 from graph.core.reader import GraphNode
-from graph.gap import ApplyResult, GapRunResult, GapSettings, GapStateError, TaskRef
+from graph.gap import ApplyResult, GapRunResult, GapSettings, GapStateError, PendingAnswers, TaskRef
 from graph.gap.rules import load_gap_rules
 from graph.gap.run_store import GapRunRecord, MemoryGapRunStore
 from logger_harness import events, fields
@@ -427,17 +429,32 @@ async def test_the_service_is_built_once_from_the_runner_resources(tmp_path):
 
 
 class ApplyService:
-    """A ``GapService`` with ``apply_now`` only: records each call and its time, raises ``fail`` when set."""
+    """A ``GapService`` with ``apply_now``, ``pending_answers`` and ``quiet_seconds``: records each apply and its time,
+    raises ``fail`` when set (``fails`` times; every time when None); ``pending`` is what ``pending_answers`` finds."""
 
-    def __init__(self, fail: Exception | None = None) -> None:
+    def __init__(
+        self, fail: Exception | None = None, *, fails: int | None = None, pending: PendingAnswers | None = None
+    ) -> None:
         self.calls: list[tuple[str, str]] = []
         self.times: list[datetime] = []
         self.fail = fail
+        self.fails = fails
+        self.pending = pending or PendingAnswers()
+        self.recovered: list[str] = []
+
+    def quiet_seconds(self) -> int:
+        return 120
+
+    async def pending_answers(self, project_id: str) -> PendingAnswers:
+        self.recovered.append(project_id)
+        return self.pending
 
     async def apply_now(self, project_id: str, *, by: str) -> ApplyResult:
         self.calls.append((project_id, by))
         self.times.append(datetime.now(UTC))
-        if self.fail is not None:
+        if self.fail is not None and (self.fails is None or self.fails > 0):
+            if self.fails is not None:
+                self.fails -= 1
             raise self.fail
         return ApplyResult(gap_ids=("GAP::A",), build="started")
 
@@ -590,6 +607,141 @@ async def test_closing_cancels_a_pending_apply(tmp_path):
     assert applier is not None and applier.cancelled()
     assert runner._projects[PROJECT].applier is applier
     assert service.calls == []
+
+
+class BuildPort:
+    """The build runner as ``BuildRequests``: whether a build runs, and the update builds requested."""
+
+    def __init__(self, *, running: bool = False) -> None:
+        self.is_running = running
+        self.requests: list[tuple[str, str, bool]] = []
+
+    def running(self, project_id: str) -> bool:
+        del project_id
+        return self.is_running
+
+    async def request_update_build(self, project_id: str, reason: str, *, immediate: bool) -> str:
+        self.requests.append((project_id, reason, immediate))
+        return "started"
+
+
+async def test_recovery_applies_answers_whose_quiet_period_passed_during_a_restart(tmp_path, caplog):
+    service = ApplyService(pending=PendingAnswers(answered_at=datetime.now(UTC) - timedelta(minutes=10)))
+    runner = make_gap_runner(tmp_path, service=service)
+
+    with caplog.at_level("INFO"):
+        runner.start_recovery()
+        await asyncio.wait_for(runner._recovery, 5)
+        await applier_done(runner)
+
+    assert service.recovered == [PROJECT] and service.calls == [(PROJECT, "gap-apply")]
+    [recovered] = events(caplog, "api.gap.recovered")
+    assert fields(recovered)["build"] is None
+    await runner.aclose()
+
+
+async def test_recovery_keeps_the_rest_of_a_quiet_period(tmp_path):
+    answered = datetime.now(UTC) - timedelta(seconds=20)
+    service = ApplyService(pending=PendingAnswers(answered_at=answered))
+    runner = make_gap_runner(tmp_path, service=service)
+
+    await runner.recover(PROJECT)
+
+    assert runner._projects[PROJECT].apply_at == answered + timedelta(seconds=120) and service.calls == []
+    await runner.aclose()
+
+
+async def test_recovery_requests_the_build_an_apply_never_got(tmp_path):
+    await store_build(tmp_path, "build-1", minutes=0)  # before the apply
+    service = ApplyService(pending=PendingAnswers(apply_requested_at=T0 + timedelta(minutes=5)))
+    runner = make_gap_runner(tmp_path, service=service)
+    builds = BuildPort()
+    runner.use_builds(builds)
+
+    await runner.recover(PROJECT)
+
+    assert builds.requests == [(PROJECT, "gap_answers", False)]
+    await runner.aclose()
+
+
+async def test_recovery_leaves_an_apply_whose_build_runs(tmp_path):
+    service = ApplyService(pending=PendingAnswers(apply_requested_at=T0))
+    runner = make_gap_runner(tmp_path, service=service)
+    builds = BuildPort(running=True)
+    runner.use_builds(builds)
+
+    await runner.recover(PROJECT)
+
+    assert builds.requests == []
+    await runner.aclose()
+
+
+async def test_recovery_queues_the_gap_run_a_finished_apply_build_missed(tmp_path):
+    await store_build(tmp_path, "build-1", minutes=0)
+    await store_build(tmp_path, "build-2", minutes=10)  # the apply build
+    runs = MemoryGapRunStore()
+    await finished_run(runs, "run-1", "build-1")
+    run = StubGapRun()
+    service = ApplyService(pending=PendingAnswers(apply_requested_at=T0 + timedelta(minutes=5)))
+    runner = make_gap_runner(tmp_path, run, runs=runs, service=service)
+    builds = BuildPort()
+    runner.use_builds(builds)
+
+    await runner.recover(PROJECT)
+    await drained(runner)
+
+    assert builds.requests == [] and run.modes == ["update"]
+    assert run.contexts[0].build.build_id == "build-2"
+    await runner.aclose()
+
+
+async def test_recovery_does_nothing_when_the_apply_build_had_its_gap_run(tmp_path):
+    await store_build(tmp_path, "build-2", minutes=10)
+    runs = MemoryGapRunStore()
+    await finished_run(runs, "run-2", "build-2")
+    run = StubGapRun()
+    service = ApplyService(pending=PendingAnswers(apply_requested_at=T0 + timedelta(minutes=5)))
+    runner = make_gap_runner(tmp_path, run, runs=runs, service=service)
+    builds = BuildPort()
+    runner.use_builds(builds)
+
+    await runner.recover(PROJECT)
+
+    assert builds.requests == [] and run.modes == []
+    await runner.aclose()
+
+
+async def test_a_failed_apply_is_looked_at_again(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(gap_runner, "RECOVERY_RETRY_SECONDS", 0.0)
+    service = ApplyService(fail=ConnectionError("blip"), fails=1)
+    runner = make_gap_runner(tmp_path, service=service)
+    service.pending = PendingAnswers(answered_at=datetime.now(UTC) - timedelta(minutes=10))
+
+    with caplog.at_level("INFO"):
+        runner.schedule_apply(PROJECT, datetime.now(UTC))
+        await applier_done(runner)
+
+    assert service.recovered == [PROJECT]
+    assert service.calls == [(PROJECT, "gap-apply"), (PROJECT, "gap-apply")]
+    assert len(events(caplog, "api.gap.apply_failed")) == 1 and len(events(caplog, "api.gap.applied")) == 1
+    await runner.aclose()
+
+
+async def test_a_failure_of_recovery_is_logged_and_never_raised(tmp_path, caplog):
+    service = ApplyService()
+
+    async def broken(_project_id: str) -> PendingAnswers:
+        raise ConnectionError("down")
+
+    service.pending_answers = broken
+    runner = make_gap_runner(tmp_path, service=service)
+
+    with caplog.at_level("INFO"):
+        await runner.recover(PROJECT)
+
+    [failed] = events(caplog, "api.gap.recover_failed")
+    assert fields(failed)["error_type"] == "ConnectionError"
+    await runner.aclose()
 
 
 # Plan view -------------------------------------------------------------------------------------------------------

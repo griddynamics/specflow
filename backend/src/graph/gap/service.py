@@ -105,6 +105,7 @@ from graph.gap.models import (
     NoiseRuleRow,
     NoteRow,
     OptionRow,
+    PendingAnswers,
     Quote,
     RaisedGap,
     Reach,
@@ -135,6 +136,7 @@ from graph.gap.names import (
 )
 from graph.gap.ports import Amendments, BuildRequests, GapRecords, Investigator, PlanView, StoryHolds
 from graph.gap.resolve import SpecRef, resolve_spec_ids
+from graph.gap.retry import retried
 from graph.gap.rules import GapRules
 from graph.gap.settings import GapSettings
 from graph.gap.steps.close import follow_up_signature
@@ -754,7 +756,7 @@ class GapService:
                     changed["route"] = "ask"
                 await tx.upsert_node(GAP, gap_uuid(project_id, gap.gap_id), changed)
         except BaseException:
-            await self.amendments.delete(project_id, [row.amendment_id for row in rows])
+            await retried(self.amendments.delete, project_id, [row.amendment_id for row in rows])
             raise
         events = await self._replaced(project_id, gap, pending, by=answer.answered_by, now=now)
         events.append(
@@ -767,7 +769,7 @@ class GapService:
                 detail={"mode": mode, "placement": placement, "amendments": len(rows), "replaces": replaces},
             )
         )
-        await self._records.log(project_id, events)
+        await retried(self._records.log, project_id, events)
         immediate = gap.origin == "development" and _blocking(gap)
         log_event(
             logger,
@@ -798,6 +800,34 @@ class GapService:
             amendments=tuple(row.amendment_id for row in rows),
             apply_at=now if immediate else now + timedelta(seconds=self.quiet_seconds()),
             immediate=immediate,
+        )
+
+    async def pending_answers(self, project_id: str) -> PendingAnswers:
+        """The project's answers a restart may have left behind: the latest answer still waiting for its quiet period,
+        the earliest apply still waiting for its update build, and the pending amendment rows whose clarification is
+        gone (an answer that replaced it committed, then the deletion of its rows failed): those rows are deleted."""
+
+        project_id = validate_project_id(project_id)
+        async with self._locks[project_id]:
+            gaps = await read_gaps(
+                self._executor, project_id, self._ontology, statuses=("answered", "applying", "resolved")
+            )
+            pending = [props for gap in gaps for props in gap.clarifications if props.get("status") == PENDING]
+            waiting = [_stored_instant(props.get("answered_at")) for props in pending if not props.get(APPLY_MARK)]
+            marked = [_stored_instant(props.get(APPLY_MARK)) for props in pending if props.get(APPLY_MARK)]
+            known = {str(props["clr_id"]) for props in pending}
+            orphans = [
+                row.amendment_id
+                for row in await self.amendments.with_status(project_id, (PENDING,))
+                if row.clr_id not in known
+            ]
+            if orphans:
+                await retried(self.amendments.delete, project_id, orphans)
+                log_event(logger, INFO, "graph.gap.answers.orphans_deleted", project_id=project_id, rows=len(orphans))
+        return PendingAnswers(
+            answered_at=max((at for at in waiting if at is not None), default=None),
+            apply_requested_at=min((at for at in marked if at is not None), default=None),
+            orphans=len(orphans),
         )
 
     def quiet_seconds(self) -> int:
@@ -901,8 +931,8 @@ class GapService:
             )
             for old in replaced
         ]
-        await self._records.log(project_id, events)
-        build = await self.builds.request_update_build(project_id, APPLY_REASON, immediate=immediate)
+        await retried(self._records.log, project_id, events)
+        build = await retried(self.builds.request_update_build, project_id, APPLY_REASON, immediate=immediate)
         log_event(
             logger,
             INFO,
@@ -967,7 +997,8 @@ class GapService:
             restore = await self._revertible(project_id, olds, SET_ASIDE_ROWS)  # its applied rows still hold
             await self.amendments.set_status(project_id, [key for ids in restore.values() for key in ids], "reverted")
         await self._records.put_options(project_id, gap.gap_id, ())
-        await self._records.log(
+        await retried(
+            self._records.log,
             project_id,
             [
                 EventRow(
@@ -1041,7 +1072,7 @@ class GapService:
             raise
         # The build first: once the graph says reverted, a retry is refused, so the text must leave the corpus now.
         build = (
-            await self.builds.request_update_build(project_id, REVERT_REASON, immediate=False)
+            await retried(self.builds.request_update_build, project_id, REVERT_REASON, immediate=False)
             if needs_build and self.builds is not None
             else None
         )
@@ -1076,7 +1107,7 @@ class GapService:
                     detail={"follows_up": gap.gap_id, "reason": REVERTED, "route": "ask"},
                 )
             )
-        await self._records.log(project_id, events)
+        await retried(self._records.log, project_id, events)
         log_event(
             logger,
             INFO,
@@ -1226,8 +1257,10 @@ class GapService:
             detail["refs"] = [ref.model_dump(mode="json") for ref in new.refs]
         if new.blocking:
             detail |= {"story_id": new.story_id, "held": len(held)}
-        await self._records.log(
-            project_id, [EventRow(gap_id=new_id, at=now, actor=new.created_by, event="created", detail=detail)]
+        await retried(
+            self._records.log,
+            project_id,
+            [EventRow(gap_id=new_id, at=now, actor=new.created_by, event="created", detail=detail)],
         )
         log_event(
             logger,
@@ -1478,9 +1511,9 @@ class GapService:
                 for old in olds
             ),
         ]
-        await self._records.log(project_id, events)
+        await retried(self._records.log, project_id, events)
         if self.builds is not None and set(restore) & APPLIED_ROWS:  # a part of the old answer leaves the corpus
-            await self.builds.request_update_build(project_id, APPLY_REASON, immediate=False)
+            await retried(self.builds.request_update_build, project_id, APPLY_REASON, immediate=False)
         log_event(
             logger,
             INFO,
@@ -1523,7 +1556,7 @@ class GapService:
         for props in pending:
             old = str(props["clr_id"])
             rows = await self.amendments.for_clarification(project_id, old)
-            await self.amendments.delete(project_id, [row.amendment_id for row in rows])
+            await retried(self.amendments.delete, project_id, [row.amendment_id for row in rows])
             events.append(
                 EventRow(
                     gap_id=gap.gap_id,
@@ -1610,6 +1643,17 @@ def _updated_at(gap: StoredGap) -> datetime:
 
 def _millis(value: datetime) -> int:
     return int(_instant(value).timestamp() * 1000)
+
+
+def _stored_instant(value: Any) -> datetime | None:
+    """A stored instant as an aware datetime; None when it is missing or unreadable (never raises)."""
+
+    if not value:
+        return None
+    try:
+        return _instant(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _iso(value: datetime) -> str:

@@ -112,6 +112,8 @@ class Amendments(Protocol):
 
     async def pending_lineages(self, project_id: str) -> Sequence[str]: ...
 
+    async def with_status(self, project_id: str, statuses: Sequence[str]) -> Sequence[AmendmentRow]: ...
+
 
 @runtime_checkable
 class SiteReads(Protocol):

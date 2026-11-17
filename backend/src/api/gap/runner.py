@@ -27,8 +27,14 @@ wait for the process's run slot. Triggers:
 - ``schedule_apply``: an answer moves the project's apply time to the end of its quiet period; when it passes with no
   newer answer, ``GapService.apply_now`` makes the pending amendments active and requests one update build through the
   build runner (``use_builds``; answers.md "Applying answers"). A run that recorded AI answers schedules the apply the
-  same way (AI answers never apply at once). The time lives in this process: after a restart the pending answers wait
-  for the next answer or "Apply now".
+  same way (AI answers never apply at once). The time lives in this process; the stored answers make it durable:
+- ``start_recovery``: once per process, in the background, ``recover`` looks at every project of the application
+  database. ``recover`` asks ``GapService.pending_answers`` what a restart left behind: answers still in their quiet
+  period are scheduled again (at the end of the quiet period after the latest one; at once when it has passed), an
+  apply whose update build never started (no build started after its request finished, and none runs) requests it
+  again, an apply whose build finished without a gap run after it queues that ``update`` run, and pending amendment
+  rows of deleted clarifications are deleted. A failed quiet-period apply calls ``recover`` again after
+  ``RECOVERY_RETRY_SECONDS`` (longer each time, at most ``RECOVERY_RETRIES`` times).
 
 - ``corpus_answers``: the build's corpus reader (``api.graph_build.corpus.CorpusAnswers``) reads the project's active
   amendments and the clarifications of its clarifications document here, so the build reads the answered text.
@@ -113,6 +119,9 @@ RUN_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")  # names a folde
 
 RequestMode = Literal["update", "full", "site"]
 APPLY_ACTOR: Final = "gap-apply"  # the actor of an apply the quiet period triggers
+APPLY_BUILD_REASON: Final = "gap_answers"  # the reason of an update build ``recover`` requests again
+RECOVERY_RETRY_SECONDS: Final = 60.0  # after a failed quiet-period apply, the pause before ``recover`` (times the try)
+RECOVERY_RETRIES: Final = 5
 Transaction = Callable[[], Any]  # ``Runtime.transaction``: an async context manager of one session
 GapRunFunction = Callable[..., Awaitable[GapRunResult]]
 PortsFactory = Callable[[Transaction], tuple[Any, Any]]
@@ -254,6 +263,7 @@ class GapRunner:
         self._slots = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
         self._projects: dict[str, _Project] = {}
         self._builds_port: Any = None  # ``BuildRequests``: the graph build runner (``use_builds``)
+        self._recovery: asyncio.Task[None] | None = None
         self._closed = False
 
     def use_builds(self, builds: Any) -> None:
@@ -325,6 +335,7 @@ class GapRunner:
             project.apply_at = None
 
     async def _apply_when_quiet(self, project_id: str, project: _Project) -> None:
+        failures = 0
         while project.apply_at is not None and not self._closed:
             wait = (project.apply_at - datetime.now(UTC)).total_seconds()
             if wait > 0:
@@ -347,6 +358,102 @@ class GapRunner:
                     error_code=error_code(error) if error is not None else None,
                     error_type=applying.error_type,
                 )
+                if not isinstance(error, GapStateError) and failures < RECOVERY_RETRIES:
+                    failures += 1  # the answers are stored: look again later (a retried apply or its build)
+                    await asyncio.sleep(RECOVERY_RETRY_SECONDS * failures)
+                    await self.recover(project_id)
+
+    # Recovery ------------------------------------------------------------------
+
+    def start_recovery(self) -> None:
+        """Run ``recover`` for every project of the application database once, in the background (at startup)."""
+
+        if self._closed or self._recovery is not None:
+            return
+        self._recovery = asyncio.create_task(self._recover_all(), name="gap-recover")
+
+    async def _recover_all(self) -> None:
+        with Contained() as listing:
+            await self._prepare()
+            projects = await self._deps.project_ids(self._transaction)
+        if listing.failed:
+            log_event(
+                logger,
+                WARNING,
+                "api.gap.recover_failed",
+                error_code=error_code(listing.error) if listing.error is not None else None,
+                error_type=listing.error_type,
+            )
+            return
+        for project_id in projects:
+            if self._closed:
+                return
+            await self.recover(project_id)
+
+    async def recover(self, project_id: str) -> None:
+        """Pick up what a restart or a failed apply left of the project's answers (module docstring); never
+        raises."""
+
+        with Contained() as recovering:
+            await self._recover(project_id)
+        if recovering.failed:
+            log_event(
+                logger,
+                WARNING,
+                "api.gap.recover_failed",
+                project_id=project_id,
+                error_code=error_code(recovering.error) if recovering.error is not None else None,
+                error_type=recovering.error_type,
+            )
+
+    async def _recover(self, project_id: str) -> None:
+        service = await self.service()
+        found = await service.pending_answers(project_id)
+        scheduled: datetime | None = None
+        if found.answered_at is not None:
+            scheduled = found.answered_at + timedelta(seconds=service.quiet_seconds())
+            self.schedule_apply(project_id, scheduled)
+        build: str | None = None
+        gap_run = False
+        waiting = found.apply_requested_at
+        if waiting is not None and self._builds_port is not None and not self._builds_port.running(project_id):
+            after = await self._builds_after(project_id, waiting)
+            if after is None:
+                build = await self._builds_port.request_update_build(project_id, APPLY_BUILD_REASON, immediate=False)
+            else:
+                gap_run = await self._gap_run_missing(project_id, after)
+                if gap_run:
+                    await self.after_build(project_id, after)
+        if scheduled is not None or build is not None or gap_run or found.orphans:
+            log_event(
+                logger,
+                INFO,
+                "api.gap.recovered",
+                project_id=project_id,
+                apply_at=scheduled.isoformat() if scheduled is not None else None,
+                build=build,
+                gap_run=gap_run,
+                orphans=found.orphans,
+            )
+
+    async def _builds_after(self, project_id: str, since: datetime) -> str | None:
+        """The latest build that started at or after ``since`` and finished (not failed), or None."""
+
+        finished = [
+            record
+            for record in await self._builds().list_builds(project_id)
+            if record.finished and record.started_at >= since
+        ]
+        return finished[-1].build_id if finished else None
+
+    async def _gap_run_missing(self, project_id: str, build_id: str) -> bool:
+        """Whether no gap run is queued or running and the latest gap run is not on ``build_id``."""
+
+        project = self._projects.get(project_id)
+        if project is not None and (project.queue or (project.task is not None and not project.task.done())):
+            return False
+        latest = await self._runs().latest_run(project_id, finished_only=True)
+        return latest is None or latest.build_id != build_id
 
     async def wait_idle(self, project_id: str) -> None:
         """Return once the project has no gap run queued or running (at once when it has none)."""
@@ -514,6 +621,8 @@ class GapRunner:
             for task in (project.task, project.applier)
             if task is not None and not task.done()
         ]
+        if self._recovery is not None and not self._recovery.done():
+            tasks.append(self._recovery)
         for task in tasks:
             task.cancel()
         if tasks:

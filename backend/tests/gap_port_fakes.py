@@ -207,6 +207,9 @@ class MemoryAmendments:
             sorted({row.lineage for row in self.rows[project_id].values() if row.status in ("active", "undecided")})
         )
 
+    async def with_status(self, project_id: str, statuses: Sequence[str]) -> Sequence[AmendmentRow]:
+        return _ordered(row for row in self.rows[project_id].values() if row.status in statuses)
+
 
 class ScriptedInvestigator:
     """``Investigator`` that returns the prepared result of each site (by site id), or a failure code."""

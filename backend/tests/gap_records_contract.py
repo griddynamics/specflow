@@ -402,6 +402,9 @@ async def amendments_are_read_by_lineage_and_clarification(backend: Backend) -> 
     assert tuple(await amendments.for_clarification(b, "CLR::1")) == ()
     assert tuple(await amendments.pending_lineages(a)) == ("upload:orders-spec", "upload:payments-spec")
     assert tuple(await amendments.pending_lineages(b)) == ("upload:account-spec",)
+    assert tuple(await amendments.with_status(a, ("active",))) == (first, other_doc, second)
+    assert tuple(await amendments.with_status(a, ("reverted", "pending"))) == (reverted,)
+    assert tuple(await amendments.with_status(b, ("reverted",))) == ()
 
     changed = first.model_copy(update={"text": "Guests and members can place orders."})
     await amendments.put(a, [first, changed])

@@ -123,7 +123,7 @@ site joined to an existing gap, re-checks that gap: an open gap gets the relatio
 | `GapFinding`, `GapFindingPage` | What `GapService.findings` returns: an open gap as the plan's `FindingLike` (`finding_id`, `kind`, `text`, `blocking`, `about_spec_ids`, `story_id`, `created_by`, `created_at`, `orphaned`) and the page of them |
 | `GapView` | What reads return: the gap's properties (`held_back` true while the gap is a new question its run held back from the inbox's default view; `story_id` of a development gap; `aliases`, the other ids it answers to), `about` and `impacts` (id, type, name, `aliases`: the node's earlier spec ids, so a plan task naming one still meets the gap), `witness` (`WitnessView`: fragment id, quote, lines, `document_id` (the corpus lineage of the cited fragment); from `get_gap` also `document_title`, `document_path` and the section's `heading_path`), `options` (from `gap_option`), `clarification` (current one), `history` (events, follow-up chain), `reach` (stories and tasks found by trace and the plan, computed at read time) |
 | `AnswerInput` | `gap_id`, `option_rank` or `own_text` (exactly one), `placement` (`amend`, `document`; default from the option's edits), `edits` (optional: edits confirmed from `preview_edits`), `answered_by`, `updated_at` (the gap's as the caller read it; None skips the stale check) |
-| `AnswerResult`, `ApplyResult`, `EditPreview` (with `SectionPreview`), `RaisedGap` | What `answer_gap`, `apply_now`, `preview_edits` and `raise_gap` return ("Gap service" below) |
+| `AnswerResult`, `ApplyResult`, `PendingAnswers`, `EditPreview` (with `SectionPreview`), `RaisedGap` | What `answer_gap`, `apply_now`, `pending_answers`, `preview_edits` and `raise_gap` return ("Gap service" below) |
 | `AiAnswerList`, `AiAnswer` | The review list: per AI or pointer clarification, `gap_id`, `title`, `question`, `gap_status`, `clarification` (`ClarificationView`) and `follow_up` (the gap a revert opened) |
 | `DocumentAnswers` | What `document_answers` returns: `lineages` (`LineageAnswers`: `lineage`, `answers`), `clarifications_lineage` and `clarifications` (the sections of the generated clarifications document); each answer a `DocumentAnswer` (`clr_id`, `gap_id`, `title` of the gap, `status`: the rows' `active` or `undecided`, for the clarifications document the clarification's `applied` or `pending`; `amendments`, its rows in that lineage) |
 | `RevertResult` | What `revert_clarification` returns: `clr_id`, `gap_id` (the gap a person answers next: the follow-up, or the gap itself back `open`), `follow_up`, `amendments` (reverted), `build` (the build request's answer, None when no text left the corpus) |
@@ -152,6 +152,7 @@ serves the inbox, the routes and the MCP tools. `plan` gives the story filter an
 | `hold_blockers(project_id, spec_ids=None)` | A `HoldResult`: the tasks every open `blocker` gap (about one of `spec_ids`, aliases resolved, when given) holds now through `StoryHolds.hold_tasks`; idempotent; the agent claim route calls it with the story's nodes before a claim ([lifecycle.md](lifecycle.md) "Plan link") | — (a refused hold is logged) |
 | `add_note(project_id, *, spec_ids, text, created_by, story_id=None)` | The note id (`NOTE::` and 12 hex): a coding agent's `note` finding as a `gap_note` row (detector `development`, no run) | `AnswerInvalidError` (`text` outside 1 to 2000 characters, `about` count or unknown ids) |
 | `apply_now(project_id, *, by, immediate=False)` | An `ApplyResult`: the gaps of the pending clarifications, the clarifications and amendments applied, and the build request's answer ([answers.md](answers.md) "Applying answers") | `GapStateError` (`status` `nothing_pending`) when nothing is pending; `ConfigurationError` (`gap_builds_missing`) without `builds` |
+| `pending_answers(project_id)` | A `PendingAnswers`: the latest answer still in its quiet period, the earliest apply still waiting for its update build, and the number of `pending` amendment rows of deleted clarifications, deleted now ([answers.md](answers.md) "Restarts and failures") | — |
 | `open_counts(project_id, spec_ids)` | Open gaps per spec id | Satisfies the plan's `FindingsReads` |
 | `findings(project_id, *, spec_ids=None, limit=50)` | A `GapFindingPage` whose items satisfy the plan's `FindingLike` ([lifecycle.md](lifecycle.md) "Plan link"), blocking first, then newest first | Satisfies the plan's `FindingsReads`; `AnswerInvalidError` for `limit` outside 1 to 200 |
 | `noise_rules(project_id)`, `add_noise_rule(project_id, scope, value, reason, by)`, `remove_noise_rule(project_id, rule_id, by)` | The rules; the rule id (`NR::` and 12 hex of scope and value: the same rule added twice is one); whether a rule was removed | `AnswerInvalidError` (`scope`, `value` 1 to 500 characters or a pattern that does not compile, `reason` 1 to 500) |
@@ -245,6 +246,7 @@ class Amendments(Protocol):
     async def set_status(self, project_id: str, amendment_ids: Sequence[str], status: str, *, revision_id: str | None = None) -> None: ...
     async def delete(self, project_id: str, amendment_ids: Sequence[str]) -> None: ...
     async def pending_lineages(self, project_id: str) -> Sequence[str]: ...  # lineages with active or undecided rows
+    async def with_status(self, project_id: str, statuses: Sequence[str]) -> Sequence[AmendmentRow]: ...  # every lineage
 
 class Investigator(Protocol):
     """Reads around one site and returns a report (investigation.md)."""
@@ -349,6 +351,11 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
   passes, `apply_now(by="gap-apply")` runs (nothing pending is logged as skipped). The time lives in the process. A
   gap run whose result counts `ai_answered` schedules the apply at the end of the quiet period too (AI answers are
   never applied at once).
+- **Recovery.** At startup `start_recovery` calls `recover(project_id)` for every project of the application
+  database in the background; a failed quiet-period apply calls it again after 60 s times the attempt (at most 5).
+  `recover` reads `pending_answers`, schedules the apply of the answers still pending, requests the update build of
+  an apply that has none (`api.gap.recovered` with `build`) and queues the `update` gap run a finished apply build
+  missed; it never raises (`api.gap.recover_failed`) ([answers.md](answers.md) "Restarts and failures").
 
 The host also:
 - adds the relational tables of [data-model.md](data-model.md) "Relational store" in one migration;

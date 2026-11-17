@@ -308,6 +308,19 @@ async def delete_amendments(session: AsyncSession, project_id: uuid.UUID, amendm
     )
 
 
+async def amendments_with_status(
+    session: AsyncSession, project_id: uuid.UUID, statuses: Sequence[str]
+) -> Sequence[RowMapping]:
+    """The project's amendments in any of ``statuses``, of every lineage, in creation order."""
+
+    statement = (
+        select(CorpusAmendment.__table__)
+        .where(CorpusAmendment.project_id == project_id, CorpusAmendment.status.in_(list(statuses)))
+        .order_by(CorpusAmendment.created_at, CorpusAmendment.amendment_id.collate(BYTE_ORDER))
+    )
+    return (await session.execute(statement)).mappings().all()
+
+
 async def pending_lineages(session: AsyncSession, project_id: uuid.UUID) -> Sequence[str]:
     """The lineages with at least one amendment the corpus reader applies (``active`` or ``undecided``), in order."""
 

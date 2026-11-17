@@ -681,6 +681,17 @@ class AnswerResult(GapModel):
     immediate: bool = False
 
 
+class PendingAnswers(GapModel):
+    """What ``pending_answers`` finds of a project's answers after a restart (answers.md "Applying answers"):
+    ``answered_at`` is the latest answer still waiting for its quiet period (None when none waits),
+    ``apply_requested_at`` the earliest apply still waiting for its update build (None when none waits), and
+    ``orphans`` the pending amendment rows of clarifications that no longer exist, deleted now."""
+
+    answered_at: AwareDatetime | None = None
+    apply_requested_at: AwareDatetime | None = None
+    orphans: int = 0
+
+
 class ApplyResult(GapModel):
     """What ``apply_now`` (and the quiet-period apply) returns: the gaps moved to ``applying``, the clarifications
     whose amendments became active and the build request's answer (``None`` without a ``BuildRequests`` port)."""

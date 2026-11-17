@@ -266,6 +266,11 @@ class PostgresAmendments:
         async with self._transaction() as session:
             return tuple(await repo.pending_lineages(session, _project(project_id)))
 
+    async def with_status(self, project_id: str, statuses: Sequence[str]) -> Sequence[AmendmentRow]:
+        async with self._transaction() as session:
+            rows = await repo.amendments_with_status(session, _project(project_id), list(statuses))
+        return tuple(_row(AmendmentRow, row) for row in rows)
+
 
 async def all_project_ids(transaction: Transaction) -> tuple[str, ...]:
     """Every project's id as the graph store names its partition (the project uuid as text)."""

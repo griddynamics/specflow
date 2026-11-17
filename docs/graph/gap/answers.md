@@ -311,10 +311,23 @@ answer recorded (gap answered, clarification pending)
 |---|---|
 | One build at a time | `BuildRequests` queues the request when a build of the project is running; one queued request covers every answer recorded before it starts. The host's build runner answers `started` or `queued` |
 | Order of writes | Amendments `pending` to `active` (and the superseded ones' to `reverted`) first, then the graph (`answered` to `applying`, `superseded` clarifications) in one transaction; when it fails the rows are set back. Then an `applying` event per clarification and the build request |
-| The quiet period | Kept by the host per project ("Host runner" in [api.md](api.md)): each answer moves the apply to `apply_quiet_seconds` after it; "Apply now" (`apply_now`) applies at once. The time lives in the API process: after a restart pending answers wait for the next answer or "Apply now" |
+| The quiet period | Kept by the host per project ("Host runner" in [api.md](api.md)): each answer moves the apply to `apply_quiet_seconds` after it; "Apply now" (`apply_now`) applies at once. The time lives in the API process; the stored answers make it durable ("Restarts and failures") |
 | `immediate` | Skips the quiet period; it never starts a second concurrent build |
 | A failed build | Gaps stay `applying`; the next successful update build settles them. After two failed builds the event log records "apply failed" and the inbox shows it |
 | Answers recorded while a build runs | Wait for the next request |
+
+### Restarts and failures
+
+Every answer is stored before its quiet period starts (a `pending` clarification, its `pending` amendment rows), so
+nothing an answer needs lives only in the process:
+
+| What happens | What follows |
+|---|---|
+| The API restarts during a quiet period | At startup the host looks at every project (`GapService.pending_answers`): the answers still `pending` are applied `apply_quiet_seconds` after the latest one (at once when that time has passed) |
+| The API restarts, or the build request fails, after an apply | The clarifications carry `apply_requested_at`. When no build started at or after it finished and none runs, the host requests the update build again; when one finished but no gap run followed it, the host queues that `update` run |
+| A write after a committed answer, apply, revert or dismissal fails once | The event log, the deletion of a replaced answer's amendment rows and the build request are retried twice after short pauses (`graph.gap.retry`); a refusal of the callee (a `GraphError`) is not retried |
+| The deletion of a replaced answer's rows fails for good | `pending_answers` deletes `pending` rows whose clarification no longer exists |
+| A quiet-period apply fails | The host looks at the project again after one minute, then longer, at most five times; after that the next restart does |
 
 ## AI answers
 
