@@ -5,7 +5,7 @@ import { addMember, cancelInvite, leaveProject, listMembers, removeMember, sugge
 import type { AddedPerson, ClaimsOutcome, Invite, Member, MemberRole, MembersPort, MembersState, Suggestion } from "@/lib/domain/members";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
 
-const ROLES: readonly MemberRole[] = ["admin", "collaborator"];
+const ROLES: readonly MemberRole[] = ["owner", "collaborator"];
 
 const roleOf = (v: unknown): MemberRole => {
   const found = ROLES.find((r) => r === v);

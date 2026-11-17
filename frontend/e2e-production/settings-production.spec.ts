@@ -42,17 +42,17 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     await expect(screen.getByRole("heading", { level: 1 })).toHaveCount(0);
   });
 
-  test("FR-PRJ-UI-03, UI-04, UI-05, UI-06: admin adds a known person and a new email, sees the count, removes and cancels with a confirm", async ({
+  test("FR-PRJ-UI-03, UI-04, UI-05, UI-06: owner adds a known person and a new email, sees the count, removes and cancels with a confirm", async ({
     page,
     requests,
   }) => {
     await login(page);
-    const { id } = await seedMembers({ name: unique("Admin"), members: [{ email: "bob.brown@example.test", name: "Bob Brown" }] });
+    const { id } = await seedMembers({ name: unique("Owner"), members: [{ email: "bob.brown@example.test", name: "Bob Brown" }] });
     await page.goto(`/projects/${id}/settings`);
     const rows = page.getByTestId("settings-row");
     await expect(page.getByTestId("settings-count")).toHaveText("2 of 50");
-    await expect(rows.first()).toContainText("Admin");
-    await expect(rows.first().getByTestId(ROW_X)).toHaveCount(0); // the admin row has no x (UI-03)
+    await expect(rows.first()).toContainText("Owner");
+    await expect(rows.first().getByTestId(ROW_X)).toHaveCount(0); // the owner row has no x (UI-03)
 
     const add = page.getByTestId(ADD_ROW).getByRole("combobox");
     await add.fill("alan.turner@example.test"); // known: becomes a member
@@ -171,7 +171,7 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     await expect(page.getByTestId(ADD_ROW)).toHaveCount(0);
     await expect(page.getByTestId(ROW_X)).toHaveCount(0);
     await expect(page.getByTestId("screen-settings").getByRole("textbox")).toHaveCount(0); // no name field, no email field (UI-04)
-    await expect(page.getByTestId("settings-row").first()).toContainText("Admin");
+    await expect(page.getByTestId("settings-row").first()).toContainText("Owner");
     await projectSwitcher(page).click();
     await expect(page.getByRole("menuitemradio", { name, exact: true })).toHaveCount(1);
     await page.keyboard.press("Escape");

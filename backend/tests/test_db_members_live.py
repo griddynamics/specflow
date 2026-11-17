@@ -50,14 +50,14 @@ async def signed_in(factory, email: str, name: str | None = None, subject: str |
     return user
 
 
-async def new_project(factory, admin: User, name: str = "Alpha") -> uuid.UUID:
+async def new_project(factory, owner: User, name: str = "Alpha") -> uuid.UUID:
     async with factory() as session, session.begin():
-        return (await repo.create_project(session, admin.id, name)).id
+        return (await repo.create_project(session, owner.id, name)).id
 
 
-async def invite_row(factory, project_id: uuid.UUID, admin: User, email_norm: str) -> None:
+async def invite_row(factory, project_id: uuid.UUID, owner: User, email_norm: str) -> None:
     async with factory() as session, session.begin():
-        session.add(ProjectInvite(project_id=project_id, email_norm=email_norm, invited_by=admin.id))
+        session.add(ProjectInvite(project_id=project_id, email_norm=email_norm, invited_by=owner.id))
 
 
 async def member_roles(factory, project_id: uuid.UUID) -> dict[uuid.UUID, str]:
@@ -79,10 +79,10 @@ async def invite_count(factory, project_id: uuid.UUID) -> int:
 async def test_new_user_adopts_invites_of_two_projects_and_logs_ids_only(factory, caplog):
     """FR-PRJ-INV-01: the email is matched normalised, both projects adopted, no invite left."""
 
-    admin = await signed_in(factory, "admin@example.com")
-    p1, p2 = await new_project(factory, admin, "A"), await new_project(factory, admin, "B")
-    await invite_row(factory, p1, admin, "c@example.com")
-    await invite_row(factory, p2, admin, "c@example.com")
+    owner = await signed_in(factory, "owner@example.com")
+    p1, p2 = await new_project(factory, owner, "A"), await new_project(factory, owner, "B")
+    await invite_row(factory, p1, owner, "c@example.com")
+    await invite_row(factory, p2, owner, "c@example.com")
 
     with caplog.at_level("INFO"):
         cy = await signed_in(factory, "C@Example.com")
@@ -98,10 +98,10 @@ async def test_new_user_adopts_invites_of_two_projects_and_logs_ids_only(factory
 async def test_an_invite_inserted_after_first_sign_in_is_adopted_on_the_next_request(factory):
     """FR-PRJ-INV-04, existing-user return path."""
 
-    admin = await signed_in(factory, "admin@example.com")
-    project = await new_project(factory, admin)
+    owner = await signed_in(factory, "owner@example.com")
+    project = await new_project(factory, owner)
     bob = await signed_in(factory, "bob@example.com")
-    await invite_row(factory, project, admin, "bob@example.com")
+    await invite_row(factory, project, owner, "bob@example.com")
     assert bob.id not in await member_roles(factory, project)
 
     again = await signed_in(factory, "bob@example.com")
@@ -111,10 +111,10 @@ async def test_an_invite_inserted_after_first_sign_in_is_adopted_on_the_next_req
 
 
 async def test_an_account_whose_email_changed_adopts_the_invite_of_the_new_email(factory):
-    admin = await signed_in(factory, "admin@example.com")
-    project = await new_project(factory, admin)
+    owner = await signed_in(factory, "owner@example.com")
+    project = await new_project(factory, owner)
     await signed_in(factory, "old@example.com", subject="sub-moves")
-    await invite_row(factory, project, admin, "new@example.com")
+    await invite_row(factory, project, owner, "new@example.com")
 
     moved = await signed_in(factory, "new@example.com", subject="sub-moves")
 
@@ -124,9 +124,9 @@ async def test_an_account_whose_email_changed_adopts_the_invite_of_the_new_email
 async def test_the_raced_first_sign_in_path_adopts_too(factory, monkeypatch):
     """The third return path of ``upsert_user``: the insert loses to a concurrent first sign-in."""
 
-    admin = await signed_in(factory, "admin@example.com")
-    project = await new_project(factory, admin)
-    await invite_row(factory, project, admin, "racer@example.com")
+    owner = await signed_in(factory, "owner@example.com")
+    project = await new_project(factory, owner)
+    await invite_row(factory, project, owner, "racer@example.com")
     real = repo._resolve_user
 
     async def lose_the_race(session, principal):
@@ -146,10 +146,10 @@ async def test_the_raced_first_sign_in_path_adopts_too(factory, monkeypatch):
 async def test_two_sessions_adopting_at_once_leave_one_member_row_and_no_error(factory):
     """FR-PRJ-INV-03."""
 
-    admin = await signed_in(factory, "admin@example.com")
-    project = await new_project(factory, admin)
+    owner = await signed_in(factory, "owner@example.com")
+    project = await new_project(factory, owner)
     dee = await signed_in(factory, "dee@example.com")
-    await invite_row(factory, project, admin, "dee@example.com")
+    await invite_row(factory, project, owner, "dee@example.com")
     gate, second_started = asyncio.Event(), asyncio.Event()
 
     async def request(started: asyncio.Event | None = None) -> None:
@@ -171,20 +171,20 @@ async def test_two_sessions_adopting_at_once_leave_one_member_row_and_no_error(f
 
 
 async def test_an_existing_member_who_is_also_invited_loses_the_invite_and_keeps_one_row(factory):
-    admin = await signed_in(factory, "admin@example.com")
-    project = await new_project(factory, admin)
-    await invite_row(factory, project, admin, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
+    project = await new_project(factory, owner)
+    await invite_row(factory, project, owner, "owner@example.com")
 
-    again = await signed_in(factory, "admin@example.com")
+    again = await signed_in(factory, "owner@example.com")
 
-    assert (await member_roles(factory, project)) == {again.id: "admin"}
+    assert (await member_roles(factory, project)) == {again.id: "owner"}
     assert await invite_count(factory, project) == 0
 
 
 async def test_a_token_email_the_normaliser_rejects_signs_in_and_adopts_nothing(factory):
-    admin = await signed_in(factory, "admin@example.com")
-    project = await new_project(factory, admin)
-    await invite_row(factory, project, admin, "x@example.com")
+    owner = await signed_in(factory, "owner@example.com")
+    project = await new_project(factory, owner)
+    await invite_row(factory, project, owner, "x@example.com")
     long_email = "x" * 260 + "@example.com"
 
     user = await signed_in(factory, long_email)
@@ -196,56 +196,56 @@ async def test_a_token_email_the_normaliser_rejects_signs_in_and_adopts_nothing(
 # Add, list, remove, leave, cancel, rename --------------------------------------------
 
 
-async def add(factory, project_id: uuid.UUID, admin: User, email: str):
+async def add(factory, project_id: uuid.UUID, owner: User, email: str):
     async with factory() as session, session.begin():
-        return await members.add_member_or_invite(session, project_id, admin.id, email, DOMAINS)
+        return await members.add_member_or_invite(session, project_id, owner.id, email, DOMAINS)
 
 
 async def test_add_a_signed_in_user_is_a_member_and_an_unknown_email_is_an_invite(factory):
-    admin = await signed_in(factory, "admin@example.com", "Ada")
+    owner = await signed_in(factory, "owner@example.com", "Ada")
     bob = await signed_in(factory, "Bob@Example.com", "Bob")
-    project = await new_project(factory, admin)
+    project = await new_project(factory, owner)
 
-    as_member = await add(factory, project, admin, " bob@example.com ")
-    as_invite = await add(factory, project, admin, "New@Example.COM")
+    as_member = await add(factory, project, owner, " bob@example.com ")
+    as_invite = await add(factory, project, owner, "New@Example.COM")
 
     assert as_member.kind == "member" and as_member.member.user_id == bob.id and as_member.member.role == "collaborator"
     assert as_invite.kind == "invite" and as_invite.invite.email == "new@example.com"
-    assert await member_roles(factory, project) == {admin.id: "admin", bob.id: "collaborator"}
+    assert await member_roles(factory, project) == {owner.id: "owner", bob.id: "collaborator"}
     assert await invite_count(factory, project) == 1
 
 
 async def test_add_refusals_have_their_codes_and_write_nothing(factory):
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     await signed_in(factory, "bob@example.com")
-    project = await new_project(factory, admin)
-    await add(factory, project, admin, "bob@example.com")
-    await add(factory, project, admin, "x@example.com")
+    project = await new_project(factory, owner)
+    await add(factory, project, owner, "bob@example.com")
+    await add(factory, project, owner, "x@example.com")
 
     expectations = {
         "bob@example.com": "already_member",
-        "ADMIN@example.com": "already_member",  # the admin's own email
+        "OWNER@example.com": "already_member",  # the owner's own email
         " X@Example.COM ": "already_invited",
         "nope": "invalid_email",
         "a@other.org": "email_domain_not_allowed",
     }
     for email, code in expectations.items():
         with pytest.raises(members.MemberError) as raised:
-            await add(factory, project, admin, email)
+            await add(factory, project, owner, email)
         assert raised.value.code == code
     assert len(await member_roles(factory, project)) == 2 and await invite_count(factory, project) == 1
 
 
 async def test_add_picks_the_newest_user_when_two_rows_share_an_email(factory):
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     older = await signed_in(factory, "dup@example.com", subject="sub-old")
     newer = await signed_in(factory, "DUP@example.com", subject="sub-new")
-    project = await new_project(factory, admin)
+    project = await new_project(factory, owner)
 
-    added = await add(factory, project, admin, "dup@example.com")
+    added = await add(factory, project, owner, "dup@example.com")
 
     assert added.kind == "member" and added.member.user_id == newer.id != older.id
-    assert (await members_snapshot(factory, project, admin)).members[1].email == "DUP@example.com"
+    assert (await members_snapshot(factory, project, owner)).members[1].email == "DUP@example.com"
 
 
 async def members_snapshot(factory, project_id: uuid.UUID, caller: User) -> members.Members:
@@ -253,37 +253,37 @@ async def members_snapshot(factory, project_id: uuid.UUID, caller: User) -> memb
         return await members.list_members(session, project_id, caller.id)
 
 
-async def test_list_members_orders_admin_first_then_joined_and_names_follow_the_member_names_rule(factory):
-    admin = await signed_in(factory, "admin@example.com", "Ada")
+async def test_list_members_orders_owner_first_then_joined_and_names_follow_the_member_names_rule(factory):
+    owner = await signed_in(factory, "owner@example.com", "Ada")
     bob = await signed_in(factory, "bob@example.com", "Bob")
     cy = await signed_in(factory, "cy@example.com")  # display name = email: no name
-    project = await new_project(factory, admin)
-    await add(factory, project, admin, "cy@example.com")
-    await add(factory, project, admin, "bob@example.com")
-    await add(factory, project, admin, "zed@example.com")
-    await add(factory, project, admin, "amy@example.com")
+    project = await new_project(factory, owner)
+    await add(factory, project, owner, "cy@example.com")
+    await add(factory, project, owner, "bob@example.com")
+    await add(factory, project, owner, "zed@example.com")
+    await add(factory, project, owner, "amy@example.com")
 
     as_bob = await members_snapshot(factory, project, bob)
 
     assert as_bob.limit == 50
-    assert [m.user_id for m in as_bob.members] == [admin.id, cy.id, bob.id]
+    assert [m.user_id for m in as_bob.members] == [owner.id, cy.id, bob.id]
     assert [m.name for m in as_bob.members] == ["Ada", None, "Bob"]
     assert [m.is_you for m in as_bob.members] == [False, False, True]
     assert [i.email for i in as_bob.invites] == ["zed@example.com", "amy@example.com"]
-    assert [m.is_you for m in (await members_snapshot(factory, project, admin)).members] == [True, False, False]
+    assert [m.is_you for m in (await members_snapshot(factory, project, owner)).members] == [True, False, False]
     async with factory() as session:  # the same names as ``member_names``
         names = await repo.member_names(session, project, [m.user_id for m in as_bob.members])
     assert [names[m.user_id] for m in as_bob.members] == [m.name for m in as_bob.members]
 
 
 async def test_remove_leave_cancel_and_rename(factory):
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     bob = await signed_in(factory, "bob@example.com")
     cy = await signed_in(factory, "cy@example.com")
-    project = await new_project(factory, admin)
-    await add(factory, project, admin, "bob@example.com")
-    await add(factory, project, admin, "cy@example.com")
-    invite = (await add(factory, project, admin, "later@example.com")).invite
+    project = await new_project(factory, owner)
+    await add(factory, project, owner, "bob@example.com")
+    await add(factory, project, owner, "cy@example.com")
+    invite = (await add(factory, project, owner, "later@example.com")).invite
 
     async def run(function, *args):
         async with factory() as session, session.begin():
@@ -291,10 +291,10 @@ async def test_remove_leave_cancel_and_rename(factory):
 
     await run(members.remove_member, bob.id)
     await run(members.leave_project, cy.id)
-    assert await member_roles(factory, project) == {admin.id: "admin"}
+    assert await member_roles(factory, project) == {owner.id: "owner"}
     for function, who, code in [
-        (members.remove_member, admin.id, "cannot_remove_admin"),
-        (members.leave_project, admin.id, "admin_cannot_leave"),
+        (members.remove_member, owner.id, "cannot_remove_owner"),
+        (members.leave_project, owner.id, "owner_cannot_leave"),
         (members.remove_member, bob.id, "member_not_found"),
         (members.leave_project, bob.id, "member_not_found"),
         (members.cancel_invite, uuid.uuid4(), "invite_not_found"),
@@ -316,33 +316,33 @@ async def test_remove_leave_cancel_and_rename(factory):
 
 
 async def test_limit_holds_under_two_concurrent_adds_at_49(factory):
-    """FR-PRJ-MEM-06: admin + 48 invites = 49; two concurrent adds give one success and one ``member_limit``."""
+    """FR-PRJ-MEM-06: owner + 48 invites = 49; two concurrent adds give one success and one ``member_limit``."""
 
-    admin = await signed_in(factory, "admin@example.com")
-    project = await new_project(factory, admin)
+    owner = await signed_in(factory, "owner@example.com")
+    project = await new_project(factory, owner)
     async with factory() as session, session.begin():
         session.add_all(
-            ProjectInvite(project_id=project, email_norm=f"i{n}@example.com", invited_by=admin.id) for n in range(48)
+            ProjectInvite(project_id=project, email_norm=f"i{n}@example.com", invited_by=owner.id) for n in range(48)
         )
 
     results = await asyncio.gather(
-        add(factory, project, admin, "p@example.com"),
-        add(factory, project, admin, "q@example.com"),
+        add(factory, project, owner, "p@example.com"),
+        add(factory, project, owner, "q@example.com"),
         return_exceptions=True,
     )
 
     assert sorted(type(r).__name__ for r in results) == ["InviteAdded", "MemberLimitError"]
     assert await invite_count(factory, project) == 49
     with pytest.raises(members.MemberLimitError):
-        await add(factory, project, admin, "r@example.com")  # now at 50
+        await add(factory, project, owner, "r@example.com")  # now at 50
 
 
 async def test_adoption_does_not_change_the_count_at_the_limit(factory):
-    admin = await signed_in(factory, "admin@example.com")
-    project = await new_project(factory, admin)
+    owner = await signed_in(factory, "owner@example.com")
+    project = await new_project(factory, owner)
     async with factory() as session, session.begin():
         session.add_all(
-            ProjectInvite(project_id=project, email_norm=f"i{n}@example.com", invited_by=admin.id) for n in range(49)
+            ProjectInvite(project_id=project, email_norm=f"i{n}@example.com", invited_by=owner.id) for n in range(49)
         )
     await signed_in(factory, "i7@example.com")  # moves one row from invites to members
 
@@ -353,7 +353,7 @@ async def test_adoption_does_not_change_the_count_at_the_limit(factory):
 # Create with collaborators -------------------------------------------------------------
 
 
-async def create(factory, creator: User, emails: list[str], creator_email: str = "admin@example.com") -> uuid.UUID:
+async def create(factory, creator: User, emails: list[str], creator_email: str = "owner@example.com") -> uuid.UUID:
     checked = check_collaborators(emails, DOMAINS, creator_email)
     async with factory() as session, session.begin():
         return (await repo.create_project(session, creator.id, "Gamma", checked)).id
@@ -362,32 +362,32 @@ async def create(factory, creator: User, emails: list[str], creator_email: str =
 async def test_create_with_one_signed_in_and_one_unknown_email(factory):
     """FR-PRJ-CRT-01, and the creator's own email and a duplicate are dropped."""
 
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     bob = await signed_in(factory, "bob@example.com")
 
     project = await create(
-        factory, admin, ["Bob@example.com", "bob@EXAMPLE.com", "ADMIN@example.com", "new@example.com"]
+        factory, owner, ["Bob@example.com", "bob@EXAMPLE.com", "OWNER@example.com", "new@example.com"]
     )
 
-    assert await member_roles(factory, project) == {admin.id: "admin", bob.id: "collaborator"}
+    assert await member_roles(factory, project) == {owner.id: "owner", bob.id: "collaborator"}
     assert await invite_count(factory, project) == 1
 
 
 async def test_create_without_collaborators_behaves_as_before(factory):
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
 
-    project = await create(factory, admin, [])
+    project = await create(factory, owner, [])
 
-    assert await member_roles(factory, project) == {admin.id: "admin"} and await invite_count(factory, project) == 0
+    assert await member_roles(factory, project) == {owner.id: "owner"} and await invite_count(factory, project) == 0
 
 
 async def test_create_with_a_bad_email_writes_nothing(factory):
     """FR-PRJ-CRT-02: the check fails before any write, with the index."""
 
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
 
     with pytest.raises(InvalidCollaboratorsError) as raised:
-        await create(factory, admin, ["ok@example.com", "bad"])
+        await create(factory, owner, ["ok@example.com", "bad"])
 
     assert [(e.index, e.type) for e in raised.value.errors] == [(1, "invalid_email")]
     async with factory() as session:
@@ -395,15 +395,15 @@ async def test_create_with_a_bad_email_writes_nothing(factory):
 
 
 async def test_create_is_atomic_when_a_write_fails_midway(factory):
-    """A failure after the project and admin rows were written rolls everything back."""
+    """A failure after the project and owner rows were written rolls everything back."""
 
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     bob = await signed_in(factory, "bob@example.com")
 
     with pytest.raises(IntegrityError):
         async with factory() as session, session.begin():
             # An unnormalised email breaks ``ck_project_invites_email_norm`` after bob's member row is staged.
-            await repo.create_project(session, admin.id, "Gamma", ["bob@example.com", "Bad@Example.com"])
+            await repo.create_project(session, owner.id, "Gamma", ["bob@example.com", "Bad@Example.com"])
 
     async with factory() as session:
         assert await session.scalar(select(func.count()).select_from(Project)) == 0
@@ -411,32 +411,32 @@ async def test_create_is_atomic_when_a_write_fails_midway(factory):
 
 
 async def test_create_prefers_the_newest_user_of_a_duplicate_email(factory):
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     await signed_in(factory, "dup@example.com", subject="sub-old")
     newer = await signed_in(factory, "dup@example.com", subject="sub-new")
 
-    project = await create(factory, admin, ["dup@example.com"])
+    project = await create(factory, owner, ["dup@example.com"])
 
-    assert await member_roles(factory, project) == {admin.id: "admin", newer.id: "collaborator"}
+    assert await member_roles(factory, project) == {owner.id: "owner", newer.id: "collaborator"}
 
 
 # Membership and suggestions --------------------------------------------------------------
 
 
 async def test_get_membership_returns_project_and_role_for_any_member_only(factory):
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     bob = await signed_in(factory, "bob@example.com")
     cy = await signed_in(factory, "cy@example.com")
-    project = await new_project(factory, admin)
-    await add(factory, project, admin, "bob@example.com")
+    project = await new_project(factory, owner)
+    await add(factory, project, owner, "bob@example.com")
 
     async with factory() as session, session.begin():
-        as_admin = await repo.get_membership(session, admin.id, project)
+        as_owner = await repo.get_membership(session, owner.id, project)
         as_bob = await repo.get_membership(session, bob.id, project)
-        assert as_admin is not None and as_admin[1] == "admin" and as_admin[0].id == project
+        assert as_owner is not None and as_owner[1] == "owner" and as_owner[0].id == project
         assert as_bob is not None and as_bob[1] == "collaborator"
         assert await repo.get_membership(session, cy.id, project) is None
-        assert await repo.get_membership(session, admin.id, uuid.uuid4()) is None
+        assert await repo.get_membership(session, owner.id, uuid.uuid4()) is None
         assert (await repo.get_member_project(session, bob.id, project)).id == project
 
 
@@ -485,19 +485,19 @@ async def test_suggestions_treat_percent_and_underscore_as_plain_characters(fact
 
 
 async def test_suggestions_exclude_outside_domains_members_and_invited_emails(factory):
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     await signed_in(factory, "ann.member@example.com")
     await signed_in(factory, "ann.free@example.com")
     await signed_in(factory, "ann.out@other.org")
     await signed_in(factory, "ann.sub@sub.example.com")
-    project = await new_project(factory, admin)
-    await add(factory, project, admin, "ann.member@example.com")
+    project = await new_project(factory, owner)
+    await add(factory, project, owner, "ann.member@example.com")
     async with factory() as session, session.begin():  # an invite of an email that has a user row (raced add)
-        session.add(ProjectInvite(project_id=project, email_norm="ann.free@example.com", invited_by=admin.id))
+        session.add(ProjectInvite(project_id=project, email_norm="ann.free@example.com", invited_by=owner.id))
     await signed_in(factory, "ann.late@example.com")
 
-    anywhere = await suggest(factory, admin, "ann")
-    inside = await suggest(factory, admin, "ann", project)
+    anywhere = await suggest(factory, owner, "ann")
+    inside = await suggest(factory, owner, "ann", project)
 
     assert [s.email for s in anywhere] == ["ann.free@example.com", "ann.late@example.com", "ann.member@example.com"]
     assert [s.email for s in inside] == ["ann.late@example.com"]
@@ -518,17 +518,17 @@ async def test_address_display_names_are_returned_as_no_name(factory):
     assert await suggest(factory, caller, "plain") == [members.Suggestion(None, "plain@example.com")]
 
 
-async def test_a_second_admin_row_is_refused_by_the_database(factory):
-    """DM1 stays enforced beneath the repository: ``ux_project_members_one_admin``."""
+async def test_a_second_owner_row_is_refused_by_the_database(factory):
+    """DM1 stays enforced beneath the repository: ``ux_project_members_one_owner``."""
 
-    admin = await signed_in(factory, "admin@example.com")
+    owner = await signed_in(factory, "owner@example.com")
     bob = await signed_in(factory, "bob@example.com")
-    project = await new_project(factory, admin)
+    project = await new_project(factory, owner)
 
-    async def second_admin() -> None:
+    async def second_owner() -> None:
         async with factory() as session, session.begin():
-            session.add(ProjectMember(project_id=project, user_id=bob.id, role="admin"))
+            session.add(ProjectMember(project_id=project, user_id=bob.id, role="owner"))
             await session.flush()
 
     with pytest.raises(IntegrityError):
-        await second_admin()
+        await second_owner()

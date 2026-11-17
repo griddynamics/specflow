@@ -25,7 +25,7 @@ before(async () => {
   ({ P, L } = await load());
 });
 
-const member = (id: string, name: string | null, email: string, role: "admin" | "collaborator" = "collaborator", isYou = false) => ({
+const member = (id: string, name: string | null, email: string, role: "owner" | "collaborator" = "collaborator", isYou = false) => ({
   userId: id,
   name,
   email,
@@ -33,11 +33,11 @@ const member = (id: string, name: string | null, email: string, role: "admin" | 
   joinedAt: "2026-01-01T00:00:00Z",
   isYou,
 });
-const STATE = (role: "admin" | "collaborator"): MembersState => ({
+const STATE = (role: "owner" | "collaborator"): MembersState => ({
   role,
   limit: 50,
   members: [
-    member("u1", "Anna Kowalska", "anna@example.com", "admin", role === "admin"),
+    member("u1", "Anna Kowalska", "anna@example.com", "owner", role === "owner"),
     member("u2", "Mark Lee", "mark@example.com", "collaborator", role === "collaborator"),
     member("u3", null, "nameless@example.com"),
   ],
@@ -46,7 +46,7 @@ const STATE = (role: "admin" | "collaborator"): MembersState => ({
 
 const noop = () => undefined;
 const NEW = "new@example.com";
-function markup(role: "admin" | "collaborator", over: Partial<GeneralViewProps> = {}): string {
+function markup(role: "owner" | "collaborator", over: Partial<GeneralViewProps> = {}): string {
   const add: ReactElement = createElement(P.AddRowView, {
     text: "",
     items: [],
@@ -80,8 +80,8 @@ function markup(role: "admin" | "collaborator", over: Partial<GeneralViewProps> 
 }
 const count = (text: string, re: RegExp) => [...text.matchAll(re)].length;
 
-test("UI-03, UI-06: the admin sees name + Save, the add row, the list with x on every row but the admin's, and the count", () => {
-  const view = markup("admin");
+test("UI-03, UI-06: the owner sees name + Save, the add row, the list with x on every row but the owner's, and the count", () => {
+  const view = markup("owner");
   assert.match(view, /data-testid="settings-name"/);
   assert.match(view, /Project name/);
   assert.match(view, /data-testid="settings-save"/);
@@ -89,12 +89,12 @@ test("UI-03, UI-06: the admin sees name + Save, the add row, the list with x on 
   assert.match(view, /role="combobox"/);
   assert.match(view, />Add</);
   assert.equal(count(view, /data-testid="settings-row"/g), 4);
-  assert.equal(count(view, /data-testid="settings-row-x"/g), 3); // two members and the invite; not the admin
+  assert.equal(count(view, /data-testid="settings-row-x"/g), 3); // two members and the invite; not the owner
   assert.match(view, /aria-label="Remove Mark Lee"/);
   assert.match(view, /aria-label="Remove nameless@example.com"/); // no name: the email is the title
   assert.match(view, /aria-label="Cancel invite jonas@example.com"/);
   assert.doesNotMatch(view, /aria-label="Remove Anna Kowalska"/);
-  assert.match(view, />Admin</);
+  assert.match(view, />Owner</);
   assert.match(view, />Invited</);
   assert.match(view, />Not signed in yet</);
   assert.match(view, />4 of 50</);
@@ -118,7 +118,7 @@ test("UI-04: a collaborator sees the read-only list and Leave project: no name b
 });
 
 test("UI-02: the body holds no h1 and no tab row (the tab is in the shell header); Collaborators is a section heading", () => {
-  for (const role of ["admin", "collaborator"] as const) {
+  for (const role of ["owner", "collaborator"] as const) {
     const view = markup(role);
     assert.doesNotMatch(view, /<h1/);
     assert.doesNotMatch(view, /gdg-seg/);
@@ -127,20 +127,20 @@ test("UI-02: the body holds no h1 and no tab row (the tab is in the shell header
 });
 
 test("UI-06: the count is members plus invites over the limit", () => {
-  const state: MembersState = { ...STATE("admin"), members: STATE("admin").members.slice(0, 3), invites: [] };
-  assert.match(markup("admin", { state }), />3 of 50</);
+  const state: MembersState = { ...STATE("owner"), members: STATE("owner").members.slice(0, 3), invites: [] };
+  assert.match(markup("owner", { state }), />3 of 50</);
 });
 
 test("UI-05: remove, cancel and leave each get a dialog that names the person; opening it sends nothing", () => {
-  const rows = L.rowsOf(STATE("admin"), true);
+  const rows = L.rowsOf(STATE("owner"), true);
   const x = rows.filter((r) => r.action !== null).map((r) => L.confirmOf(r));
   assert.equal(x.length, 3);
-  const view = markup("admin", { confirm: x[0] });
+  const view = markup("owner", { confirm: x[0] });
   assert.match(view, /role="dialog"/);
   assert.match(view, /Remove this collaborator\?/);
   assert.match(view, /Mark Lee loses access/);
   assert.match(view, /data-testid="settings-confirm-cancel"/);
-  assert.match(markup("admin", { confirm: x[2] }), /jonas@example.com will not get access/);
+  assert.match(markup("owner", { confirm: x[2] }), /jonas@example.com will not get access/);
   assert.match(markup("collaborator", { confirm: { kind: "leave" } }), /Leave this project\?/);
   // that opening sends nothing is proven in the e2e (Cancel sends no request); runConfirm is the only path to a port
 });
@@ -154,7 +154,7 @@ function recorder(
 ): MembersPort {
   const out = outcome ?? { claimsReleased: 1, claimsReleaseFailed: false };
   return {
-    list: () => Promise.resolve(STATE("admin")),
+    list: () => Promise.resolve(STATE("owner")),
     add: (_p, email) => {
       calls.push(`add:${email}`);
       if (fail?.add !== undefined) return Promise.reject(fail.add);
@@ -212,7 +212,7 @@ test("UI-10: other add failures are a toast; a missing project goes home; a bad 
   assert.deepEqual(r, { ok: false, error: null });
   assert.deepEqual(t.log, ["toast:Could not save. Try again."]);
   t = effects();
-  await L.runAdd(NEW, "p1", recorder([], { add: api("forbidden", "admin_required") }), t.fx);
+  await L.runAdd(NEW, "p1", recorder([], { add: api("forbidden", "owner_required") }), t.fx);
   assert.deepEqual(t.log, ["toast:Could not save. Try again."]);
   t = effects();
   await L.runAdd(NEW, "p1", recorder([], { add: api("not_found", "project_not_found") }), t.fx);
@@ -250,11 +250,11 @@ test("UI-05: a confirmed remove and cancel call the port, toast and reload; leav
 test("UI-10: a stale list reloads with the list-changed toast; claims that could not be freed point to Plan > Work", async () => {
   for (const [kind, code] of [
     ["remove", "member_not_found"],
-    ["remove", "cannot_remove_admin"],
+    ["remove", "cannot_remove_owner"],
     ["cancel", "invite_not_found"],
   ] as const) {
     const t = effects();
-    const err = api(code === "cannot_remove_admin" ? "conflict" : "not_found", code);
+    const err = api(code === "cannot_remove_owner" ? "conflict" : "not_found", code);
     const c = kind === "remove" ? ({ kind, userId: "u", label: "x" } as const) : ({ kind, inviteId: "i", label: "x" } as const);
     const ok = await L.runConfirm(c, "p1", recorder([], { remove: err, cancelInvite: err }), t.fx);
     assert.equal(ok, false);
@@ -269,7 +269,7 @@ test("UI-10: a stale list reloads with the list-changed toast; claims that could
   );
   assert.deepEqual(t.log, ["toast:Some story claims could not be freed. Free the rest in Plan > Work.", "reload"]);
   const l = effects();
-  await L.runConfirm({ kind: "leave" }, "p1", recorder([], { leave: api("conflict", "admin_cannot_leave") }), l.fx);
+  await L.runConfirm({ kind: "leave" }, "p1", recorder([], { leave: api("conflict", "owner_cannot_leave") }), l.fx);
   assert.deepEqual(l.log, ["toast:Could not save. Try again."]); // no redirect when leaving failed
 });
 
@@ -317,7 +317,7 @@ test("the name rule: Save only for a changed, valid name; the messages are the C
   );
   assert.deepEqual(r, { ok: false, error: "Use 200 characters or fewer." });
   const t = effects();
-  await L.runRename("x", "p1", projectsPort([], api("forbidden", "admin_required")), t.fx);
+  await L.runRename("x", "p1", projectsPort([], api("forbidden", "owner_required")), t.fx);
   assert.deepEqual(t.log, ["toast:Could not save. Try again."]);
   assert.deepEqual(log, []);
 });

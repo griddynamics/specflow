@@ -168,7 +168,7 @@ function RowFace({ row }: Readonly<{ row: Row }>) {
   return <Avatar name={row.title} size="md" title={false} />;
 }
 
-/** The people card. `onAction` is set only in the admin view; a row without an action has no x. */
+/** The people card. `onAction` is set only in the owner view; a row without an action has no x. */
 export function PeopleList({ rows, onAction }: Readonly<{ rows: Row[]; onAction?: (row: Row) => void }>) {
   return (
     <GlassSurface as="ul" className="settings-list" aria-label={SETTINGS_COPY.listLabel} data-testid="settings-list">
@@ -179,7 +179,7 @@ export function PeopleList({ rows, onAction }: Readonly<{ rows: Row[]; onAction?
             <b title={row.title}>{row.title}</b>
             {nonEmpty(row.subtitle) !== undefined ? <small title={row.subtitle}>{row.subtitle}</small> : null}
           </div>
-          {row.badge === "admin" ? <Tag>{COPY.badgeAdmin}</Tag> : null}
+          {row.badge === "owner" ? <Tag>{COPY.badgeOwner}</Tag> : null}
           {row.badge === "invited" ? <Tag tone="warning">{COPY.badgeInvited}</Tag> : null}
           {row.action !== null && onAction !== undefined ? (
             <Tooltip label={row.action.kind === "cancel" ? SETTINGS_COPY.cancelInvite : SETTINGS_COPY.remove} side="left">
@@ -267,7 +267,7 @@ export interface GeneralViewProps {
   saving: boolean;
   confirm: Confirm | null;
   confirming: boolean;
-  /** The add row (it keeps its own typing state); shown to the admin only. */
+  /** The add row (it keeps its own typing state); shown to the owner only. */
   addSlot: ReactNode;
   onDraft: (v: string) => void;
   onSave: () => void;
@@ -277,12 +277,12 @@ export interface GeneralViewProps {
   onDismiss: () => void;
 }
 
-/** The General tab for the caller's role (`state.role`): the admin's controls, or the collaborator's read-only list and Leave project. */
+/** The General tab for the caller's role (`state.role`): the owner's controls, or the collaborator's read-only list and Leave project. */
 export function GeneralView(p: Readonly<GeneralViewProps>) {
-  const admin = p.state.role === "admin";
+  const isOwner = p.state.role === "owner";
   return (
     <>
-      {admin ? (
+      {isOwner ? (
         <NameBlock value={p.draft} error={p.nameError} canSave={p.canSave} busy={p.saving} onChange={p.onDraft} onSave={p.onSave} />
       ) : null}
       <section className="settings-sec" aria-labelledby="settings-collab-h">
@@ -294,10 +294,10 @@ export function GeneralView(p: Readonly<GeneralViewProps>) {
             {countText(p.state.members.length + p.state.invites.length, p.state.limit)}
           </span>
         </div>
-        {admin ? p.addSlot : null}
-        <PeopleList rows={rowsOf(p.state, admin)} onAction={admin ? p.onRow : undefined} />
+        {isOwner ? p.addSlot : null}
+        <PeopleList rows={rowsOf(p.state, isOwner)} onAction={isOwner ? p.onRow : undefined} />
       </section>
-      {admin ? null : <LeaveBlock onLeave={p.onLeave} />}
+      {isOwner ? null : <LeaveBlock onLeave={p.onLeave} />}
       <ConfirmDialog confirm={p.confirm} busy={p.confirming} onConfirm={p.onConfirm} onClose={p.onDismiss} />
     </>
   );

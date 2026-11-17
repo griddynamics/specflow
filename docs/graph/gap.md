@@ -157,7 +157,7 @@ unblock heals.
 ## Web routes
 
 People answer findings in the web app's Plan › Work tab through the API's web routes (not the agent routes); the caller is
-the signed-in member, and membership is the only access rule: admin or collaborator, both may answer
+the signed-in member, and membership is the only access rule: owner or collaborator, both may answer
 ([../mcp-server/access-control.md](../mcp-server/access-control.md) AC12; [../projects/](../projects/INDEX.md)). Holders and authors are display names, never ids or emails.
 
 | Endpoint | What it does |

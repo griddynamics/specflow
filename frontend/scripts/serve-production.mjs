@@ -10,7 +10,7 @@
 //                                          build knobs: graphMs (null = Infinity: a build stays running), graphOutcome ("succeeded" |
 //                                          "partially_succeeded" | "failed"), graphStartFail (null | an API code: the POST answers 503)
 //                                          POST /seed-source ({pid, source}: a source with chosen file states; see stub-sources.mjs `seed`)
-//                                          POST /seed-members ({name?, role?, members?, invites?, state?}: a project where the caller is admin or
+//                                          POST /seed-members ({name?, role?, members?, invites?, state?}: a project where the caller is owner or
 //                                            collaborator, with chosen members and invites; `state` sets people knobs such as allowedDomains or
 //                                            claimsReleased; answers the project; see stub-members.mjs `seed`)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)

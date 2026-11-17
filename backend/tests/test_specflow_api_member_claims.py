@@ -144,9 +144,9 @@ async def test_a_refused_removal_touches_no_claim(harness):
     refused = [
         await harness.client.delete(
             f"/api/v1/projects/{s.project.id}/members/{s.alice.id}", headers=bearer(ALICE)
-        ),  # the admin
+        ),  # the owner
         await harness.client.delete(f"/api/v1/projects/{s.project.id}/members/{s.ben.id}", headers=bearer(BEN)),  # 403
-        await harness.client.post(f"/api/v1/projects/{s.project.id}/leave", headers=bearer(ALICE)),  # admin leaves
+        await harness.client.post(f"/api/v1/projects/{s.project.id}/leave", headers=bearer(ALICE)),  # owner leaves
         await harness.client.delete(f"/api/v1/projects/{s.project.id}/members/{uuid.uuid4()}", headers=bearer(ALICE)),
     ]
     assert [a.status_code for a in refused] == [409, 403, 409, 404]

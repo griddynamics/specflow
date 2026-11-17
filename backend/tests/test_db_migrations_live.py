@@ -52,8 +52,7 @@ APP_TABLES = [
     "projects",
     "users",
 ]
-BASE = "0001_initial"
-HEAD = "0002_project_collaborators"
+HEAD = "0001_initial"
 TABLES_SQL = (
     "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'alembic_version' ORDER BY tablename"
 )
@@ -209,7 +208,7 @@ def test_l10_constraint_and_index_names_match_the_models_exactly(
     assert "ck_documents_status" in found
 
 
-# Migration 0002_project_collaborators (FR-PRJ-ROLE-02..05, NFR-PRJ-05, NFR-PRJ-06) -------------------
+# Migration the collaborator schema in 0001_initial (FR-PRJ-ROLE-02, NFR-PRJ-05) -------------------
 
 
 def run_app(db: DatabaseSettings, statement: str, **params: object) -> list:
@@ -272,54 +271,14 @@ def add_invite(db: DatabaseSettings, project: uuid.UUID, invited_by: uuid.UUID, 
     )
 
 
-def roles(db: DatabaseSettings, project: uuid.UUID) -> list[str]:
-    return run_app(db, "SELECT role FROM project_members WHERE project_id = :project ORDER BY role", project=project)
-
-
-def test_l11_upgrade_of_a_0001_database_turns_every_owner_into_admin(
-    scratch_database: DatabaseSettings, agent_role: AgentRole
-) -> None:
-    """FR-PRJ-ROLE-03: two projects hold an ``owner`` row; after the upgrade each has one ``admin`` row."""
-
-    cfg = alembic_config(scratch_database)
-    command.upgrade(cfg, BASE)
-    ana, bob = insert_user(scratch_database, "ana@example.com"), insert_user(scratch_database, "bob@example.com")
-    first, second = insert_project(scratch_database, ana), insert_project(scratch_database, bob)
-
-    command.upgrade(cfg, "head")
-
-    assert stamped_versions(scratch_database) == [HEAD]
-    assert roles(scratch_database, first) == ["admin"] and roles(scratch_database, second) == ["admin"]
-    with pytest.raises(Exception, match="ck_project_members_role"):
-        add_member(scratch_database, first, bob, "editor")  # only admin and collaborator remain
-    add_member(scratch_database, first, bob, "collaborator")
-    assert roles(scratch_database, first) == ["admin", "collaborator"]
-
-
-def test_l12_upgrade_refuses_a_project_without_exactly_one_owner(
-    scratch_database: DatabaseSettings, agent_role: AgentRole
-) -> None:
-    """M1: a project with no owner row stops the upgrade, naming the fix; nothing changes."""
-
-    cfg = alembic_config(scratch_database)
-    command.upgrade(cfg, BASE)
-    ana = insert_user(scratch_database, "ana@example.com")
-    insert_project(scratch_database, ana, role=None)
-
-    with pytest.raises(RuntimeError, match="exactly one owner row"):
-        command.upgrade(cfg, "head")
-
-    assert stamped_versions(scratch_database) == [BASE]
-
-
-def test_l13_second_admin_and_unknown_role_are_refused_after_upgrade(migrated_database: DatabaseSettings) -> None:
-    """FR-PRJ-ROLE-02: one admin per project (unique index); a collaborator is not limited."""
+def test_l13_second_owner_and_unknown_role_are_refused_after_upgrade(migrated_database: DatabaseSettings) -> None:
+    """FR-PRJ-ROLE-02: one owner per project (unique index); a collaborator is not limited."""
 
     ana, bob, cy = (insert_user(migrated_database, f"{n}@example.com") for n in ("ana", "bob", "cy"))
-    project = insert_project(migrated_database, ana, role="admin")
+    project = insert_project(migrated_database, ana, role="owner")
 
-    with pytest.raises(Exception, match="ux_project_members_one_admin"):
-        add_member(migrated_database, project, bob, "admin")
+    with pytest.raises(Exception, match="ux_project_members_one_owner"):
+        add_member(migrated_database, project, bob, "owner")
     add_member(migrated_database, project, bob, "collaborator")
     add_member(migrated_database, project, cy, "collaborator")
     with pytest.raises(Exception, match="ck_project_members_role"):
@@ -333,20 +292,9 @@ def test_l13_second_admin_and_unknown_role_are_refused_after_upgrade(migrated_da
         )
 
 
-def test_l14_the_legacy_trigger_stores_owner_as_admin_before_the_check(migrated_database: DatabaseSettings) -> None:
-    """FR-PRJ-ROLE-04 and NFR-PRJ-06: a pre-0002 pod inserting ``owner`` succeeds and the row reads ``admin``.
-
-    The trigger must fire before the CHECK; the insert would fail with ck_project_members_role otherwise."""
-
-    ana = insert_user(migrated_database, "ana@example.com")
-    project = insert_project(migrated_database, ana, role="owner")
-
-    assert roles(migrated_database, project) == ["admin"]
-
-
 def test_l15_project_invites_constraints(migrated_database: DatabaseSettings) -> None:
     ana = insert_user(migrated_database, "ana@example.com")
-    project = insert_project(migrated_database, ana, role="admin")
+    project = insert_project(migrated_database, ana, role="owner")
 
     def invite(email: str) -> None:
         add_invite(migrated_database, project, ana, email)
@@ -370,38 +318,13 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(migrated_databas
         migrated_database,
         "SELECT policyname FROM pg_policies WHERE tablename = 'project_invites'",
     ) == ["agent_project_scope"]
+    assert query_column(
+        migrated_database,
+        "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
+        "AND relnamespace = 'public'::regnamespace",
+    ) == [6]  # the five scoped tables of before, plus project_invites
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
         role=SESSION_AGENT_ROLE,
     ) == ["false"]
-
-
-def test_l17_downgrade_to_0001_loses_collaborators_and_invites_and_restores_owner(
-    migrated_database: DatabaseSettings,
-) -> None:
-    """FR-PRJ-ROLE-05, then upgrade again."""
-
-    db = migrated_database
-    ana, bob = insert_user(db, "ana@example.com"), insert_user(db, "bob@example.com")
-    project = insert_project(db, ana, role="admin")
-    add_member(db, project, bob, "collaborator")
-    add_invite(db, project, ana, "new@example.com")
-    cfg = alembic_config(db)
-
-    command.downgrade(cfg, BASE)
-
-    assert stamped_versions(db) == [BASE]
-    assert roles(db, project) == ["owner"]  # the collaborator row is gone, the admin row reads owner
-    assert "project_invites" not in query_column(db, TABLES_SQL)
-    assert query_column(db, "SELECT count(*) FROM pg_trigger WHERE tgname = 'project_members_legacy_owner'") == [0]
-    assert query_column(db, "SELECT count(*) FROM pg_proc WHERE proname = 'project_members_legacy_owner'") == [0]
-    default = (
-        "SELECT column_default FROM information_schema.columns "
-        "WHERE table_name = 'project_members' AND column_name = 'role'"
-    )
-    assert query_column(db, default) == ["'owner'::text"]
-
-    command.upgrade(cfg, "head")
-    assert stamped_versions(db) == [HEAD]
-    assert roles(db, project) == ["admin"]

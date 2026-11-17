@@ -16,21 +16,21 @@ the caller with `upsert_user` first ([data-model.md](data-model.md#invite-adopti
 | Check | Answer |
 |---|---|
 | Caller is not a member, the project does not exist, or `pid` is malformed | 404 `project_not_found` (unchanged rule) |
-| Route needs the admin and the caller is a collaborator | 403 `admin_required` |
+| Route needs the owner and the caller is a collaborator | 403 `owner_required` |
 
 One membership query decides both: `get_membership(session, user_id, pid) -> (Project, role) | None`. The FastAPI
-dependencies `project_member` and `project_admin` wrap it.
+dependencies `project_member` and `project_owner` wrap it.
 
 ## Routes
 
 | Method, path | Who | Body | Success |
 |---|---|---|---|
 | `GET /projects/{pid}/members` | member | - | 200 `MembersOut` |
-| `POST /projects/{pid}/members` | admin | `{email}` | 201 `MemberAdded` |
-| `DELETE /projects/{pid}/members/{user_id}` | admin | - | 200 `ClaimsOutcome` |
-| `DELETE /projects/{pid}/invites/{invite_id}` | admin | - | 204 |
+| `POST /projects/{pid}/members` | owner | `{email}` | 201 `MemberAdded` |
+| `DELETE /projects/{pid}/members/{user_id}` | owner | - | 200 `ClaimsOutcome` |
+| `DELETE /projects/{pid}/invites/{invite_id}` | owner | - | 204 |
 | `POST /projects/{pid}/leave` | collaborator | - | 200 `ClaimsOutcome` |
-| `PATCH /projects/{pid}` | admin | `{name}` | 200 `ProjectOut` (unchanged shape) |
+| `PATCH /projects/{pid}` | owner | `{name}` | 200 `ProjectOut` (unchanged shape) |
 | `POST /users/suggestions` | any signed-in user | `{q, project_id?}` | 200 `SuggestionsOut` |
 | `POST /projects` | any signed-in user | `{name, collaborators?}` | 201 `ProjectOut` (unchanged shape) |
 
@@ -40,14 +40,14 @@ Every body model forbids extra fields.
 
 | Model | Fields |
 |---|---|
-| `MembersOut` | `role` (`admin` or `collaborator`: the caller's), `limit` (50), `members: MemberOut[]`, `invites: InviteOut[]` |
+| `MembersOut` | `role` (`owner` or `collaborator`: the caller's), `limit` (50), `members: MemberOut[]`, `invites: InviteOut[]` |
 | `MemberOut` | `user_id`, `name` (null when the display name is an address, the `member_names` rule), `email`, `role`, `joined_at`, `is_you` |
 | `InviteOut` | `id`, `email` (normalised), `invited_at` |
 | `MemberAdded` | `{kind: "member", member: MemberOut}` or `{kind: "invite", invite: InviteOut}` |
 | `ClaimsOutcome` | `claims_released` (int), `claims_release_failed` (bool) |
 | `SuggestionsOut` | `items: [{name, email}]`, no user ids |
 
-Order: the admin first, then members by `joined_at`; invites by `created_at`.
+Order: the owner first, then members by `joined_at`; invites by `created_at`.
 
 ## Errors
 
@@ -55,13 +55,13 @@ Order: the admin first, then members by `joined_at`; invites by `created_at`.
 |---|---|---|
 | 422 `invalid_email` | add | the email fails the format rule |
 | 422 `email_domain_not_allowed` | add | its domain is not in `AUTH_ALLOWED_EMAIL_DOMAINS` |
-| 409 `already_member` | add | a user with that email is a member (the admin's own email included) |
+| 409 `already_member` | add | a user with that email is a member (the owner's own email included) |
 | 409 `already_invited` | add | the project has an invite for that email |
 | 409 `member_limit` | add | the project is at the [limit](data-model.md#limit) |
 | 404 `member_not_found` | remove | no member row for `user_id` in the project, or `user_id` is not a UUID |
-| 409 `cannot_remove_admin` | remove | `user_id` is the admin |
+| 409 `cannot_remove_owner` | remove | `user_id` is the owner |
 | 404 `invite_not_found` | cancel | no such invite in the project, or `invite_id` is not a UUID |
-| 409 `admin_cannot_leave` | leave | the caller is the admin |
+| 409 `owner_cannot_leave` | leave | the caller is the owner |
 | 422 `validation_failed` | rename, suggestions, create | body rule; `details.errors[{loc, type}]` as every route |
 
 ## Email rules
@@ -76,7 +76,7 @@ Order: the admin first, then members by `joined_at`; invites by `created_at`.
 ## Add a member or invite
 
 In one transaction, with the project row locked: normalise and check the email (format, then domain); look up users by
-normalised email (newest when several); 409 `already_member` when that user is already a member (also the admin's own
+normalised email (newest when several); 409 `already_member` when that user is already a member (also the owner's own
 email); then check the [limit](data-model.md#limit), so a full project still answers `already_member` for a member's
 email. A user found: insert a `collaborator` row (`kind: "member"`). None found: 409 when invited, else insert an invite
 (`kind: "invite"`); the unique constraint turns a concurrent duplicate into 409 `already_invited`.
@@ -128,7 +128,7 @@ checked first; duplicates (case-insensitive) and the creator's own email are dro
 `validation_failed` with `details.errors[{loc: ["body", "collaborators", "i"], type}]` (every `loc` part is a string,
 as in every 422 of the API: the index is `"0"`, `"1"`, ...), `type` one of `invalid_email`,
 `email_domain_not_allowed`, and nothing is written. More than 49 emails is `type: "too_long"` at
-`loc: ["body", "collaborators"]`. The [limit](data-model.md#limit) cannot be reached at creation (at most 49 + the admin). Then one transaction inserts the project, the admin
+`loc: ["body", "collaborators"]`. The [limit](data-model.md#limit) cannot be reached at creation (at most 49 + the owner). Then one transaction inserts the project, the owner
 row, a `collaborator` row per signed-in email and an invite per other email. Without `collaborators` (or with `[]`) the
 route behaves as before.
 
@@ -151,11 +151,11 @@ Ids, counts and outcomes only: never an email, a name or the suggestion text.
 | STRIDE | Example | Mitigation |
 |---|---|---|
 | Spoofing | someone signs in with an email they do not own and adopts its invite | the deployment's email rules decide (D27); a company-controlled email claim ([../mcp-server/auth.md](../mcp-server/auth.md#claim-profile-for-any-oidc-provider)) |
-| Tampering | a collaborator renames, adds or removes | 403 `admin_required` before any write |
+| Tampering | a collaborator renames, adds or removes | 403 `owner_required` before any write |
 | Repudiation | who added or removed whom | log events with actor and target ids |
 | Information disclosure | a non-member learns a project or its members exist | 404 `project_not_found` for every non-member answer |
 | Information disclosure | directory lookup through suggestions | accepted (D26): allowed domains only, at most 8, name and email only, query never logged, no ids; no rate limit in this feature (prefix walking is possible) |
-| Information disclosure | the admin learns whether an email has signed in (`kind` of an add) | accepted: the admin chose to add that person; the list shows it anyway |
+| Information disclosure | the owner learns whether an email has signed in (`kind` of an add) | accepted: the owner chose to add that person; the list shows it anyway |
 | Information disclosure | emails in URLs or logs | POST for suggestions, ids in paths, ids-only events |
 | Denial of service | flooding a project with invites | the [limit](data-model.md#limit) |
-| Elevation of privilege | a second admin | unique index `ux_project_members_one_admin`; no route sets `admin` |
+| Elevation of privilege | a second owner | unique index `ux_project_members_one_owner`; no route sets `owner` |

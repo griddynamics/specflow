@@ -1103,7 +1103,7 @@ PROJECT_ID, USER_ID = uuid.uuid4(), uuid.uuid4()
 
 
 async def test_remove_and_restore_member_report_what_they_changed() -> None:
-    member = ProjectMember(project_id=PROJECT_ID, user_id=USER_ID, role="admin")
+    member = ProjectMember(project_id=PROJECT_ID, user_id=USER_ID, role="owner")
     session = FakeSession([member])
 
     assert await remove_member(session, PROJECT_ID, USER_ID) is True
@@ -1112,7 +1112,7 @@ async def test_remove_and_restore_member_report_what_they_changed() -> None:
     assert await restore_member(session, PROJECT_ID, USER_ID) is True
     assert await restore_member(session, PROJECT_ID, USER_ID) is False
     (restored,) = session.added
-    assert (restored.project_id, restored.user_id, restored.role) == (PROJECT_ID, USER_ID, "admin")
+    assert (restored.project_id, restored.user_id, restored.role) == (PROJECT_ID, USER_ID, "owner")
     assert session.flushes == 2
 
 

@@ -247,7 +247,7 @@ async def adopt_invites(session: AsyncSession, user_id: uuid.UUID, email: str) -
 async def create_project(
     session: AsyncSession, user_id: uuid.UUID, name: str, collaborators: Sequence[str] = ()
 ) -> Project:
-    """Insert the project and its creator as the ``admin`` member.
+    """Insert the project and its creator as the ``owner`` member.
 
     ``collaborators`` are checked, normalised emails (``auth.emails.check_collaborators``): each becomes a
     ``collaborator`` row when a user has that email, else an invite, in this same transaction.
@@ -256,7 +256,7 @@ async def create_project(
     project = Project(name=name, created_by=user_id)
     session.add(project)
     await session.flush()
-    session.add(ProjectMember(project_id=project.id, user_id=user_id, role="admin"))
+    session.add(ProjectMember(project_id=project.id, user_id=user_id, role="owner"))
     await session.flush()
     await add_checked_collaborators(session, project.id, user_id, collaborators)
     await session.refresh(project)
@@ -281,7 +281,7 @@ async def get_membership(
     session: AsyncSession, user_id: uuid.UUID, project_id: uuid.UUID
 ) -> tuple[Project, str] | None:
     """``(project, role)`` when ``user_id`` is a member (any role), else ``None``: the one membership query that
-    decides 404 ``project_not_found`` and 403 ``admin_required`` (docs/projects/api.md "Access")."""
+    decides 404 ``project_not_found`` and 403 ``owner_required`` (docs/projects/api.md "Access")."""
 
     row = (
         await session.execute(

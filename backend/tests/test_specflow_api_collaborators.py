@@ -1,13 +1,13 @@
 """The collaborator routes of ``docs/projects/api.md``: members, invites, leave, rename, suggestions and Create Project
 with collaborators, over the in-memory repository fakes (the real queries are the tier-2 tests of ``db.members``).
 
-Every success and error row, the three standings of a caller (admin, collaborator, non-member), refused extra fields,
+Every success and error row, the three standings of a caller (owner, collaborator, non-member), refused extra fields,
 and the rule that no answer or log record echoes a submitted value (NFR-PRJ-01, FR-PRJ-ACC-01..03).
 
-Sequence of an admin route::
+Sequence of an owner route::
 
-    web -> current_user (upsert_user) -> project_member (get_membership) -> project_admin (role)
-        -> 403 admin_required before the body is read further | route body in one transaction
+    web -> current_user (upsert_user) -> project_member (get_membership) -> project_owner (role)
+        -> 403 owner_required before the body is read further | route body in one transaction
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ async def user_of(h: Any, email: str, name: str | None = None) -> Any:
 
 
 async def seeded(h: Any) -> SimpleNamespace:
-    """Alice is the admin of ``Alpha``, Ben a collaborator; Carol is signed in (no member); Bob admins ``Foreign``."""
+    """Alice is the owner of ``Alpha``, Ben a collaborator; Carol is signed in (no member); Bob owners ``Foreign``."""
 
     alice = await user_of(h, ALICE, "Alice")
     ben = await user_of(h, BEN, "Ben")
@@ -110,7 +110,7 @@ async def test_each_project_route_runs_exactly_one_membership_query(harness, mon
         ("GET", f"{pid}/members", None),
         ("POST", f"{pid}/members", {"email": CAROL}),
         ("DELETE", f"{pid}/members/{s.ben.id}", None),
-        ("POST", f"{pid}/leave", None),  # Alice is the admin: refused, after the one membership read
+        ("POST", f"{pid}/leave", None),  # Alice is the owner: refused, after the one membership read
         ("PATCH", pid, {"name": "Renamed"}),
         ("DELETE", f"{pid}/invites/{uuid.uuid4()}", None),
         ("POST", "/users/suggestions", {"q": "car", "project_id": str(s.alpha.id)}),
@@ -157,7 +157,7 @@ async def test_every_route_needs_a_token(harness):
         assert answer.status_code == 401
 
 
-async def test_a_collaborator_gets_403_admin_required_on_every_admin_route_and_nothing_changes(harness):
+async def test_a_collaborator_gets_403_owner_required_on_every_owner_route_and_nothing_changes(harness):
     s = await seeded(harness)
     pid = s.alpha.id
     harness.repo.invites[pid] = {}
@@ -173,23 +173,23 @@ async def test_a_collaborator_gets_403_admin_required_on_every_admin_route_and_n
         await call(harness, "PATCH", f"/projects/{pid}", BEN, {"name": ""}),
     ]
     assert state(harness) == before
-    assert {error_of(a) for a in answers} == {(403, "admin_required")}
+    assert {error_of(a) for a in answers} == {(403, "owner_required")}
 
 
 # --- list ------------------------------------------------------------------------------------------------------------
 
 
-async def test_the_list_shows_the_admin_first_then_members_then_invites_to_any_member(harness):
+async def test_the_list_shows_the_owner_first_then_members_then_invites_to_any_member(harness):
     s = await seeded(harness)
     await call(harness, "POST", f"/projects/{s.alpha.id}/members", ALICE, {"email": CAROL})
     await call(harness, "POST", f"/projects/{s.alpha.id}/members", ALICE, {"email": "Zed@Example.com "})
-    admin_view = await call(harness, "GET", f"/projects/{s.alpha.id}/members", ALICE)
+    owner_view = await call(harness, "GET", f"/projects/{s.alpha.id}/members", ALICE)
     member_view = await call(harness, "GET", f"/projects/{s.alpha.id}/members", BEN)
-    assert admin_view.status_code == member_view.status_code == 200
-    body = admin_view.json()
-    assert (body["role"], body["limit"]) == ("admin", 50)
+    assert owner_view.status_code == member_view.status_code == 200
+    body = owner_view.json()
+    assert (body["role"], body["limit"]) == ("owner", 50)
     assert [(m["email"], m["role"], m["is_you"]) for m in body["members"]] == [
-        (ALICE, "admin", True),
+        (ALICE, "owner", True),
         (BEN, "collaborator", False),
         (CAROL, "collaborator", False),
     ]
@@ -242,7 +242,7 @@ async def test_adding_a_signed_in_email_adds_a_member_and_a_new_one_an_invite(ha
         ("dave@elsewhere.org", 422, "email_domain_not_allowed"),
         ("someone@sub.example.com", 422, "email_domain_not_allowed"),
         (BEN, 409, "already_member"),
-        (ALICE, 409, "already_member"),  # the admin's own email
+        (ALICE, 409, "already_member"),  # the owner's own email
         ("  BEN@example.com", 409, "already_member"),
     ],
 )
@@ -279,7 +279,7 @@ async def test_the_fiftieth_person_fits_and_the_next_is_member_limit(harness):
 
 
 @pytest.mark.parametrize(
-    "body", [{}, {"email": CAROL, "role": "admin"}, {"email": 5}, {"email": None}, [], {"email": ["a@example.com"]}]
+    "body", [{}, {"email": CAROL, "role": "owner"}, {"email": 5}, {"email": None}, [], {"email": ["a@example.com"]}]
 )
 async def test_the_add_body_forbids_extra_fields_and_wrong_types(harness, body):
     s = await seeded(harness)
@@ -293,7 +293,7 @@ async def test_the_add_body_forbids_extra_fields_and_wrong_types(harness, body):
 # --- remove and cancel -----------------------------------------------------------------------------------------------
 
 
-async def test_the_admin_removes_a_member_then_that_person_sees_404(harness, caplog):
+async def test_the_owner_removes_a_member_then_that_person_sees_404(harness, caplog):
     s = await seeded(harness)
     pid = s.alpha.id
     with caplog.at_level(logging.INFO):
@@ -308,7 +308,7 @@ async def test_the_admin_removes_a_member_then_that_person_sees_404(harness, cap
 @pytest.mark.parametrize(
     ("who", "target", "expected"),
     [
-        ("alice", "alice", (409, "cannot_remove_admin")),
+        ("alice", "alice", (409, "cannot_remove_owner")),
         ("alice", "stranger", (404, "member_not_found")),
         ("alice", "bob", (404, "member_not_found")),  # a user of another project
         ("alice", "garbage", (404, "member_not_found")),
@@ -323,7 +323,7 @@ async def test_a_removal_that_breaks_a_rule_answers_its_code(harness, who, targe
     assert state(harness) == before
 
 
-async def test_the_admin_cancels_an_invite_and_a_repeat_is_404(harness, caplog):
+async def test_the_owner_cancels_an_invite_and_a_repeat_is_404(harness, caplog):
     s = await seeded(harness)
     pid = s.alpha.id
     await call(harness, "POST", f"/projects/{pid}/members", ALICE, {"email": "new@example.com"})
@@ -350,15 +350,15 @@ async def test_an_invite_of_another_project_is_not_found(harness):
 # --- leave -----------------------------------------------------------------------------------------------------------
 
 
-async def test_a_collaborator_leaves_and_the_admin_cannot(harness, caplog):
+async def test_a_collaborator_leaves_and_the_owner_cannot(harness, caplog):
     s = await seeded(harness)
     pid = s.alpha.id
     with caplog.at_level(logging.INFO):
         left = await call(harness, "POST", f"/projects/{pid}/leave", BEN)
-    admin = await call(harness, "POST", f"/projects/{pid}/leave", ALICE)
+    owner = await call(harness, "POST", f"/projects/{pid}/leave", ALICE)
     after = await call(harness, "POST", f"/projects/{pid}/leave", BEN)
     assert (left.status_code, left.json()) == (200, {"claims_released": 0, "claims_release_failed": False})
-    assert error_of(admin) == (409, "admin_cannot_leave")
+    assert error_of(owner) == (409, "owner_cannot_leave")
     assert error_of(after) == (404, "project_not_found")
     assert [(r.user_id, r.member_user_id) for r in events(caplog, "api.member.left")] == [
         (str(s.ben.id), str(s.ben.id))
@@ -369,7 +369,7 @@ async def test_a_collaborator_leaves_and_the_admin_cannot(harness, caplog):
 # --- rename ----------------------------------------------------------------------------------------------------------
 
 
-async def test_the_admin_renames_with_the_create_name_rule(harness, caplog):
+async def test_the_owner_renames_with_the_create_name_rule(harness, caplog):
     s = await seeded(harness)
     with caplog.at_level(logging.INFO):
         response = await call(harness, "PATCH", f"/projects/{s.alpha.id}", ALICE, {"name": "  New name  "})
@@ -482,7 +482,7 @@ async def test_create_adds_signed_in_emails_as_members_and_the_rest_as_invites_d
     assert response.status_code == 201 and set(response.json()) == {"id", "name", "created_at"}
     pid = uuid.UUID(response.json()["id"])
     assert {k[1] for k in harness.repo.members if k[0] == pid} == {s.alice.id, s.carol.id, s.ben.id}
-    assert harness.repo.roles[(pid, s.alice.id)] == "admin"
+    assert harness.repo.roles[(pid, s.alice.id)] == "owner"
     assert [e for e, _, _ in harness.repo.invites[pid].values()] == ["new@example.com"]
 
 

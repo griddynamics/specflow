@@ -83,7 +83,7 @@ async def test_create_with_emails_writes_members_and_invites_in_one_go_and_a_bad
         .where(ProjectMember.project_id == pid),
     )
     roles = dict(people)
-    assert roles == {ALICE: "admin", BEN: "collaborator"}
+    assert roles == {ALICE: "owner", BEN: "collaborator"}
     assert [
         e for (e,) in await rows(factory, select(ProjectInvite.email_norm).where(ProjectInvite.project_id == pid))
     ] == ["new@example.com"]
@@ -130,7 +130,7 @@ async def test_the_people_flow_on_real_rows(rig, factory):
     ] == "already_invited"
     assert (await web(rig, "POST", f"{base}/members", BEN, {"email": CAROL})).json()["error"][
         "code"
-    ] == "admin_required"
+    ] == "owner_required"
 
     renamed = await web(rig, "PATCH", base, body={"name": " Beta "})
     assert renamed.json()["name"] == "Beta"
@@ -145,7 +145,7 @@ async def test_the_people_flow_on_real_rows(rig, factory):
 
     left = await web(rig, "POST", f"{base}/leave", BEN)
     assert (left.status_code, left.json()) == (200, {"claims_released": 0, "claims_release_failed": False})
-    assert (await web(rig, "POST", f"{base}/leave")).json()["error"]["code"] == "admin_cannot_leave"
+    assert (await web(rig, "POST", f"{base}/leave")).json()["error"]["code"] == "owner_cannot_leave"
 
 
 async def test_a_removed_member_loses_web_and_agent_access_at_once(rig, factory):
@@ -200,7 +200,7 @@ async def test_each_project_route_issues_exactly_one_membership_select(rig, fact
         ("POST", "/users/suggestions", ALICE, {"q": "car", "project_id": pid}),
         ("DELETE", f"{base}/invites/{uuid.uuid4()}", ALICE, None),
         ("DELETE", f"{base}/members/{ben_id}", ALICE, None),
-        ("POST", f"{base}/leave", ALICE, None),  # the admin: refused after the one membership read
+        ("POST", f"{base}/leave", ALICE, None),  # the owner: refused after the one membership read
     ]
     event.listen(engine, "before_cursor_execute", record)
     try:

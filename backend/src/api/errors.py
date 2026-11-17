@@ -60,8 +60,8 @@ def project_not_found() -> ApiError:
     return ApiError(404, "project_not_found", "The project does not exist.")
 
 
-def admin_required() -> ApiError:
-    return ApiError(403, "admin_required", "Only the project admin can do this.")
+def owner_required() -> ApiError:
+    return ApiError(403, "owner_required", "Only the project owner can do this.")
 
 
 _MEMBER_ERRORS: Final[dict[str, tuple[int, str]]] = {
@@ -71,9 +71,9 @@ _MEMBER_ERRORS: Final[dict[str, tuple[int, str]]] = {
     "already_invited": (409, "This person is already invited to the project."),
     "member_limit": (409, "The project has reached its limit of people."),
     "member_not_found": (404, "The member does not exist."),
-    "cannot_remove_admin": (409, "The project admin cannot be removed."),
+    "cannot_remove_owner": (409, "The project owner cannot be removed."),
     "invite_not_found": (404, "The invite does not exist."),
-    "admin_cannot_leave": (409, "The project admin cannot leave the project."),
+    "owner_cannot_leave": (409, "The project owner cannot leave the project."),
     "project_not_found": (404, "The project does not exist."),
 }
 

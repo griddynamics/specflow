@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from api.deps import AdminDep, MemberDep, RuntimeDep, UserDep
+from api.deps import MemberDep, OwnerDep, RuntimeDep, UserDep
 from api.errors import ApiError, project_not_found, required, validation_failed
 from api.schemas import Page, ProjectCreate, ProjectOut, ProjectRename
 from auth.emails import InvalidCollaboratorsError, check_collaborators
@@ -82,7 +82,7 @@ async def get_project(access: MemberDep) -> ProjectOut:
 
 
 @router.patch("/projects/{pid}", response_model=ProjectOut)
-async def rename_project(body: ProjectRename, runtime: RuntimeDep, user: UserDep, access: AdminDep) -> ProjectOut:
+async def rename_project(body: ProjectRename, runtime: RuntimeDep, user: UserDep, access: OwnerDep) -> ProjectOut:
     async with runtime.transaction() as session:
         project = await members.rename_project(session, access.project.id, body.name)
     if project is None:

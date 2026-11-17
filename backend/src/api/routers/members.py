@@ -1,7 +1,7 @@
 """Project people: the members and invites list, add, remove, cancel an invite and leave (``docs/projects/api.md``).
 
-Access is one membership query (``project_member`` / ``project_admin``): a non-member is 404 ``project_not_found``, a
-collaborator on an admin route 403 ``admin_required`` before the body is read further. Removal and leave commit the
+Access is one membership query (``project_member`` / ``project_owner``): a non-member is 404 ``project_not_found``, a
+collaborator on an owner route 403 ``owner_required`` before the body is read further. Removal and leave commit the
 membership delete first, then free the person's story claims best effort (``member_claims``). Events carry ids only.
 """
 
@@ -12,7 +12,7 @@ from typing import cast
 
 from fastapi import APIRouter, Response
 
-from api.deps import AdminDep, MemberDep, RuntimeDep, UserDep
+from api.deps import MemberDep, OwnerDep, RuntimeDep, UserDep
 from api.errors import ApiError, invite_not_found, member_error, member_not_found, required
 from api.member_claims import release_member_claims
 from api.schemas import (
@@ -70,7 +70,7 @@ async def list_members(runtime: RuntimeDep, user: UserDep, access: MemberDep) ->
 
 
 @router.post("/members", status_code=201, response_model=MemberAdded)
-async def add_member(body: MemberAdd, runtime: RuntimeDep, user: UserDep, access: AdminDep) -> MemberAdded:
+async def add_member(body: MemberAdd, runtime: RuntimeDep, user: UserDep, access: OwnerDep) -> MemberAdded:
     domains = required(runtime.settings.auth, "the api role requires auth settings").allowed_email_domains
     try:
         async with runtime.transaction() as session:
@@ -101,7 +101,7 @@ async def add_member(body: MemberAdd, runtime: RuntimeDep, user: UserDep, access
 
 
 @router.delete("/members/{user_id}", response_model=ClaimsOutcome)
-async def remove_member(user_id: str, runtime: RuntimeDep, user: UserDep, access: AdminDep) -> ClaimsOutcome:
+async def remove_member(user_id: str, runtime: RuntimeDep, user: UserDep, access: OwnerDep) -> ClaimsOutcome:
     target = _uuid(user_id, member_not_found())
     try:
         async with runtime.transaction() as session:
@@ -121,7 +121,7 @@ async def remove_member(user_id: str, runtime: RuntimeDep, user: UserDep, access
 
 
 @router.delete("/invites/{invite_id}", status_code=204)
-async def cancel_invite(invite_id: str, runtime: RuntimeDep, user: UserDep, access: AdminDep) -> Response:
+async def cancel_invite(invite_id: str, runtime: RuntimeDep, user: UserDep, access: OwnerDep) -> Response:
     target = _uuid(invite_id, invite_not_found())
     try:
         async with runtime.transaction() as session:

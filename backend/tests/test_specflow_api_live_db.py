@@ -51,7 +51,7 @@ async def test_me_and_project_create_use_one_user_and_an_owner_member(live):
     assert first["actor_id"] == "human:alice"
     pid = await make_project(live, "Alice@example.com")
     [member] = await select_all(live, select(ProjectMember))
-    assert str(member.project_id) == pid and member.role == "admin"
+    assert str(member.project_id) == pid and member.role == "owner"
     blank = await live.client.post("/api/v1/projects", json={"name": " "}, headers=bearer())
     assert blank.status_code == 422
 

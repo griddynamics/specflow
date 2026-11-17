@@ -1,5 +1,5 @@
 "use client";
-// docs/projects/ui.md#general-tab (layout A2): the General tab. The admin sees the name with Save, the add row with suggestions and the
+// docs/projects/ui.md#general-tab (layout A2): the General tab. The owner sees the name with Save, the add row with suggestions and the
 // list with x; a collaborator sees the read-only list and "Leave project" (D29: no name block). What the screen shows comes from
 // `MembersState.role` and `is_you`, never from `/me` or the project's creator. The rules and the port calls are in settings-logic.ts.
 import { useRouter } from "next/navigation";

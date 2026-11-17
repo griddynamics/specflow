@@ -792,7 +792,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     drive,
     /** Project collaborators: `people.state` (allowedDomains, directory, claimsReleased, claimsFailed) and `people.seed(pid, ...)`. */
     people,
-    /** Test seam: a project named `name` where the caller has `spec.role` (default admin), with the given members and invites. */
+    /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */
     seedProject: (name, spec) => {
       const project = { id: crypto.randomUUID(), name, created_at: new Date().toISOString() };
       projects.set(project.id, project);

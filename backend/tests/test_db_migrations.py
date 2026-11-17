@@ -44,19 +44,24 @@ AGENT_KEYS = ("DATABASE_AGENT_USER", "DATABASE_AGENT_PASSWORD")
 AGENT_CRED = "agent-canary-pw-51d"
 SKIP_COMMENT = "-- agent role existence check skipped (offline)"
 AGENT_GRANT = "GRANT SELECT (id, project_id, original_filename, version, status, markdown) ON documents TO {role}"
-BASE = "0001_initial"
-HEAD = "0002_project_collaborators"
-APP_TABLES = ("users", "projects", "project_members", "connections", "documents", "connection_items")
-HEAD_TABLES = (*APP_TABLES, "project_invites")
+HEAD = "0001_initial"
+APP_TABLES = (
+    "users",
+    "projects",
+    "project_members",
+    "project_invites",
+    "connections",
+    "documents",
+    "connection_items",
+)
 SCOPED_TABLES = (
     ("projects", "id"),
     ("project_members", "project_id"),
+    ("project_invites", "project_id"),
     ("documents", "project_id"),
     ("connections", "project_id"),
     ("connection_items", "project_id"),
-    ("project_invites", "project_id"),
 )
-OWNER_CHECK_COMMENT = "-- owner count check skipped (offline)"
 
 
 @pytest.fixture(autouse=True)
@@ -76,21 +81,20 @@ def offline_config(url: str | URL | None = DUMMY_URL) -> tuple[Config, StringIO]
 # T8 ------------------------------------------------------------------------
 
 
-def test_the_migration_history_is_the_two_revision_chain() -> None:
+def test_the_migration_history_is_the_single_initial_revision() -> None:
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
 
     assert script.get_heads() == [HEAD]
-    assert script.get_bases() == [BASE]
-    assert [revision.revision for revision in script.walk_revisions()] == [HEAD, BASE]
-    assert script.get_revision(BASE).down_revision is None
-    assert script.get_revision(HEAD).down_revision == BASE
+    assert script.get_bases() == [HEAD]
+    assert [revision.revision for revision in script.walk_revisions()] == [HEAD]
+    assert script.get_revision(HEAD).down_revision is None
 
 
 # T9 ------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("url", [DUMMY_URL, DUMMY_URL_STRING], ids=["URL", "str"])
-def test_the_upgrade_creates_the_schema_and_stamps_the_head_revision(
+def test_the_upgrade_creates_the_schema_and_stamps_the_initial_revision(
     url: str | URL, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DATABASE_AGENT_PASSWORD", AGENT_CRED)
@@ -101,8 +105,8 @@ def test_the_upgrade_creates_the_schema_and_stamps_the_head_revision(
     sql = buffer.getvalue()
     assert "CREATE TABLE alembic_version" in sql
     assert "INSERT INTO alembic_version (version_num) VALUES ('0001_initial')" in sql
-    assert "UPDATE alembic_version SET version_num='0002_project_collaborators' WHERE" in sql
-    assert re.findall(r"CREATE TABLE (\w+) \(", sql) == ["alembic_version", *HEAD_TABLES]
+    assert "UPDATE alembic_version" not in sql  # one revision, no chain
+    assert re.findall(r"CREATE TABLE (\w+) \(", sql) == ["alembic_version", *APP_TABLES]
     assert "CONSTRAINT uq_documents_project_id_content_hash UNIQUE (project_id, content_hash)" in sql
     assert "EXTENSION" not in sql
     assert DB_CRED not in sql
@@ -197,7 +201,7 @@ def test_env_py_without_a_url_reads_the_database_settings(
     command.upgrade(cfg, "head", sql=True)
 
     sql = buffer.getvalue()
-    assert "UPDATE alembic_version SET version_num='0002_project_collaborators'" in sql
+    assert "INSERT INTO alembic_version (version_num) VALUES ('0001_initial')" in sql
     assert DB_CRED not in sql
 
 
@@ -275,94 +279,33 @@ def test_offline_downgrade_to_base_drops_every_table_newest_first() -> None:
     command.downgrade(cfg, f"{HEAD}:base", sql=True)
 
     sql = buffer.getvalue()
-    assert re.findall(r"DROP TABLE (\w+)", sql) == ["project_invites", *reversed(APP_TABLES)]
+    assert re.findall(r"DROP TABLE (\w+)", sql) == list(reversed(APP_TABLES))
     assert "DELETE FROM alembic_version" in sql
     assert SKIP_COMMENT not in sql  # the downgrade needs no agent role
 
 
-# Migration 0002_project_collaborators (FR-PRJ-ROLE-03..05, NFR-PRJ-05, NFR-PRJ-06) ---------
+# The collaborator schema, folded into 0001_initial (no incremental revision) ---------
 
 
-def revision_sql(source: str, target: str, *, down: bool = False) -> str:
-    cfg, buffer = offline_config()
-    (command.downgrade if down else command.upgrade)(cfg, f"{source}:{target}", sql=True)
-    return buffer.getvalue()
+def test_the_members_table_has_the_role_check_without_a_default_and_one_owner_per_project() -> None:
+    sql = upgrade_sql(*offline_config())
+
+    assert "CONSTRAINT ck_project_members_role CHECK (role IN ('owner', 'collaborator'))" in sql
+    members = sql[sql.index("CREATE TABLE project_members (") : sql.index("CREATE TABLE project_invites (")]
+    assert "role TEXT NOT NULL," in members  # every insert states its role
+    assert "DEFAULT 'owner'" not in members
+    assert (
+        "CREATE UNIQUE INDEX ux_project_members_one_owner ON project_members (project_id) WHERE role = 'owner'" in sql
+    )
+    assert "admin" not in sql.lower()
 
 
-def test_the_0002_upgrade_alone_reshapes_roles_and_adds_invites() -> None:
-    sql = revision_sql(BASE, HEAD)
+def test_the_invites_table_and_the_email_index_are_part_of_the_initial_revision() -> None:
+    sql = upgrade_sql(*offline_config())
 
-    # the 0001 CHECK allows only 'owner': dropped, rows updated, new CHECK added
-    drop = sql.index("ALTER TABLE project_members DROP CONSTRAINT ck_project_members_role")
-    update = sql.index("UPDATE project_members SET role='admin' WHERE project_members.role = 'owner'")
-    add = sql.index("CHECK (role IN ('admin', 'collaborator'))")
-    assert drop < update < add
-    assert "ALTER TABLE project_members ALTER COLUMN role DROP DEFAULT" in sql
-    unique = "CREATE UNIQUE INDEX ux_project_members_one_admin ON project_members (project_id) WHERE role = 'admin'"
-    assert unique in sql
-    assert "CREATE INDEX ix_users_email_lower ON users (lower(email))" in sql
-    assert re.findall(r"CREATE TABLE (\w+) \(", sql) == ["project_invites"]
     assert "CONSTRAINT uq_project_invites_project_id_email_norm UNIQUE (project_id, email_norm)" in sql
     assert "CONSTRAINT ck_project_invites_email_norm CHECK (email_norm = lower(btrim(email_norm)))" in sql
     assert "CREATE INDEX ix_project_invites_email_norm ON project_invites (email_norm)" in sql
-    assert "UPDATE alembic_version SET version_num='0002_project_collaborators' WHERE" in sql
-
-
-def test_the_0002_owner_check_is_skipped_offline_with_a_comment() -> None:
-    sql = revision_sql(BASE, HEAD)
-
-    assert OWNER_CHECK_COMMENT in sql
-    assert sql.index(OWNER_CHECK_COMMENT) < sql.index("UPDATE project_members")  # before any change
-    assert "SELECT" not in sql.upper().replace("GRANT SELECT", "")  # no query at render time
-
-
-def test_the_0002_legacy_trigger_is_created_before_insert_on_project_members() -> None:
-    sql = revision_sql(BASE, HEAD)
-
-    assert "CREATE FUNCTION project_members_legacy_owner() RETURNS trigger LANGUAGE plpgsql" in sql
-    assert "NEW.role = 'owner'" in sql and "NEW.role = 'admin'" in sql
-    assert (
-        "CREATE TRIGGER project_members_legacy_owner BEFORE INSERT ON project_members "
-        "FOR EACH ROW EXECUTE FUNCTION project_members_legacy_owner()"
-    ) in sql
-    assert sql.index("CREATE FUNCTION") < sql.index("CREATE TRIGGER")
-
-
-def test_the_0002_project_invites_table_gets_rls_and_the_policy_and_no_grant() -> None:
-    sql = revision_sql(BASE, HEAD)
-
-    scope = "NULLIF(current_setting('app.project_id', true), '')::uuid"
-    assert "ALTER TABLE project_invites ENABLE ROW LEVEL SECURITY" in sql
-    assert (
-        'CREATE POLICY agent_project_scope ON project_invites TO "specflow_agent" '
-        f"USING (project_id = {scope}) WITH CHECK (project_id = {scope})"
-    ) in sql
-    assert sql.index("CREATE TABLE project_invites (") < sql.index("ALTER TABLE project_invites ENABLE")
-    assert "GRANT" not in sql.upper()  # the only GRANT of the chain stays 0001's documents one
-
-
-def test_the_0002_downgrade_undoes_in_reverse_order_and_deletes_collaborators() -> None:
-    sql = revision_sql(HEAD, BASE, down=True)
-
-    steps = [
-        "DROP INDEX ix_users_email_lower",
-        "DROP TABLE project_invites",
-        "DROP TRIGGER project_members_legacy_owner ON project_members",
-        "DROP FUNCTION project_members_legacy_owner()",
-        "DROP INDEX ux_project_members_one_admin",
-        "DELETE FROM project_members WHERE project_members.role = 'collaborator'",
-        "ALTER TABLE project_members DROP CONSTRAINT ck_project_members_role",
-        "UPDATE project_members SET role='owner' WHERE project_members.role = 'admin'",
-        "CHECK (role IN ('owner'))",
-        "ALTER TABLE project_members ALTER COLUMN role SET DEFAULT 'owner'",
-        "UPDATE alembic_version SET version_num='0001_initial'",
-    ]
-    positions = [sql.index(step) for step in steps]
-    assert positions == sorted(positions)
-    assert "DELETE FROM" not in sql.replace("DELETE FROM project_members", "")
-
-
-def test_the_0002_docstring_states_the_downgrade_data_loss() -> None:
-    text = (BACKEND_DIR / "migrations" / "versions" / "0002_project_collaborators.py").read_text(encoding="utf-8")
-
-    assert "DELETES every ``collaborator`` row" in text and "Invites are lost" in text
+    assert "CREATE INDEX ix_users_email_lower ON users (lower(email))" in sql
+    assert "TRIGGER" not in sql.upper()  # no legacy trigger, no data rewrite
+    assert "UPDATE project_members" not in sql

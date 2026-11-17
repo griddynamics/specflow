@@ -94,7 +94,7 @@ ERROR_REASONS: Final = (
 )
 INSERT_USER: Final = text("INSERT INTO users (id, actor_id, display_name, email) VALUES (:id, :actor, :name, :email)")
 INSERT_PROJECT: Final = text("INSERT INTO projects (id, name, created_by) VALUES (:id, :name, :by)")
-INSERT_MEMBER: Final = text("INSERT INTO project_members (project_id, user_id, role) VALUES (:p, :u, 'admin')")
+INSERT_MEMBER: Final = text("INSERT INTO project_members (project_id, user_id, role) VALUES (:p, :u, 'owner')")
 INSERT_DOCUMENT: Final = text(
     "INSERT INTO documents (id, project_id, content_hash, original_filename, media_type, size_bytes, "
     "origin, original_key, status, error, uploaded_by, created_at, updated_at) VALUES (:id, :p, :hash, "

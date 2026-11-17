@@ -31,7 +31,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
 
-PROJECT_ROLES: Final = ("admin", "collaborator")
+PROJECT_ROLES: Final = ("owner", "collaborator")
 DOCUMENT_STATUSES: Final = (
     "uploaded",
     "processing",
@@ -162,12 +162,12 @@ class ProjectMember(Base):
         PrimaryKeyConstraint("project_id", "user_id"),
         CheckConstraint(_one_of("role", PROJECT_ROLES), name="role"),
         Index("ix_project_members_user_id", "user_id"),
-        # DM1: exactly one admin per project.
+        # DM1: exactly one owner per project.
         Index(
-            "ux_project_members_one_admin",
+            "ux_project_members_one_owner",
             "project_id",
             unique=True,
-            postgresql_where=text("role = 'admin'"),
+            postgresql_where=text("role = 'owner'"),
         ),
     )
 

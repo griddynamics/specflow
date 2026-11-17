@@ -17,10 +17,9 @@ from db.members import (
     COLLABORATOR,
     MEMBER_LIMIT,
     SUGGESTION_LIMIT,
-    AdminCannotLeaveError,
     AlreadyInvitedError,
     AlreadyMemberError,
-    CannotRemoveAdminError,
+    CannotRemoveOwnerError,
     EmailDomainNotAllowedError,
     InvalidEmailError,
     InviteAdded,
@@ -31,6 +30,7 @@ from db.members import (
     MemberNotFoundError,
     MemberRow,
     Members,
+    OwnerCannotLeaveError,
     Suggestion,
     shown_name,
 )
@@ -154,7 +154,7 @@ class FakeRepo:
     async def create_project(self, _session, user_id, name, collaborators=()):
         project = SimpleNamespace(id=uuid.uuid4(), name=name, created_by=user_id, created_at=_stamp())
         self.projects[project.id] = project
-        self._join(project.id, user_id, "admin")
+        self._join(project.id, user_id, "owner")
         for email in collaborators:
             user = self._newest_user(email)
             if user is None:
@@ -197,7 +197,7 @@ class FakeRepo:
     async def list_members(self, _session, project_id, caller_id):
         by_id = {u.id: u for u in self.users.values()}
         keys = [k for k in self.members if k[0] == project_id]
-        keys.sort(key=lambda k: (self._role(k) != "admin", self._joined(k), k[1]))
+        keys.sort(key=lambda k: (self._role(k) != "owner", self._joined(k), k[1]))
         rows = [self._member_row(project_id, by_id[k[1]], caller_id) for k in keys]
         invites = sorted(self.invites.get(project_id, {}).items(), key=lambda kv: kv[1][2])
         return Members(MEMBER_LIMIT, rows, [InviteRow(i, e, at) for i, (e, _, at) in invites])
@@ -221,21 +221,21 @@ class FakeRepo:
             raise AlreadyInvitedError
         return InviteAdded(self._invite(project_id, invited_by, norm))
 
-    async def _drop(self, project_id, user_id, admin_error) -> None:
+    async def _drop(self, project_id, user_id, owner_error) -> None:
         key = (project_id, user_id)
         if key not in self.members:
             raise MemberNotFoundError
-        if self._role(key) == "admin":
-            raise admin_error
+        if self._role(key) == "owner":
+            raise owner_error
         self.members.discard(key)
         self.roles.pop(key, None)
         self.joined.pop(key, None)
 
     async def remove_member(self, _session, project_id, user_id):
-        await self._drop(project_id, user_id, CannotRemoveAdminError)
+        await self._drop(project_id, user_id, CannotRemoveOwnerError)
 
     async def leave_project(self, _session, project_id, user_id):
-        await self._drop(project_id, user_id, AdminCannotLeaveError)
+        await self._drop(project_id, user_id, OwnerCannotLeaveError)
 
     async def cancel_invite(self, _session, project_id, invite_id):
         if self.invites.get(project_id, {}).pop(invite_id, None) is None:

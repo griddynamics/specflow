@@ -101,7 +101,7 @@ tokens from `OIDC_ISSUER`, locally and in production.
 | 9 | Token type per `AUTH_TOKEN_TYPE` | 401 |
 | 10 | Email: the `AUTH_EMAIL_VERIFIED_CLAIM` claim is `true` (skipped when that setting is empty), then the `AUTH_EMAIL_CLAIM` claim is a valid address, then its domain is in `AUTH_ALLOWED_EMAIL_DOMAINS` | 403 |
 
-The email also decides who adopts a project invite: an admin can invite an address that has not signed in yet, and the first
+The email also decides who adopts a project invite: an owner can invite an address that has not signed in yet, and the first
 sign-in whose email claim matches it gets the project ([../projects/data-model.md](../projects/data-model.md)). Use an email
 claim your organisation controls; with a provider where users choose their own address and `AUTH_EMAIL_VERIFIED_CLAIM` is
 empty, anyone could sign in with an address they do not own and take its invite.

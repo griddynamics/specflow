@@ -104,7 +104,7 @@ test("toMember reads a member (name may be null); any other shape is invalid_res
     isYou: false,
   });
   assert.equal(toMember(wireMember({ name: null })).name, null);
-  invalid(() => toMember(wireMember({ role: "owner" })));
+  invalid(() => toMember(wireMember({ role: "superuser" })));
   invalid(() => toMember(wireMember({ user_id: "" })));
   invalid(() => toMember(wireMember({ name: 3 })));
   invalid(() => toMember(wireMember({ is_you: "no" })));
@@ -124,17 +124,17 @@ test("toInvite, toAdded, toClaimsOutcome and toSuggestions check their shapes", 
   assert.deepEqual(toSuggestions({ items: [{ name: "A", email: "a@example.test" }] }), [{ name: "A", email: "a@example.test" }]);
   invalid(() => toSuggestions({ items: [{ name: "A" }] }));
   invalid(() => toSuggestions({}));
-  const state = toMembersState({ role: "admin", limit: 50, members: [wireMember({ role: "admin" })], invites: [wireInvite()] });
-  assert.equal(state.role, "admin");
+  const state = toMembersState({ role: "owner", limit: 50, members: [wireMember({ role: "owner" })], invites: [wireInvite()] });
+  assert.equal(state.role, "owner");
   assert.equal(state.invites[0].email, "new@example.test");
-  invalid(() => toMembersState({ role: "admin", limit: 0, members: [], invites: [] }));
-  invalid(() => toMembersState({ role: "admin", limit: 50, members: {}, invites: [] }));
+  invalid(() => toMembersState({ role: "owner", limit: 0, members: [], invites: [] }));
+  invalid(() => toMembersState({ role: "owner", limit: 50, members: {}, invites: [] }));
 });
 
-test("error mapping: admin_required is forbidden; the member codes keep their API code; a bare 403 and csrf_rejected stay unknown", () => {
+test("error mapping: owner_required is forbidden; the member codes keep their API code; a bare 403 and csrf_rejected stay unknown", () => {
   const code = (status: number, apiCode: string) => toDataError(new ApiError(status, apiCode));
-  assert.equal(code(403, "admin_required").code, "forbidden");
-  assert.equal(code(403, "admin_required").detail?.apiCode, "admin_required");
+  assert.equal(code(403, "owner_required").code, "forbidden");
+  assert.equal(code(403, "owner_required").detail?.apiCode, "owner_required");
   assert.equal(code(403, "csrf_rejected").code, "unknown");
   assert.equal(code(403, "http_403").code, "unknown");
   for (const [status, apiCode, want] of [
@@ -143,8 +143,8 @@ test("error mapping: admin_required is forbidden; the member codes keep their AP
     [409, "already_member", "conflict"],
     [409, "already_invited", "conflict"],
     [409, "member_limit", "conflict"],
-    [409, "cannot_remove_admin", "conflict"],
-    [409, "admin_cannot_leave", "conflict"],
+    [409, "cannot_remove_owner", "conflict"],
+    [409, "owner_cannot_leave", "conflict"],
     [404, "member_not_found", "not_found"],
     [404, "invite_not_found", "not_found"],
   ] as const) {
@@ -172,10 +172,10 @@ test("GET /projects/{pid}/members: the caller's role, the limit, members and inv
     { method: last().method, path: last().path, body: last().body },
     { method: "GET", path: `/api/backend/projects/${pid}/members`, body: null },
   );
-  assert.equal(state.role, "admin");
+  assert.equal(state.role, "owner");
   assert.equal(state.limit, 50);
   assert.equal(state.members.length, 1);
-  assert.equal(state.members[0].role, "admin");
+  assert.equal(state.members[0].role, "owner");
   assert.equal(state.members[0].isYou, true);
   assert.deepEqual(state.invites, []);
 });
@@ -198,7 +198,7 @@ test("POST /projects/{pid}/members {email}: a signed-in person becomes a member,
   const state = await members.list(pid);
   assert.deepEqual(
     state.members.map((m) => m.role),
-    ["admin", "collaborator"],
+    ["owner", "collaborator"],
   );
   assert.deepEqual(
     state.invites.map((i) => i.email),
@@ -212,10 +212,10 @@ test("add errors: invalid_email and email_domain_not_allowed (validation), alrea
   await rejects(members.add(pid, "someone@elsewhere.test"), "validation", "email_domain_not_allowed");
   await members.add(pid, "bob.brown@example.test");
   await rejects(members.add(pid, "BOB.brown@example.test"), "conflict", "already_member");
-  await rejects(members.add(pid, "dev@example.test"), "conflict", "already_member"); // the admin's own email
+  await rejects(members.add(pid, "dev@example.test"), "conflict", "already_member"); // the owner's own email
   await members.add(pid, "x1@example.test");
   await rejects(members.add(pid, "X1@example.test"), "conflict", "already_invited");
-  for (let i = 2; i < 49; i++) await members.add(pid, `x${String(i)}@example.test`); // 1 admin + 1 member + 48 invites = 50
+  for (let i = 2; i < 49; i++) await members.add(pid, `x${String(i)}@example.test`); // 1 owner + 1 member + 48 invites = 50
   await rejects(members.add(pid, "one-too-many@example.test"), "conflict", "member_limit");
 });
 
@@ -236,12 +236,12 @@ test("DELETE /projects/{pid}/members/{user_id}: ClaimsOutcome with the released 
   assert.equal((await members.list(pid)).members.length, 1);
 });
 
-test("remove errors: member_not_found (also for a malformed id) and cannot_remove_admin", async () => {
+test("remove errors: member_not_found (also for a malformed id) and cannot_remove_owner", async () => {
   const pid = await newProject();
   await rejects(members.remove(pid, OTHER), "not_found", "member_not_found");
   await rejects(members.remove(pid, "not-a-uuid"), "not_found", "member_not_found");
-  const admin = (await members.list(pid)).members[0];
-  await rejects(members.remove(pid, admin.userId), "conflict", "cannot_remove_admin");
+  const owner = (await members.list(pid)).members[0];
+  await rejects(members.remove(pid, owner.userId), "conflict", "cannot_remove_owner");
 });
 
 test("DELETE /projects/{pid}/invites/{invite_id}: 204 cancels; an unknown or malformed id is invite_not_found", async () => {
@@ -258,7 +258,7 @@ test("DELETE /projects/{pid}/invites/{invite_id}: 204 cancels; an unknown or mal
   await rejects(members.cancelInvite(pid, "nope"), "not_found", "invite_not_found");
 });
 
-test("a collaborator: 403 admin_required (forbidden) on every admin route, reads allowed, POST /leave frees the way out", async () => {
+test("a collaborator: 403 owner_required (forbidden) on every owner route, reads allowed, POST /leave frees the way out", async () => {
   const pid = await newProject();
   api.people.seed(pid, {
     role: "collaborator",
@@ -267,15 +267,15 @@ test("a collaborator: 403 admin_required (forbidden) on every admin route, reads
   });
   const state = await members.list(pid);
   assert.equal(state.role, "collaborator");
-  assert.equal(state.members[0].role, "admin");
+  assert.equal(state.members[0].role, "owner");
   assert.equal(
     state.members.some((m) => m.isYou),
     true,
   );
-  await rejects(members.add(pid, "x@example.test"), "forbidden", "admin_required");
-  await rejects(members.remove(pid, state.members[1].userId), "forbidden", "admin_required");
-  await rejects(members.cancelInvite(pid, state.invites[0].id), "forbidden", "admin_required");
-  await rejects(projects.rename(pid, "New"), "forbidden", "admin_required");
+  await rejects(members.add(pid, "x@example.test"), "forbidden", "owner_required");
+  await rejects(members.remove(pid, state.members[1].userId), "forbidden", "owner_required");
+  await rejects(members.cancelInvite(pid, state.invites[0].id), "forbidden", "owner_required");
+  await rejects(projects.rename(pid, "New"), "forbidden", "owner_required");
   assert.equal((await members.list(pid)).members.length, state.members.length, "a 403 changes nothing");
   const out = await members.leave(pid);
   assert.deepEqual(
@@ -286,9 +286,9 @@ test("a collaborator: 403 admin_required (forbidden) on every admin route, reads
   await rejects(members.list(pid), "not_found", "project_not_found"); // access ended: the next read is 404
 });
 
-test("POST /leave: the admin cannot leave (admin_cannot_leave)", async () => {
+test("POST /leave: the owner cannot leave (owner_cannot_leave)", async () => {
   const pid = await newProject();
-  await rejects(members.leave(pid), "conflict", "admin_cannot_leave");
+  await rejects(members.leave(pid), "conflict", "owner_cannot_leave");
 });
 
 test("a non-member gets project_not_found on every route", async () => {

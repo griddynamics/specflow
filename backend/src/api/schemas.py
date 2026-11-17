@@ -496,7 +496,7 @@ class BatchFileOut(BaseModel):
     holder: HolderOut | None
 
 
-Role = Literal["admin", "collaborator"]
+Role = Literal["owner", "collaborator"]
 
 
 class MemberOut(BaseModel):

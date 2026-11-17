@@ -97,7 +97,7 @@ async def test_create_project_adds_the_owner_and_membership_gates_access(
     project = await repo.create_project(session, owner.id, "Demo")
 
     member = await session.scalar(select(ProjectMember).where(ProjectMember.project_id == project.id))
-    assert member is not None and (member.user_id, member.role) == (owner.id, "admin")
+    assert member is not None and (member.user_id, member.role) == (owner.id, "owner")
     assert project.created_at is not None
     assert (await repo.get_member_project(session, owner.id, project.id)) is not None
     assert await repo.get_member_project(session, stranger.id, project.id) is None

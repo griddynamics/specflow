@@ -56,7 +56,7 @@ const FIELD_TEXT: Record<string, string> = {
   already_invited: COPY.alreadyInvited,
   member_limit: COPY.memberLimit,
 };
-const STALE = new Set(["member_not_found", "invite_not_found", "cannot_remove_admin"]);
+const STALE = new Set(["member_not_found", "invite_not_found", "cannot_remove_owner"]);
 
 const apiCodeOf = (e: unknown): string | undefined => (isDataError(e) ? e.detail?.apiCode : undefined);
 export const isGone = (e: unknown): boolean => apiCodeOf(e) === "project_not_found";
@@ -99,22 +99,22 @@ export interface Row {
   title: string;
   /** The second line. */
   subtitle: string;
-  badge: "admin" | "invited" | null;
-  /** The x of the row (admin view only): what it would do. null = no x. */
+  badge: "owner" | "invited" | null;
+  /** The x of the row (owner view only): what it would do. null = no x. */
   action: RowAction | null;
 }
 
 const memberTitle = (m: Member): string => (m.name !== null && m.name !== "" ? m.name : m.email);
 
-/** The rows in API order (the admin, members by join date, then invites by creation). `admin`: the caller may remove (never the admin's row). */
-export function rowsOf(state: MembersState, admin: boolean): Row[] {
+/** The rows in API order (the owner, members by join date, then invites by creation). `isOwner`: the caller may remove (never the owner's row). */
+export function rowsOf(state: MembersState, isOwner: boolean): Row[] {
   const members = state.members.map((m): Row => ({
     key: `m:${m.userId}`,
     type: "member",
     title: memberTitle(m),
     subtitle: memberTitle(m) === m.email ? "" : m.email,
-    badge: m.role === "admin" ? "admin" : null,
-    action: admin && m.role !== "admin" ? { kind: "remove", userId: m.userId } : null,
+    badge: m.role === "owner" ? "owner" : null,
+    action: isOwner && m.role !== "owner" ? { kind: "remove", userId: m.userId } : null,
   }));
   const invites = state.invites.map((i: Invite): Row => ({
     key: `i:${i.id}`,
@@ -122,7 +122,7 @@ export function rowsOf(state: MembersState, admin: boolean): Row[] {
     title: i.email,
     subtitle: COPY.notSignedInYet,
     badge: "invited",
-    action: admin ? { kind: "cancel", inviteId: i.id } : null,
+    action: isOwner ? { kind: "cancel", inviteId: i.id } : null,
   }));
   return [...members, ...invites];
 }

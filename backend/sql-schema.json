@@ -411,7 +411,7 @@
           "type": "uuid",
           "fk": "projects.id",
           "unique": {
-            "where": "role = 'admin'"
+            "where": "role = 'owner'"
           }
         },
         "user_id": {

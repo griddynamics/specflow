@@ -26,7 +26,7 @@ MEMBER_LIMIT: Final = 50
 SUGGESTION_MIN_CHARS: Final = 3
 SUGGESTION_LIMIT: Final = 8
 _SUGGESTION_FETCH: Final = 64  # rows read before duplicate emails collapse to at most SUGGESTION_LIMIT
-ADMIN: Final = "admin"
+OWNER: Final = "owner"
 COLLABORATOR: Final = "collaborator"
 
 
@@ -78,16 +78,16 @@ class MemberNotFoundError(MemberError):
     code = "member_not_found"
 
 
-class CannotRemoveAdminError(MemberError):
-    code = "cannot_remove_admin"
+class CannotRemoveOwnerError(MemberError):
+    code = "cannot_remove_owner"
 
 
 class InviteNotFoundError(MemberError):
     code = "invite_not_found"
 
 
-class AdminCannotLeaveError(MemberError):
-    code = "admin_cannot_leave"
+class OwnerCannotLeaveError(MemberError):
+    code = "owner_cannot_leave"
 
 
 @dataclass(frozen=True)
@@ -186,14 +186,14 @@ def _invite_row(invite_id: uuid.UUID, email_norm: str, created_at: datetime) -> 
 
 
 async def list_members(session: AsyncSession, project_id: uuid.UUID, caller_id: uuid.UUID) -> Members:
-    """Members (the admin first, then by ``joined_at``) and invites (by ``created_at``) in two queries; the caller's
+    """Members (the owner first, then by ``joined_at``) and invites (by ``created_at``) in two queries; the caller's
     role is the route's one membership query, not read again here."""
 
     rows = await session.execute(
         select(User, ProjectMember.role, ProjectMember.joined_at)
         .join(ProjectMember, ProjectMember.user_id == User.id)
         .where(ProjectMember.project_id == project_id)
-        .order_by(case((ProjectMember.role == ADMIN, 0), else_=1), ProjectMember.joined_at, User.id)
+        .order_by(case((ProjectMember.role == OWNER, 0), else_=1), ProjectMember.joined_at, User.id)
     )
     members = [_member_row(user, role, joined_at, caller_id) for user, role, joined_at in rows]
     invites = await session.execute(
@@ -322,7 +322,7 @@ async def add_checked_collaborators(
 
 
 async def _delete_collaborator(
-    session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID, *, admin_error: type[MemberError]
+    session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID, *, owner_error: type[MemberError]
 ) -> None:
     await lock_project(session, project_id)
     role = await session.scalar(
@@ -330,23 +330,23 @@ async def _delete_collaborator(
     )
     if role is None:
         raise MemberNotFoundError
-    if role == ADMIN:
-        raise admin_error
+    if role == OWNER:
+        raise owner_error
     await session.execute(
         delete(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
     )
 
 
 async def remove_member(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """Delete a member row. ``MemberNotFoundError`` when none; ``CannotRemoveAdminError`` for the admin."""
+    """Delete a member row. ``MemberNotFoundError`` when none; ``CannotRemoveOwnerError`` for the owner."""
 
-    await _delete_collaborator(session, project_id, user_id, admin_error=CannotRemoveAdminError)
+    await _delete_collaborator(session, project_id, user_id, owner_error=CannotRemoveOwnerError)
 
 
 async def leave_project(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """The caller leaves. ``AdminCannotLeaveError`` for the admin, ``MemberNotFoundError`` for a non-member."""
+    """The caller leaves. ``OwnerCannotLeaveError`` for the owner, ``MemberNotFoundError`` for a non-member."""
 
-    await _delete_collaborator(session, project_id, user_id, admin_error=AdminCannotLeaveError)
+    await _delete_collaborator(session, project_id, user_id, owner_error=OwnerCannotLeaveError)
 
 
 async def cancel_invite(session: AsyncSession, project_id: uuid.UUID, invite_id: uuid.UUID) -> None:

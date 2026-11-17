@@ -1,21 +1,21 @@
 ---
 type: DataModel
 title: "Project collaborators data model"
-description: "Roles, the project_invites table, invite adoption, the limit, migration 0002 with the legacy-owner trigger, row-level security and indexes"
+description: "Roles, the project_invites table, invite adoption, the limit, the migration (folded into 0001), row-level security and indexes"
 status: stable
 tags: [projects, database]
 ---
-# data-model.md: roles, invites, adoption, limit, migration 0002, row-level security, indexes
+# data-model.md: roles, invites, adoption, limit, migration, row-level security, indexes
 
 ## Roles
 
-`project_members.role` is `admin` or `collaborator` (`db.models.PROJECT_ROLES`).
+`project_members.role` is `owner` or `collaborator` (`db.models.PROJECT_ROLES`).
 
 | # | Invariant | Enforced by |
 |---|---|---|
-| DM1 | Every project has exactly one `admin` row, its creator (`projects.created_by`). | `create_project` inserts it; unique index `ux_project_members_one_admin` |
-| DM2 | The admin row is never deleted and its role never changes. | API: no route removes or demotes the admin; the admin cannot leave |
-| DM3 | Every insert states its role; the column has no default. | migration 0002 |
+| DM1 | Every project has exactly one `owner` row, its creator (`projects.created_by`). | `create_project` inserts it; unique index `ux_project_members_one_owner` |
+| DM2 | The owner row is never deleted and its role never changes. | API: no route removes or demotes the owner; the owner cannot leave |
+| DM3 | Every insert states its role; the column has no default. | `0001_initial` |
 | DM4 | Access to a project = a member row, whatever the role ([../mcp-server/access-control.md](../mcp-server/access-control.md)). | `db.repositories.get_membership` (one query; `get_member_project` uses it) |
 
 ## Invites
@@ -27,7 +27,7 @@ tags: [projects, database]
 | `id` | uuid PK | uuid4 from Python |
 | `project_id` | uuid FK `projects.id` | not null; no cascade (projects are never deleted) |
 | `email_norm` | text | not null; CHECK `email_norm = lower(btrim(email_norm))` |
-| `invited_by` | uuid FK `users.id` | not null; the admin who added it |
+| `invited_by` | uuid FK `users.id` | not null; the owner who added it |
 | `created_at` | timestamptz | `now()` |
 
 UNIQUE `(project_id, email_norm)`; index `ix_project_invites_email_norm (email_norm)`. An invite never expires; it ends
@@ -68,27 +68,19 @@ ON CONFLICT DO NOTHING RETURNING project_id
 project row is locked (`SELECT ... FOR UPDATE`), so concurrent adds cannot pass it. Adoption moves a row from invites to
 members and leaves the count unchanged.
 
-## Migration 0002
+## Migration
 
-`0002_project_collaborators`, down revision `0001_initial`:
+There is no incremental migration (the repository's development rule, `backend/migrations/README`; decision D32). The
+whole schema above lives in `0001_initial`, in its final shape:
 
-| # | Step |
-|---|---|
-| M1 | Online: fail with a clear message when a project has other than exactly one `owner` row. Offline (SQL render): emit a comment and skip the check, as `0001_initial` does for its role check. |
-| M2 | Drop `ck_project_members_role` (it allows only `owner`, so the update below would fail while it exists) and the `role` server default. |
-| M3 | `UPDATE project_members SET role = 'admin' WHERE role = 'owner'`, then add `ck_project_members_role` as `role IN ('admin', 'collaborator')`. |
-| M4 | Create `ux_project_members_one_admin`: UNIQUE `(project_id) WHERE role = 'admin'`. |
-| M5 | Create the legacy trigger (below). |
-| M6 | Create `project_invites` with its constraints and indexes; enable row-level security and the `agent_project_scope` policy on it, as on every project-scoped table of `0001_initial`; no grant. |
-| M7 | Create `ix_users_email_lower` on `lower(email)`. |
+- `project_members.role` with `ck_project_members_role` as `role IN ('owner', 'collaborator')` and no default;
+- the unique partial index `ux_project_members_one_owner`: UNIQUE `(project_id) WHERE role = 'owner'`;
+- `project_invites` with its constraints and indexes, row-level security on and the `agent_project_scope` policy; no grant;
+- `ix_users_email_lower` on `lower(email)`.
 
-Legacy trigger: BEFORE INSERT on `project_members`, `project_members_legacy_owner` sets `NEW.role = 'admin'` when it is
-`owner`. During a rolling deploy, API pods still on the old code create projects with `role='owner'`; the trigger keeps
-those inserts valid under the new CHECK. A later migration drops it ([questions.md](questions.md#follow-ups)).
-
-Downgrade (reverse order): drop `ix_users_email_lower`, `project_invites`, the trigger and its function,
-`ux_project_members_one_admin`; DELETE every `collaborator` row (data loss, stated in the migration docstring);
-`admin` back to `owner`; the old CHECK and server default.
+There is no trigger, data rewrite or upgrade path. A database created before this change must be recreated
+(`make down-volumes`, then `make up`); the data in it is lost. Deployments only run `alembic upgrade`, which on an empty
+database creates the schema.
 
 ## Row-level security
 

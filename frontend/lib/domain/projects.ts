@@ -13,7 +13,7 @@ export interface Project {
 export interface ProjectsPort {
   list(): Promise<Project[]>; // newest first in both adapters
   get(projectId: string): Promise<Project>; // rejects not_found
-  rename(projectId: string, name: string): Promise<Project>; // admin only; notifies `subscribe` listeners
+  rename(projectId: string, name: string): Promise<Project>; // owner only; notifies `subscribe` listeners
   subscribe(listener: () => void): Unsubscribe; // list, a name or a status changed
 }
 

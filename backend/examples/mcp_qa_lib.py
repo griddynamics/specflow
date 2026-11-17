@@ -378,7 +378,7 @@ async def postgres_session() -> AsyncIterator[AsyncSession]:
 
 async def _ensure_member(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
     if await session.get(ProjectMember, (project_id, user_id)) is None:
-        session.add(ProjectMember(project_id=project_id, user_id=user_id, role="admin"))
+        session.add(ProjectMember(project_id=project_id, user_id=user_id, role="owner"))
         await session.flush()
 
 
@@ -435,7 +435,7 @@ async def remove_member(session: AsyncSession, project_id: uuid.UUID, user_id: u
     return True
 
 
-async def restore_member(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID, role: str = "admin") -> bool:
+async def restore_member(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID, role: str = "owner") -> bool:
     """E8: insert the row again; True when it was missing."""
 
     if await session.get(ProjectMember, (project_id, user_id)) is not None:

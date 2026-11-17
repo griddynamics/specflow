@@ -1,1 +1,0 @@
-DROP TRIGGER project_members_legacy_owner ON project_members

@@ -29,14 +29,14 @@ const BY_CODE: Record<string, DataErrorCode> = {
   invalid_response: "invalid_response",
   csrf_rejected: "unknown", // a bug in the client, not a user error
   // Members, invites and leave (docs/projects/api.md#errors). The screens branch on `detail.apiCode`; the code is the family.
-  admin_required: "forbidden",
+  owner_required: "forbidden",
   invalid_email: "validation",
   email_domain_not_allowed: "validation",
   already_member: "conflict",
   already_invited: "conflict",
   member_limit: "conflict",
-  cannot_remove_admin: "conflict",
-  admin_cannot_leave: "conflict",
+  cannot_remove_owner: "conflict",
+  owner_cannot_leave: "conflict",
   member_not_found: "not_found",
   invite_not_found: "not_found",
 };
@@ -53,7 +53,7 @@ export function codeOfStatus(status: number): DataErrorCode {
   if (status === 415) return "unsupported_format";
   if (status === 400 || status === 422) return "validation";
   if (status >= 500) return "unavailable";
-  return "unknown"; // a bare 403 too: only the envelope code `admin_required` is `forbidden`; `csrf_rejected` stays `unknown`
+  return "unknown"; // a bare 403 too: only the envelope code `owner_required` is `forbidden`; `csrf_rejected` stays `unknown`
 }
 
 export const isRetryableCode = (code: DataErrorCode): boolean => RETRYABLE.has(code);

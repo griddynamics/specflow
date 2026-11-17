@@ -80,7 +80,7 @@ async def seed(app_factory: async_sessionmaker[AsyncSession]) -> Seed:
         projects = [Project(name=name, created_by=user.id) for name in ("A", "B")]
         session.add_all(projects)
         await session.flush()
-        session.add_all(ProjectMember(project_id=p.id, user_id=user.id, role="admin") for p in projects)
+        session.add_all(ProjectMember(project_id=p.id, user_id=user.id, role="owner") for p in projects)
         docs = [document(projects[0].id, "alpha"), document(projects[1].id, "bravo")]
         session.add_all(docs)
     return Seed(projects[0].id, projects[1].id, docs[0].id, docs[1].id)

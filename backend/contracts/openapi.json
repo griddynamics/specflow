@@ -2663,7 +2663,7 @@
           },
           "role": {
             "enum": [
-              "admin",
+              "owner",
               "collaborator"
             ],
             "title": "Role",
@@ -2708,7 +2708,7 @@
           },
           "role": {
             "enum": [
-              "admin",
+              "owner",
               "collaborator"
             ],
             "title": "Role",

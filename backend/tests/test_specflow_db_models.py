@@ -130,13 +130,13 @@ def test_projects_and_members_constraints() -> None:
 
     assert checks(projects) == {"ck_projects_name_not_blank": r"name !~ '^\s*$'"}
     assert "CONSTRAINT fk_projects_created_by_users FOREIGN KEY(created_by)" in ddl(projects)
-    assert PROJECT_ROLES == ("admin", "collaborator")
-    assert checks(members) == {"ck_project_members_role": "role IN ('admin', 'collaborator')"}
+    assert PROJECT_ROLES == ("owner", "collaborator")
+    assert checks(members) == {"ck_project_members_role": "role IN ('owner', 'collaborator')"}
     assert "CONSTRAINT pk_project_members PRIMARY KEY (project_id, user_id)" in ddl(members)
     assert members.c.role.server_default is None  # DM3: every insert states its role
     assert index_ddl(members) == {
         "CREATE INDEX ix_project_members_user_id ON project_members (user_id)",
-        "CREATE UNIQUE INDEX ux_project_members_one_admin ON project_members (project_id) WHERE role = 'admin'",
+        "CREATE UNIQUE INDEX ux_project_members_one_owner ON project_members (project_id) WHERE role = 'owner'",
     }
 
 

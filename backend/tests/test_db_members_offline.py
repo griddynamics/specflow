@@ -45,7 +45,7 @@ async def test_get_membership_is_one_query_and_returns_project_and_role() -> Non
 
 
 async def test_get_member_project_delegates_with_one_query_and_none_for_a_non_member() -> None:
-    hit, miss = Recorder([("project-row", "admin")]), Recorder()
+    hit, miss = Recorder([("project-row", "owner")]), Recorder()
 
     assert await repo.get_member_project(cast(Any, hit), USER, PROJECT) == "project-row"
     assert await repo.get_member_project(cast(Any, miss), USER, PROJECT) is None
@@ -158,9 +158,9 @@ def test_every_error_carries_the_api_code() -> None:
         members.AlreadyInvitedError: "already_invited",
         members.MemberLimitError: "member_limit",
         members.MemberNotFoundError: "member_not_found",
-        members.CannotRemoveAdminError: "cannot_remove_admin",
+        members.CannotRemoveOwnerError: "cannot_remove_owner",
         members.InviteNotFoundError: "invite_not_found",
-        members.AdminCannotLeaveError: "admin_cannot_leave",
+        members.OwnerCannotLeaveError: "owner_cannot_leave",
         members.ProjectMissingError: "project_not_found",
     }
     for error, code in codes.items():
@@ -276,14 +276,14 @@ def test_repo_fakes_match_the_real_signatures(name: str) -> None:
 async def test_the_fake_adopts_on_every_upsert_and_skips_a_rejected_email(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeRepo()
     fake.install(monkeypatch)
-    admin = await repo.upsert_user(None, Principal("admin@example.com", "s-a"))
-    project = await repo.create_project(None, admin.id, "P")
-    await members.add_member_or_invite(None, project.id, admin.id, "Cy@Example.com", {"example.com"})
+    owner = await repo.upsert_user(None, Principal("owner@example.com", "s-a"))
+    project = await repo.create_project(None, owner.id, "P")
+    await members.add_member_or_invite(None, project.id, owner.id, "Cy@Example.com", {"example.com"})
     first = await repo.upsert_user(None, Principal("cy@example.com", "s-c"))  # new user adopts
     assert (project.id, first.id) in fake.members and fake.invites[project.id] == {}
-    await members.add_member_or_invite(None, project.id, admin.id, "late@example.com", {"example.com"})
+    await members.add_member_or_invite(None, project.id, owner.id, "late@example.com", {"example.com"})
     late = await repo.upsert_user(None, Principal("late@example.com", "s-l"))
     assert fake.roles[(project.id, late.id)] == "collaborator"
-    other = await repo.create_project(None, admin.id, "Q", ["cy@example.com", "new@example.com"])
+    other = await repo.create_project(None, owner.id, "Q", ["cy@example.com", "new@example.com"])
     assert (other.id, first.id) in fake.members and len(fake.invites[other.id]) == 1
     await repo.upsert_user(None, Principal("x" * 300 + "@example.com", "s-x"))  # signs in, adopts nothing

@@ -1,7 +1,7 @@
 // docs/projects/ui.md#ports: the members of a project, its pending invites and the email suggestions. Screens reach them only
 // through `MembersPort`; the http adapter (`lib/data/http/members.ts`) is the one implementation.
 
-export type MemberRole = "admin" | "collaborator";
+export type MemberRole = "owner" | "collaborator";
 
 export interface Member {
   userId: string;
@@ -18,7 +18,7 @@ export interface Invite {
   invitedAt: string;
 }
 
-/** `GET /projects/{pid}/members`: `role` is the caller's. Order: the admin, then members by join date; invites by creation. */
+/** `GET /projects/{pid}/members`: `role` is the caller's. Order: the owner, then members by join date; invites by creation. */
 export interface MembersState {
   role: MemberRole;
   limit: number;
@@ -42,9 +42,9 @@ export interface Suggestion {
 
 export interface MembersPort {
   list(projectId: string): Promise<MembersState>;
-  add(projectId: string, email: string): Promise<AddedPerson>; // admin only
-  remove(projectId: string, userId: string): Promise<ClaimsOutcome>; // admin only
-  cancelInvite(projectId: string, inviteId: string): Promise<void>; // admin only
+  add(projectId: string, email: string): Promise<AddedPerson>; // owner only
+  remove(projectId: string, userId: string): Promise<ClaimsOutcome>; // owner only
+  cancelInvite(projectId: string, inviteId: string): Promise<void>; // owner only
   leave(projectId: string): Promise<ClaimsOutcome>; // collaborator only
   suggest(query: string, projectId?: string): Promise<Suggestion[]>; // without `projectId`: the Create Project flow
 }

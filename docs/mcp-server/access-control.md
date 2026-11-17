@@ -10,9 +10,9 @@ tags: [mcp, auth]
 ## Rule
 
 A caller may read a project when, and only when, a `project_members` row links the caller's user row to that project.
-Every member has the same access to every tool: membership alone decides, whether the member is the project's admin or a
+Every member has the same access to every tool: membership alone decides, whether the member is the project's owner or a
 collaborator ([../projects/](../projects/INDEX.md)). Roles exist for the web app only: adding and removing people and renaming
-the project are admin-only actions, and they exist only in the web app, never as a tool.
+the project are owner-only actions, and they exist only in the web app, never as a tool.
 The rule is the one the REST API applies; the API applies it on the agent routes that serve the tools
 ([architecture.md](architecture.md#api-agent-routes)), through the same repository functions.
 
@@ -53,8 +53,8 @@ project id check accepts other spellings of the same UUID, which would pass memb
 
 The `Principal` subject is looked up in `users.auth_subject`. The web app and the MCP server must therefore use the
 same issuer and the same subject claim ([auth.md](auth.md)); a developer who has only ever used MCP gets a user row and
-no projects until they create one in the web app or an admin adds them: the members of a project are its creator, the
-collaborators an admin added and the invites adopted at sign-in.
+no projects until they create one in the web app or an owner adds them: the members of a project are its creator, the
+collaborators an owner added and the invites adopted at sign-in.
 
 ## Write tools
 
@@ -67,7 +67,7 @@ findings in a member project, as every member may read it.
 | AC9 | The writer is the token's user. No write tool takes a user argument; `claimed_by`, `completed_by` and `created_by` hold that user's id, never an email or a name. |
 | AC10 | A claim is held by one user. Releasing, reporting progress, completing and a blocking finding need the claim token that `claim_story` returned to that user; another member's token, or a stale one, answers `claim_mismatch` and writes nothing, except the repeats of [Repeats](tools.md#repeats). |
 | AC11 | A blocking finding blocks only the caller's own claimed story, and only through a node a task of that story implements. |
-| AC12 | Only people resolve or dismiss findings and force a release, in the web app; no tool does either. The web routes apply the membership every web route applies: any member of the project may, admin or collaborator ([../graph/gap.md](../graph/gap.md#web-routes)). |
+| AC12 | Only people resolve or dismiss findings and force a release, in the web app; no tool does either. The web routes apply the membership every web route applies: any member of the project may, owner or collaborator ([../graph/gap.md](../graph/gap.md#web-routes)). |
 | AC13 | No write tool changes a spec node or edge, and nothing a finding says is read by a build or the planner. |
 | AC14 | A refused write changes nothing: the membership check, the token check and the argument checks run before the write, in one locked transaction per story. |
 

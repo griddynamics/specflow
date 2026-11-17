@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import Depends, Request, Response
 
 from agent_contracts import USER_ID_HEADER
-from api.errors import AGENT_USER_STATE_KEY, admin_required, agent_unavailable, project_not_found
+from api.errors import AGENT_USER_STATE_KEY, agent_unavailable, owner_required, project_not_found
 from api.runtime import Runtime
 from auth.claims import Principal
 from auth.dependencies import AGENT_VERIFIER_STATE_ATTR, current_agent_principal, current_principal
@@ -87,14 +87,14 @@ AgentProjectDep = Annotated[Project, Depends(agent_project)]
 
 @dataclass(frozen=True)
 class Membership:
-    """The caller's standing in a project: the project and the caller's role (``admin`` or ``collaborator``)."""
+    """The caller's standing in a project: the project and the caller's role (``owner`` or ``collaborator``)."""
 
     project: Project
     role: str
 
     @property
-    def is_admin(self) -> bool:
-        return self.role == "admin"
+    def is_owner(self) -> bool:
+        return self.role == "owner"
 
 
 async def project_member(pid: str, runtime: RuntimeDep, user: UserDep) -> Membership:
@@ -118,12 +118,12 @@ async def project_member(pid: str, runtime: RuntimeDep, user: UserDep) -> Member
 MemberDep = Annotated[Membership, Depends(project_member)]
 
 
-async def project_admin(membership: MemberDep) -> Membership:
-    """``project_member`` plus the admin role: a collaborator is ``403 admin_required`` (no body is read further)."""
+async def project_owner(membership: MemberDep) -> Membership:
+    """``project_member`` plus the owner role: a collaborator is ``403 owner_required`` (no body is read further)."""
 
-    if not membership.is_admin:
-        raise admin_required()
+    if not membership.is_owner:
+        raise owner_required()
     return membership
 
 
-AdminDep = Annotated[Membership, Depends(project_admin)]
+OwnerDep = Annotated[Membership, Depends(project_owner)]

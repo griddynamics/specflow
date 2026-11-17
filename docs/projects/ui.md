@@ -1,7 +1,7 @@
 ---
 type: Design
 title: "Project Settings UI"
-description: "Settings route, sidebar item, General tab in the shell header, admin and collaborator views, confirmations, Create Project emails, errors shown and the frontend ports"
+description: "Settings route, sidebar item, General tab in the shell header, owner and collaborator views, confirmations, Create Project emails, errors shown and the frontend ports"
 status: stable
 tags: [projects, frontend]
 ---
@@ -28,7 +28,7 @@ Decisions: a `SegmentedControl` labelled "Settings section" with one option, "Ge
 
 Layout A2 (an inline form above one list card):
 
-| Block | Admin | Collaborator |
+| Block | Owner | Collaborator |
 |---|---|---|
 | Project name | TextField + Save | not shown (the project picker shows the name) |
 | Collaborators heading + "n of 50" | shown | shown |
@@ -36,8 +36,8 @@ Layout A2 (an inline form above one list card):
 | List card | rows with x | rows without x |
 | Leave project | not shown | button under the list |
 
-Row: avatar, name (the email when the name is null), email as the second line, then a badge. The admin's row has the
-badge `Admin` and no x. An invite row has an `@` avatar, the email, "Not signed in yet" and the badge `Invited`; its x
+Row: avatar, name (the email when the name is null), email as the second line, then a badge. The owner's row has the
+badge `Owner` and no x. An invite row has an `@` avatar, the email, "Not signed in yet" and the badge `Invited`; its x
 cancels the invite. Order: [api.md](api.md#shapes).
 
 Behavior:
@@ -62,8 +62,8 @@ Behavior:
 | `already_member` / `already_invited` | under the field | "Already a collaborator." / "Already invited." |
 | `member_limit` | under the field | "This project has 50 people. Remove someone first." |
 | name rule | under the name field | the Create Project name messages |
-| `member_not_found`, `invite_not_found`, `cannot_remove_admin` (the list was stale) | toast, then the list reloads | "The list changed. It is up to date now." |
-| `admin_required`, network, other | toast | "Could not save. Try again." |
+| `member_not_found`, `invite_not_found`, `cannot_remove_owner` (the list was stale) | toast, then the list reloads | "The list changed. It is up to date now." |
+| `owner_required`, network, other | toast | "Could not save. Try again." |
 
 ## Create Project modal
 

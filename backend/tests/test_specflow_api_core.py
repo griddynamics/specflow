@@ -84,7 +84,7 @@ async def test_create_project_returns_201_with_an_owner_member(harness):
     assert set(body) == {"id", "name", "created_at"}
     assert body["name"] == "Demo"
     [(key, role)] = harness.repo.roles.items()
-    assert str(key[0]) == body["id"] and role == "admin"
+    assert str(key[0]) == body["id"] and role == "owner"
 
 
 @pytest.mark.parametrize("name", ["", "   ", "x" * 201])

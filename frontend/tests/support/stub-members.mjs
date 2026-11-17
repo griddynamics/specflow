@@ -1,7 +1,7 @@
 // Stub of the project collaborators API (docs/projects/api.md), in memory: members, invites, leave, rename, suggestions and the
 // `collaborators` of Create Project. A test double next to stub-api.mjs, close enough to drive the http adapter and the BFF; the
-// real API lives in backend/src/api. One caller (the stub's `/me`), with a role per project: `admin` for a project it created, or
-// whatever `seed` says. Answers and codes follow the spec: 404 `project_not_found` for a non-member, 403 `admin_required`, the
+// real API lives in backend/src/api. One caller (the stub's `/me`), with a role per project: `owner` for a project it created, or
+// whatever `seed` says. Answers and codes follow the spec: 404 `project_not_found` for a non-member, 403 `owner_required`, the
 // 409/422 codes of api.md#errors, `details.errors[{loc, type}]` for a 422 of create.
 import crypto from "node:crypto";
 
@@ -63,24 +63,24 @@ export function createMembersModel() {
     if (!p) throw new StubError(404, "project_not_found");
     return p;
   };
-  const admin = (pid) => {
+  const asOwner = (pid) => {
     const p = get(pid);
-    if (p.role !== "admin") throw new StubError(403, "admin_required");
+    if (p.role !== "owner") throw new StubError(403, "owner_required");
     return p;
   };
   const domainOk = (email) => state.allowedDomains.includes(email.split("@")[1]);
   const people = (p) => p.members.length + p.invites.length;
 
-  /** Registers a project the caller created (admin) with already checked collaborators. */
+  /** Registers a project the caller created (owner) with already checked collaborators. */
   function create(pid, emails = []) {
-    const members = [member(ME.email, ME.name, "admin")];
+    const members = [member(ME.email, ME.name, "owner")];
     const invites = [];
     for (const email of emails) {
       const known = state.directory.find((u) => u.email === email);
       if (known) members.push(member(email, known.name === email ? null : known.name, "collaborator"));
       else invites.push(invite(email));
     }
-    projects.set(pid, { role: "admin", members, invites });
+    projects.set(pid, { role: "owner", members, invites });
   }
 
   /** Create Project body checks (api.md#create-with-collaborators): all-or-nothing; returns the emails to keep, in order. */
@@ -103,23 +103,23 @@ export function createMembersModel() {
   }
 
   /**
-   * Test seam: a project where the caller has `role`, with the given members and invite emails (the admin comes first).
+   * Test seam: a project where the caller has `role`, with the given members and invite emails (the owner comes first).
    * @param {string} pid
-   * @param {{role?: "admin" | "collaborator", members?: {email: string, name?: string | null, role?: string}[], invites?: string[]}} spec
+   * @param {{role?: "owner" | "collaborator", members?: {email: string, name?: string | null, role?: string}[], invites?: string[]}} spec
    */
-  function seed(pid, { role = "admin", members = [], invites = [] }) {
+  function seed(pid, { role = "owner", members = [], invites = [] }) {
     const rows = members.map((m) => member(m.email, m.name ?? null, m.role ?? "collaborator"));
-    if (!rows.some((m) => m.role === "admin")) {
-      const owner = role === "admin" ? ME : { email: "owner@example.test", name: "Olivia Owner" };
-      rows.unshift(member(owner.email, owner.name, "admin"));
+    if (!rows.some((m) => m.role === "owner")) {
+      const owner = role === "owner" ? ME : { email: "owner@example.test", name: "Olivia Owner" };
+      rows.unshift(member(owner.email, owner.name, "owner"));
     }
-    if (role !== "admin" && !rows.some((m) => m.is_you)) rows.push(member(ME.email, ME.name, "collaborator"));
-    rows.sort((a, b) => (a.role === "admin" ? -1 : b.role === "admin" ? 1 : 0));
+    if (role !== "owner" && !rows.some((m) => m.is_you)) rows.push(member(ME.email, ME.name, "collaborator"));
+    rows.sort((a, b) => (a.role === "owner" ? -1 : b.role === "owner" ? 1 : 0));
     projects.set(pid, { role, members: rows, invites: invites.map(invite) });
   }
 
   function rename(pid, body) {
-    admin(pid);
+    asOwner(pid);
     if (!only(body, ["name"])) throw validation({ loc: ["body"], type: "extra_forbidden" });
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const length = Array.from(name).length;
@@ -133,7 +133,7 @@ export function createMembersModel() {
   }
 
   function add(pid, body) {
-    const p = admin(pid);
+    const p = asOwner(pid);
     if (!only(body, ["email"])) throw validation({ loc: ["body"], type: "extra_forbidden" });
     const email = normaliseEmail(body.email);
     if (email === null) throw new StubError(422, "invalid_email");
@@ -155,16 +155,16 @@ export function createMembersModel() {
   const outcome = (released = 0, failed = false) => ({ claims_released: released, claims_release_failed: failed });
 
   function remove(pid, userId) {
-    const p = admin(pid);
+    const p = asOwner(pid);
     const at = UUID.test(userId) ? p.members.findIndex((m) => m.user_id === userId) : -1;
     if (at < 0) throw new StubError(404, "member_not_found");
-    if (p.members[at].role === "admin") throw new StubError(409, "cannot_remove_admin");
+    if (p.members[at].role === "owner") throw new StubError(409, "cannot_remove_owner");
     p.members.splice(at, 1);
     return outcome(state.claimsReleased, state.claimsFailed);
   }
 
   function cancel(pid, inviteId) {
-    const p = admin(pid);
+    const p = asOwner(pid);
     const at = UUID.test(inviteId) ? p.invites.findIndex((i) => i.id === inviteId) : -1;
     if (at < 0) throw new StubError(404, "invite_not_found");
     p.invites.splice(at, 1);
@@ -172,7 +172,7 @@ export function createMembersModel() {
 
   function leave(pid) {
     const p = get(pid);
-    if (p.role === "admin") throw new StubError(409, "admin_cannot_leave");
+    if (p.role === "owner") throw new StubError(409, "owner_cannot_leave");
     projects.delete(pid); // the caller is no member any more: the next read answers 404
     return outcome(state.claimsReleased, state.claimsFailed);
   }
