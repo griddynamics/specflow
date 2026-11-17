@@ -346,6 +346,43 @@ async def test_an_update_calls_only_the_window_of_a_dirty_fragment(scripted_gate
     ]
 
 
+async def test_a_dirty_window_keeps_its_earlier_edges_on_unchanged_fragments(scripted_gateway: Factory) -> None:
+    """An edit re-links only the facts of its own fragments: the new answer's edge on the unchanged fragment a#f2
+    between nodes of unchanged text is dropped for the earlier answer's edge there; its edge on the edited a#f3 is
+    taken."""
+
+    store = MemoryStore()
+    await first_build(scripted_gateway, store)
+    gateway = scripted_gateway()
+    Windows(gateway)
+    restated = {
+        "edges": [
+            {
+                "source": "Cart holds at most 50 items",
+                "relation": "PART_OF",
+                "target": "Checkout service",
+                "fact": "restated",
+                "fragments": [3],
+            },
+            {
+                "source": "Stripe",
+                "relation": "PART_OF",
+                "target": "Checkout service",
+                "fact": "edited",
+                "fragments": [4],
+            },
+        ]
+    }
+    gateway.handle(EDGE_WINDOW_PROMPT, lambda _: restated)
+    artifact = await run(gateway, update_plan(PLAN, ["a#f3"]), store=store, params=WINDOWED)
+    window_edges = [
+        (edge.fact, edge.fragment_ids, edge.reused)
+        for edge in artifact.raw_edges
+        if set(edge.fragment_ids) <= {"a#f2", "a#f3"}
+    ]
+    assert sorted(window_edges) == [("edited", ("a#f3",), False), ("fact 2", ("a#f2",), True)]
+
+
 async def test_a_clean_window_whose_window_catalog_changed_is_called(scripted_gateway: Factory) -> None:
     store = MemoryStore()
     await first_build(scripted_gateway, store)

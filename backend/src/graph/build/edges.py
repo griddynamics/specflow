@@ -675,19 +675,32 @@ async def _settle_windows(
     fallback edges (``update`` builds), else its answered parts, and skips its dirty fragments."""
 
     failed: list[tuple[_UnitEdges, int, _EdgeResult]] = []
+    answered: list[tuple[_UnitEdges, int, EdgeWindowCause, _EdgeResult]] = []
     for unit_edges, results_ in zip(called, answers, strict=True):
-        for (position, _), result in zip(unit_edges.calls, results_, strict=True):
-            if not result.complete:
+        for (position, cause), result in zip(unit_edges.calls, results_, strict=True):
+            if result.complete:
+                answered.append((unit_edges, position, cause, result))
+            else:
                 failed.append((unit_edges, position, result))
-                continue
-            book.collected.extend((_edge_order(unit_edges.index, edge), edge) for edge in result.edges)
-            if ctx.results is not None:
-                key = unit_edges.keys[position]
-                near = [ctx.by_cid[cid].identity_key for cid in unit_edges.catalog.near]
-                window = unit_edges.windows[position]
-                payload = _edge_payload(result.edges, unit_edges.unit, window, ctx.by_cid, near=near, key=key)
-                book.entries[key] = payload
-                _remember(ctx, unit_edges, position, payload, book)
+    earlier: dict[tuple[str, Window], _Fallback] = {}
+    dirty = [
+        (unit_edges.unit, unit_edges.windows[position])
+        for unit_edges, position, cause, _ in answered
+        if cause == "dirty"
+    ]
+    if ctx.results is not None and ctx.reading and dirty:
+        earlier = await _fallback_edges(ctx.results, ctx.fingerprint, dirty, ctx.fragments_by_id, ctx.cid_of)
+    for unit_edges, position, _, result in answered:
+        window = unit_edges.windows[position]
+        previous = earlier.get((unit_edges.unit.unit_id, window))
+        edges = result.edges if previous is None else _clean_kept(ctx, result.edges, previous)
+        book.collected.extend((_edge_order(unit_edges.index, edge), edge) for edge in edges)
+        if ctx.results is not None:
+            key = unit_edges.keys[position]
+            near = [ctx.by_cid[cid].identity_key for cid in unit_edges.catalog.near]
+            payload = _edge_payload(edges, unit_edges.unit, window, ctx.by_cid, near=near, key=key)
+            book.entries[key] = payload
+            _remember(ctx, unit_edges, position, payload, book)
     fallbacks: dict[tuple[str, Window], _Fallback] = {}
     if ctx.results is not None and ctx.reading and failed:
         fallbacks = await _fallback_edges(
@@ -709,6 +722,32 @@ async def _settle_windows(
         book.skipped.update(result.skipped)
         book.collected.extend((_edge_order(unit_edges.index, edge), edge) for edge in result.edges)
         book.edge_failed.extend(unit_edges.unit.fragment_ids[start:end])
+
+
+def _clean_kept(ctx: _EdgeContext, fresh: Sequence[RawEdge], previous: _Fallback) -> list[RawEdge]:
+    """A dirty window's edges in an ``update`` build: the fresh answer's edges on a changed fragment (dirty, or one the
+    earlier answer did not hold), then the earlier answer's edges on unchanged fragments only, so an edit re-links only
+    the facts of its own fragments. A fresh edge on unchanged fragments only is kept when an end is grounded only in
+    changed fragments (a node of the edited text); any other is the model answering the same text again and is
+    dropped for the earlier answer's (an earlier edge between the ends of a kept fresh one with the same relation is
+    left out)."""
+
+    changed = set(ctx.dirty) | set(previous.uncovered)
+
+    def on_unchanged(edge: RawEdge) -> bool:
+        return bool(edge.fragment_ids) and not any(fid in changed for fid in edge.fragment_ids)
+
+    def edited(cid: str) -> bool:
+        node = ctx.by_cid.get(cid)
+        return node is not None and bool(node.fragment_ids) and all(fid in changed for fid in node.fragment_ids)
+
+    kept = [edge for edge in fresh if not on_unchanged(edge) or edited(edge.source_cid) or edited(edge.target_cid)]
+    held = {(edge.source_cid, edge.relation, edge.target_cid) for edge in kept}
+    return kept + [
+        edge
+        for edge in previous.edges
+        if on_unchanged(edge) and (edge.source_cid, edge.relation, edge.target_cid) not in held
+    ]
 
 
 def _edges_artifact(
