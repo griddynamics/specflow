@@ -6,49 +6,96 @@ One test per requirement unit; its docstring starts with the unit's acceptance t
 
 from __future__ import annotations
 
-from gap_acceptance_support import Planted, pending
+import ast
+import tomllib
+from pathlib import Path
+from typing import Final
+
+from gap_acceptance_support import Planted
 from gap_answer_support import MEMBER, answer_world, service_of
 from gap_close_support import answer_and_apply, apply_build, update_run
 from gap_run_support import corpus_world
 from graph.gap import GapService, run_gap
 from graph.gap.models import AnswerInput
+from graph.core import load_ontology
 from graph.gap.prompts import RELEVANCE_PROMPT
 
+BACKEND: Final = Path(__file__).resolve().parents[1]
 GAP_TYPES = {"Gap", "Clarification", "ABOUT", "IMPACTS", "CITES", "FOLLOWS_UP", "ANSWERS", "PLACED_IN", "GROUNDED_IN"}
 
 
-@pending("01", "covered by test_graph_gap_ontology")
 def test_fr_gont_01_load_ontology_merge_shipped_gap_ontology_file() -> None:
     """When called without arguments, then `Gap` and `Clarification` are owned by `gap`, the relations `ABOUT`,
     `IMPACTS`, `CITES`, `FOLLOWS_UP`, `ANSWERS`, `PLACED_IN`, `GROUNDED_IN`, `REPLACES` are owned by `gap`, and no
     build or plan type, relation or vocabulary differs from the files without gap.
+
+    The checks of ``test_graph_gap_ontology`` (owners of every gap type and relation; build and plan parts equal
+    with and without the gap file).
     """
 
+    import test_graph_gap_ontology as checks  # noqa: PLC0415 (imported here so pytest collects its tests once)
 
-@pending("01", "covered by test_graph_gap_ontology")
+    ontology = load_ontology()
+    assert {name: ontology.owner_of(name) for name in GAP_TYPES | {"REPLACES"}} == dict.fromkeys(
+        GAP_TYPES | {"REPLACES"}, "gap"
+    )
+    checks.test_fr_gont_01_the_merged_ontology_holds_gap_and_clarification_owned_by_gap()
+    checks.test_fr_gont_01_no_build_or_plan_type_relation_or_vocabulary_differs_with_the_gap_file()
+
+
 def test_fr_gont_02_installing_changing_gap_ontology_file_change_extraction() -> None:
     """Given a project built without gap, when gap is installed and an update build runs on unchanged documents, then
     the build reports no change.
+
+    An update build reuses every stored extraction whose fingerprint is unchanged, so it reports no change exactly
+    when the gap file changes no extraction input: the ontology fingerprint, the label and relation sets and the
+    version are the same with and without the gap file (``test_graph_gap_ontology``).
     """
 
+    import test_graph_gap_ontology as checks  # noqa: PLC0415
 
-@pending("01", "covered by test_graph_gap_rules")
-def test_fr_gont_03_load_gap_rules_validate_rules_against_merged() -> None:
+    checks.test_the_gap_file_changes_no_extraction_fingerprint_label_set_or_version()
+    checks.test_the_gap_file_alone_does_not_change_the_fingerprint_either()
+
+
+def test_fr_gont_03_load_gap_rules_validate_rules_against_merged(tmp_path) -> None:
     """Given rules naming an unknown type, an unknown relation and an unknown gap kind, then the error names all
     three.
+
+    The case of ``test_graph_gap_rules`` on the merged ontology: one error lists every problem.
     """
 
+    import test_graph_gap_rules as checks  # noqa: PLC0415
 
-@pending("01", "covered by test_graph_gap_rules; reviewed again in 04")
+    ontology = load_ontology()
+    for name in ("one", "all"):
+        (tmp_path / name).mkdir()
+    checks.test_fr_gont_03_an_unknown_type_relation_and_kind_are_all_named(tmp_path / "one", ontology)
+    checks.test_fr_gont_03_every_section_reports_its_problems_in_one_error(tmp_path / "all", ontology)
+
+
 def test_fr_gont_04_graph_gap_reach_spec_types_relations_attributes() -> None:
     """Inspection: the structure test finds no build label, relation or attribute name as a literal under
     `graph.gap`.
+
+    The structure test of ``test_graph_gap_rules`` over every module of the package.
     """
 
+    import test_graph_gap_rules as checks  # noqa: PLC0415
 
-@pending("01", "covered by test_graph_gap_schema and test_graph_gap_schema_live")
-def test_fr_gont_05_ensure_gap_schema_create_graph_gap_constraint() -> None:
-    """When it runs twice, then the second run returns `()`."""
+    checks.test_fr_gont_04_no_spec_label_relation_or_attribute_is_a_literal_of_the_gap_modules()
+
+
+async def test_fr_gont_05_ensure_gap_schema_create_graph_gap_constraint() -> None:
+    """When it runs twice, then the second run returns `()`.
+
+    Offline on the schema driver (``test_graph_gap_schema``); on Neo4j and ArcadeDB in
+    ``test_graph_gap_schema_live``.
+    """
+
+    import test_graph_gap_schema as checks  # noqa: PLC0415
+
+    await checks.test_fr_gont_05_ensure_gap_schema_creates_the_gap_objects_and_is_idempotent()
 
 
 async def test_fr_gown_01_graph_gap_write_types_ontology_file_never() -> None:
@@ -143,9 +190,40 @@ async def test_fr_gown_02_gap_query_graph_relational_bind_filter_project() -> No
     assert latest is not None and latest.run_id != (await first.store.latest_run("project-a")).run_id
 
 
-@pending("01", "covered by the import contracts in importlinter.toml")
 def test_fr_gown_03_graph_gap_import_graph_core_graph_library() -> None:
-    """Inspection: the import contract test passes."""
+    """Inspection: the import contract test passes.
+
+    The contracts of ``importlinter.toml`` (checked by ``make validate``) keep ``graph.gap`` off the build, the plan
+    and the agent runtime; here every import of every module under ``graph.gap`` is checked too: of the backend's own
+    packages it names only ``graph.gap``, ``graph.core`` and the central logger.
+    """
+
+    contracts = tomllib.loads((BACKEND / "importlinter.toml").read_text(encoding="utf-8"))["tool"]["importlinter"]
+    ids = {contract.get("id") for contract in contracts["contracts"]}
+    assert "gap-no-agent-runtime" in ids
+    assert any(
+        "graph.gap" in contract.get("source_modules", ()) and "graph.build" in contract.get("forbidden_modules", ())
+        for contract in contracts["contracts"]
+    )
+    own = {path.stem if path.is_file() else path.name for path in (BACKEND / "src").iterdir()} - {"__pycache__"}
+    allowed = ("graph.gap", "graph.core", "logger")
+    package = BACKEND / "src" / "graph" / "gap"
+    for module in sorted(package.rglob("*.py")):
+        for name in _imported(module):
+            if name.split(".")[0] in own:
+                assert name == "graph" or name.startswith(allowed), (module.relative_to(package).as_posix(), name)
+
+
+def _imported(path: Path) -> set[str]:
+    """The absolute module names a module imports (``from x import y`` gives ``x``)."""
+
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found |= {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            found.add(node.module)
+    return found
 
 
 async def test_fr_gown_04_options_amendments_runs_seeds_sites_verdicts_section() -> None:

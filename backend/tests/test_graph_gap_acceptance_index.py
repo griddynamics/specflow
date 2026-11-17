@@ -87,3 +87,10 @@ def test_the_pending_marker_skips_with_the_session_in_the_reason() -> None:
     assert marker.mark.kwargs["reason"] == "session 04 (partial)"
     with pytest.raises(ValueError, match="two digits"):
         pending("4")
+
+
+def test_no_acceptance_test_is_pending_any_more() -> None:
+    """Session 15 enabled every unit: each has a green test (or, for a deferral the user approved, a recorded reason in
+    the coverage matrix; none so far)."""
+
+    assert [f"{stub.module}::{stub.name}" for stub in _stubs() if stub.sessions] == []

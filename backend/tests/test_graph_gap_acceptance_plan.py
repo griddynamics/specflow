@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_contracts import AGENT_ROUTES
-from gap_acceptance_support import Planted, pending
+from gap_acceptance_support import Planted
 from gap_agent_support import ALPHA, API_LOGIC, API_STORY, QUESTION, serve_gaps
 from gap_close_support import PLACE_STORY, cancel_answered_and_built, plan_update
 from gap_development_support import CLAIM, MEMBER, dev_rig
@@ -18,11 +18,18 @@ from graph.gap import NewGap
 from specflow_api_agent_support import agent_env
 
 
-@pending("00", "covered by test_specflow_plan_host and test_graph_plan_host_live")
-def test_fr_gpln_01_host_pass_plan_run_build_change_report() -> None:
+async def test_fr_gpln_01_host_pass_plan_run_build_change_report(tmp_path, caplog) -> None:
     """Given two builds after a plan, when the plan runs, then it receives both reports and runs in mode `update`,
     not `replan`.
+
+    The host's plan runner (``test_specflow_plan_host``): builds 3 and 4 after the plan's build 1 (a failed build 2
+    in between changed nothing); the plan run gets both reports in build order and ``replan`` false. Live on Neo4j:
+    ``test_graph_plan_host_live``.
     """
+
+    import test_specflow_plan_host as checks  # noqa: PLC0415 (imported here so pytest collects its tests once)
+
+    await checks.test_fr_gpln_01_several_builds_after_the_plan_pass_every_report_in_build_order(tmp_path, caplog)
 
 
 async def test_fr_gpln_02_gap_service_satisfies_the_plan_findings_port(monkeypatch, valid_env) -> None:

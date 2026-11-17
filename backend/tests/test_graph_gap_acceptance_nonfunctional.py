@@ -7,6 +7,7 @@ One test per requirement unit; its docstring starts with the unit's acceptance t
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any
 
@@ -18,16 +19,18 @@ from gap_acceptance_support import (
     RecordedGapGateway,
     assert_all_recorded,
     corpus_text,
-    pending,
 )
 from gap_detection_support import PROJECT, corpus_reader
-from gap_investigation_support import loop_world, round_of, site_about
+from gap_detect_bench import run_gap_detect_bench
+from gap_investigation_support import NOT_A_GAP, loop_world, round_of, site_about
 from gap_run_support import corpus_world
 from graph.core.llm.gateway import UNTRUSTED_CLOSE, UNTRUSTED_OPEN
 from graph.gap import queries as gap_queries
 from graph.gap import run_gap
 from graph.gap.models import GapChangeReport
 from graph.gap.prompts import INVESTIGATE_PROMPT, REPAIR_PROMPT
+from graph.gap.steps.investigate import FinalTurn
+from graph.gap.steps.relevance import BATCH_SECTIONS
 from graph.stores._bolt.cypher import binds_project_id, render_cypher
 from graph.stores.arcadedb.dialect import ArcadeDbDialect
 from graph.stores.postgres.dialect import PostgresDialect
@@ -169,14 +172,63 @@ async def test_nfr_gcost_01_update_run_after_build_changed_no_document() -> None
     assert_all_recorded(world.gateway)
 
 
-@pending("15")
-def test_nfr_gcost_02_update_run_make_at_most_calls_limits() -> None:
-    """The run's cost report stays within the bound computed from the rules."""
+async def test_nfr_gcost_02_update_run_make_at_most_calls_limits() -> None:
+    """The run's cost report stays within the bound computed from the rules.
+
+    The loop's worst case: a model that asks for reads in every round. A full run on the corpus, then an update build
+    that rewrites the vague requirement's and the assumption's lines: the update run investigates only the sites of
+    the changed nodes, at most ``sites_update_run``, each in at most ``rounds_per_site`` read rounds plus the forced
+    report call; relevance makes at most one call per batch of uncertain sections; the judge at most one call per AI
+    candidate (none here: every report is ``not_a_gap``). The cost report counts exactly the gateway's calls.
+    """
+
+    def answer(request: ScriptedRequest) -> Any:
+        if request.output_type is FinalTurn:
+            return {"action": "report", "report": NOT_A_GAP.model_dump(mode="json")}
+        return {"action": "read", "reads": [{"read": "find_fragments", "words": "order"}] * 6}
+
+    world = await loop_world(gateway=RecordedGapGateway().handle(INVESTIGATE_PROMPT, answer))
+    limits = world.rules.limits
+    await run_gap(world.context(), mode="full")
+    before = {role: len(world.gateway.calls_of(role)) for role in result_roles()}
+    world.reader = corpus_reader(
+        replace={
+            Planted.VAGUE_REQUIREMENT_LINE: "The admin panel should be fast for staff.",
+            Planted.ASSUMPTION_LINE: "We assume every customer has an email address and a phone number.",
+        }
+    )
+    change = GapChangeReport(build_id="build-2", changed_meaning=(Planted.VAGUE_REQUIREMENT, Planted.ASSUMPTION))
+
+    result = await run_gap(world.context(changes=[change]))
+
+    calls = {role: len(world.gateway.calls_of(role)) - before[role] for role in result_roles()}
+    assert result.mode == "update"
+    investigated = result.counts["sites"]["investigated"]
+    assert 0 < investigated <= limits.sites_update_run
+    assert calls["gap_investigate"] == investigated * (limits.rounds_per_site + 1)  # every site used every round
+    uncertain = sum(item.get("model", 0) for item in result.counts["sections_by_relevance"].values())
+    assert calls["gap_relevance"] <= math.ceil(uncertain / BATCH_SECTIONS)
+    assert calls["gap_judge"] == 0 and result.counts["routes"].get("ai", 0) == 0
+    assert {role: result.cost[role]["calls"] for role in result_roles()} == calls
+    assert_all_recorded(world.gateway)
 
 
-@pending("15", "manual benchmark; early check: 04")
-def test_nfr_gperf_01_detection_over_graph_5_000_spec_nodes() -> None:
-    """Benchmark test on a generated graph (manual run, reported in the pull request)."""
+def result_roles() -> tuple[str, ...]:
+    return ("gap_relevance", "gap_investigate", "gap_judge", "gap_edits")
+
+
+async def test_nfr_gperf_01_detection_over_graph_5_000_spec_nodes() -> None:
+    """Benchmark test on a generated graph (manual run, reported in the pull request).
+
+    ``examples/gap_detect_bench.py`` at 5,000 spec nodes (``make graph-bench ARGS="gap-detect --nodes 5000"`` runs
+    the same): relevance, detection and sites finish within the 30-second limit without a model call.
+    """
+
+    summary = await run_gap_detect_bench(5_000)
+
+    assert summary["nodes"] == 5_000 and summary["model_calls"] == 0
+    assert summary["ok"] is True and summary["total_s"] < summary["limit_s"] == 30.0
+    assert summary["detector_failures"] == {} and summary["sites"]["formed"] > 0
 
 
 async def test_nfr_gport_01_graph_gap_run_graph_store_core_supports() -> None:
