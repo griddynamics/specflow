@@ -46,7 +46,9 @@ class AddFindingBody(BaseModel):
         description="gap: the spec does not say; conflict: two parts disagree; question: for the owner; note: learned."
     )
     text: str = Field(
-        min_length=1, max_length=MAX_TEXT_CHARS, description="What you found, in 1 to 2000 characters; no secrets."
+        min_length=1,
+        max_length=MAX_TEXT_CHARS,
+        description="What you found: a question of 10 to 1000 characters (a note: up to 2000); no secrets.",
     )
     about: list[Id] = Field(
         min_length=1, max_length=MAX_ABOUT, description="1 to 20 spec ids the finding is about; aliases resolve."

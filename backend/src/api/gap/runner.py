@@ -4,8 +4,9 @@ Wired like the plan runner (docs/graph/gap/api.md "Host runner"): the run artifa
 (``open_gap_run_store``, beside the build and plan stores), the runtime's graph store, ``load_ontology()`` (the gap
 ontology is merged in), ``load_gap_rules`` (``GAP_RULES_PATH`` or the shipped rules), the PostgreSQL ``GapRecords``
 and ``Amendments`` on the application database, the ``LoopInvestigator`` over the run's gateway, the plan as
-``PlanView`` (``api.gap.plan_view``), one ``Gateway`` per run and ``ensure_gap_schema`` once per process, then
-``run_gap``.
+``PlanView`` (``api.gap.plan_view``), the plan service's hold calls as ``StoryHolds`` (``api.gap.holds``), one
+``Gateway`` per run and ``ensure_gap_schema`` once per process (with the migration of first-slice findings of every
+project of the application database), then ``run_gap``.
 
 Runs of one project never overlap: each project has a queue and one task that drains it; runs of different projects
 wait for the process's run slot. Triggers:
@@ -59,14 +60,15 @@ from typing import Any, Final, Literal
 
 from api.contained import Contained
 from api.gap.changes import build_facts, gap_change_reports
+from api.gap.holds import plan_holds
 from api.gap.plan_view import PlanReaderView
-from api.gap.records import PostgresAmendments, PostgresGapRecords
+from api.gap.records import PostgresAmendments, PostgresGapRecords, all_project_ids
 from api.gap.state import GapRunState
 from api.graph_build.corpus import CorpusAnswersRead
 from api.graph_build.reports import reports_since
 from api.plan.state import NoGraphBuildError
 from graph.build import BuildStore, CorpusRevision, open_file_stores
-from graph.core import GraphError, LLMConfig, Ontology, load_ontology
+from graph.core import ConfigurationError, GraphError, LLMConfig, Ontology, load_ontology
 from graph.core.llm import Gateway
 from graph.core.reader import GraphReader
 from graph.core.store import GraphStore, as_executor
@@ -114,6 +116,8 @@ GapRunFunction = Callable[..., Awaitable[GapRunResult]]
 PortsFactory = Callable[[Transaction], tuple[Any, Any]]
 ReaderFactory = Callable[[GraphStore, Ontology], Any]
 PlanViewFactory = Callable[[GraphStore, Ontology], Any]
+HoldsFactory = Callable[[GraphStore, Ontology], Awaitable[Any]]
+ProjectIds = Callable[[Transaction], Awaitable[tuple[str, ...]]]
 
 
 class RunnerClosedError(RuntimeError):
@@ -154,6 +158,8 @@ class GapRunnerDependencies:
     executor: Callable[[GraphStore], Any] = as_executor
     reader: ReaderFactory = graph_reader
     plan: PlanViewFactory = plan_view
+    holds: HoldsFactory = plan_holds  # ``StoryHolds``: the plan service's hold, block and release calls
+    project_ids: ProjectIds = all_project_ids  # the projects whose first-slice findings ``ensure`` migrates
     service: Callable[..., Any] = GapService
 
 
@@ -200,6 +206,8 @@ class _Lazy:
     runs: GapRunStore | None = None
     builds: BuildStore | None = None
     plan: Any = None
+    holds: Any = None
+    holds_ready: bool = False
     service: Any = None
     gateway: Any = None  # the service's gateway (``gap_edits``)
     schema_ready: bool = False
@@ -401,6 +409,7 @@ class GapRunner:
                 builds=self._builds_port,
                 settings=self._gap,
                 plan=await self._plan_view(ontology),
+                holds=await self._holds(ontology),
             )
         service: GapService = self._lazy.service
         return service
@@ -649,6 +658,7 @@ class GapRunner:
                 changes=changes,
                 build=facts,
                 plan=await self._plan_view(ontology),
+                holds=await self._holds(ontology),
                 store=runs,
                 run_id=run_id,
                 on_progress=active.report,
@@ -760,6 +770,17 @@ class GapRunner:
             self._lazy.plan = await asyncio.to_thread(self._deps.plan, self._store, ontology)
         return self._lazy.plan
 
+    async def _holds(self, ontology: Ontology) -> Any:
+        """The plan's hold calls (``StoryHolds``), or None when the plan cannot be served (logged once)."""
+
+        if not self._lazy.holds_ready:
+            try:
+                self._lazy.holds = await self._deps.holds(self._store, ontology)
+            except ConfigurationError as error:
+                log_event(logger, WARNING, "api.gap.holds_unavailable", error_code=error.code)
+            self._lazy.holds_ready = True
+        return self._lazy.holds
+
     async def _prepare(self) -> tuple[Ontology, GapRules, GapRunStore]:
         async with self._lazy.lock:
             if self._lazy.ontology is None:
@@ -767,8 +788,10 @@ class GapRunner:
             ontology = self._lazy.ontology
             if self._lazy.rules is None:
                 self._lazy.rules = await asyncio.to_thread(load_gap_rules, self._gap.rules_path, ontology=ontology)
-            if not self._lazy.schema_ready:
-                await self._deps.ensure(self._store, ontology, self._llm)
+            if not self._lazy.schema_ready:  # with the migration of first-slice findings (lifecycle.md)
+                records, _ = self._deps.ports(self._transaction)
+                projects = await self._deps.project_ids(self._transaction)
+                await self._deps.ensure(self._store, ontology, self._llm, records=records, project_ids=projects)
                 self._lazy.schema_ready = True
         return ontology, self._lazy.rules, self._runs()
 

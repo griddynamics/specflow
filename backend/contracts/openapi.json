@@ -70,7 +70,7 @@
             "title": "Story Id"
           },
           "text": {
-            "description": "What you found, in 1 to 2000 characters; no secrets.",
+            "description": "What you found: a question of 10 to 1000 characters (a note: up to 2000); no secrets.",
             "maxLength": 2000,
             "minLength": 1,
             "title": "Text",
@@ -3517,6 +3517,14 @@
             "title": "About",
             "type": "array"
           },
+          "aliases": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
           "blocking": {
             "default": false,
             "title": "Blocking",
@@ -3685,6 +3693,17 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "story_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Id"
           },
           "title": {
             "title": "Title",
@@ -4296,8 +4315,16 @@
       },
       "NodeRef": {
         "additionalProperties": false,
-        "description": "A spec node as a gap view shows it.",
+        "description": "A spec node as a gap view shows it; ``aliases`` are its earlier spec ids (a plan task may still name one).",
         "properties": {
+          "aliases": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -6082,6 +6109,14 @@
           "gap_id": {
             "title": "Gap Id",
             "type": "string"
+          },
+          "held": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Held",
+            "type": "array"
           }
         },
         "required": [
@@ -9089,7 +9124,7 @@
     },
     "/api/v1/agent/findings": {
       "post": {
-        "description": "Record a finding; a repeat answers the open finding with the same dedupe key, before the blocking rules;\n``blocking`` also blocks the caller's claimed story.",
+        "description": "Record a finding as a development gap (docs/graph/gap/lifecycle.md \"Development gaps\", FR-GDEV-01): a repeat\nanswers the open gap with the same question, story and nodes; ``blocking`` also blocks the caller's claimed story\n(FR-GDEV-02); a new gap is investigated at once in a ``site`` run (FR-GDEV-03). A ``note`` is no gap: it is kept\nas a note of the story's nodes.",
         "operationId": "add_finding_api_v1_agent_findings_post",
         "parameters": [
           {
@@ -11215,7 +11250,7 @@
     },
     "/api/v1/projects/{pid}/findings": {
       "get": {
-        "description": "The findings of the project, blocking first, then newest first; ``node`` keeps those about one spec node\n(aliases resolve).",
+        "description": "The development gaps of the project as findings, in the gaps' order; ``node`` keeps those about one spec node\n(aliases resolve).",
         "operationId": "list_findings_api_v1_projects__pid__findings_get",
         "parameters": [
           {
@@ -11323,7 +11358,7 @@
     },
     "/api/v1/projects/{pid}/findings/{finding_id}/dismiss": {
       "post": {
-        "description": "Dismiss an open finding with an optional note; a blocking one unblocks its tasks (A20).",
+        "description": "Dismiss an open finding with an optional note; a blocking one unblocks its tasks.",
         "operationId": "dismiss_finding_api_v1_projects__pid__findings__finding_id__dismiss_post",
         "parameters": [
           {
@@ -11387,7 +11422,7 @@
     },
     "/api/v1/projects/{pid}/findings/{finding_id}/resolve": {
       "post": {
-        "description": "Resolve an open finding with an optional note; a blocking one unblocks its tasks (A20).",
+        "description": "Close an open finding with an optional note (the gap is dismissed); a blocking one unblocks its tasks.",
         "operationId": "resolve_finding_api_v1_projects__pid__findings__finding_id__resolve_post",
         "parameters": [
           {

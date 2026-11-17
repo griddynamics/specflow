@@ -1,9 +1,9 @@
-"""The reads behind the agent routes: one ``GraphReader``, ``PlanService`` and findings store, built on first use.
+"""The reads behind the agent routes: one ``GraphReader`` and ``PlanService``, built on first use.
 
 They sit on the REST runtime's graph store and do not depend on the graph build switches (``Runtime.plans``): an
 ontology without a ``feature`` type or bad plan rules fail the call that needs them, never the API start. The plan's
-findings port is ``api.gap.findings.OpenGaps``: open gaps of the runtime's gap runner (``Runtime.gaps``, read on each
-call) merged with the first-slice findings store (docs/graph/gap/lifecycle.md "Plan link", FR-GPLN-02).
+findings port is ``api.gap.findings.OpenGaps``: the open gaps of the runtime's gap runner (``Runtime.gaps``, read on
+each call; docs/graph/gap/lifecycle.md "Plan link", FR-GPLN-02).
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from api.runtime import Runtime
 from graph import core as graph_core
 from graph.core import ConfigurationError, GraphReader, Ontology, OntologyError
 from graph.core.llm import Gateway
-from graph.gap import Findings
 from graph.plan.rules import load_plan_rules
 from graph.plan.service import PlanService
 
@@ -30,10 +29,7 @@ class AgentReads:
     ontology: Ontology
     reader: GraphReader
     plan: PlanService
-    findings: Findings | None = None  # the first-slice store (add_finding, the findings routes); None: none are read
-    open_findings: OpenGaps | None = (
-        None  # the plan's findings port (gaps and first-slice findings); None: ``findings``
-    )
+    open_findings: OpenGaps | None = None  # the plan's findings port (open gaps); None: no finding is read
 
 
 def _load(graph_store: object, gateway: Gateway | None = None, runtime: Runtime | None = None) -> AgentReads:
@@ -44,13 +40,11 @@ def _load(graph_store: object, gateway: Gateway | None = None, runtime: Runtime 
         rules = load_plan_rules(ontology=ontology)
     except OSError:  # an unreadable file is a configuration fault, not a database outage (is_database_unreachable)
         raise ConfigurationError("agent_reads_unreadable") from None
-    findings = Findings(graph_store, ontology)
-    open_findings = OpenGaps(findings, lambda: runtime.gaps if runtime is not None else None)
+    open_findings = OpenGaps(lambda: runtime.gaps if runtime is not None else None)
     return AgentReads(
         ontology=ontology,
         reader=GraphReader(graph_store, ontology, gateway),
         plan=PlanService(graph_store, ontology, rules, findings=open_findings),
-        findings=findings,
         open_findings=open_findings,
     )
 
@@ -74,9 +68,9 @@ async def agent_reads(runtime: Runtime) -> AgentReads:
 
 
 def findings_port(reads: AgentReads) -> Any:
-    """What briefs and ``get_node`` read open findings from: the merged port, else the first-slice store, else none."""
+    """What briefs and ``get_node`` read open findings from: the open gaps port, else none."""
 
-    return reads.open_findings if reads.open_findings is not None else reads.findings
+    return reads.open_findings
 
 
 async def finding_severities(reads: AgentReads, project_id: str, findings: Iterable[Any]) -> dict[str, str]:

@@ -30,7 +30,7 @@ from typing import Annotated, Final
 from fastapi import APIRouter, Path, Query, Response
 
 from api.deps import RuntimeDep, UserDep
-from api.errors import ApiError, document_not_found, invalid_arguments, invalid_cursor
+from api.errors import ApiError, document_not_found, invalid_arguments, invalid_cursor, plan_applying
 from api.gap.state import GapRunnerReads, GapRunState
 from api.gap_models import (
     DEFAULT_LIMIT,
@@ -85,6 +85,7 @@ from graph.gap.corpus import (
     clarifications_lineage,
     clarifications_markdown,
 )
+from graph.plan.errors import TaskStateError
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("api.routers.gaps")
@@ -478,6 +479,10 @@ async def dismiss_gap(
         raise gap_wrong_state(error) from None
     except AnswerInvalidError as error:
         raise answer_invalid(error) from None
+    except TaskStateError as error:  # the plan refused to release the gap's tasks: nothing changed, retry
+        if error.code == "plan_applying":
+            raise plan_applying() from None
+        raise
     log_event(logger, INFO, "api.gap.dismissed", user_id=str(user.id), project_id=str(pid), gap_id=gap_id)
     return Response(status_code=204)
 

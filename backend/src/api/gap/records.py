@@ -208,7 +208,7 @@ class PostgresGapRecords:
         async with self._transaction() as session:
             await repo.delete_suppression(session, _project(project_id), signature)
 
-    async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None:
+    async def put_notes(self, project_id: str, run_id: str | None, notes: Sequence[NoteRow]) -> None:
         values = [_values(note) | {"run_id": run_id} for note in notes]
         async with self._transaction() as session:
             await repo.insert_notes(session, _project(project_id), values)
@@ -265,3 +265,10 @@ class PostgresAmendments:
     async def pending_lineages(self, project_id: str) -> Sequence[str]:
         async with self._transaction() as session:
             return tuple(await repo.pending_lineages(session, _project(project_id)))
+
+
+async def all_project_ids(transaction: Transaction) -> tuple[str, ...]:
+    """Every project's id as the graph store names its partition (the project uuid as text)."""
+
+    async with transaction() as session:
+        return tuple(str(item) for item in await repo.project_ids(session))

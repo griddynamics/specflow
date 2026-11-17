@@ -30,11 +30,12 @@ CURSOR: Final = "cursor"
 
 def gap_item(gap: GapView) -> GapItem:
     """A gap as ``list_gaps`` shows it: the answer's text once a clarification exists (its own text, else the
-    chosen option's label)."""
+    chosen option's label, else, for a pointer, the answering lines of the spec: FR-GDEV-04)."""
 
     answer = None
     if gap.clarification is not None:
-        answer = gap.clarification.text or gap.clarification.option_label
+        lines = "\n".join(quote.quote for quote in gap.clarification.basis)
+        answer = gap.clarification.text or gap.clarification.option_label or lines or None
     return GapItem(
         gap_id=gap.gap_id,
         kind=gap.kind,

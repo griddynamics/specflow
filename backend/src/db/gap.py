@@ -28,6 +28,7 @@ from db.models import (
     GapSite,
     GapSuppression,
     GapVerdict,
+    Project,
 )
 
 RUN_FINISHED: Final = "completed"
@@ -36,6 +37,7 @@ AMENDMENT_APPLIED: Final = ("active", "undecided")
 BYTE_ORDER: Final = "C"
 
 Values = Mapping[str, Any]
+PROJECTS_LIMIT: Final = 10_000  # the projects one process start migrates (first-slice findings exist only in a few)
 
 
 def _scoped(project_id: uuid.UUID, rows: Sequence[Values]) -> list[dict[str, Any]]:
@@ -316,3 +318,9 @@ async def pending_lineages(session: AsyncSession, project_id: uuid.UUID) -> Sequ
         .order_by(CorpusAmendment.lineage.collate(BYTE_ORDER))
     )
     return (await session.execute(statement)).scalars().all()
+
+
+async def project_ids(session: AsyncSession) -> Sequence[uuid.UUID]:
+    """Every project's id, by id: the projects whose first-slice findings ``ensure_gap_schema`` migrates."""
+
+    return list((await session.scalars(select(Project.id).order_by(Project.id).limit(PROJECTS_LIMIT))).all())

@@ -38,7 +38,7 @@ from api.runtime import Runtime
 from api.write_support import plan_read, printable, write_refusal, written
 from db.models import Project, User
 from graph.plan.arguments import check_branch, check_label
-from graph.plan.errors import TaskStateError
+from graph.plan.errors import PlanReadError, TaskStateError
 
 router = APIRouter(prefix="/agent", tags=["agent"], route_class=AgentRoute)
 
@@ -112,12 +112,12 @@ async def preview_story(
 
 
 async def _blocking_findings(reads: AgentReads, graph_id: str, caller: str) -> tuple[str, ...]:
-    """The ids of the caller's open blocking findings: they put the stories they blocked into the ``mine`` view."""
+    """The ids of the caller's open blocking development gaps (and their aliases): they put the stories they blocked
+    into the ``mine`` view."""
 
-    if reads.findings is None:
+    if reads.open_findings is None:
         return ()
-    page = await reads.findings.findings(graph_id, created_by=caller, blocking=True, limit=_FINDING_IDS)
-    return tuple(item.finding_id for item in page.findings)
+    return (await reads.open_findings.blocking_ids(graph_id, caller))[:_FINDING_IDS]
 
 
 # --- writes ---------------------------------------------------------------------------------------------------
@@ -134,6 +134,7 @@ async def claim_story(
     reads = await agent_reads(runtime)
 
     async def claim() -> tuple[StoryClaim, bool]:
+        await _hold_blockers(reads, graph_id, body.story_id)
         try:
             claimed = await reads.plan.claim_story(
                 graph_id, body.story_id, claimed_by=str(user.id), agent_label=body.agent_label, branch=body.branch
@@ -143,6 +144,19 @@ async def claim_story(
         return views.claim_view(graph_id, body.story_id, claimed), claimed.repeat
 
     return await written("story-claim", graph_id, user, {"story_id": body.story_id}, claim)
+
+
+async def _hold_blockers(reads: AgentReads, graph_id: str, story_id: str) -> None:
+    """Decision GD2 at claim time: the open blocker gaps about the story's nodes hold their tasks first, so the plan
+    refuses the claim naming them even when a plan run reset a held task (an unknown story is the claim's refusal)."""
+
+    if reads.open_findings is None:
+        return
+    try:
+        nodes = await reads.plan.story_nodes(graph_id, story_id)
+    except PlanReadError:
+        return
+    await reads.open_findings.hold_blockers(graph_id, nodes)
 
 
 @router.post("/story-release", response_model=StoryRelease)
@@ -202,7 +216,8 @@ async def _claim_refusal(
     if error.code == "not_available":
         preview = await reads.plan.story_preview(graph_id, story_id)
         holders = await holders_of(runtime, project.id, user.id, [blocker.claimed_by for blocker in preview.blockers])
-        found = [await reads.findings.finding(graph_id, item) for item in preview.blocked_by] if reads.findings else []
+        port = reads.open_findings
+        found = [await port.finding(graph_id, item) for item in preview.blocked_by] if port is not None else []
         details = ErrorDetails(
             state=preview.state,
             blockers=views.capped_blockers(preview.blockers, holders),
