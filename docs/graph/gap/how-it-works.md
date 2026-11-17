@@ -75,7 +75,7 @@ gap, and read who decided and why.
 |---|---|---|
 | Missing information | Payment capture is specified, a failed capture is not | Inserts the missing statement |
 | Ambiguity | "The admin panel should be fast." | Replaces it with a measurable statement |
-| Contradiction | One document reviews orders over 1,000 EUR, another holds payments over 500 EUR | Replaces the losing line, often in another document than the winning one |
+| Contradiction | One document holds only orders over 1,000 EUR for manual review, another holds every order over 500 EUR | Replaces the losing line, often in another document than the winning one |
 | Inconsistency | "Customer" in Orders and "Client" in Billing, same fields | Aligns names or separates the two, often in several documents |
 | Open question | "Can a customer cancel a paid order?" | Replaces the question with its answer |
 | Unconfirmed assumption | "We assume every customer has an email address." | Confirms it as a plain statement, or replaces it |

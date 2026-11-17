@@ -9,7 +9,7 @@ Payment is captured when the order is placed.
 Paid orders may be cancelled for half an hour after payment; the customer gets a full refund.
 
 ## Order review
-Orders over 1,000 EUR are reviewed.
+Only orders over 1,000 EUR are held for manual review.
 
 ## Order history
 Customers can see their past orders.

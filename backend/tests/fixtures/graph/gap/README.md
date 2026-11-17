@@ -17,7 +17,7 @@ the plan fixtures). Test helpers: `tests/gap_acceptance_support.py`.
 |---|---|---|---|
 | Stated question "Can a customer cancel a paid order?" | `orders-spec.md`, Place order | `QST::CANCEL_PAID_ORDER` `RELATES_TO` `REQ::FR::PLACE_ORDER` (part of `FEAT::PLACE_ORDER`, part of `MOD::ORDERS_SERVICE`) | FR-GDET-02, FR-GANS-01, FR-GCLS-01 |
 | Refund interface near the question | `payments-spec.md` Refunds, `orders-spec.md` Interfaces | `IFC::REFUND_API`, provided by Payments service, consumed by Orders service | FR-GINV-04 |
-| Review limit 1,000 EUR against 500 EUR | `orders-spec.md` Order review, `payments-spec.md` Payment review | `REQ::BR::REVIEW_ORDERS_OVER_1000_EUR`, `REQ::BR::HOLD_PAYMENTS_OVER_500_EUR`; one `dedup_refused` pair, guard `numbers` | FR-GDET-03, FR-GANS-04, FR-GANS-05 |
+| Review limit: only orders over 1,000 EUR held for manual review against every order over 500 EUR | `orders-spec.md` Order review, `payments-spec.md` Payment review | `REQ::BR::REVIEW_ORDERS_OVER_1000_EUR`, `REQ::BR::HOLD_ORDERS_OVER_500_EUR`; one `dedup_refused` pair, guard `numbers` | FR-GDET-03, FR-GANS-04, FR-GANS-05 |
 | Interface without a provider | `admin-spec.md`, Reporting | `IFC::REPORTING_API` (only `CONSUMED_BY` the Admin panel) | FR-GDET-04 |
 | Data entity without a store | `payments-spec.md`, Refunds | `ENT::REFUND` (no `STORED_IN`) | FR-GDET-04 (MS-STORE) |
 | Vague requirement "The admin panel should be fast." | `admin-spec.md`, Performance | `REQ::NFR::ADMIN_PANEL_FAST` | FR-GDET-05 |

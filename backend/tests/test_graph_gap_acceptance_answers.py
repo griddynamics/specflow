@@ -128,7 +128,7 @@ async def test_fr_gans_04_every_edit_is_one_amendment() -> None:
 
     rig = await answer_world()
     gap = await rig.review_gap()
-    edit = amend(ORDERS_REVIEW, Planted.REVIEW_LIMIT_ORDERS_LINE, "Orders over 500 EUR are reviewed.")
+    edit = amend(ORDERS_REVIEW, Planted.REVIEW_LIMIT_ORDERS_LINE, "Orders over 500 EUR are held for manual review.")
 
     result = await rig.service.answer_gap(
         rig.project_id,
@@ -145,7 +145,7 @@ async def test_fr_gans_04_every_edit_is_one_amendment() -> None:
 async def test_fr_gans_05_contradiction_answered_amend_placement_replace_losing_line() -> None:
     """Given the review-limit answer applied, then the build's graph holds one review-limit rule of 500 EUR.
 
-    The losing line "Orders over 1,000 EUR are reviewed." is replaced in the text the build reads; the simulated
+    The losing line "Only orders over 1,000 EUR are held for manual review." is replaced in the text the build reads; the simulated
     build (``apply_build``) merges the two rules, as dedup does once both say 500 EUR, and the close check resolves
     the contradiction.
     """
@@ -164,7 +164,7 @@ async def test_fr_gans_05_contradiction_answered_amend_placement_replace_losing_
 
     await update_run(rig.world, rebuilt)
 
-    assert "Orders over 500 EUR are reviewed." in orders.markdown
+    assert "Orders over 500 EUR are held for manual review." in orders.markdown
     assert Planted.REVIEW_LIMIT_ORDERS_LINE not in orders.markdown
     rules = [node.spec_id for node in await rig.world.reader.nodes(rig.project_id) if node.label == "BusinessRule"]
     assert [spec_id for spec_id in rules if spec_id.startswith("REQ::BR::")] == [Planted.REVIEW_LIMIT_PAYMENTS]

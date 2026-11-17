@@ -5,7 +5,7 @@ The Orders service owns the order lifecycle of the Acme shop.
 A customer places an order from the cart; the Orders service stores it in the Orders database.
 
 ## Order review
-Orders over 1,000 EUR are reviewed.
+Only orders over 1,000 EUR are held for manual review.
 
 ## Order history
 Customers can see their past orders.

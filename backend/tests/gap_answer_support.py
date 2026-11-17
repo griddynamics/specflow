@@ -21,8 +21,8 @@ from graph.gap.models import Edit, EditTarget, GapView
 from graph.gap.service import GapService
 from graph.gap.settings import GapSettings
 
-ORDERS_REVIEW = "upload:orders-spec#orders-service-specification/order-review#2abe6ad8"
-PAYMENTS_REVIEW = "upload:payments-spec#payments-service-specification/payment-review#8a2d474f"
+ORDERS_REVIEW = "upload:orders-spec#orders-service-specification/order-review#255aa082"
+PAYMENTS_REVIEW = "upload:payments-spec#payments-service-specification/payment-review#8811873c"
 PLACE = "upload:orders-spec#orders-service-specification/place-order#e1486afe"
 ORDERS_LINEAGE = "upload:orders-spec"
 PAYMENTS_LINEAGE = "upload:payments-spec"

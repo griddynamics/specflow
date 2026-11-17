@@ -9,7 +9,7 @@ A customer pays for an order by card.
 The Payments service captures card payments through the Stripe API.
 
 ## Payment review
-Payments over 500 EUR are held for review.
+Every order over 500 EUR is held for manual review.
 
 ## Refunds
 The Payments service provides the Refund API.

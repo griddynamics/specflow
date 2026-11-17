@@ -72,7 +72,7 @@
       }
     },
     {
-      "input_hash": "8795f2285bd3aab00885da9581e02c63cd38297971ad11bd074e55d2b578e6fc",
+      "input_hash": "7c6e8dc73c9dd992b8930e4be832e6fee08b0c01b4403a5413f680d3567b1de1",
       "note": "site SITE::19968E352716 round 1 (MS-CRITERIA REQ::FR::REFUND_TO_ORIGINAL_CARD)",
       "answer": {
         "action": "report",
@@ -203,7 +203,7 @@
       }
     },
     {
-      "input_hash": "e8701133ee04880b2702d6cddc12536c132006c8e6a7658450d121c910a95ce3",
+      "input_hash": "b9817a74ca8a8ffd6d41ef5b5dbabd21971dd3a44c5bfbad5da6180b3a0c811e",
       "note": "site SITE::3BD332B843F9 round 1 (MS-CRITERIA REQ::FR::PAY_BY_CARD)",
       "answer": {
         "action": "report",
@@ -373,7 +373,101 @@
       }
     },
     {
-      "input_hash": "7f046502848fa4e3eb2c1216504db25e942f1572ee3328f14dfebc4789f0622c",
+      "input_hash": "a0d9e5cebef1902ab7ea557932a7fe5bc912f8aaeaa7c7a083fc2d9c77ee76ed",
+      "note": "site SITE::62C47EA01C6D round 1 (CT-VALUE REQ::BR::HOLD_ORDERS_OVER_500_EUR,REQ::BR::REVIEW_ORDERS_OVER_1000_EUR)",
+      "answer": {
+        "action": "report",
+        "reads": [],
+        "report": {
+          "verdict": "gap",
+          "duplicate_of": null,
+          "kind": "contradiction",
+          "severity": "major",
+          "title": "Two review limits for the same orders",
+          "question": "Which amount sends an order to review: 500 EUR or 1,000 EUR?",
+          "why": "The Orders spec holds only orders over 1,000 EUR for manual review while the Payments spec holds every order over 500 EUR; an order between the two limits is held by one rule and not by the other.",
+          "about": [
+            "REQ::BR::REVIEW_ORDERS_OVER_1000_EUR",
+            "REQ::BR::HOLD_ORDERS_OVER_500_EUR"
+          ],
+          "impacts": [],
+          "witness": [
+            {
+              "fragment_id": "upload:orders-spec#orders-service-specification/order-review#255aa082",
+              "quote": "Only orders over 1,000 EUR are held for manual review.",
+              "fact": null
+            },
+            {
+              "fragment_id": "upload:payments-spec#payments-service-specification/payment-review#8811873c",
+              "quote": "Every order over 500 EUR is held for manual review.",
+              "fact": null
+            }
+          ],
+          "options": [
+            {
+              "label": "A: Review from 500 EUR",
+              "detail": "One limit for both services; more orders are reviewed.",
+              "recommended": true,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:orders-spec#orders-service-specification/order-review#255aa082",
+                    "anchor_quote": "Only orders over 1,000 EUR are held for manual review.",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "Orders over 500 EUR are held for manual review."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "B: Review from 1,000 EUR",
+              "detail": "Fewer reviews; orders between 500 and 1,000 EUR pass without review.",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "amend",
+                  "target": {
+                    "fragment_id": "upload:payments-spec#payments-service-specification/payment-review#8811873c",
+                    "anchor_quote": "Every order over 500 EUR is held for manual review.",
+                    "heading": null
+                  },
+                  "operation": "replace",
+                  "text": "Every order over 1,000 EUR is held for manual review."
+                }
+              ],
+              "basis": []
+            },
+            {
+              "label": "C: Keep two limits",
+              "detail": "Both rules stay; the clarifications document says they are independent.",
+              "recommended": false,
+              "edits": [
+                {
+                  "placement": "document",
+                  "target": {
+                    "fragment_id": null,
+                    "anchor_quote": null,
+                    "heading": "Review limits (Orders service, Payments service)"
+                  },
+                  "operation": "append_section",
+                  "text": "The Orders service holds orders over 1,000 EUR for manual review; the Payments service separately holds orders over 500 EUR before payment."
+                }
+              ],
+              "basis": []
+            }
+          ],
+          "pointer": null,
+          "ai_answerable": false,
+          "ai_reason": "Choosing a limit is a decision.",
+          "not_spec_reason": null
+        }
+      }
+    },
+    {
+      "input_hash": "5acb91ee3e5b788ebd5c9d5d90940bf0bcb50ffc71ffd8458b2e5cd23975c568",
       "note": "site SITE::7C7499AA0780 round 1 (MS-CRITERIA REQ::FR::SEE_PAST_ORDERS)",
       "answer": {
         "action": "report",
@@ -493,7 +587,7 @@
       }
     },
     {
-      "input_hash": "fac92a8d163597a6e9e87470543c61319506a6e5832b0c599d614c71077e911d",
+      "input_hash": "90a88eaaf5653ae801da781d1647abd2dc41cfddebad43dba1e739833e4ab8b1",
       "note": "site SITE::9702D02433B3 round 1 (OQ-STATED QST::CANCEL_PAID_ORDER,REQ::FR::PLACE_ORDER)",
       "answer": {
         "action": "report",
@@ -614,101 +708,7 @@
       }
     },
     {
-      "input_hash": "27fd3875e79e1a513c91c3874048213e00119c27663885e5e1350d215327eb75",
-      "note": "site SITE::A6294855E4BE round 1 (CT-VALUE REQ::BR::HOLD_PAYMENTS_OVER_500_EUR,REQ::BR::REVIEW_ORDERS_OVER_1000_EUR)",
-      "answer": {
-        "action": "report",
-        "reads": [],
-        "report": {
-          "verdict": "gap",
-          "duplicate_of": null,
-          "kind": "contradiction",
-          "severity": "major",
-          "title": "Two review limits for the same orders",
-          "question": "Which amount sends an order to review: 500 EUR or 1,000 EUR?",
-          "why": "The Orders spec reviews orders over 1,000 EUR while the Payments spec holds payments over 500 EUR; orders between the two limits are treated differently.",
-          "about": [
-            "REQ::BR::REVIEW_ORDERS_OVER_1000_EUR",
-            "REQ::BR::HOLD_PAYMENTS_OVER_500_EUR"
-          ],
-          "impacts": [],
-          "witness": [
-            {
-              "fragment_id": "upload:orders-spec#orders-service-specification/order-review#2abe6ad8",
-              "quote": "Orders over 1,000 EUR are reviewed.",
-              "fact": null
-            },
-            {
-              "fragment_id": "upload:payments-spec#payments-service-specification/payment-review#8a2d474f",
-              "quote": "Payments over 500 EUR are held for review.",
-              "fact": null
-            }
-          ],
-          "options": [
-            {
-              "label": "A: Review from 500 EUR",
-              "detail": "One limit for both services; more orders are reviewed.",
-              "recommended": true,
-              "edits": [
-                {
-                  "placement": "amend",
-                  "target": {
-                    "fragment_id": "upload:orders-spec#orders-service-specification/order-review#2abe6ad8",
-                    "anchor_quote": "Orders over 1,000 EUR are reviewed.",
-                    "heading": null
-                  },
-                  "operation": "replace",
-                  "text": "Orders over 500 EUR are reviewed."
-                }
-              ],
-              "basis": []
-            },
-            {
-              "label": "B: Review from 1,000 EUR",
-              "detail": "Fewer reviews; payments between 500 and 1,000 EUR pass.",
-              "recommended": false,
-              "edits": [
-                {
-                  "placement": "amend",
-                  "target": {
-                    "fragment_id": "upload:payments-spec#payments-service-specification/payment-review#8a2d474f",
-                    "anchor_quote": "Payments over 500 EUR are held for review.",
-                    "heading": null
-                  },
-                  "operation": "replace",
-                  "text": "Payments over 1,000 EUR are held for review."
-                }
-              ],
-              "basis": []
-            },
-            {
-              "label": "C: Keep two limits",
-              "detail": "Both rules stay; the clarifications document says they are independent.",
-              "recommended": false,
-              "edits": [
-                {
-                  "placement": "document",
-                  "target": {
-                    "fragment_id": null,
-                    "anchor_quote": null,
-                    "heading": "Review limits (Orders service, Payments service)"
-                  },
-                  "operation": "append_section",
-                  "text": "The Orders service reviews orders over 1,000 EUR; the Payments service separately holds payments over 500 EUR."
-                }
-              ],
-              "basis": []
-            }
-          ],
-          "pointer": null,
-          "ai_answerable": false,
-          "ai_reason": "Choosing a limit is a decision.",
-          "not_spec_reason": null
-        }
-      }
-    },
-    {
-      "input_hash": "323a1e1239da8573ed5d505b8eaa85417064dcf3cb282aaea35f394183f51dfb",
+      "input_hash": "1899e496b09f6a484013e1342c97f09b12374e925a91169db92b1bc76e1ad383",
       "note": "site SITE::C9EFC4F0CD3E round 1 (MS-CRITERIA REQ::FR::CAPTURE_PAYMENT_ON_ORDER)",
       "answer": {
         "action": "report",
@@ -758,7 +758,7 @@
       }
     },
     {
-      "input_hash": "97e0675ee444e030035ba965acc4973ab1300e1dff3cec7ee339383c363191cd",
+      "input_hash": "1b011f734ed4d6d9005157e3c770585882cc12312374df503dc599bfe9908a50",
       "note": "site SITE::ED033ABC5F71 round 1 (MS-CRITERIA REQ::FR::REVIEW_QUEUE_DECISION)",
       "answer": {
         "action": "report",

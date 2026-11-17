@@ -109,19 +109,19 @@ fragments:
   content_hash: b5555b31409bc0cca7c47d17fca4fd8b4b2274281e2b748b6bfc8e4fd771f91b
   status: active
   last_build_id: build-1
-- fragment_id: upload:orders-spec#orders-service-specification/order-review#2abe6ad8
+- fragment_id: upload:orders-spec#orders-service-specification/order-review#255aa082
   document_id: upload:orders-spec
-  spec_id: FRAG::6575B9F5138BC180
+  spec_id: FRAG::6CB6F1A52597B3E1
   text: '## Order review
 
-    Orders over 1,000 EUR are reviewed.'
+    Only orders over 1,000 EUR are held for manual review.'
   heading_path:
   - Orders service specification
   - Order review
   ordinal: 3
   line_start: 11
   line_end: 12
-  content_hash: 6575b9f5138bc18071cba4cbd1b5ec6e1679a521f5cce189e486d87ece2482a4
+  content_hash: 6cb6f1a52597b3e1e24b0652c73d6177cd3d05dbf7571e3d138db43b08915ed1
   status: active
   last_build_id: build-1
 - fragment_id: upload:orders-spec#orders-service-specification/order-history#c9b25869
@@ -202,19 +202,19 @@ fragments:
   content_hash: 4658d24d419116d6cad7377a9d1fcae793775b2d68794600ad42b83011cd8a10
   status: active
   last_build_id: build-1
-- fragment_id: upload:payments-spec#payments-service-specification/payment-review#8a2d474f
+- fragment_id: upload:payments-spec#payments-service-specification/payment-review#8811873c
   document_id: upload:payments-spec
-  spec_id: FRAG::71422D4CECD6F8BD
+  spec_id: FRAG::49662FA0600B05DD
   text: '## Payment review
 
-    Payments over 500 EUR are held for review.'
+    Every order over 500 EUR is held for manual review.'
   heading_path:
   - Payments service specification
   - Payment review
   ordinal: 3
   line_start: 11
   line_end: 12
-  content_hash: 71422d4cecd6f8bd08d5e3b71f1e4bc7d3f29dbbe7bcd8cad96e6d5bef477bd0
+  content_hash: 49662fa0600b05dd9add0b6d11b0a759767e631d694ba2941ef1248689eafbb5
   status: active
   last_build_id: build-1
 - fragment_id: upload:payments-spec#payments-service-specification/refunds#56c00bc8
@@ -791,18 +791,18 @@ nodes:
   name: Order review
   last_build_id: build-1
   statements:
-  - fragment_id: upload:orders-spec#orders-service-specification/order-review#2abe6ad8
+  - fragment_id: upload:orders-spec#orders-service-specification/order-review#255aa082
     document_id: upload:orders-spec
     revision_id: REV::ORDERS_SPEC::1
     version: 1
-    text: Orders over 1,000 EUR are reviewed.
+    text: Only orders over 1,000 EUR are held for manual review.
   provenance:
   - document_id: upload:orders-spec
     path: orders-spec.md
-    fragment_id: upload:orders-spec#orders-service-specification/order-review#2abe6ad8
+    fragment_id: upload:orders-spec#orders-service-specification/order-review#255aa082
     line_start: 12
     line_end: 12
-    quote: Orders over 1,000 EUR are reviewed.
+    quote: Only orders over 1,000 EUR are held for manual review.
 - spec_id: FEAT::ORDER_HISTORY
   uuid: gap-node-0017
   label: Feature
@@ -953,21 +953,21 @@ nodes:
 - spec_id: REQ::BR::REVIEW_ORDERS_OVER_1000_EUR
   uuid: gap-node-0025
   label: BusinessRule
-  name: 'Order over 1,000 EUR: is reviewed'
+  name: 'Only order over 1,000 EUR: is held for manual review'
   last_build_id: build-1
   statements:
-  - fragment_id: upload:orders-spec#orders-service-specification/order-review#2abe6ad8
+  - fragment_id: upload:orders-spec#orders-service-specification/order-review#255aa082
     document_id: upload:orders-spec
     revision_id: REV::ORDERS_SPEC::1
     version: 1
-    text: Orders over 1,000 EUR are reviewed.
+    text: Only orders over 1,000 EUR are held for manual review.
   provenance:
   - document_id: upload:orders-spec
     path: orders-spec.md
-    fragment_id: upload:orders-spec#orders-service-specification/order-review#2abe6ad8
+    fragment_id: upload:orders-spec#orders-service-specification/order-review#255aa082
     line_start: 12
     line_end: 12
-    quote: Orders over 1,000 EUR are reviewed.
+    quote: Only orders over 1,000 EUR are held for manual review.
 - spec_id: REQ::FR::SEE_PAST_ORDERS
   uuid: gap-node-0026
   label: FunctionalRequirement
@@ -1004,24 +1004,24 @@ nodes:
     line_start: 19
     line_end: 19
     quote: The Orders service calls the Refund API of the Payments service to refund an order.
-- spec_id: REQ::BR::HOLD_PAYMENTS_OVER_500_EUR
+- spec_id: REQ::BR::HOLD_ORDERS_OVER_500_EUR
   uuid: gap-node-0028
   label: BusinessRule
-  name: 'Payment over 500 EUR: is held for review'
+  name: 'Order over 500 EUR: is held for manual review'
   last_build_id: build-1
   statements:
-  - fragment_id: upload:payments-spec#payments-service-specification/payment-review#8a2d474f
+  - fragment_id: upload:payments-spec#payments-service-specification/payment-review#8811873c
     document_id: upload:payments-spec
     revision_id: REV::PAYMENTS_SPEC::1
     version: 1
-    text: Payments over 500 EUR are held for review.
+    text: Every order over 500 EUR is held for manual review.
   provenance:
   - document_id: upload:payments-spec
     path: payments-spec.md
-    fragment_id: upload:payments-spec#payments-service-specification/payment-review#8a2d474f
+    fragment_id: upload:payments-spec#payments-service-specification/payment-review#8811873c
     line_start: 12
     line_end: 12
-    quote: Payments over 500 EUR are held for review.
+    quote: Every order over 500 EUR is held for manual review.
 - spec_id: REQ::FR::PAY_BY_CARD
   uuid: gap-node-0029
   label: FunctionalRequirement
@@ -1349,7 +1349,7 @@ edges:
   edge_key: FEAT_ORDER_REVIEW|PART_OF|MOD_ORDERS_SERVICE
   basis: stated
   source_fragment_ids:
-  - upload:orders-spec#orders-service-specification/order-review#2abe6ad8
+  - upload:orders-spec#orders-service-specification/order-review#255aa082
 - relation: PART_OF
   source: FEAT::ORDER_HISTORY
   target: MOD::ORDERS_SERVICE
@@ -1419,7 +1419,7 @@ edges:
   edge_key: REQ_BR_REVIEW_ORDERS_OVER_1000_EUR|PART_OF|FEAT_ORDER_REVIEW
   basis: stated
   source_fragment_ids:
-  - upload:orders-spec#orders-service-specification/order-review#2abe6ad8
+  - upload:orders-spec#orders-service-specification/order-review#255aa082
 - relation: PART_OF
   source: REQ::FR::SEE_PAST_ORDERS
   target: FEAT::ORDER_HISTORY
@@ -1442,12 +1442,12 @@ edges:
   source_fragment_ids:
   - upload:orders-spec#orders-service-specification/interfaces#abb40cb3
 - relation: PART_OF
-  source: REQ::BR::HOLD_PAYMENTS_OVER_500_EUR
+  source: REQ::BR::HOLD_ORDERS_OVER_500_EUR
   target: MOD::PAYMENTS_SERVICE
-  edge_key: REQ_BR_HOLD_PAYMENTS_OVER_500_EUR|PART_OF|MOD_PAYMENTS_SERVICE
+  edge_key: REQ_BR_HOLD_ORDERS_OVER_500_EUR|PART_OF|MOD_PAYMENTS_SERVICE
   basis: stated
   source_fragment_ids:
-  - upload:payments-spec#payments-service-specification/payment-review#8a2d474f
+  - upload:payments-spec#payments-service-specification/payment-review#8811873c
 - relation: PART_OF
   source: REQ::FR::PAY_BY_CARD
   target: FEAT::CARD_PAYMENT
@@ -1513,7 +1513,7 @@ edges:
   - upload:admin-spec#admin-panel-specification/reporting#57caaa16
 dedup_refused:
 - first_spec_id: REQ::BR::REVIEW_ORDERS_OVER_1000_EUR
-  second_spec_id: REQ::BR::HOLD_PAYMENTS_OVER_500_EUR
+  second_spec_id: REQ::BR::HOLD_ORDERS_OVER_500_EUR
   label: BusinessRule
   guard: numbers
   name_cosine: 0.91

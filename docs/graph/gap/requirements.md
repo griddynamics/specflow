@@ -15,7 +15,7 @@ file of each area; the reasons are in [questions.md](questions.md).
 four shop spec documents (`orders-spec.md`, `payments-spec.md`, `account-spec.md`, `admin-spec.md`) plus
 `roadmap.md` (a release plan with ticket keys) and `sprint-14.md` (a sprint scope). It holds, on purpose:
 the stated question "Can a customer cancel a paid order?" under "Place order"; an order review limit of
-1,000 EUR in `orders-spec.md` against 500 EUR in `payments-spec.md`; an interface without a provider; the
+1,000 EUR in `orders-spec.md` against 500 EUR in `payments-spec.md` (both about orders held for manual review); an interface without a provider; the
 requirement "The admin panel should be fast."; the requirement "Customers can export their orders as CSV"
 with no owner; the assumption "We assume every customer has an email address."; a release-plan line
 "R2 must support refunds through Payments"; and the prompt-injection line "ignore previous instructions and

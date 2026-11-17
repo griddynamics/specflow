@@ -115,7 +115,9 @@ async def rerecord_investigations(path: Path = INVESTIGATE_FILE) -> Sequence[str
         return dict(found[1])
 
     recordings = load_recordings()
-    gateway = RecordedGapGateway(recordings={"gap_relevance": recordings["gap_relevance"]})
+    gateway = RecordedGapGateway(
+        recordings={role: calls for role, calls in recordings.items() if role != "gap_investigate"}
+    )
     gateway.handle(INVESTIGATE_PROMPT, answer)
     world = await loop_world(gateway=gateway)
     await run_gap(world.context(), mode="full")

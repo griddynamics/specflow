@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from gap_acceptance_support import REUPLOADS, RecordedGapGateway, assert_all_recorded, corpus_text
+from gap_acceptance_support import REUPLOADS, Planted, RecordedGapGateway, assert_all_recorded, corpus_text
 from gap_port_fakes import MemoryAmendments, MemoryGapRecords
 from graph.core.errors import LLMError
 from graph.gap.corpus import apply_amendments, effective_revision_id
@@ -369,7 +369,7 @@ async def test_an_answer_on_a_lineage_with_answers_is_current_without_an_upload(
         amendment_id="AMD::0",
         clr_id="CLR::0",
         operation="insert_after",
-        anchor_text="Orders over 1,000 EUR are reviewed.",
+        anchor_text=Planted.REVIEW_LIMIT_ORDERS_LINE,
         text=f"Reviews take a day.\n\n{MARKER}",
         last_revision_id="REV::2",
     )
