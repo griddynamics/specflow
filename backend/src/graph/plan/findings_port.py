@@ -1,7 +1,8 @@
-"""The plan's view of findings: a port the host fills with ``graph.gap.Findings`` ([gap.md](gap.md)).
+"""The plan's view of findings: a port the host fills with the open gaps of ``graph.gap.GapService``
+(docs/graph/gap/lifecycle.md "Plan link"; the host adapter is ``api.gap.findings.OpenGaps``).
 
 ``graph.plan`` never imports ``graph.gap`` (the architecture's import contract). It asks for open findings and open
-counts through the structural ``FindingsReads`` below, which ``Findings`` satisfies as it is, and shows them as
+counts through the structural ``FindingsReads`` below, which ``GapService`` satisfies as it is, and shows them as
 ``OpenFinding``. A service built without a port shows no findings: lists stay empty and counts are 0.
 """
 

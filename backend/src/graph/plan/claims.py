@@ -9,7 +9,7 @@ token, notes, labels and branch names are stored, never logged.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from datetime import UTC, datetime
 from typing import Any, Final, TypeVar
 
@@ -26,6 +26,7 @@ from graph.plan.arguments import (
     check_story_reason,
     commit_text,
 )
+from graph.plan.changes import resolve_spec_id
 from graph.plan.claim_support import (
     CLEARED_STORY,
     CLEARED_TASK,
@@ -46,12 +47,13 @@ from graph.plan.claim_support import (
     stored_story,
 )
 from graph.plan.errors import TaskStateError
+from graph.plan.models import CurrentTask
 from graph.plan.names import BlockReason, TaskProgress
 from graph.plan.queries import LOCK_STORIES, LOCK_TASKS
 from graph.plan.reader import LoadedPlan
 from graph.plan.snapshot import read_current_plan
 from graph.plan.story_board import StoryBoard, Verdict
-from graph.plan.story_models import StoryClaim, StoryRelease, StoryTask
+from graph.plan.story_models import StoryClaim, StoryRelease, StoryTask, TaskHold
 from graph.plan.task_items import story_task_items
 from logger.logger import INFO, get_logger, log_event
 
@@ -300,6 +302,48 @@ class StoryClaims:
             return StoryRelease(released=claimed)
 
         return await self._transact(project_id, lambda board: held_group(board, story_id), work)
+
+    async def hold(
+        self,
+        project_id: str,
+        finding_id: str,
+        spec_ids: Collection[str],
+        *,
+        reason: BlockReason,
+        aliases: Mapping[str, str],
+    ) -> TaskHold:
+        """Block the open, unclaimed tasks implementing a node of ``spec_ids`` (merged ids resolved through
+        ``aliases`` on both sides) for an open blocker finding: ``pending`` and ``failed`` tasks become ``blocked``
+        with ``reason`` and ``blocked_by`` = ``finding_id``; ``in_progress`` tasks are left alone and listed; tasks
+        already ``blocked`` are left as they are (a repeat changes nothing). No claim ends ([lifecycle.md](lifecycle.md)
+        "Transitions")."""
+
+        check_story_reason(reason)
+        check_printable(finding_id, FINDING_LIMIT)
+        wanted = {resolve_spec_id(spec_id, aliases) for spec_id in spec_ids}
+
+        def implementing(board: StoryBoard) -> list[CurrentTask]:
+            return [
+                task
+                for task in board.loaded.current.tasks
+                if wanted & {resolve_spec_id(spec_id, aliases) for spec_id in task.implements}
+            ]
+
+        async def work(run: Work) -> TaskHold:
+            persisting(run.board)
+            found = implementing(run.board)
+            held = sorted(task.task_id for task in found if task.status in ("pending", "failed"))
+            busy = sorted(task.task_id for task in found if task.status == "in_progress")
+            await run.set_tasks(
+                {
+                    task_id: {**CLEARED_TASK, "status": "blocked", "block_reason": reason, "blocked_by": finding_id}
+                    for task_id in held
+                }
+            )
+            log_event(logger, INFO, "graph.plan.tasks_held", held=len(held), in_progress=len(busy), reason=reason)
+            return TaskHold(held=tuple(held), in_progress=tuple(busy))
+
+        return await self._transact(project_id, lambda board: {task.story_id for task in implementing(board)}, work)
 
     async def unblock_finding(self, project_id: str, finding_id: str) -> tuple[str, ...]:
         """Return the tasks still blocked by ``finding_id`` to ``pending`` (a host call after a person resolved it)."""

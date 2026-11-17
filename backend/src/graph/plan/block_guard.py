@@ -1,5 +1,6 @@
-"""The guard of a blocking finding: the caller holds the story under the token, and a node the finding is about is
-implemented by a task of the story ([gap.md](gap.md) "Blocking link", step 2)."""
+"""The guard of a blocking finding (a development gap that blocks its story): the caller holds the story under the
+token, and a node the finding is about is implemented by a task of the story (docs/graph/gap/lifecycle.md "Development
+gaps", step 2)."""
 
 from __future__ import annotations
 

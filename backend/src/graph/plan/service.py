@@ -52,6 +52,7 @@ from graph.plan.story_models import (
     StoryRelease,
     StoryRow,
     StoryTask,
+    TaskHold,
 )
 from graph.plan.story_reads import area_summary, claim_list, story_list, story_preview
 from graph.plan.task_items import task_items
@@ -429,6 +430,16 @@ class PlanService:
             reason=reason,
             finding_id=finding_id,
         )
+
+    async def hold_tasks(
+        self, project_id: str, finding_id: str, spec_ids: Sequence[str], *, reason: BlockReason = "spec_ambiguous"
+    ) -> TaskHold:
+        """Hold back the tasks implementing a node of an open blocker finding (a host call, decision GD2 of the gap
+        module): ``pending`` and ``failed`` tasks become ``blocked`` with ``blocked_by`` = ``finding_id``, so no claim
+        takes them; ``in_progress`` tasks are left alone and listed. ``unblock_finding`` releases them."""
+
+        aliases = spec_aliases(await self._graph.nodes(project_id))
+        return await self._claims.hold(project_id, finding_id, spec_ids, reason=reason, aliases=aliases)
 
     async def unblock_finding(self, project_id: str, finding_id: str) -> tuple[str, ...]:
         """Return the tasks still blocked by the finding to ``pending`` (a host call); their ids."""
