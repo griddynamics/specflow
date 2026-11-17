@@ -3,8 +3,9 @@
 Wired like the plan runner (docs/graph/gap/api.md "Host runner"): the run artifact store under ``GRAPH_STATE_DIR``
 (``open_gap_run_store``, beside the build and plan stores), the runtime's graph store, ``load_ontology()`` (the gap
 ontology is merged in), ``load_gap_rules`` (``GAP_RULES_PATH`` or the shipped rules), the PostgreSQL ``GapRecords``
-and ``Amendments`` on the application database, the ``LoopInvestigator`` over the run's gateway, the plan as
-``PlanView`` (``api.gap.plan_view``), the plan service's hold calls as ``StoryHolds`` (``api.gap.holds``), one
+and ``Amendments`` on the application database, the investigator ``GAP_INVESTIGATOR`` names (``investigator_for``)
+over the run's gateway, the plan as ``PlanView`` (``api.gap.plan_view``), the plan service's hold calls as
+``StoryHolds`` (``api.gap.holds``), one
 ``Gateway`` per run and ``ensure_gap_schema`` once per process (with the migration of first-slice findings of every
 project of the application database), then ``run_gap``.
 
@@ -58,6 +59,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from agent_runtime.gap_investigator import AgentsInvestigator
 from api.contained import Contained
 from api.gap.changes import build_facts, gap_change_reports
 from api.gap.holds import plan_holds
@@ -142,6 +144,13 @@ def plan_view(store: GraphStore, ontology: Ontology) -> PlanReaderView:
     return PlanReaderView(PlanReader(executor, ontology, rules), GraphReader(executor, ontology))
 
 
+def investigator_for(name: str) -> Callable[[Any], Any]:
+    """The investigator factory ``GapSettings.investigator`` names: the structured loop (``loop``, the default) or the
+    tool agent adapter on the agent runtime (``agents``, investigation.md "Tool agent adapter")."""
+
+    return AgentsInvestigator.from_gateway if name == "agents" else LoopInvestigator
+
+
 @dataclass(frozen=True)
 class GapRunnerDependencies:
     """What a runner runs with; the defaults are production's, tests swap in stubs."""
@@ -154,7 +163,7 @@ class GapRunnerDependencies:
     ensure: Callable[..., Awaitable[Any]] = ensure_gap_schema
     gateway_factory: Callable[[LLMConfig], Any] = Gateway
     ports: PortsFactory = postgres_ports
-    investigator: Callable[[Any], Any] = LoopInvestigator  # called with the run's gateway
+    investigator: Callable[[Any], Any] | None = None  # called with the run's gateway; None: ``investigator_for``
     executor: Callable[[GraphStore], Any] = as_executor
     reader: ReaderFactory = graph_reader
     plan: PlanViewFactory = plan_view
@@ -643,6 +652,7 @@ class GapRunner:
         facts = await self._facts(project_id, build_id)
         records, amendments = self._deps.ports(self._transaction)
         gateway = self._deps.gateway_factory(self._llm)
+        investigator = (self._deps.investigator or investigator_for(self._gap.investigator))(gateway)
         try:
             context = GapContext(
                 project_id=project_id,
@@ -653,7 +663,7 @@ class GapRunner:
                 rules=rules,
                 records=records,
                 amendments=amendments,
-                investigator=self._deps.investigator(gateway),
+                investigator=investigator,
                 settings=self._gap,
                 changes=changes,
                 build=facts,
@@ -678,6 +688,9 @@ class GapRunner:
             )
             result = await self._deps.run(context, mode=mode, site_ids=site_ids)
         finally:
+            closer = getattr(investigator, "aclose", None)
+            if closer is not None:
+                await closer()
             await gateway.aclose()
         log_event(
             logger,
