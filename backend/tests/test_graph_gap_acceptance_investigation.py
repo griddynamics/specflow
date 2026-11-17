@@ -10,15 +10,16 @@ import inspect
 import json
 from typing import Any
 
-from api.gap.runner import GapRunnerDependencies
+from agent_runtime.gap_investigator import PROMPT_VERSION, TOOLS, AgentsInvestigator
+from api.gap.runner import GapRunnerDependencies, investigator_for
 from gap_acceptance_support import (
     Planted,
     RecordedGapGateway,
     assert_all_recorded,
     gap_corpus_graph,
     gateway_role,
-    pending,
 )
+from gap_agents_support import ScriptedAgentModel, loop_script, schema_names
 from gap_detection_support import PROJECT, TracingReader, run_detection
 from gap_investigation_support import (
     NOT_A_GAP,
@@ -42,12 +43,13 @@ from graph.gap.rules import load_gap_rules
 from graph.gap.settings import GapSettings
 from graph.gap.steps.investigate import FinalTurn, LoopInvestigator, LoopTurn, pack_message, site_budget
 from graph.gap.steps.pack import PackRun, build_pack
-from graph.gap.steps.reads import GraphSiteReads
+from graph.gap.steps.reads import READ_NAMES, GraphSiteReads
 from graph_support import ScriptedRequest
 
 PLACE = "upload:orders-spec#orders-service-specification/place-order#e1486afe"
 REFUNDS = "upload:payments-spec#payments-service-specification/refunds#56c00bc8"
 REFUND_TO_CARD = "REQ::FR::REFUND_TO_ORIGINAL_CARD"
+FORBIDDEN_TOOL_WORDS = ("project", "cypher", "sql", "query", "key", "secret", "token")
 
 
 def cancel_report(**changes: Any) -> GapReport:
@@ -93,7 +95,10 @@ async def test_fr_ginv_01_investigation_go_through_investigator_port_default_ada
     role.
     """
 
-    assert GapRunnerDependencies().investigator is LoopInvestigator
+    assert (
+        GapRunnerDependencies().investigator is None
+        and investigator_for(GapSettings().investigator) is LoopInvestigator
+    )
     world = await loop_world()
 
     result = await run_gap(world.context(), mode="full")
@@ -363,8 +368,31 @@ async def test_fr_ginv_08_investigation_failure_leave_no_partial_gap() -> None:
     assert len(world.records.verdicts[PROJECT]) == 18
 
 
-@pending("14", "optional session")
-def test_fr_ginv_09_investigator_agents_host_adapter_offer_read_menu() -> None:
+async def test_fr_ginv_09_investigator_agents_host_adapter_offer_read_menu() -> None:
     """Given the host adapter with a scripted model, then the report passes the same checks, and no tool parameter
     names a project.
     """
+
+    names = set().union(*(schema_names(tool.params_json_schema) for tool in TOOLS))
+    assert not [name for name in names if any(word in name.lower() for word in FORBIDDEN_TOOL_WORDS)]
+    assert {tool.name for tool in TOOLS} == {*READ_NAMES, "report"}
+    assert investigator_for("agents") == AgentsInvestigator.from_gateway
+    loop = await loop_world()
+    expected = await run_gap(loop.context(), mode="full")
+    model = ScriptedAgentModel(loop_script)
+    world = await corpus_world()
+    world.gateway = RecordedGapGateway()
+    world.investigator = AgentsInvestigator(model)
+
+    result = await run_gap(world.context(settings=GapSettings(investigator="agents")), mode="full")
+
+    def found(gaps: dict[str, dict[str, Any]]) -> dict[str, tuple[Any, ...]]:
+        return {gap_id: (gap["kind"], gap["severity"], gap["question"]) for gap_id, gap in gaps.items()}
+
+    assert found(world.gap_nodes()) == found(loop.gap_nodes()) and len(world.gap_nodes()) == 8
+    assert world.records.option_rows[PROJECT].keys() == loop.records.option_rows[PROJECT].keys()
+    assert result.counts["sites"] == expected.counts["sites"] and result.counts["rejected"] == 0
+    assert result.cost["gap_investigate"]["calls"] == len(model.calls) == 19
+    assert world.gateway.calls_of("gap_investigate") == []
+    assert {call.tools for call in model.calls} == {tuple(tool.name for tool in TOOLS)}
+    assert world.records.runs[PROJECT][result.run_id].prompt_versions["gap_investigate"] == PROMPT_VERSION
