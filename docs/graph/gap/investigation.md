@@ -83,7 +83,7 @@ Built in round 0 with no model call:
 | Evidence | `evidence(spec_id, context_lines=2)` of every anchor: source lines with two lines around them |
 | Trace | `trace` from every anchor in both directions to depth 2, as spec ids, labels, names and the impact role of each step |
 | Nearby | `expand` from the anchors, leaving out the anchors and the trace nodes, within the budget the other parts left of `limits.pack_tokens` (none when less than 100 tokens are left, the least `expand` takes) |
-| Existing gaps | Open gaps and dismissed signatures on the anchors: id or signature, kind, question, status, reason |
+| Existing gaps | Open gaps and dismissed signatures on the anchors: id or signature, kind, question, status, reason; never the gap the site itself investigates (a raised gap or a follow-up), and a report that names that gap as `duplicate_of` is rejected (`duplicate_unknown`) |
 | Plan | When `PlanView` is set: the tasks and stories implementing the anchors, with status |
 | Development | For a development gap: the agent's question, kind, quoted lines and the task it holds |
 

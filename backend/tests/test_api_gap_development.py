@@ -6,6 +6,7 @@ acceptance tests of FR-GDEV-01 to 06 and FR-GPLN-03/04 cover the rest; the rig i
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import pytest
 
@@ -20,13 +21,16 @@ from gap_development_support import (
     CLAIM,
     MEMBER,
     QUESTION,
+    OneReport,
     claim,
     dev_rig,
+    report,
     report_blocking,
     task,
 )
 from graph.gap import AnswerInput, NewGap, run_gap
 from graph.gap.gaps import gap_uuid
+from graph.gap.models import InvestigationResult
 
 
 @pytest.fixture
@@ -162,3 +166,21 @@ async def test_a_held_task_a_plan_run_reset_is_held_again_before_the_next_claim(
     assert refused.status_code == 409
     assert [item["finding_id"] for item in refused.json()["error"]["details"]["findings"]] == [raised.gap_id]
     assert (task(dev, API_LOGIC)["status"], task(dev, API_LOGIC)["blocked_by"]) == ("blocked", raised.gap_id)
+
+
+async def test_the_site_run_of_a_raised_gap_never_shows_the_gap_as_another_open_gap(dev) -> None:
+    # A real model once answered the agent's question "duplicate of" the gap it was investigating: the pack listed it.
+    seen: list[Any] = []
+
+    class Seeing(OneReport):
+        async def investigate(self, pack: Any, reads: Any, budget: Any) -> InvestigationResult:
+            seen.append(pack)
+            return await super().investigate(pack, reads, budget)
+
+    dev.world.investigator = Seeing(report())
+
+    gap_id = (await report_blocking(dev, await claim(dev)))["finding"]["finding_id"]
+
+    (pack,) = seen
+    assert gap_id not in {item["gap_id"] for item in pack.context["gaps"]}
+    assert len((await dev.gaps.get_gap(ALPHA, gap_id)).options) == 2

@@ -575,7 +575,7 @@ class Checker:
         if result.error is not None or report is None:
             return Checked("deferred", warnings=(result.error or "no_report",))
         if report.verdict != "gap":
-            return self._verdict(report)
+            return self._verdict(report, site)
         view = SiteView.of(self.run.snapshot, site, investigated, self.run.limits)
         validation = validate_report(view, report)
         if validation.report is None and validation.repairable:
@@ -591,7 +591,7 @@ class Checker:
             return Checked("not_a_gap", report, warnings, tuple(dict.fromkeys(validation.failures)))
         return await self._duplicates_and_pointer(site, validation.report, warnings)
 
-    def _verdict(self, report: GapReport) -> Checked:
+    def _verdict(self, report: GapReport, site: Site) -> Checked:
         """A report that is not a gap: ``not_a_gap``, ``not_spec``, or ``duplicate`` of an existing gap."""
 
         if report.verdict in _VERDICT_OUTCOMES:
@@ -599,7 +599,7 @@ class Checker:
             kept = report.model_copy(update={"options": (), "not_spec_reason": reason or None})
             return Checked(_VERDICT_OUTCOMES[report.verdict], kept)
         known = self.by_id.get(report.duplicate_of or "")
-        if known is None:
+        if known is None or known.gap_id == site.gap_id:  # a raised gap is never a duplicate of itself
             return Checked("not_a_gap", report, ("duplicate_unknown",), ("duplicate_of",))
         return Checked("duplicate", report.model_copy(update={"options": ()}), gap_id=known.gap_id)
 

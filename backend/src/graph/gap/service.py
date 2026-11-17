@@ -937,7 +937,7 @@ class GapService:
         gap = await self._stored(project_id, gap_id)
         if gap.status != "open":
             raise GapStateError(status=gap.status, allowed=("open",), gap_id=gap_id)
-        # The holds end first: a plan that refuses (a persist runs) leaves the gap open, so the dismissal can be retried.
+        # The holds end first: a plan that refuses (a persist runs) leaves the gap open, so a retry can dismiss it.
         released = await release(self.holds, project_id, gap.gap_id, aliases_of(gap.props), strict=True)
         now = self._clock()
         signatures = suppressed_signatures(gap)

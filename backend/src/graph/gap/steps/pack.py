@@ -6,7 +6,7 @@ Parts, in ``SitePack.context``:
   id, label, name, attributes and the spine owners;
 - ``evidence``: each anchor's source lines with two lines around them (from the run's graph snapshot);
 - ``trace``: the core ``trace`` from the site's nodes in both directions, depth 2;
-- ``gaps``: the open gaps on the anchors (id, kind, status, question);
+- ``gaps``: the other open gaps on the anchors (id, kind, status, question; never the gap the site investigates);
 - ``plan``: when the run has a ``PlanView``, the tasks implementing the anchors with their status;
 - ``nearby``: the core ``expand`` from the anchors, within the pack budget the other parts left
   (``limits.pack_tokens`` minus the other parts, at least ``EXPAND_MIN_TOKENS``; none when they used it up).
@@ -139,7 +139,10 @@ async def _nearby(run: PackRun, anchors: Sequence[str], *, exclude: Sequence[str
     ]
 
 
-def _gaps(gaps: Sequence[StoredGap], anchors: Sequence[str]) -> list[dict[str, Any]]:
+def _gaps(gaps: Sequence[StoredGap], anchors: Sequence[str], own: str | None) -> list[dict[str, Any]]:
+    """The other open gaps on the anchors: a raised gap's or follow-up's own site never lists the gap it
+    investigates (the model would report the question as a duplicate of itself)."""
+
     wanted = set(anchors)
     return [
         {
@@ -150,7 +153,7 @@ def _gaps(gaps: Sequence[StoredGap], anchors: Sequence[str]) -> list[dict[str, A
             "about": sorted(set(gap.about_ids) & wanted),
         }
         for gap in gaps
-        if gap.status in OPEN_STATUSES and set(gap.about_ids) & wanted
+        if gap.status in OPEN_STATUSES and set(gap.about_ids) & wanted and gap.gap_id != own
     ]
 
 
@@ -202,7 +205,7 @@ async def build_pack(site: Site, snapshot: GraphSnapshot, reads: GraphSiteReads,
         + [_anchor(snapshot, spec_id, "context") for spec_id in context_ids],
         "evidence": _evidence(snapshot, anchors),
         "trace": await _trace(run.reader, run.project_id, about, run.run_id) if about else [],
-        "gaps": _gaps(run.gaps, anchors),
+        "gaps": _gaps(run.gaps, anchors, site.gap_id),
         "plan": await _plan(run.plan, run.project_id, anchors),
     }
     shown = {*anchors, *(item["spec_id"] for item in context["trace"])}
