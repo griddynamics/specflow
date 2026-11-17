@@ -10,6 +10,9 @@
 //                                          build knobs: graphMs (null = Infinity: a build stays running), graphOutcome ("succeeded" |
 //                                          "partially_succeeded" | "failed"), graphStartFail (null | an API code: the POST answers 503)
 //                                          POST /seed-source ({pid, source}: a source with chosen file states; see stub-sources.mjs `seed`)
+//                                          POST /seed-members ({name?, role?, members?, invites?, state?}: a project where the caller is admin or
+//                                            collaborator, with chosen members and invites; `state` sets people knobs such as allowedDomains or
+//                                            claimsReleased; answers the project; see stub-members.mjs `seed`)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)
 //                                          GET /oidc (the issuer's observations, never a token: {endSession, endSessionCalls,
 //                                            endSessionRequests: [{hasIdTokenHint, idTokenHintValid, postLogoutRedirectUri, clientId, ok}],
@@ -103,6 +106,20 @@ const control = http.createServer(async (req, res) => {
     const { pid, work } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
     api.seedWork(pid, work);
     return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/seed-members") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    const { name, state, ...rest } = spec;
+    if (state) Object.assign(api.people.state, state);
+    if (name === undefined) return send(200, { ok: true }); // knobs only: no project
+    return send(200, api.seedProject(String(name ?? "Seeded project"), rest));
   }
   if (req.method === "POST" && (req.url === "/seed-source" || req.url === "/remove-source")) {
     const chunks = [];

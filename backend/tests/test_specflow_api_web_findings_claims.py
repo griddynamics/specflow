@@ -93,6 +93,22 @@ async def test_the_open_findings_come_blocking_first_with_names_and_never_an_id_
     assert "@" not in response.text and str(people.alice) not in response.text
 
 
+async def test_a_removed_members_finding_stays_listed_with_a_null_author_name(monkeypatch, env):
+    """FR-PRJ-CLM-04: removing Ben keeps his note; it is listed on, its author name now ``null`` (he is no member)."""
+
+    async with serve_people(monkeypatch, env) as people:
+        removed = await people.rig.client.delete(
+            f"/api/v1/projects/{ALPHA}/members/{people.ben}", headers=bearer_header(web_alice())
+        )
+        listed = await get(people, findings_path())
+    assert removed.status_code == 200
+    by_id = {item["finding_id"]: item for item in listed.json()["findings"]}
+    assert set(by_id) == {BLOCKING, NOTE}
+    assert by_id[NOTE]["author"] == {"name": None, "you": False, "agent_label": None}
+    assert by_id[BLOCKING]["author"]["name"] == "Alice"
+    assert "Ben" not in listed.text and "@" not in listed.text
+
+
 async def test_the_list_filters_by_node_and_status_and_pages(monkeypatch, env):
     async with serve_people(monkeypatch, env) as people:
         other = await get(people, findings_path(), node="FEAT::API", status="resolved")

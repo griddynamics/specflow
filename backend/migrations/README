@@ -1,24 +1,23 @@
 Alembic migrations of the backend (async dbapi; env.py builds the URL from DATABASE_*).
 
-Development policy: the application is in development, so there are no incremental
-migrations. The whole schema is one hand-written revision, versions/0001_initial.py
-(down_revision None): every table, index and constraint in its final shape, the
-row-level security policies of the agent role and its column grant on documents. It
-has no backfill and no upgrade path from an older database.
+Revisions: versions/0001_initial.py (down_revision None) holds every table, index and
+constraint of the development schema, the row-level security policies of the agent role
+and its column grant on documents; versions/0002_project_collaborators.py (project
+collaborators) is the first incremental revision: it reshapes the member roles, adds
+project_invites and keeps a legacy trigger for the rolling deploy (docs/projects/data-model.md).
 
 On a schema change:
 
-1. Edit the models (src/db/models.py) and edit 0001_initial.py to match them by hand
-   (do not autogenerate it, and do not add a new revision).
-2. Recreate the database from scratch: `make down-volumes` and then `make up`
-   (repository root). The api container runs `specflow migrate` on start.
-3. Check it: `make db-upgrade`, then from backend/
-   `uv run --env-file ../.env.local alembic check` (the models match the revision) and
-   `uv run --env-file ../.env.local alembic current` (prints `0001_initial (head)`).
+1. Edit the models (src/db/models.py) and write the revision by hand (do not
+   autogenerate it); keep sql-schema.json in step.
+2. `make db-upgrade` applies it (the api container also runs `specflow migrate` on start).
+3. Check it: from backend/ `uv run --env-file ../.env.local alembic check` (the models
+   match the revisions) and `uv run --env-file ../.env.local alembic current` (prints
+   `0002_project_collaborators (head)`).
 
 A database stamped with a revision that no longer exists (for example `0005` from the
-old chain) makes `alembic upgrade` fail with "Can't locate revision"; recreate it as in
-step 2. downgrade() drops every table the revision created.
+old chain) makes `alembic upgrade` fail with "Can't locate revision"; recreate it with `make down-volumes` and `make up`. downgrade() of 0001 drops every table it created;
+downgrade() of 0002 deletes collaborator rows and invites (data loss).
 
-migrations/sql/ holds the SQL text the revision reads with its own read_migration_sql
-(the revision never imports src/).
+migrations/sql/ holds the SQL text the revisions read with their own read_migration_sql
+(the revisions never import src/).

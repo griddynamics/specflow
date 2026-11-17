@@ -1,0 +1,140 @@
+/* docs/projects/ui.md#general-tab (mockup A2): the General tab layout. Cards, fields, tags, buttons, the modal and the segmented control come
+   from the design system; this is the column, the add row, the list rows and the suggestions placement. Tokens only. */
+.settings {
+  width: 100%;
+  max-width: 720px;
+  min-width: 0;
+  padding: var(--space-md) var(--space-md) var(--space-xl) 0;
+  box-sizing: border-box;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  display: grid;
+  gap: var(--space-lg);
+  align-content: start;
+}
+.settings-sec {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.settings-sec__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.settings-sec__title {
+  margin: 0;
+}
+.settings-count {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+.settings-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  position: relative;
+}
+.settings-inline .gdg-field {
+  flex: 1;
+  min-width: 0;
+}
+.settings-inline .gdg-field input,
+.settings-inline .gdg-btn {
+  height: 48px;
+}
+.settings-inline .gdg-btn {
+  white-space: nowrap;
+}
+/* The name field shows its label above the input: the button drops by label line (20px) + field gap (6px) so it is level with the input. */
+.settings-name .gdg-btn {
+  margin-top: 26px;
+}
+.settings-add {
+  z-index: 5;
+}
+.settings-add .gdg-field__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.settings-suggest {
+  position: absolute;
+  z-index: 50;
+  left: 0;
+  right: calc(76px + var(--space-xs));
+  top: calc(48px + 6px);
+  background: var(--ground-alt);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: none;
+}
+.settings-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  display: grid;
+  border-radius: var(--radius-lg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+}
+.settings-row + .settings-row {
+  border-top: 1px solid var(--hairline);
+}
+.settings-who {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.settings-who b {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-who small {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-row > .gdg-tag,
+.settings-row > .gdg-avatar,
+.settings-row .gdg-iconbtn {
+  flex-shrink: 0;
+}
+.settings-leave {
+  display: flex;
+}
+.settings-leave .gdg-btn {
+  color: var(--danger);
+}
+.settings-leave .gdg-icon {
+  margin-right: -2px;
+}
+.settings-dialog__body {
+  margin: 0;
+  color: var(--ink);
+}
+.settings-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+}

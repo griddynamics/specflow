@@ -90,7 +90,7 @@ async def canary(migrated_database, agent_role) -> AsyncIterator[Canary]:
         )
         session.add_all([a, b])
         await session.flush()
-        session.add_all(ProjectMember(project_id=p.id, user_id=user.id) for p in (a, b))
+        session.add_all(ProjectMember(project_id=p.id, user_id=user.id, role="admin") for p in (a, b))
         doc_a = _document(a.id, f"a-{tag}", "alpha text " * 50, "alpha.pdf")
         doc_b = _document(b.id, f"b-{tag}", f"{B_TEXT} " * 50, "bravo.pdf")
         session.add_all([doc_a, doc_b])

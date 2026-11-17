@@ -1,5 +1,5 @@
 // FE-DATA-01, FE-BP-02, FE-BP-08, SPL-DEMO-01: the production port bundle. http serves what the backend has (`people.me`, `projects`,
-// `createProject.create`, the Ready gate `missionControl`, `sources`, `knowledge`, `plan`); `unavailable` answers empty for everything
+// `createProject.create`, the Ready gate `missionControl`, `sources`, `knowledge`, `plan`, `work`, `members`); `unavailable` answers empty for everything
 // else (decisions, connectors, assistant, files, comments, diagrams, the people directory and mentions). No fixture is read.
 import type { HttpPorts } from "./http";
 import type { DataPorts } from "./ports";
@@ -15,13 +15,14 @@ export function composeProductionPorts(http: HttpPorts): DataPorts {
     },
     projects: http.projects,
     createProject: {
-      create: (input) => http.createProject.create(input), // POST /projects with the name only (A9)
+      create: (input) => http.createProject.create(input), // POST /projects: the name, and the collaborator emails when given
     },
     missionControl: http.missionControl, // the Ready gate only (>= 1 processed document)
     sources: http.sources, // Drive folders, Local files; no GitHub
     knowledge: http.knowledge,
     plan: http.plan, // the plan API (/projects/{pid}/plan*)
     work: http.work, // findings and claims (/projects/{pid}/findings*, /plan/claims*)
+    members: http.members, // members, invites, leave and suggestions (/projects/{pid}/members*, /invites*, /leave, /users/suggestions)
     assistant: {
       ...unavailable.assistant,
       // The SpecBot greeting names the signed-in user (GET /me). If /me fails, the greeting has no name.

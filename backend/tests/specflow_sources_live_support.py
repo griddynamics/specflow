@@ -60,7 +60,7 @@ async def make_project(session: AsyncSession, user_id: uuid.UUID, name: str) -> 
         {"i": project_id, "n": name, "u": user_id},
     )
     await session.execute(
-        text("INSERT INTO project_members (project_id, user_id) VALUES (:p, :u)"),
+        text("INSERT INTO project_members (project_id, user_id, role) VALUES (:p, :u, 'admin')"),
         {"p": project_id, "u": user_id},
     )
     return project_id

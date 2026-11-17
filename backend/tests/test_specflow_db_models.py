@@ -9,7 +9,7 @@ from sqlalchemy import CheckConstraint, Table, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from db.models import Document, Project, ProjectMember, User
+from db.models import PROJECT_ROLES, Document, Project, ProjectInvite, ProjectMember, User
 
 
 def ddl(table: Table) -> str:
@@ -119,7 +119,8 @@ def test_users_auth_subject_is_unique_where_present_and_actor_id_unique() -> Non
 
     assert "CONSTRAINT uq_users_actor_id UNIQUE (actor_id)" in ddl(table)
     assert index_ddl(table) == {
-        "CREATE UNIQUE INDEX ix_users_auth_subject ON users (auth_subject) WHERE auth_subject IS NOT NULL"
+        "CREATE UNIQUE INDEX ix_users_auth_subject ON users (auth_subject) WHERE auth_subject IS NOT NULL",
+        "CREATE INDEX ix_users_email_lower ON users (lower(email))",
     }
 
 
@@ -129,6 +130,25 @@ def test_projects_and_members_constraints() -> None:
 
     assert checks(projects) == {"ck_projects_name_not_blank": r"name !~ '^\s*$'"}
     assert "CONSTRAINT fk_projects_created_by_users FOREIGN KEY(created_by)" in ddl(projects)
-    assert checks(members) == {"ck_project_members_role": "role IN ('owner')"}
+    assert PROJECT_ROLES == ("admin", "collaborator")
+    assert checks(members) == {"ck_project_members_role": "role IN ('admin', 'collaborator')"}
     assert "CONSTRAINT pk_project_members PRIMARY KEY (project_id, user_id)" in ddl(members)
-    assert str(members.c.role.server_default.arg) == "'owner'"
+    assert members.c.role.server_default is None  # DM3: every insert states its role
+    assert index_ddl(members) == {
+        "CREATE INDEX ix_project_members_user_id ON project_members (user_id)",
+        "CREATE UNIQUE INDEX ux_project_members_one_admin ON project_members (project_id) WHERE role = 'admin'",
+    }
+
+
+def test_project_invites_columns_constraints_and_indexes() -> None:
+    table: Table = ProjectInvite.__table__
+
+    assert [c.name for c in table.columns] == ["id", "project_id", "email_norm", "invited_by", "created_at"]
+    assert all(not c.nullable for c in table.columns)
+    assert checks(table) == {"ck_project_invites_email_norm": "email_norm = lower(btrim(email_norm))"}
+    text = ddl(table)
+    assert "CONSTRAINT uq_project_invites_project_id_email_norm UNIQUE (project_id, email_norm)" in text
+    assert "CONSTRAINT fk_project_invites_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in text
+    assert "CONSTRAINT fk_project_invites_invited_by_users FOREIGN KEY(invited_by) REFERENCES users (id)" in text
+    assert "ON DELETE" not in text  # projects are never deleted: no cascade
+    assert index_ddl(table) == {"CREATE INDEX ix_project_invites_email_norm ON project_invites (email_norm)"}

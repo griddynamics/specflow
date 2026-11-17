@@ -14,7 +14,7 @@ after(async () => {
   await env.stop();
 });
 
-const newProject = async (name: string) => (await createHttpAdapter().createProject.create({ name, contributorIds: [] })).id;
+const newProject = async (name: string) => (await createHttpAdapter().createProject.create({ name })).id;
 
 async function rejection(p: Promise<unknown>): Promise<DataError> {
   try {
@@ -78,11 +78,7 @@ test("QA B1: malformed 2xx bodies reject invalid_response (projects list/get/cre
       env,
       (x) => (x.method === "POST" && x.path === "/api/backend/projects" ? jsonResponse(201, body) : undefined),
       async () => {
-        assert.equal(
-          (await rejection(http.createProject.create({ name: "Z", contributorIds: [] }))).code,
-          "invalid_response",
-          `create ${body}`,
-        );
+        assert.equal((await rejection(http.createProject.create({ name: "Z" }))).code, "invalid_response", `create ${body}`);
       },
     );
     await withHook(

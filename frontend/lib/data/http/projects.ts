@@ -1,9 +1,9 @@
 // FE-BP-02.AC1-AC4, AC7 (TECH-SPECS §2.4, §2.5, §3.3, §3.5; A9): projects through `lib/api.ts`.
 // list = `GET /projects?limit=100` (newest first, `next_cursor` ignored: known limit), get = `GET /projects/{pid}`,
-// create = `POST /projects` with the NAME ONLY (A9: contributors, links and org switches stay UI-only; the backend forbids
-// extra fields). The list endpoint has no document state, so every project is `status: "unknown"` until Mission Control
+// create = `POST /projects` with `{name}`, or `{name, collaborators}` when emails were given (links and org switches stay UI-only;
+// the backend forbids extra fields), rename = `PATCH /projects/{pid}`. The list endpoint has no document state, so every project is `status: "unknown"` until Mission Control
 // reads its documents (§3.5).
-import { createProject, getProject, listProjects } from "@/lib/api";
+import { createProject, getProject, listProjects, renameProject } from "@/lib/api";
 import type { Unsubscribe } from "@/lib/domain/common";
 import type { CreateProjectPort } from "@/lib/domain/create-project";
 import { DataError } from "@/lib/domain/errors";
@@ -54,6 +54,13 @@ export function createHttpProjects(): HttpProjects {
       });
     },
     get: async (projectId) => withStatus(toProject(await guard(() => getProject(projectId)))),
+    async rename(projectId, rawName) {
+      const name = backendName(rawName);
+      if (name === null) throw new DataError("validation", false);
+      const renamed = withStatus(toProject(await guard(() => renameProject(projectId, name))));
+      changed(); // the switcher shows the new name
+      return renamed;
+    },
     subscribe(listener): Unsubscribe {
       listeners.add(listener);
       return () => {
@@ -64,10 +71,10 @@ export function createHttpProjects(): HttpProjects {
 
   const createPort: Pick<CreateProjectPort, "create"> = {
     async create(input) {
-      // FE-BP-02.AC2 (A9): only the name is sent; the same name rule as the backend (trim, 1-200 code points), checked first.
+      // FE-BP-02.AC2: the same name rule as the backend (trim, 1-200 code points), checked first.
       const name = backendName(input.name);
       if (name === null) throw new DataError("validation", false);
-      const created = toProject(await guard(() => createProject(name)));
+      const created = toProject(await guard(() => createProject(name, input.collaboratorEmails ?? [])));
       changed(); // the switcher reads the list again
       return created;
     },

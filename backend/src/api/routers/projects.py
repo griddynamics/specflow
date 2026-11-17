@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from api.deps import RuntimeDep, UserDep
-from api.errors import ApiError, project_not_found
-from api.schemas import Page, ProjectCreate, ProjectOut
+from api.deps import AdminDep, MemberDep, RuntimeDep, UserDep
+from api.errors import ApiError, project_not_found, required, validation_failed
+from api.schemas import Page, ProjectCreate, ProjectOut, ProjectRename
+from auth.emails import InvalidCollaboratorsError, check_collaborators
+from db import members
 from db import repositories as repo
 from logger.logger import INFO, get_logger, log_event
 
@@ -30,8 +31,23 @@ def invalid_cursor() -> ApiError:
 
 @router.post("/projects", status_code=201, response_model=ProjectOut)
 async def create_project(body: ProjectCreate, runtime: RuntimeDep, user: UserDep) -> ProjectOut:
+    checked: list[str] = []
+    if body.collaborators:
+        domains = required(runtime.settings.auth, "the api role requires auth settings").allowed_email_domains
+        try:
+            checked = check_collaborators(body.collaborators, domains, user.email)
+        except InvalidCollaboratorsError as error:
+            raise validation_failed(
+                [
+                    {
+                        "loc": ["body", "collaborators", *([] if item.index is None else [str(item.index)])],
+                        "type": item.type,
+                    }
+                    for item in error.errors
+                ]
+            ) from None
     async with runtime.transaction() as session:
-        project = await repo.create_project(session, user.id, body.name)
+        project = await repo.create_project(session, user.id, body.name, checked)
     log_event(
         logger,
         INFO,
@@ -61,9 +77,15 @@ async def list_projects(
 
 
 @router.get("/projects/{pid}", response_model=ProjectOut)
-async def get_project(pid: uuid.UUID, runtime: RuntimeDep, user: UserDep) -> ProjectOut:
+async def get_project(access: MemberDep) -> ProjectOut:
+    return ProjectOut.model_validate(access.project, from_attributes=True)
+
+
+@router.patch("/projects/{pid}", response_model=ProjectOut)
+async def rename_project(body: ProjectRename, runtime: RuntimeDep, user: UserDep, access: AdminDep) -> ProjectOut:
     async with runtime.transaction() as session:
-        project = await repo.get_member_project(session, user.id, pid)
+        project = await members.rename_project(session, access.project.id, body.name)
     if project is None:
         raise project_not_found()
+    log_event(logger, INFO, "api.project.renamed", user_id=str(user.id), project_id=str(project.id))
     return ProjectOut.model_validate(project, from_attributes=True)

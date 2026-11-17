@@ -5,7 +5,7 @@
 #   src/db/models.py        SQLAlchemy models (module `db.models`), Base in `db.base`
 #   src/db/session.py       the one place that builds engines and session factories
 #   src/db/*.py             repositories and stores (no `repositories/` folder, no `.sql` files)
-#   migrations/versions/    the one Alembic revision, 0001_initial; alembic.ini sits in backend/
+#   migrations/versions/    the Alembic revisions (0001_initial, 0002_project_collaborators); alembic.ini sits in backend/
 #   sql-schema.json         the declared schema (bootstrapped with `sqlcheck build-schema`)
 # Statements are SQLAlchemy Core/ORM expressions; there are no `.sql` files, so the SQL file
 # steps (sqlfluff, sql-rules) find nothing to read.
@@ -30,7 +30,7 @@ sql = ["src", "migrations"]
 python = ["src"]
 schema = "sql-schema.json"
 alembic_versions = "migrations/versions"
-migration_sql_dirs = []
+migration_sql_dirs = ["migrations/sql"]   # 0002 drops its legacy trigger and function here
 
 [sqlfluff]
 config = ".sqlfluff"

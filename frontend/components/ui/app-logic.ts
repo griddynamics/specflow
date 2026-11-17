@@ -183,3 +183,27 @@ export function sidebarInitials(name: string): string {
     .join("")
     .slice(0, 2);
 }
+
+// ---- PeoplePicker typed emails (docs/projects/ui.md#create-project-modal) ------------------------------------------------------
+
+/** A typed email as the picker keeps it: trimmed and lower-case (the Person id of a typed chip). */
+export function normaliseEmail(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/** The local format check (the API has the last word): one `@`, text on both sides, a dot in the domain, no spaces. */
+export function isEmailShape(raw: string): boolean {
+  return /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(raw.trim());
+}
+
+/** What committing the typed text does: `empty` (nothing typed), `invalid` (not an email), `duplicate`, `full` (at `max` chips) or `add`. */
+export type TypedCommit = { kind: "empty" | "invalid" | "duplicate" | "full" } | { kind: "add"; email: string };
+
+export function commitTyped(picked: string[], raw: string, max?: number): TypedCommit {
+  if (raw.trim() === "") return { kind: "empty" };
+  const email = normaliseEmail(raw);
+  if (!isEmailShape(email)) return { kind: "invalid" };
+  if (picked.includes(email)) return { kind: "duplicate" };
+  if (max !== undefined && picked.length >= max) return { kind: "full" };
+  return { kind: "add", email };
+}

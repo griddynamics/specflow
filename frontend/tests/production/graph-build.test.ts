@@ -95,7 +95,7 @@ async function rejection(p: Promise<unknown>): Promise<DataError> {
   }
   assert.fail("expected a rejection");
 }
-const newProject = async (http: HttpPorts, name: string) => (await http.createProject.create({ name, contributorIds: [] })).id;
+const newProject = async (http: HttpPorts, name: string) => (await http.createProject.create({ name })).id;
 /** A project with one parsed document, so a build can start. */
 async function projectWithDoc(http: HttpPorts, name: string): Promise<string> {
   const pid = await newProject(http, name);

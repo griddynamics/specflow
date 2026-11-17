@@ -15,6 +15,7 @@ import {
   expectUploadReady,
   kbBuild,
   login,
+  openCreateProject,
   openConfirm,
   pickLocalPdf,
   projectSwitcher,
@@ -78,9 +79,10 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await expect(modal).toBeVisible();
     const name = unique("Created in the browser");
     await page.getByLabel("Name").fill(name);
-    // Owner decision 2026-10-15: the form asks only for the name and the contributors; contributors stay UI-only (A9).
+    // The form asks for the name and the collaborators' emails (docs/projects/ui.md): one text field, one email combobox, no Contributors.
     await expect(modal.getByRole("textbox")).toHaveCount(1); // Name; no link fields, no access-check field, no tracker switches
-    await expect(modal.getByRole("combobox")).toHaveCount(1); // Contributors
+    await expect(modal.getByRole("combobox", { name: "Collaborators" })).toHaveCount(1);
+    await expect(modal.getByText("Contributors")).toHaveCount(0);
     await expect(modal.getByRole("switch")).toHaveCount(0);
     await page.getByTestId("cp-create").click();
     await expect(page).toHaveURL(MC);
@@ -89,6 +91,99 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     expect(posts).toHaveLength(1);
     expect(JSON.parse(posts[0].postData ?? "{}")).toEqual({ name });
     await expect(topbarProjectName(page)).toHaveText(name);
+  });
+
+  test("FR-PRJ-UI-09, UI-10: Create with emails posts {name, collaborators} (Enter and comma make chips); a domain the sign-in refuses marks its chip and keeps the modal open", async ({
+    page,
+    requests,
+  }) => {
+    allowConsoleErrors(page, /status of 422/); // the refused create
+    await login(page);
+    const before = page.url();
+    await openCreateProject(page);
+    const modal = page.getByTestId("create-project-modal");
+    const name = unique("With collaborators");
+    await page.getByLabel("Name").fill(name);
+    const field = modal.getByRole("combobox", { name: "Collaborators" });
+    await field.fill("first.person@example.test");
+    await field.press("Enter");
+    await field.fill("second.person@example.test");
+    await field.press(",");
+    await expect(modal.getByTestId("people-chip")).toContainText(["first.person@example.test", "second.person@example.test"]);
+    // A chip whose domain may not sign in: the API refuses all of it, the chip is marked, nothing is created.
+    await field.fill("stranger@refused.test");
+    await field.press("Enter");
+    await page.getByTestId("cp-create").click();
+    await expect(modal.getByTestId("people-chip").filter({ hasText: "stranger@refused.test" })).toHaveAttribute("data-invalid", "true");
+    await expect(modal).toContainText("This email domain cannot sign in to SpecFlow.");
+    await expect(modal).toBeVisible();
+    expect(page.url()).toBe(before); // still on the page the modal opened over
+    // Take the refused chip away (Backspace on the empty field) and create.
+    await field.press("Backspace");
+    await expect(modal.getByTestId("people-chip")).toHaveCount(2);
+    await page.getByTestId("cp-create").click();
+    await page.waitForURL((u) => /\/projects\/[0-9a-f-]{36}\/mission-control$/.test(u.pathname) && u.href !== before);
+    await expect(topbarProjectName(page)).toHaveText(name);
+    const posts = requests.filter((r) => r.method === "POST" && r.path === "/api/backend/projects");
+    expect(posts).toHaveLength(2);
+    expect(JSON.parse(posts[1].postData ?? "{}")).toEqual({
+      name,
+      collaborators: ["first.person@example.test", "second.person@example.test"],
+    });
+  });
+
+  test("FR-PRJ-UI-09, SUG: in the Create modal 3 characters list suggestions; ArrowDown + Enter makes a chip; Esc closes only the list; the body has no project_id; no URL holds an email", async ({
+    page,
+    requests,
+  }) => {
+    await login(page);
+    await openCreateProject(page);
+    const modal = page.getByTestId("create-project-modal");
+    const field = modal.getByRole("combobox", { name: "Collaborators" });
+    const list = modal.getByRole("listbox");
+    const suggestions = () => requests.filter((r) => r.method === "POST" && r.path === "/api/backend/users/suggestions");
+    await field.click();
+    await field.pressSequentially("al");
+    await expect(list).toHaveCount(0);
+    expect(suggestions()).toHaveLength(0);
+    await field.pressSequentially("a");
+    await expect(list).toBeVisible();
+    await expect(list.getByRole("option")).toContainText(["Alan Turner"]);
+    await field.press("Escape");
+    await expect(list).toHaveCount(0);
+    await expect(modal).toBeVisible(); // Esc closed only the list
+    await field.press("ArrowDown");
+    await expect(list).toBeVisible();
+    await field.press("ArrowDown");
+    await field.press("Enter");
+    await expect(modal.getByTestId("people-chip")).toContainText(["Alan Turner"]);
+    expect(suggestions().map((r): unknown => JSON.parse(r.postData ?? "{}"))).toEqual([{ q: "ala" }]);
+    expect(requests.some((r) => r.path.includes("@") || r.search.includes("@"))).toBe(false);
+  });
+
+  test("FR-PRJ-UI-09: an email typed but not committed when Create is clicked becomes a chip when valid; when invalid the field error shows and nothing is created", async ({
+    page,
+    requests,
+  }) => {
+    await login(page);
+    const before = page.url();
+    await openCreateProject(page);
+    const modal = page.getByTestId("create-project-modal");
+    const name = unique("Typed only");
+    await page.getByLabel("Name").fill(name);
+    const field = modal.getByRole("combobox", { name: "Collaborators" });
+    const posts = () => requests.filter((r) => r.method === "POST" && r.path === "/api/backend/projects");
+    await field.fill("not an email");
+    await page.getByTestId("cp-create").click();
+    await expect(modal).toContainText("Enter a valid email address.");
+    await expect(modal).toBeVisible();
+    expect(posts()).toHaveLength(0);
+    expect(page.url()).toBe(before);
+    await field.fill("typed.only@example.test");
+    await page.getByTestId("cp-create").click();
+    await page.waitForURL((u) => /\/projects\/[0-9a-f-]{36}\/mission-control$/.test(u.pathname) && u.href !== before);
+    expect(posts()).toHaveLength(1);
+    expect(JSON.parse(posts()[0].postData ?? "{}")).toEqual({ name, collaborators: ["typed.only@example.test"] });
   });
 
   test("FE-BP-08, K4, K5, AC-U5, AC-U17: create -> Local files -> the card collects, the server parses, Ready; the upload is the raw PDF; GitHub is not offered; Build knowledge opens the confirm (no request, no not-available text)", async ({

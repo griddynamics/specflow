@@ -14,6 +14,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final, TypedDict, Unpack, get_args
 
+from auth.emails import domain_allowed
 from auth.errors import (
     DOMAIN_NOT_ALLOWED,
     EMAIL_INVALID,
@@ -277,7 +278,7 @@ def _checked_email(claims: Mapping[str, Any], policy: ClaimPolicy) -> str:
     email = claims.get(policy.email_claim)
     if not isinstance(email, str) or email.count("@") != 1 or email.startswith("@"):
         raise forbidden(EMAIL_INVALID, "The account email is missing or invalid.")
-    if email.split("@")[1].lower() not in policy.allowed_email_domains:
+    if not domain_allowed(email, policy.allowed_email_domains):
         raise forbidden(DOMAIN_NOT_ALLOWED, "The account email domain is not allowed.")
     return email
 

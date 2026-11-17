@@ -3,6 +3,7 @@ export type DataErrorCode =
   | "unauthenticated"
   | "not_found"
   | "conflict"
+  | "forbidden"
   | "validation"
   | "unsupported_format"
   | "file_too_large"
@@ -14,12 +15,25 @@ export type DataErrorCode =
   | "aborted"
   | "unknown";
 
+/** One entry of a 422 `details.errors` (api.md#errors): `loc` is the body path, `type` the rule that failed. */
+export interface ErrorEntry {
+  loc: (string | number)[];
+  type: string;
+}
+
+export interface DataErrorDetail {
+  status?: number;
+  apiCode?: string;
+  maxBytes?: number;
+  errors?: ErrorEntry[];
+}
+
 export class DataError extends Error {
   readonly code: DataErrorCode;
   readonly retryable: boolean;
-  readonly detail?: { status?: number; apiCode?: string; maxBytes?: number };
+  readonly detail?: DataErrorDetail;
 
-  constructor(code: DataErrorCode, retryable: boolean, detail?: { status?: number; apiCode?: string; maxBytes?: number }) {
+  constructor(code: DataErrorCode, retryable: boolean, detail?: DataErrorDetail) {
     super(code); // a code, never server text (TECH-SPECS §2.1)
     this.name = "DataError";
     this.code = code;

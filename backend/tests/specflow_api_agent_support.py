@@ -268,7 +268,7 @@ async def seed_projects(repo: FakeRepo) -> dict[str, Any]:
         )
         repo.projects[project.id] = project
         repo.members.add((project.id, user.id))
-        repo.roles[(project.id, user.id)] = "owner"
+        repo.roles[(project.id, user.id)] = "admin"
     return users
 
 
@@ -284,7 +284,7 @@ async def seed_many_projects(repo: FakeRepo, user: Any, count: int) -> None:
         )
         repo.projects[project.id] = project
         repo.members.add((project.id, user.id))
-        repo.roles[(project.id, user.id)] = "owner"
+        repo.roles[(project.id, user.id)] = "admin"
 
 
 @dataclass
