@@ -2,7 +2,7 @@
 type: API
 title: "Graph gap API"
 description: "Public API of graph.gap: setup, gap runs, the gap service, reconcile, models, ports, the host runner, web routes, MCP tools and the user interface"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # api.md: public API of graph.gap: setup, gap runs, service calls, reconcile, models, ports, host runner, web routes, MCP tools and user interface

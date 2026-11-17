@@ -2,7 +2,7 @@
 type: Design
 title: "Graph gap investigation"
 description: "The Investigator port and its adapters, the context pack, the read menu, the report, checks, the second check, pointer answers, the verdict cache, prompts and failures"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # investigation.md: the Investigator port, the context pack, the read menu, the report, checks and the second check

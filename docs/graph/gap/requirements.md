@@ -2,7 +2,7 @@
 type: Requirements
 title: "Graph gap requirements"
 description: "Requirement units of graph.gap, functional and non-functional"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # requirements.md: requirement units of graph.gap (compact form), functional and non-functional
@@ -196,6 +196,6 @@ slice of agent findings.
 | NFR-GSEC-01 | No model output shall be written before code validated it, and document text shall never be read as instructions. | Prompt-injection fixtures in the shop corpus change no gap, option or answer beyond what the checks allow. |
 | NFR-GSEC-02 | Logs shall not contain document text, questions, answers or quotes; they carry ids and counts only. | Log capture of a full run and an answer contains no fixture sentence. |
 | NFR-GCOST-01 | An update run after a build that changed no document shall make no model call. | Gateway fake records zero calls. |
-| NFR-GCOST-02 | An update run shall make at most the calls its limits allow: sites times rounds, plus one relevance call per uncertain batch and one judge call per AI candidate. | The run's cost report stays within the bound computed from the rules. |
+| NFR-GCOST-02 | An update run shall make at most the calls its limits allow: sites times rounds (each round's call, plus the forced report call), plus one relevance call per uncertain batch and one judge call per AI candidate. | The run's cost report stays within the bound computed from the rules. |
 | NFR-GPERF-01 | Detection over a graph of 5,000 spec nodes shall finish within 30 seconds on the reference development machine, without model calls. | Benchmark test on a generated graph (manual run, reported in the pull request). |
 | NFR-GPORT-01 | `graph.gap` shall run on every graph store the core supports. | The gap integration tests run against each configured store. |

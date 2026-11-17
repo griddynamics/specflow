@@ -2,7 +2,7 @@
 type: Design
 title: "Graph gap reconcile"
 description: "How amendments meet new source revisions: applied again, re-anchored, adopted, in conflict or orphaned; effective revisions; download with answers"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # reconcile.md: amendments against new source revisions, effective revisions, and download with answers
@@ -289,8 +289,11 @@ lineage without active amendments keeps the revision id it has today. So:
   changed fragment. This needs fragments no bigger than a section: the host gives a project's first build one
   fragment per section (`api.graph_build.runner.SECTION_FRAGMENTS`, `fragment_tokens` min 1, target 1); a project
   built before keeps its frozen fragment sizes (a small document is one fragment) until a rebuild. With section
-  fragments a real update build extracts only the amended section; the build's later steps (links, attributes) can
-  still report other nodes of the same document as changed (session 10 spike; open item);
+  fragments a real update build extracts only the amended section, and the edge window that holds it keeps its
+  earlier edges on the unchanged sections ([../build.md](../build.md) "Store and reuse per window"), so only the
+  amended section's nodes and the ends of its edges change meaning or links. Nodes of later sections of the same
+  document are still `changed_evidence` when the answer moves their lines (evidence line numbers); the plan ignores
+  that class;
 - an old file synced again with the same amendments gives the same effective revision id as before, and
   the build sees no change;
 - retiring an amendment because the owner adopted it changes the effective revision id, and the build

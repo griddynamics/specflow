@@ -2,7 +2,7 @@
 type: Design
 title: "Graph gap lifecycle"
 description: "Gap and clarification transitions, the close check, rekeys and merges, follow-ups, dismissals, the plan prerequisite and link, development gaps and the migration of first-slice findings"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # lifecycle.md: gap and clarification transitions, the close check, follow-ups, dismissals, the plan link, development gaps and migration

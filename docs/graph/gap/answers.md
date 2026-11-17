@@ -2,7 +2,7 @@
 type: Design
 title: "Graph gap answers"
 description: "Severity, routing and gates, the question card, clarifications, edits and placement, the clarifications document, applying answers, AI answers, revert and dismissal"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # answers.md: severity, routing, the question card, clarifications, edits, placement, applying, AI answers, revert and dismissal

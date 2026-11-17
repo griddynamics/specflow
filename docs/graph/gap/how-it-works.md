@@ -2,7 +2,7 @@
 type: Explainer
 title: "How the graph gap module works"
 description: "One gap from detection to the re-planned story, keeping noise out, re-uploads, and gaps found by coding agents"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # how-it-works.md: how graph.gap finds gaps, asks once, and changes only what an answer touches

@@ -2,7 +2,7 @@
 type: Architecture
 title: "Graph gap architecture"
 description: "Package layout, components, run steps, import rules, write ownership, ports, settings, errors and the changes outside graph.gap"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # architecture.md: package layout, components, run steps, import rules, write ownership, ports, settings, errors and changes outside graph.gap

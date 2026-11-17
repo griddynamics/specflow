@@ -2,7 +2,7 @@
 type: Design
 title: "Graph gap detection"
 description: "Gap kinds, run modes and scope, the relevance filter, the detector catalogue, seeds and corroboration, sites, stated open questions, limits, the rules file and run metrics"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # detection.md: gap kinds, run modes and scope, relevance filter, detector catalogue, seeds, sites and limits

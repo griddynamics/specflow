@@ -2,7 +2,7 @@
 type: Overview
 title: "Graph gap overview"
 description: "Purpose, scope, goals, non-goals, actors, boundaries, constraints and key terms of graph.gap"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # overview.md: purpose, scope, goals, non-goals, actors, boundaries, constraints and key terms of graph.gap

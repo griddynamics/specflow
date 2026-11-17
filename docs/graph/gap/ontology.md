@@ -2,7 +2,7 @@
 type: Ontology
 title: "Graph gap ontology"
 description: "The gap ontology file, the gap rules file, how they load and what may change in them"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # ontology.md: the gap ontology file, the gap rules file, how they load and what may change in them

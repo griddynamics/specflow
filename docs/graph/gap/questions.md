@@ -2,7 +2,7 @@
 type: Questions
 title: "Graph gap decisions"
 description: "Decision record of the graph.gap specification: GD1-GD3 and the topics decided with the design"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # questions.md: decisions of the graph.gap specification

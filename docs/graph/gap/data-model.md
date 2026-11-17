@@ -2,7 +2,7 @@
 type: DataModel
 title: "Graph gap data model"
 description: "Gap and Clarification nodes and relations, identity, signatures, statuses, the relational store, per-store mapping and invariants"
-status: draft
+status: stable
 tags: [graph, gap]
 ---
 # data-model.md: gap nodes and relations, identity, signatures, statuses, the relational store and invariants
