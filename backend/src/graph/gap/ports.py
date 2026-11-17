@@ -80,7 +80,7 @@ class GapRecords(Protocol):
 
     async def unsuppress(self, project_id: str, signature: str) -> None: ...
 
-    async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None: ...
+    async def put_notes(self, project_id: str, run_id: str | None, notes: Sequence[NoteRow]) -> None: ...
 
     async def log(self, project_id: str, events: Sequence[EventRow]) -> None: ...
 
@@ -145,9 +145,12 @@ class Investigator(Protocol):
 
 @runtime_checkable
 class StoryHolds(Protocol):
-    """The plan's hold and release calls (host: PlanService)."""
+    """The plan's hold and release calls (host: PlanService). ``reason`` is the plan's block reason of the gap's kind
+    (``spec_missing``, ``spec_contradiction`` or ``spec_ambiguous``)."""
 
-    async def hold_tasks(self, project_id: str, gap_id: str, spec_ids: Sequence[str]) -> HoldResult: ...
+    async def hold_tasks(
+        self, project_id: str, gap_id: str, spec_ids: Sequence[str], *, reason: str = "spec_ambiguous"
+    ) -> HoldResult: ...
 
     async def release_gap(self, project_id: str, gap_id: str) -> Sequence[str]: ...
 

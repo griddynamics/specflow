@@ -70,6 +70,7 @@ from graph.gap.follow_ups import (
 )
 from graph.gap.gaps import (
     StoredGap,
+    StoredLink,
     answer_key,
     cite_key,
     clarification_uuid,
@@ -78,6 +79,7 @@ from graph.gap.gaps import (
     quote_hash,
     read_gaps,
 )
+from graph.gap.holds import aliases_of, hold, hold_blockers, hold_reason, release
 from graph.gap.identity import clr_id, development_signature, gap_id, normalise_quote, person_signature
 from graph.gap.models import (
     AiAnswer,
@@ -96,10 +98,12 @@ from graph.gap.models import (
     GapHistory,
     GapPage,
     GapView,
+    HoldResult,
     LineageAnswers,
     NewGap,
     NodeRef,
     NoiseRuleRow,
+    NoteRow,
     OptionRow,
     Quote,
     RaisedGap,
@@ -115,6 +119,7 @@ from graph.gap.names import (
     CLARIFICATION,
     FOLLOWS_UP,
     GAP,
+    GAP_PREFIX,
     GRAPH_STATUSES,
     GROUNDED_IN,
     OPEN_STATUSES,
@@ -129,7 +134,7 @@ from graph.gap.names import (
     NoiseScope,
 )
 from graph.gap.ports import Amendments, BuildRequests, GapRecords, Investigator, PlanView, StoryHolds
-from graph.gap.resolve import resolve_spec_ids
+from graph.gap.resolve import SpecRef, resolve_spec_ids
 from graph.gap.rules import GapRules
 from graph.gap.settings import GapSettings
 from graph.gap.steps.close import follow_up_signature
@@ -153,6 +158,12 @@ APPLY_MARK: Final = "apply_requested_at"
 """Set on a pending clarification when its build is requested, so a later apply does not take it again (a re-answer of
 a resolved gap stays ``pending`` until the close check)."""
 QUESTION_CHARS: Final = (10, 1000)
+NOTE_CHARS: Final = (1, 2000)
+NOTE_PREFIX: Final = "NOTE::"
+DEVELOPMENT: Final = "development"
+BLOCKER: Final = "blocker"
+DEVELOPMENT_OPEN_LIMIT: Final = 50
+"""The most open development gaps one agent may hold on one story (the first slice's open-findings limit)."""
 TITLE_CHARS: Final = 160
 ABOUT_MAX: Final = 20
 NOISE_VALUE_CHARS: Final = (1, 500)
@@ -215,6 +226,19 @@ def _filter(value: str | Sequence[str] | None, field: str, allowed: Collection[s
 def _blocking(gap: StoredGap) -> bool:
     flag = gap.props.get("blocking")
     return flag is True or flag == YES
+
+
+def _open_development(gaps: Sequence[StoredGap], new: NewGap) -> int:
+    """The open development gaps the asker raised on the same story."""
+
+    return sum(
+        1
+        for gap in gaps
+        if gap.origin == DEVELOPMENT
+        and gap.status in OPEN_STATUSES
+        and gap.props.get("created_by") == new.created_by
+        and gap.props.get("story_id") == new.story_id
+    )
 
 
 def _held_back(gap: StoredGap) -> bool:
@@ -282,12 +306,14 @@ def gap_view(
         blocking=_blocking(gap),
         held_back=_held_back(gap),
         run_id=props.get("run_id"),
+        story_id=props.get("story_id"),
+        aliases=aliases_of(props),
         created_by=str(props.get("created_by") or RUN_ACTOR),
         created_at=_instant(props["created_at"]),
         updated_at=_instant(props.get("updated_at") or props["created_at"]),
         resolved_at=None if resolved is None else _instant(resolved),
-        about=tuple(NodeRef(spec_id=link.spec_id, label=link.label, name=link.name) for link in gap.about),
-        impacts=tuple(NodeRef(spec_id=link.spec_id, label=link.label, name=link.name) for link in gap.impacts),
+        about=tuple(_node_ref(link) for link in gap.about),
+        impacts=tuple(_node_ref(link) for link in gap.impacts),
         witness=tuple(
             WitnessView(
                 fragment_id=cite.fragment_id,
@@ -303,6 +329,10 @@ def gap_view(
         history=history,
         reach=reach,
     )
+
+
+def _node_ref(link: StoredLink) -> NodeRef:
+    return NodeRef(spec_id=link.spec_id, label=link.label, name=link.name, aliases=link.aliases)
 
 
 def gap_finding(gap: StoredGap) -> GapFinding:
@@ -440,16 +470,14 @@ class GapService:
         }
 
     async def get_gap(self, project_id: str, gap_id: str) -> GapView:
-        """The gap with its options, history (events and follow-up chain) and reach; ``GapNotFoundError`` when the
-        project has no such gap in the graph."""
+        """The gap with its options, history (events and follow-up chain) and reach; ``gap_id`` may be an alias the
+        gap keeps (a migrated first-slice finding's ``FND::`` id). ``GapNotFoundError`` when the project has no such
+        gap in the graph."""
 
         project_id = validate_project_id(project_id)
-        found = await read_gaps(self._executor, project_id, self._ontology, statuses=GRAPH_STATUSES, gap_ids=[gap_id])
-        if not found:
-            raise GapNotFoundError(gap_id=gap_id)
-        gap = found[0]
-        options = await self._records.options(project_id, gap_id)
-        events = await self._records.events(project_id, gap_id)
+        gap = await self._by_id_or_alias(project_id, gap_id)
+        options = await self._records.options(project_id, gap.gap_id)
+        events = await self._records.events(project_id, gap.gap_id)
         view = gap_view(
             gap,
             options=options,
@@ -457,6 +485,20 @@ class GapService:
             reach=await self.reach(project_id, gap),
         )
         return view.model_copy(update={"witness": await self._located(project_id, view.witness)})
+
+    async def _by_id_or_alias(self, project_id: str, gap_id: str) -> StoredGap:
+        """The gap of ``gap_id``, else the gap that keeps ``gap_id`` among its ``aliases`` (lifecycle.md "Migration of
+        first-slice findings"); ``GapNotFoundError`` when neither exists."""
+
+        found = await read_gaps(self._executor, project_id, self._ontology, statuses=GRAPH_STATUSES, gap_ids=[gap_id])
+        if found:
+            return found[0]
+        if not gap_id.startswith(GAP_PREFIX):
+            every = await read_gaps(self._executor, project_id, self._ontology, statuses=GRAPH_STATUSES)
+            aliased = next((gap for gap in every if gap_id in aliases_of(gap.props)), None)
+            if aliased is not None:
+                return aliased
+        raise GapNotFoundError(gap_id=gap_id)
 
     async def _located(self, project_id: str, witness: Sequence[WitnessView]) -> tuple[WitnessView, ...]:
         """The witness lines with their document's title and path and their section's heading path (one documents read
@@ -880,21 +922,23 @@ class GapService:
             build=build,
         )
 
-    async def dismiss_gap(self, project_id: str, gap_id: str, *, reason: str, by: str) -> None:
+    async def dismiss_gap(self, project_id: str, gap_id: str, *, reason: str, by: str) -> tuple[str, ...]:
         """Close an open gap a person judges not to be one (FR-GANS-11): its signature becomes a suppression, the
-        node and its relations are deleted, its options too; the event log keeps the reason. A blocker hold of the
-        gap ends (``StoryHolds.release_gap``)."""
+        node and its relations are deleted, its options too; the event log keeps the reason. The gap's holds end
+        (``StoryHolds.release_gap``, FR-GPLN-04): the task ids released."""
 
         project_id = validate_project_id(project_id)
         if not text_ok(reason, REASON_CHARS):
             raise AnswerInvalidError(field="reason", reason="length", gap_id=gap_id)
         async with self._locks[project_id]:
-            await self._dismiss(project_id, gap_id, reason=reason, by=by)
+            return await self._dismiss(project_id, gap_id, reason=reason, by=by)
 
-    async def _dismiss(self, project_id: str, gap_id: str, *, reason: str, by: str) -> None:
+    async def _dismiss(self, project_id: str, gap_id: str, *, reason: str, by: str) -> tuple[str, ...]:
         gap = await self._stored(project_id, gap_id)
         if gap.status != "open":
             raise GapStateError(status=gap.status, allowed=("open",), gap_id=gap_id)
+        # The holds end first: a plan that refuses (a persist runs) leaves the gap open, so the dismissal can be retried.
+        released = await release(self.holds, project_id, gap.gap_id, aliases_of(gap.props), strict=True)
         now = self._clock()
         signatures = suppressed_signatures(gap)
         row = SuppressionRow(
@@ -918,7 +962,6 @@ class GapService:
                 if signature not in known:
                     await self._records.unsuppress(project_id, signature)
             raise
-        released = await self.holds.release_gap(project_id, gap.gap_id) if self.holds is not None else ()
         if reconcile_reason(gap) is not None:  # the upload stays what the build reads (reconcile.md "Edge cases")
             olds = await self._predecessors(project_id, gap)
             restore = await self._revertible(project_id, olds, SET_ASIDE_ROWS)  # its applied rows still hold
@@ -937,6 +980,7 @@ class GapService:
             ],
         )
         log_event(logger, INFO, "graph.gap.dismissed", project_id=project_id, gap_id=gap.gap_id, released=len(released))
+        return released
 
     async def revert_clarification(self, project_id: str, clr_id: str, *, by: str, reason: str) -> RevertResult:
         """Withdraw an answer, a person's or AI's (answers.md "Revert", FR-GANS-10): the clarification becomes
@@ -1101,22 +1145,39 @@ class GapService:
         return new
 
     async def raise_gap(self, project_id: str, new: NewGap) -> RaisedGap:
-        """Open a gap by hand (FR-GANS-12): after the checks of a report (the ids resolve, the quotes are found in
-        their active fragments), an ``open`` gap with the asker's question, severity ``major`` unless given, route
-        ``ask``, ``ABOUT`` the ids and ``CITES`` the quotes. The host then runs a ``site`` run on it for options,
-        ``IMPACTS`` and a severity. The same question about the same ids while it is open is that gap."""
+        """Open a gap by hand (FR-GANS-12) or for a coding agent (origin ``development``, FR-GDEV-01): after the checks
+        of a report (the ids resolve, the quotes are found in their active fragments), an ``open`` gap with the asker's
+        question, severity ``major`` unless given, route ``ask``, ``ABOUT`` the ids and ``CITES`` the quotes; the refs
+        of a development gap go into its ``created`` event. The host then runs a ``site`` run on it for options,
+        ``IMPACTS`` and a severity. The same question about the same ids while it is open is that gap (nothing held).
+
+        Holds (lifecycle.md "Development gaps", "Plan link"): a ``blocking`` development gap passes the plan's guard
+        (the agent holds the story under its token and one of its tasks implements a node of the gap) before anything
+        is written, then the plan's block call blocks the claimed tasks with ``blocked_by`` the gap id and ends the
+        claim (FR-GDEV-02); when the block fails the gap is taken out again and the plan's error passes. A raised
+        ``blocker`` gap holds the tasks implementing its nodes (GD2). ``AnswerInvalidError`` (``limit``) when the agent
+        already has ``DEVELOPMENT_OPEN_LIMIT`` open development gaps on the story."""
 
         project_id = validate_project_id(project_id)
         question = new.question.strip()
         if not text_ok(question, QUESTION_CHARS):
             raise AnswerInvalidError(field="question", reason="length")
+        async with self._locks[project_id]:  # two equal findings at once: one gap, one block
+            return await self._raise(project_id, new, question)
+
+    async def _raised_nodes(self, project_id: str, new: NewGap) -> list[SpecRef]:
+        """The current nodes of a raised gap's ``about`` ids; ``AnswerInvalidError`` for a bad count or unknown id."""
+
         ids = tuple(dict.fromkeys(item.strip() for item in new.about if item.strip()))
         if len(ids) > ABOUT_MAX or (not ids and not new.quotes):
             raise AnswerInvalidError(field="about", reason="count")
         refs = await resolve_spec_ids(self._executor, project_id, ids, self._labels) if ids else {}
         if set(ids) - set(refs):
             raise AnswerInvalidError(field="about", reason="unknown_ids")
-        nodes = sorted({ref.spec_id: ref for ref in refs.values()}.values(), key=lambda ref: ref.spec_id)
+        return sorted({ref.spec_id: ref for ref in refs.values()}.values(), key=lambda ref: ref.spec_id)
+
+    async def _raise(self, project_id: str, new: NewGap, question: str) -> RaisedGap:
+        nodes = await self._raised_nodes(project_id, new)
         quotes = await self._quoted(project_id, new)
         about = [ref for ref in nodes if self._ontology.is_legal(ABOUT, GAP, ref.label)]
         current = [ref.spec_id for ref in nodes]
@@ -1129,8 +1190,59 @@ class GapService:
         same = next((gap for gap in existing if gap.signature == signature and gap.status in OPEN_STATUSES), None)
         if same is not None:
             return RaisedGap(gap_id=same.gap_id, created=False)
+        if new.origin == "development" and _open_development(existing, new) >= DEVELOPMENT_OPEN_LIMIT:
+            raise AnswerInvalidError(field="limit", reason="open_limit")
+        if new.blocking:
+            if self.holds is None:
+                raise ConfigurationError("gap_holds_missing")
+            await self.holds.check_block(
+                project_id,
+                new.story_id or "",
+                claimed_by=new.created_by,
+                claim_token=new.claim_token or "",
+                spec_ids=current,
+            )
         new_id = gap_id(signature, {gap.gap_id: gap.signature for gap in existing})
         now = self._clock()
+        props = self._raised_props(new, new_id, question, signature, now)
+        owner = WriterRef(GAP, gap_uuid(project_id, new_id))
+        async with self._writer(project_id).transaction() as tx:
+            await tx.upsert_node(GAP, owner.key, props)
+            for ref in about:
+                await tx.upsert_relationship(
+                    ABOUT, owner, WriterRef(ref.label, ref.uuid), link_key(new_id, ABOUT, ref.spec_id), {}
+                )
+            for fragment_id, quote, line in quotes:
+                digest = quote_hash(quote)
+                cite: dict[str, Any] = {"quote": quote, "quote_hash": digest}
+                if line is not None:
+                    cite |= {"line_start": line, "line_end": line}
+                await tx.upsert_relationship(
+                    CITES, owner, WriterRef(FRAGMENT, fragment_id), cite_key(new_id, fragment_id, digest), cite
+                )
+        held = await self._hold_raised(project_id, new, new_id, [ref.spec_id for ref in about])
+        detail: dict[str, Any] = {"origin": new.origin, "kind": new.kind, "about": len(about), "cites": len(quotes)}
+        if new.refs:
+            detail["refs"] = [ref.model_dump(mode="json") for ref in new.refs]
+        if new.blocking:
+            detail |= {"story_id": new.story_id, "held": len(held)}
+        await self._records.log(
+            project_id, [EventRow(gap_id=new_id, at=now, actor=new.created_by, event="created", detail=detail)]
+        )
+        log_event(
+            logger,
+            INFO,
+            "graph.gap.raised",
+            project_id=project_id,
+            gap_id=new_id,
+            origin=new.origin,
+            about=len(about),
+            blocking=new.blocking,
+            held=len(held),
+        )
+        return RaisedGap(gap_id=new_id, held=held)
+
+    def _raised_props(self, new: NewGap, new_id: str, question: str, signature: str, now: datetime) -> dict[str, Any]:
         props: dict[str, Any] = {
             "gap_id": new_id,
             "kind": new.kind,
@@ -1151,37 +1263,65 @@ class GapService:
         }
         if new.story_id:
             props["story_id"] = new.story_id
-        owner = WriterRef(GAP, gap_uuid(project_id, new_id))
-        async with self._writer(project_id).transaction() as tx:
-            await tx.upsert_node(GAP, owner.key, props)
-            for ref in about:
-                await tx.upsert_relationship(
-                    ABOUT, owner, WriterRef(ref.label, ref.uuid), link_key(new_id, ABOUT, ref.spec_id), {}
+        return props
+
+    async def _hold_raised(self, project_id: str, new: NewGap, new_id: str, current: Sequence[str]) -> tuple[str, ...]:
+        """Hold what a new raised gap holds (``raise_gap``); a failed block takes the gap out again."""
+
+        if new.blocking and self.holds is not None:
+            try:
+                blocked = await self.holds.block_story(
+                    project_id,
+                    new.story_id or "",
+                    claim_token=new.claim_token or "",
+                    reason=hold_reason(new.kind),
+                    finding_id=new_id,
                 )
-            for fragment_id, quote, line in quotes:
-                digest = quote_hash(quote)
-                cite: dict[str, Any] = {"quote": quote, "quote_hash": digest}
-                if line is not None:
-                    cite |= {"line_start": line, "line_end": line}
-                await tx.upsert_relationship(
-                    CITES, owner, WriterRef(FRAGMENT, fragment_id), cite_key(new_id, fragment_id, digest), cite
-                )
-        await self._records.log(
-            project_id,
-            [
-                EventRow(
-                    gap_id=new_id,
-                    at=now,
-                    actor=new.created_by,
-                    event="created",
-                    detail={"origin": new.origin, "kind": new.kind, "about": len(about), "cites": len(quotes)},
-                )
-            ],
+            except BaseException:
+                async with self._writer(project_id).transaction() as tx:
+                    await tx.delete_node(GAP, gap_uuid(project_id, new_id))
+                raise
+            return tuple(getattr(blocked, "released", ()) or ())
+        if (new.severity or "major") == BLOCKER:
+            return (await hold(self.holds, project_id, new_id, current, new.kind)).held
+        return ()
+
+    async def hold_blockers(self, project_id: str, spec_ids: Sequence[str] | None = None) -> HoldResult:
+        """Hold the tasks of every open ``blocker`` gap (``ABOUT`` one of ``spec_ids``, aliases resolved, when given):
+        decision GD2 at claim time, so a task a plan run reset or a claim left alone is held again before anyone claims
+        it (``graph.gap.holds``). Nothing without ``holds``."""
+
+        project_id = validate_project_id(project_id)
+        if self.holds is None:
+            return HoldResult()
+        wanted = None if spec_ids is None else await self._current(project_id, spec_ids)
+        gaps = await read_gaps(self._executor, project_id, self._ontology, statuses=OPEN_STATUSES)
+        return await hold_blockers(self.holds, project_id, gaps, wanted)
+
+    async def add_note(
+        self, project_id: str, *, spec_ids: Sequence[str], text: str, created_by: str, story_id: str | None = None
+    ) -> str:
+        """A coding agent's ``note`` finding (lifecycle.md "Development gaps": kind ``note`` is no gap): a ``gap_note``
+        row (detector ``development``) about the resolved ids; its id (``NOTE::`` and 12 hex of the note). The same
+        note twice is one id. ``AnswerInvalidError`` for a text outside 1 to 2000 characters or an unknown id."""
+
+        project_id = validate_project_id(project_id)
+        body = text.strip()
+        if not text_ok(body, NOTE_CHARS):
+            raise AnswerInvalidError(field="text", reason="length")
+        ids = tuple(dict.fromkeys(item.strip() for item in spec_ids if item.strip()))
+        if not ids or len(ids) > ABOUT_MAX:
+            raise AnswerInvalidError(field="about", reason="count")
+        refs = await resolve_spec_ids(self._executor, project_id, ids, self._labels)
+        if set(ids) - set(refs):
+            raise AnswerInvalidError(field="about", reason="unknown_ids")
+        current = tuple(sorted({ref.spec_id for ref in refs.values()}))
+        note_id = NOTE_PREFIX + development_signature(story_id or "", current, body)[:12].upper()
+        await self._records.put_notes(
+            project_id, None, [NoteRow(run_id=None, detector=DEVELOPMENT, spec_ids=current, text=body)]
         )
-        log_event(
-            logger, INFO, "graph.gap.raised", project_id=project_id, gap_id=new_id, origin=new.origin, about=len(about)
-        )
-        return RaisedGap(gap_id=new_id)
+        log_event(logger, INFO, "graph.gap.note_added", project_id=project_id, about=len(current), by=created_by)
+        return note_id
 
     async def noise_rules(self, project_id: str) -> Sequence[NoiseRuleRow]:
         """The project's noise rules: sections and patterns a person marked "not spec" (detection.md)."""

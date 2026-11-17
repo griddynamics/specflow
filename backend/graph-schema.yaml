@@ -1,7 +1,7 @@
 # Graph schema of the Neo4j spec graph, read by validation/cypher (cypher-checks).
 # Source of truth: docs/graph/data-model.md and src/graph/core/ontology/spec-ontology.yaml
 # (domain labels and relation names), src/graph/plan/ontology.yaml (plan labels and relation
-# names) and src/graph/gap/ontology.yaml (gap, clarification and finding labels and relation names); constraints and indexes: the
+# names) and src/graph/gap/ontology.yaml (gap and clarification labels and relation names); constraints and indexes: the
 # static DDL files under src/graph/core/ddl/, src/graph/plan/ddl/ and src/graph/gap/ddl/, applied by
 # src/graph/core/schema.py (ensure_schema).
 #
@@ -214,7 +214,9 @@ nodes:
       confidence: {type: float}
       created_at: {type: timestamp}
       updated_at: {type: timestamp}
-  # First-slice findings (kept until the migration of first-slice findings, docs/graph/gap/lifecycle.md).
+  # First-slice findings: no longer ontology types and no DDL; only the migration of first-slice findings reads and
+  # deletes them (src/graph/gap/queries/gap_read_first_slice.cypher, gap_delete_first_slice_*.cypher;
+  # docs/graph/gap/lifecycle.md "Migration of first-slice findings").
   Finding:
     properties:
       uuid: {type: string}
@@ -312,6 +314,7 @@ relationships:
     from: [Clarification]
     to: [Clarification]
     properties: [group_id, edge_key]
+  # First slice: read and deleted by the migration only.
   REFERS_TO:
     from: [Finding]
     to: [ExternalRef]
@@ -346,8 +349,7 @@ constraints:
   # Parity expands the entry to the concrete labels of policy.placeholder_labels.__FOREIGN_LABEL__.
   unique: [SpecNode.spec_id, SpecNode.uuid, Document.document_id, Fragment.fragment_id, __FOREIGN_LABEL__.uuid,
            Plan.plan_id, Plan.uuid, WorkArea.area_id, WorkArea.uuid, Story.story_id, Story.uuid,
-           Task.task_id, Task.uuid, Gap.gap_id, Gap.uuid, Clarification.clr_id, Clarification.uuid,
-           Finding.finding_id, Finding.uuid, ExternalRef.uuid]
+           Task.task_id, Task.uuid, Gap.gap_id, Gap.uuid, Clarification.clr_id, Clarification.uuid]
   # src/graph/core/ddl/node_indexes.cypher, relationship_indexes.cypher and
   # src/graph/plan/ddl/plan_schema.cypher (range): the (group_id, edge_key) index of every relation
   # of the shipped ontology plus the plan data-model lookup indexes.
@@ -357,7 +359,7 @@ constraints:
             IN_AREA.edge_key, IN_STORY.edge_key, IMPLEMENTS.edge_key, WAITS_FOR.edge_key,
             SUPERSEDES.edge_key, Task.status, Task.story_id, Story.area_id, ABOUT.edge_key, IMPACTS.edge_key,
             CITES.edge_key, FOLLOWS_UP.edge_key, ANSWERS.edge_key, PLACED_IN.edge_key, GROUNDED_IN.edge_key,
-            REPLACES.edge_key, Gap.status, Gap.signature, REFERS_TO.edge_key, Finding.status, Finding.dedupe_key]
+            REPLACES.edge_key, Gap.status, Gap.signature]
 
 policy:
   # Schema DDL: the static CREATE ... IF NOT EXISTS statements of the constraints and indexes.
@@ -372,9 +374,9 @@ policy:
   # Placeholder labels and the concrete labels they stand for, which parity expands a declared
   # `Placeholder.property` to (an empty list asks for no DDL; the template on the placeholder itself is
   # declared). __FOREIGN_LABEL__: the foreign labels of the shipped ontology, graph.core.schema.foreign_labels
-  # (the plan and finding labels), each needing its graph_foreign_uuid_<label> DDL.
+  # (the plan and gap labels), each needing its graph_foreign_uuid_<label> DDL.
   placeholder_labels:
-    __FOREIGN_LABEL__: [Clarification, ExternalRef, Finding, Gap, Plan, Story, Task, WorkArea]
+    __FOREIGN_LABEL__: [Clarification, Gap, Plan, Story, Task, WorkArea]
   # project: batch writes whose MERGE key is a row property bound by an UNWIND of $rows (or of a list
   # of such a row) that is not the statement's first clause: the fragment upsert first matches the
   # fragment's document (a row without one writes nothing), and the link replacement stubs each
@@ -388,8 +390,8 @@ policy:
     build_merge_spec_nodes: [SpecNode]
     build_repair_delete_nodes: [SpecNode]
     build_replace_node_links: [REFERENCED_BY, MENTIONED_IN]
-    gap_delete_open_finding: [Finding]
-    gap_delete_unused_refs: [ExternalRef]
+    gap_delete_first_slice_findings: [Finding]
+    gap_delete_first_slice_refs: [ExternalRef]
   # Variable-length walks: the hard cap is the literal upper bound of the query file, the key the
   # parameter of its length(p) filter. scope_via: a spine `via` path, its file default `{1,3}` is
   # the shipped PART_OF path (spec-ontology.yaml spine.paths); $max_hops is the path's `max`.

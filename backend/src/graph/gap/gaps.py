@@ -74,6 +74,7 @@ class StoredLink:
     edge_key: str
     documents: tuple[str, ...] = ()
     added_by_run: str | None = None
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,7 @@ def _links(rows: Sequence[Mapping[str, Any]], relation: str, known: Collection[s
             edge_key=str(row.get("edge_key") or ""),
             documents=tuple(sorted({str(item) for item in row.get("documents") or () if item})),
             added_by_run=row.get("added_by_run"),
+            aliases=tuple(sorted({str(item) for item in row.get("aliases") or () if item})),
         )
         for row in rows
         if row.get("relation") == relation and row.get("spec_id")

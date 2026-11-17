@@ -1,5 +1,5 @@
-"""Names and limits of ``graph.gap``: the gap vocabularies (docs/graph/gap/gap-ontology.yaml) and the first-slice
-findings names (docs/graph/gap.md), kept until the migration of first-slice findings removes them.
+"""Names of ``graph.gap``: the gap types, relations and vocabularies (docs/graph/gap/gap-ontology.yaml) and the
+values of the relational store.
 
 The literals below repeat the vocabulary values of the shipped ontology file; ``gap_vocabularies`` reads the file so a
 test holds the two equal. Spec-side names (build types, relations and attributes) never appear here: they come from
@@ -21,6 +21,9 @@ import yaml
 GAP: Final = "Gap"
 CLARIFICATION: Final = "Clarification"
 GAP_PREFIX: Final = "GAP::"
+OWNER: Final = "gap"
+"""The owner of the gap ontology file: the ``OwnedWriter`` owner of every gap write."""
+ABOUT: Final = "ABOUT"
 IMPACTS: Final = "IMPACTS"
 CITES: Final = "CITES"
 FOLLOWS_UP: Final = "FOLLOWS_UP"
@@ -126,40 +129,3 @@ def gap_vocabularies() -> Mapping[str, tuple[str, ...]]:
     if not isinstance(values, dict):
         raise TypeError("the gap ontology must declare vocabularies")
     return MappingProxyType({name: tuple(value) for name, value in values.items()})
-
-
-# First slice: findings (docs/graph/gap.md), kept until the migration of first-slice findings.
-
-FINDING: Final = "Finding"
-EXTERNAL_REF: Final = "ExternalRef"
-ABOUT: Final = "ABOUT"
-REFERS_TO: Final = "REFERS_TO"
-OWNER: Final = "gap"
-AGENT: Final = "agent"
-FINDING_PREFIX: Final = "FND::"
-
-FindingKind = Literal["gap", "conflict", "question", "note"]
-FindingStatus = Literal["open", "resolved", "dismissed"]
-RefType = Literal["pr", "commit", "file", "url"]
-
-KINDS: Final[tuple[FindingKind, ...]] = ("gap", "conflict", "question", "note")
-REF_TYPES: Final[tuple[RefType, ...]] = ("pr", "commit", "file", "url")
-STATUSES: Final[tuple[FindingStatus, ...]] = ("open", "resolved", "dismissed")
-
-# The kind of a blocking finding to the block reason the plan stores ("Blocking link"); ``note`` never blocks.
-BLOCK_REASONS: Final[dict[str, str]] = {
-    "question": "spec_ambiguous",
-    "conflict": "spec_contradiction",
-    "gap": "spec_missing",
-}
-
-TEXT_LIMIT: Final = 2000
-ABOUT_LIMIT: Final = 20
-REFS_LIMIT: Final = 10
-OPEN_LIMIT: Final = 50
-NOTE_LIMIT: Final = 500
-AUTHOR_LIMIT: Final = 200
-STORY_LIMIT: Final = 200
-FILE_LIMIT: Final = 500
-URL_LIMIT: Final = 2000
-PAGE_LIMITS: Final = (1, 200)

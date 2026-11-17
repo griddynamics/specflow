@@ -89,6 +89,8 @@ POINTER: Final = "pointer"
 NOT_BLOCKING: Final = "no"
 YES: Final = "yes"
 NO: Final = "no"
+BLOCKER: Final = "blocker"
+DEVELOPMENT: Final = "development"
 
 
 @dataclass(frozen=True)
@@ -145,6 +147,13 @@ class RecordOutcome:
     held_back: int = 0
     rejected: int = 0
     not_spec: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    holds: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
+    """Open blocker gaps this step wrote or re-checked, to their kind and ``ABOUT`` ids: the run holds their tasks
+    (GD2)."""
+    releases: list[str] = field(default_factory=list)
+    """Gaps this step ended (a pointer resolved a raised gap, a development gap was not spec): their holds end."""
+    closed: list[str] = field(default_factory=list)
+    """Development gaps a ``not_spec`` investigation closed as a note (lifecycle.md "Development gaps", step 7)."""
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -159,6 +168,9 @@ class RecordOutcome:
             "held_back": self.held_back,
             "rejected": self.rejected,
             "not_spec": {site_id: list(ids) for site_id, ids in sorted(self.not_spec.items())},
+            "holds": {gap: {"kind": kind, "about": list(ids)} for gap, (kind, ids) in sorted(self.holds.items())},
+            "releases": sorted(set(self.releases)),
+            "closed": sorted(self.closed),
         }
 
 
@@ -350,6 +362,14 @@ class Recorder:
 
     async def _one(self, decision: SiteDecision) -> tuple[SiteOutcome, str | None]:
         report = decision.report
+        raised = self.by_id.get(decision.site.gap_id) if decision.site.gap_id else None
+        if (
+            decision.outcome == "not_spec"
+            and raised is not None
+            and raised.origin == DEVELOPMENT
+            and raised.status == OPEN
+        ):
+            return await self._close_not_spec(raised, decision)
         if decision.outcome != "gap" or report is None or decision.rejected:
             return self._no_gap(decision)
         if decision.severity == "info" or decision.route is None:
@@ -434,6 +454,8 @@ class Recorder:
                 await run.amendments.delete(run.project_id, [row.amendment_id for row in answer.rows])
             raise
         self.taken[new_id] = signature
+        if props["status"] == OPEN and props["severity"] == BLOCKER:
+            self.outcome.holds[new_id] = (str(props["kind"]), tuple(ref.spec_id for ref in about))
         stored = StoredGap(gap_id=new_id, props=props)
         self.by_id[new_id] = stored
         self.by_signature[signature] = stored
@@ -624,17 +646,39 @@ class Recorder:
             ]
             keys = {link.edge_key for link in (*known.about, *known.impacts)} | {cite.edge_key for cite in known.cites}
             owner = NodeRef(GAP, gap_uuid(run.project_id, known.gap_id))
+            pointer = decision.mode == POINTER and report.pointer is not None
+            changed = _raised_changes(known, decision, report)
+            clr: str | None = None
             async with self._writer().transaction() as tx:
                 added += await self._links(tx, owner, known.gap_id, ABOUT, nodes=about, keys=keys)
                 added += await self._links(tx, owner, known.gap_id, IMPACTS, nodes=impacts, keys=keys)
                 added += await self._cites(tx, owner, known.gap_id, quotes, keys)
-                changed = _raised_changes(known, decision, report)
-                if added or changed:
-                    now = run.now().isoformat(timespec="milliseconds")
-                    await tx.upsert_node(GAP, owner.key, {**changed, "updated_at": now})
+                if added or changed or pointer:
+                    instant = run.now()
+                    now = instant.isoformat(timespec="milliseconds")
+                    resolved = {"status": RESOLVED, "resolution": POINTER, "resolved_at": now} if pointer else {}
+                    await tx.upsert_node(GAP, owner.key, {**changed, **resolved, "updated_at": now})
+                    if pointer:  # a raised gap the spec already answers resolves now (FR-GDEV-04)
+                        clr = await self._pointer(
+                            tx, owner, known.gap_id, decision=decision, report=report, instant=instant
+                        )
                 seeds = more_seed_signatures(known, decision.site)
                 if seeds:  # what a dismissal suppresses; not a change a reader sees (no new ``updated_at``)
                     await tx.upsert_node(GAP, owner.key, {"seed_signatures": seeds})
+            if clr is not None:
+                self._pointered(known.gap_id, clr)
+            elif (
+                known.props.get("severity") == BLOCKER
+                and changed.get("severity", BLOCKER) != BLOCKER
+                and known.props.get("blocking") != YES
+            ):  # refined below blocker: major and minor gaps hold no task
+                self.outcome.releases.append(known.gap_id)
+            elif str(changed.get("severity") or known.props.get("severity")) == BLOCKER:
+                kind = str(changed.get("kind") or known.props.get("kind") or "")
+                self.outcome.holds[known.gap_id] = (
+                    kind,
+                    tuple(dict.fromkeys([*known.about_ids, *(ref.spec_id for ref in about)])),
+                )
         if known.status == OPEN and report.options and decision.mode != POINTER:
             self.options[known.gap_id] = self._option_rows(known.gap_id, report)
         kind = str(known.props.get("kind") or report.kind)
@@ -648,6 +692,50 @@ class Recorder:
                 detail={"run_id": run.run_id, "site_id": decision.site.site_id, "added": added},
             )
         )
+
+    def _pointered(self, gap: str, clr: str) -> None:
+        """The metrics and events of a gap a confirmed pointer resolved in a re-check; its holds end."""
+
+        self.outcome.pointers += 1
+        self.outcome.releases.append(gap)
+        self.events.append(
+            EventRow(
+                gap_id=gap,
+                clr_id=clr,
+                at=self.run.now(),
+                actor=AI_ACTOR,
+                event="answered",
+                detail={"run_id": self.run.run_id, "mode": POINTER},
+            )
+        )
+        self._event(gap, RESOLVED, clr=clr, resolution=POINTER)
+
+    async def _close_not_spec(self, known: StoredGap, decision: SiteDecision) -> tuple[SiteOutcome, str | None]:
+        """A development gap the investigation judged ``not_spec`` (a library bug, a failing test, a tooling issue):
+        closed as obsolete with a ``gap_note`` holding the agent's question, its options go and its holds end
+        (lifecycle.md "Development gaps", step 7; FR-GDEV-06). Its nodes are not marked as noise: the agent's
+        question says nothing about the sections."""
+
+        async with self._writer().transaction() as tx:
+            for props in known.clarifications:
+                await tx.delete_node(CLARIFICATION, clarification_uuid(self.run.project_id, str(props["clr_id"])))
+            await tx.delete_node(GAP, gap_uuid(self.run.project_id, known.gap_id))
+        self.by_id.pop(known.gap_id, None)
+        self.notes.append(
+            NoteRow(
+                run_id=self.run.run_id,
+                detector=str(known.props.get("detector") or known.origin),
+                spec_ids=known.about_ids,
+                text=str(known.props.get("question") or known.props.get("title") or ""),
+            )
+        )
+        self.outcome.notes += 1
+        self.options[known.gap_id] = []
+        self.outcome.releases.append(known.gap_id)
+        self.outcome.closed.append(known.gap_id)
+        reason = decision.report.not_spec_reason if decision.report is not None else None
+        self._event(known.gap_id, "obsolete", reason="not_spec", site_id=decision.site.site_id, noted=bool(reason))
+        return "not_spec", known.gap_id
 
     async def _links(
         self, tx: OwnedWriter, owner: NodeRef, gap: str, relation: str, *, nodes: Sequence[SpecRef], keys: set[str]

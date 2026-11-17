@@ -4,8 +4,6 @@ investigation.md "Report").
 Every model is a frozen pydantic model that forbids unknown fields. Field limits of the investigator's report are
 checked by the ``check`` step (it truncates or drops), so the report model holds types and shapes only. The rows
 mirror the host's relational tables; JSON columns are mappings or tuples of models.
-
-The first-slice findings models (``Finding`` and its companions) stay until the migration of first-slice findings.
 """
 
 from __future__ import annotations
@@ -24,8 +22,6 @@ from graph.gap.names import (
     ClarificationStatus,
     DecidedBy,
     EditPlacement,
-    FindingKind,
-    FindingStatus,
     FollowUpReason,
     GapKind,
     GapOrigin,
@@ -35,7 +31,6 @@ from graph.gap.names import (
     GapStatus,
     NoiseScope,
     ReconcileOutcome,
-    RefType,
     Relevance,
     ReportSeverity,
     RunMode,
@@ -102,11 +97,12 @@ class Edit(GapModel):
 
 
 class NodeRef(GapModel):
-    """A spec node as a gap view shows it."""
+    """A spec node as a gap view shows it; ``aliases`` are its earlier spec ids (a plan task may still name one)."""
 
     spec_id: str
     label: str
     name: str
+    aliases: tuple[str, ...] = ()
 
 
 # Change reports, settings and context
@@ -567,6 +563,10 @@ class GapView(GapModel):
     blocking: bool = False
     held_back: bool = False
     run_id: str | None = None
+    story_id: str | None = None
+    """The story a development gap was reported from."""
+    aliases: tuple[str, ...] = ()
+    """Other ids the gap answers to: a migrated first-slice finding's ``FND::`` id."""
     created_by: str
     created_at: AwareDatetime
     updated_at: AwareDatetime
@@ -635,6 +635,16 @@ class AnswerInput(GapModel):
         return self
 
 
+SourceRefType = Literal["pr", "commit", "file", "url"]
+
+
+class SourceRef(GapModel):
+    """Where a development gap comes from (a pull request, commit, file or URL); kept in the gap's first event."""
+
+    type: SourceRefType
+    value: str = Field(min_length=1, max_length=2000)
+
+
 class NewGap(GapModel):
     """A gap a person or a coding agent raises. A blocking gap is a development gap and names the story and the
     claim token of the agent that holds it."""
@@ -649,6 +659,7 @@ class NewGap(GapModel):
     story_id: str | None = None
     claim_token: str | None = None
     created_by: str
+    refs: tuple[SourceRef, ...] = Field(default=(), max_length=10)
 
     @model_validator(mode="after")
     def _blocking_needs_a_claim(self) -> Self:
@@ -767,6 +778,9 @@ class RaisedGap(GapModel):
 
     gap_id: str
     created: bool = True
+    held: tuple[str, ...] = ()
+    """The tasks the gap holds now: the reporting agent's claimed tasks of a blocking development gap, or the tasks
+    implementing the nodes of a raised blocker gap."""
 
 
 # Reconcile
@@ -800,55 +814,3 @@ class ReconcileResult(GapModel):
     changed: tuple[AmendmentRow, ...] = ()
     applied: tuple[AmendmentRow, ...] = ()
     follow_ups: tuple[str, ...] = ()
-
-
-# First slice: findings (docs/graph/gap.md "Library: Findings")
-
-
-class FindingRef(GapModel):
-    """A ``refers_to`` entry: where a finding comes from. Stored, never fetched."""
-
-    type: RefType
-    value: str
-
-
-class Finding(GapModel):
-    """One finding with its references; ``uuid`` and ``dedupe_key`` stay inside the store."""
-
-    finding_id: str
-    kind: FindingKind
-    text: str
-    origin: str
-    status: FindingStatus
-    blocking: bool
-    about_spec_ids: tuple[str, ...]
-    story_id: str | None = None
-    created_by: str
-    created_at: AwareDatetime
-    resolved_by: str | None = None
-    resolved_at: AwareDatetime | None = None
-    resolution_note: str | None = None
-    orphaned: bool = False
-    updated_at: AwareDatetime | None = None
-    refers_to: tuple[FindingRef, ...] = ()
-
-
-class AddedFinding(GapModel):
-    """The answer to ``add``: the finding and whether this call created it (false: an open one already matched)."""
-
-    finding: Finding
-    created: bool
-
-
-class FindingPage(GapModel):
-    """One page of findings; ``next`` is the opaque ``after`` of the following page, or none."""
-
-    findings: tuple[Finding, ...]
-    next: str | None = None
-
-
-class FindingRefresh(GapModel):
-    """What ``refresh`` did: open findings whose ids or edges it updated, and those it left orphaned."""
-
-    refreshed: int
-    orphaned: int

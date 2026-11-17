@@ -45,6 +45,7 @@ from graph.core.llm.gateway import estimate_tokens
 from graph.core.store import as_executor
 from graph.gap.context import GapContext
 from graph.gap.gaps import StoredGap, read_gaps
+from graph.gap.holds import aliases_of, hold_blockers, release
 from graph.gap.models import (
     GapEstimate,
     GapRunResult,
@@ -368,6 +369,7 @@ class _Run:
     async def _close(self) -> Payload:
         if self.mode == "site":
             return {"skipped": True}
+        aliases = await self._aliases()
         outcome = await close_gaps(
             CloseRun(
                 source=self.ctx.executor,
@@ -385,7 +387,28 @@ class _Run:
             await self.snapshot(),
             await self.gaps(),
         )
-        return outcome.payload()
+        payload = outcome.payload()
+        ended = [*outcome.resolved, *outcome.obsolete]  # FR-GPLN-04: their held tasks return to pending
+        payload["released"] = await self._release(ended, aliases)
+        return payload
+
+    async def _aliases(self) -> dict[str, tuple[str, ...]]:
+        """The aliases of the project's gaps before a step that may delete some (read first: a deleted gap's
+        ``FND::`` alias must still be released)."""
+
+        if self.ctx.holds is None:
+            return {}
+        return {gap.gap_id: aliases_of(gap.props) for gap in await self.gaps()}
+
+    async def _release(self, gap_ids: Sequence[str], aliases: Mapping[str, Sequence[str]]) -> list[str]:
+        """Release the tasks the ended gaps hold (by id and by alias); the task ids released."""
+
+        if self.ctx.holds is None or not gap_ids:
+            return []
+        released: list[str] = []
+        for gap_id in dict.fromkeys(gap_ids):
+            released += await release(self.ctx.holds, self.project_id, gap_id, aliases.get(gap_id, ()))
+        return sorted(set(released))
 
     async def follow_ups(self) -> dict[str, str]:
         """The follow-up gaps this run's close step opened, to the gaps they continue (each gets a site here)."""
@@ -571,6 +594,7 @@ class _Run:
                     confidence=decided.get("confidence"),
                 )
             )
+        aliases = await self._aliases()
         outcome = await record_sites(
             RecordRun(
                 source=self.ctx.executor,
@@ -591,6 +615,12 @@ class _Run:
         )
         payload = outcome.payload()
         payload["noise"] = await self._not_spec(outcome.not_spec)
+        payload["released"] = await self._release(outcome.releases, aliases)
+        # GD2: every open blocker gap holds its tasks, the ones this step wrote or re-checked and those a plan run
+        # reset, a claim left alone or a follow-up inherited (idempotent: held tasks stay as they are).
+        held = await hold_blockers(self.ctx.holds, self.project_id, await self.gaps())
+        payload["held_tasks"] = list(held.held)
+        payload["in_progress_tasks"] = list(held.in_progress)
         return payload
 
     def _still_ai(self, decided: Payload, item: Checked) -> Payload:
@@ -679,6 +709,7 @@ class _Run:
             cost=cost,
             noise=noise,
             deferred_sites=tuple(deferred),
+            held_tasks=tuple(recorded.get("held_tasks", ())),
             warnings=tuple(warnings),
         )
 

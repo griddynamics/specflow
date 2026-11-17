@@ -1,11 +1,11 @@
 -- Port of gap/queries/gap_read_gaps.cypher. Gaps whose status is in
 -- :statuses (and whose gap id is in :gap_ids, when that list is not empty),
 -- each with its ABOUT and IMPACTS nodes (relation, spec id, uuid, labels,
--- name, the documents holding the node's evidence, edge key, added_by_run),
--- its CITES witnesses (fragment, document, quote, lines, quote hash, edge
--- key), its follow-up chain (continues: the gap is the source) and the
--- properties of the clarifications that answer it. The library sorts and
--- filters further.
+-- name, spec id aliases, the documents holding the node's evidence, edge
+-- key, added_by_run), its CITES witnesses (fragment, document, quote, lines,
+-- quote hash, edge key), its follow-up chain (continues: the gap is the
+-- source) and the properties of the clarifications that answer it. The
+-- library sorts and filters further.
 SELECT
     g.props AS gap,
     coalesce(
@@ -18,6 +18,9 @@ SELECT
                         'uuid', n.uuid,
                         'labels', to_jsonb(n.labels),
                         'name', n.props ->> 'name',
+                        'aliases', coalesce(
+                            n.props -> 'spec_id_aliases', cast('[]' AS jsonb)
+                        ),
                         'documents', coalesce(
                             (
                                 SELECT

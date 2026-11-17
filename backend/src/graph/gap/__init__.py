@@ -2,30 +2,20 @@
 
 Imports ``graph.core`` only, never ``graph.build`` or ``graph.plan`` (FR-GOWN-03). The ontology file ``ontology.yaml``
 ships as package data and is merged by ``load_ontology``; ``gap-rules.yaml`` is read by ``load_gap_rules``;
-``ddl/gap_schema.cypher`` is applied by the core ``ensure_schema`` (``ensure_gap_schema``). The first-slice findings
-library (``Findings``, ``FindingFlow`` and their models, docs/graph/gap.md) stays until the migration of first-slice
-findings replaces it.
+``ddl/gap_schema.cypher`` is applied by the core ``ensure_schema`` (``ensure_gap_schema``), which also runs the
+migration of first-slice findings (``migrate_first_slice``): a first-slice finding is now a development gap.
 """
 
 from __future__ import annotations
 
-from graph.gap.blocking import (
-    FindingFlow,
-    FlowAdded,
-    FlowClosed,
-    NewFinding,
-    StoryBlocks,
-)
 from graph.gap.context import GapContext
 from graph.gap.errors import (
     AnswerInvalidError,
-    FindingError,
     GapNotFoundError,
     GapRulesError,
     GapStateError,
     StaleGapError,
 )
-from graph.gap.findings import Findings
 from graph.gap.identity import (
     clr_id,
     development_signature,
@@ -33,8 +23,8 @@ from graph.gap.identity import (
     gap_signature,
     witness_entry,
 )
+from graph.gap.migrate import MigrationResult, migrate_first_slice
 from graph.gap.models import (
-    AddedFinding,
     AiAnswer,
     AiAnswerList,
     AmendmentAnchor,
@@ -53,10 +43,6 @@ from graph.gap.models import (
     EditPreview,
     EditTarget,
     EventRow,
-    Finding,
-    FindingPage,
-    FindingRef,
-    FindingRefresh,
     FollowUp,
     GapChangeReport,
     GapEstimate,
@@ -95,6 +81,7 @@ from graph.gap.models import (
     SiteBudget,
     SitePack,
     SiteRow,
+    SourceRef,
     SuppressionRow,
     TaskRef,
     VerdictRow,
@@ -103,19 +90,15 @@ from graph.gap.models import (
     WitnessView,
 )
 from graph.gap.names import (
-    BLOCK_REASONS,
     ClarificationMode,
     ClarificationPlacement,
     ClarificationStatus,
-    FindingKind,
-    FindingStatus,
     GapKind,
     GapOrigin,
     GapResolution,
     GapRoute,
     GapSeverity,
     GapStatus,
-    RefType,
 )
 from graph.gap.ports import (
     Amendments,
@@ -143,9 +126,7 @@ from graph.gap.steps.investigate import LoopInvestigator
 from graph.gap.steps.reads import GraphSiteReads
 
 __all__ = [
-    "BLOCK_REASONS",
     "RUN_STEPS",
-    "AddedFinding",
     "AiAnswer",
     "AiAnswerList",
     "AmendmentAnchor",
@@ -172,17 +153,6 @@ __all__ = [
     "EditTarget",
     "EventRow",
     "FileGapRunStore",
-    "Finding",
-    "FindingError",
-    "FindingFlow",
-    "FindingKind",
-    "FindingPage",
-    "FindingRef",
-    "FindingRefresh",
-    "FindingStatus",
-    "Findings",
-    "FlowAdded",
-    "FlowClosed",
     "FollowUp",
     "GapChangeReport",
     "GapContext",
@@ -218,7 +188,7 @@ __all__ = [
     "LineageAnswers",
     "LoopInvestigator",
     "MemoryGapRunStore",
-    "NewFinding",
+    "MigrationResult",
     "NewGap",
     "NodeRef",
     "NoiseReport",
@@ -234,7 +204,6 @@ __all__ = [
     "ReadRecord",
     "ReadResult",
     "ReconcileResult",
-    "RefType",
     "RefusedPair",
     "RelevanceRow",
     "RelevanceRules",
@@ -249,8 +218,8 @@ __all__ = [
     "SitePack",
     "SiteReads",
     "SiteRow",
+    "SourceRef",
     "StaleGapError",
-    "StoryBlocks",
     "StoryHolds",
     "SuppressionRow",
     "TaskRef",
@@ -266,6 +235,7 @@ __all__ = [
     "gap_settings_from_env",
     "gap_signature",
     "load_gap_rules",
+    "migrate_first_slice",
     "open_gap_run_store",
     "run_gap",
     "witness_entry",
