@@ -383,6 +383,46 @@ async def test_a_dirty_window_keeps_its_earlier_edges_on_unchanged_fragments(scr
     assert sorted(window_edges) == [("edited", ("a#f3",), False), ("fact 2", ("a#f2",), True)]
 
 
+async def test_a_dirty_window_drops_an_uncited_restatement_and_merges_the_grounds_of_a_repeated_fact(
+    scripted_gateway: Factory,
+) -> None:
+    """A fresh edge with no fragment number (tied to the dirty a#f3 by the attribution fallback) between nodes of
+    unchanged text is a re-answer and is dropped; a fresh edge on a#f3 with the ends and relation of the earlier edge
+    on the unchanged a#f2 keeps both grounds."""
+
+    store = MemoryStore()
+    await first_build(scripted_gateway, store)
+    gateway = scripted_gateway()
+    Windows(gateway)
+    answer = {
+        "edges": [
+            {
+                "source": "Cart holds at most 50 items",
+                "relation": "PART_OF",
+                "target": "Checkout service",
+                "fact": "uncited",
+                "fragments": [],
+            },
+            {
+                "source": "Checkout service",
+                "relation": "INTEGRATES_WITH",
+                "target": "Stripe",
+                "fact": "repeated",
+                "fragments": [4],
+            },
+        ]
+    }
+    gateway.handle(EDGE_WINDOW_PROMPT, lambda _: answer)
+    artifact = await run(gateway, update_plan(PLAN, ["a#f3"]), store=store, params=WINDOWED)
+    window_edges = [
+        (edge.fact, edge.fragment_ids, edge.reused)
+        for edge in artifact.raw_edges
+        if set(edge.fragment_ids) <= {"a#f2", "a#f3"}
+    ]
+    assert window_edges == [("repeated", ("a#f3", "a#f2"), False)]
+    assert artifact.counters.attribution_fallbacks == 1
+
+
 async def test_a_clean_window_whose_window_catalog_changed_is_called(scripted_gateway: Factory) -> None:
     store = MemoryStore()
     await first_build(scripted_gateway, store)

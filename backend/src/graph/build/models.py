@@ -391,6 +391,9 @@ class RawEdge(ArtifactModel):
     fragment_ids: tuple[str, ...] = ()
     unit_id: str
     reused: bool = False
+    cited: bool = True
+    """False when the answer named no fragment of the window and the edge was tied to the window's dirty fragments
+    (or all of them; ``attribution_fallbacks``)."""
 
 
 class EdgeCounters(ArtifactModel):
