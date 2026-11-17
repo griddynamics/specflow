@@ -156,7 +156,10 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await expect(list).toBeVisible();
     await field.press("ArrowDown");
     await field.press("Enter");
+    // The list is cleared once the pick is made: wait for that settled state, then the chip must still carry the name.
+    await expect(list).toHaveCount(0);
     await expect(modal.getByTestId("people-chip")).toContainText(["Alan Turner"]);
+    await expect(modal.getByTestId("people-chip")).not.toContainText("@");
     expect(suggestions().map((r): unknown => JSON.parse(r.postData ?? "{}"))).toEqual([{ q: "ala" }]);
     expect(requests.some((r) => r.path.includes("@") || r.search.includes("@"))).toBe(false);
   });
