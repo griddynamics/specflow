@@ -1,6 +1,7 @@
 """The agent write tools (``add_finding``, ``report_task``, ``complete_story``) through the MCP router over the REAL API
-app, in process (the pattern of ``test_mcp_people_tools_over_api.py``): the story plan and findings of
-``people_support`` behind the API, a recording transport between the two services, the MCP SDK client in front.
+app, in process (the pattern of ``test_mcp_people_tools_over_api.py``): the story plan and development gaps (the
+agents' findings) of ``people_support`` behind the API, a recording transport between the two services, the MCP SDK
+client in front.
 
 Covers the ``POST`` with the project in the query and the other arguments as the JSON body, the JSON text equal to the
 structured content, the typed error details end to end, a story told from claim to completion, the audit (ids and
@@ -101,6 +102,8 @@ async def test_a_story_from_claim_to_completion_posts_each_write_and_answers_wha
         assert structured(result) == answer.json() and model.model_validate(structured(result))
         assert json.loads(text(result)) == structured(result) and len(result.content) == 1  # a write keeps the JSON
     assert structured(finding)["created"] is True and structured(reported)["task"]["progress"] == "done"
+    found = structured(finding)["finding"]
+    assert found["finding_id"].startswith("GAP::") and found["kind"] == "gap"  # a development gap of kind missing
     assert structured(completed)["completed"] == [CONTRACT, "TASK::A::API_LOGIC"]
     assert tasks[CONTRACT]["status"] == "completed"
 
@@ -222,7 +225,7 @@ async def test_the_audit_holds_ids_and_codes_only_never_text_note_ref_token_comm
         ("story-completion", "ok", False),
         ("story-completion", "claim_mismatch", False),
     ]
-    assert written[3]["finding_id"].startswith("FND::") and written[4]["task_id"] == CONTRACT
+    assert written[3]["finding_id"].startswith("GAP::") and written[4]["task_id"] == CONTRACT  # a development gap
     everything = json.dumps(central_log.records(), default=str)
     for private in (token, NOT_HELD, *SECRETS):
         assert private not in everything, private

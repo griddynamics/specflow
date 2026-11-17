@@ -418,7 +418,7 @@ async def test_the_service_is_built_once_from_the_runner_resources(tmp_path):
     assert first is again
     assert args[0] == "executor" and args[1] == "reader" and args[4:] == ("records", "amendments")
     gateway = kwargs.pop("gateway")
-    assert kwargs == {"settings": gap, "plan": "plan", "builds": builds}
+    assert kwargs == {"settings": gap, "plan": "plan", "builds": builds, "holds": "holds"}
     await runner.aclose()
     assert gateway.closed  # the gap_edits gateway closes with the runner
 

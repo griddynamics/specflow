@@ -155,9 +155,9 @@ async def agent_writes(client: Any) -> dict[str, Any]:
     }
     results["add_finding"] = await tool(client, "add_finding", **finding)
     results["add_finding_repeat"] = await tool(client, "add_finding", **finding)
-    results["add_finding_blocking_repeat_without_a_claim"] = await tool(
-        client, "add_finding", **{**finding, "blocking": True}
-    )  # the repeat is answered before the blocking rules
+    results["add_finding_blocking_repeat_with_a_wrong_token"] = await tool(
+        client, "add_finding", **{**finding, "blocking": True, "claim_token": NOBODYS_CLAIM}
+    )  # the repeat is answered before the plan's guard
     report = {"project_id": ALPHA, "task_id": TASK, "claim_token": token}
     results["report_task"] = await tool(client, "report_task", **report, progress="done", note="Built and tested")
     results["report_task_repeat"] = await tool(
@@ -232,7 +232,7 @@ async def test_every_tool_answers_the_golden_success_results(tooling_double):
     names |= {
         "add_finding": "add_finding",
         "add_finding_repeat": "add_finding",
-        "add_finding_blocking_repeat_without_a_claim": "add_finding",
+        "add_finding_blocking_repeat_with_a_wrong_token": "add_finding",
         "report_task": "report_task",
         "report_task_skipped": "report_task",
         "report_task_repeat": "report_task",
@@ -362,6 +362,23 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             "complete_story",
             {**held, "merge_commit": COMMIT, "pr_url": "https://user:pw@example.com/p/1"},
         ),
+        "invalid_arguments:add_finding_question_too_short": (
+            "free",
+            "add_finding",
+            {"project_id": ALPHA, "kind": "question", "text": "Kept?", "about": ["FEAT::CHECKOUT"]},
+        ),
+        "invalid_arguments:add_finding_blocking_without_a_token": (
+            "free",
+            "add_finding",
+            {
+                "project_id": ALPHA,
+                "kind": "question",
+                "text": "Is a cart kept for a day?",
+                "about": ["FEAT::CHECKOUT"],
+                "story_id": CHECKOUT,
+                "blocking": True,
+            },
+        ),
         "story_not_found:add_finding": (
             "free",
             "add_finding",
@@ -373,7 +390,7 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             {
                 "project_id": ALPHA,
                 "kind": "question",
-                "text": "x",
+                "text": "Is a cart kept for a day?",
                 "about": ["FEAT::CHECKOUT"],
                 "story_id": CHECKOUT,
                 "claim_token": NOBODYS_CLAIM,
@@ -396,7 +413,7 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             {
                 "project_id": ALPHA,
                 "kind": "question",
-                "text": "x",
+                "text": "Is a cart kept for a day?",
                 "about": ["FEAT::CHECKOUT"],
                 "story_id": CHECKOUT,
                 "claim_token": FIRST_CLAIM,

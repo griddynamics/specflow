@@ -79,10 +79,10 @@ async def test_the_story_brief_answers_the_story_its_tasks_in_build_order_and_fi
     assert [n.spec_id for n in brief.implements] == ["FEAT::CHECKOUT", "REQ::FR::CHECKOUT", "REQ::Q::CHECKOUT_SPEED"]
     assert [c.task_id for c in brief.contracts] == ["TASK::PAYMENTS::CONTRACT"]
     assert brief.spec_changed is False and brief.missing == []
-    # the blocking finding first; its author is a named member, the other one is the caller
+    # the blocking development gap first; its author is a named member, the other one is the caller
     assert [(f.kind, f.blocking, f.author.name, f.author.you) for f in brief.findings] == [
-        ("conflict", True, "Ben", False),
-        ("question", False, "Alice", True),
+        ("contradiction", True, "Ben", False),
+        ("open_question", False, "Alice", True),
     ]
     assert_no_private_values(spec, response.text)
 
@@ -298,7 +298,8 @@ async def test_a_node_answers_its_parts_with_holders_and_open_findings(spec):
     ]
     assert node.provenance == []
     assert node.findings is not None
-    assert [(f.kind, f.author.name) for f in node.findings] == [("conflict", "Ben"), ("note", None)]  # the leaver
+    # the leaver's note is no gap: only the open development gap shows
+    assert [(f.kind, f.author.name) for f in node.findings] == [("contradiction", "Ben")]
     assert_no_private_values(spec, response.text)
 
 
@@ -539,13 +540,12 @@ class RecordingGateway:
         type(self).closed += 1
 
 
-async def test_the_lazy_reads_hold_the_findings_store_and_no_gateway_without_the_build_switches(monkeypatch, valid_env):
+async def test_the_lazy_reads_hold_the_gaps_port_and_no_gateway_without_the_build_switches(monkeypatch, valid_env):
     async with serve_agent(monkeypatch, agent_env(valid_env), lazy=True) as rig:
         reads = await agent_reads(rig.runtime)
 
-    assert reads.findings is not None and reads.open_findings is not None
-    assert reads.plan._findings is reads.open_findings  # gaps and first-slice findings (FR-GPLN-02)
-    assert reads.open_findings._first is reads.findings
+    assert reads.open_findings is not None
+    assert reads.plan._findings is reads.open_findings  # open gaps (FR-GPLN-02)
     assert reads.reader._gateway is None
 
 

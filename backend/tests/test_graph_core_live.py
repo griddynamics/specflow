@@ -32,7 +32,7 @@ pytestmark = requires_live_graph()
 MODULE = "Module"
 FR = "FunctionalRequirement"
 FEATURE = "Feature"
-FINDING = "Finding"
+FINDING = "Gap"
 DOCUMENT = "Document"
 FRAGMENT = "Fragment"
 

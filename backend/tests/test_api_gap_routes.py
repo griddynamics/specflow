@@ -540,7 +540,7 @@ async def test_raising_a_gap_queues_a_site_run_only_when_it_is_new(harness, crea
     response = await harness.client.post(url(pid, "/gaps"), json=body, headers=bearer())
 
     assert response.status_code == 201
-    assert response.json() == {"gap_id": "GAP::NEW", "created": created}
+    assert response.json() == {"gap_id": "GAP::NEW", "created": created, "held": []}
     [(_, (_, new), _)] = runner.gap_service.calls
     assert (new.origin, new.created_by, new.about, new.severity) == ("person", user_id(harness), ("REQ-1",), "blocker")
     assert runner.sites == [(str(pid), "GAP::NEW")] * sites

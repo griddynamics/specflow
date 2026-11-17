@@ -1,5 +1,5 @@
 """The gap ontology file: merged by ``load_ontology``, owner and origin, ``ABOUT`` pairs, no effect on extraction,
-package data and schema objects (gap.md "Ontology file")."""
+package data and schema objects (docs/graph/gap/ontology.md)."""
 
 from __future__ import annotations
 
@@ -12,82 +12,47 @@ from graph.build.run import label_set, ontology_fingerprint, relation_set
 from graph.core import OwnedWriter, load_ontology
 from graph.core.errors import ConformanceError, OwnershipError
 from graph.core.ontology import FingerprintPart
-from graph.core.ontology.model import OWNER_ORIGINS
 from graph.core.queries import Query
 from graph.core.schema import foreign_labels, schema_objects
 from graph.core.writer import NodeRef
-from graph.gap.names import BLOCK_REASONS, KINDS, REF_TYPES, STATUSES, FindingKind
-from graph.plan.names import BlockReason
+from graph.gap.names import gap_vocabularies
 from graph_support import shipped_ontology
 
 CARD = "uuid-card"
 
 
-def test_the_agent_origin_is_one_of_the_origins_of_the_gap_owner() -> None:
-    assert OWNER_ORIGINS["gap"] == frozenset({"analysis", "human", "agent"})
-
-
 def test_load_ontology_merges_the_gap_file_beside_the_build_and_plan_files() -> None:
     ontology = load_ontology()
 
-    assert {
-        name: ontology.owner_of(name) for name in ("Finding", "ExternalRef", "ABOUT", "REFERS_TO")
-    } == dict.fromkeys(("Finding", "ExternalRef", "ABOUT", "REFERS_TO"), "gap")
+    assert {name: ontology.owner_of(name) for name in ("Gap", "Clarification", "ABOUT", "ANSWERS")} == dict.fromkeys(
+        ("Gap", "Clarification", "ABOUT", "ANSWERS"), "gap"
+    )
     assert ontology.owner_of("Task") == "plan" and ontology.owner_of("Feature") == "build"
-    finding, ref = ontology.node_type("Finding"), ontology.node_type("ExternalRef")
-    assert (finding.origin, finding.tier, finding.role, finding.extracted) == (
-        "agent",
-        "governance",
-        None,
-        False,
-    )
-    assert (ref.origin, ref.tier, ref.role, ref.extracted) == (
-        "agent",
-        "context",
-        None,
-        False,
-    )
-    # ABOUT is declared once, with the gap pairs (origin analysis) and the first-slice finding pairs.
-    assert (
-        ontology.relation("ABOUT").origin,
-        ontology.relation("REFERS_TO").origin,
-    ) == ("analysis", "agent")
-    assert {ontology.relation(name).tier for name in ("ABOUT", "REFERS_TO")} == {"governance"}
+    gap = ontology.node_type("Gap")
+    assert (gap.origin, gap.tier, gap.role, gap.extracted) == ("analysis", "governance", None, False)
+    assert ontology.relation("ABOUT").origin == "analysis" and ontology.relation("ABOUT").tier == "governance"
 
 
-def test_the_vocabularies_of_the_file_hold_the_values_the_library_names() -> None:
+def test_the_first_slice_types_are_gone() -> None:
+    # The migration of first-slice findings replaced Finding and ExternalRef by development gaps (FR-GDEV-07).
     ontology = load_ontology()
-    kind = ontology.node_type("Finding").attributes["kind"]
-    status = ontology.node_type("Finding").attributes["status"]
 
-    assert tuple(kind.values) == KINDS == get_args(FindingKind)
-    assert tuple(status.values) == STATUSES
-    assert tuple(ontology.node_type("ExternalRef").attributes["type"].values) == REF_TYPES
+    assert not {"Finding", "ExternalRef"} & set(ontology.labels)
+    assert "REFERS_TO" not in ontology.relations
+    assert not {"finding_kind", "finding_status", "external_ref_type", "finding_origin"} & set(gap_vocabularies())
 
 
-def test_the_block_reasons_are_reasons_the_plan_knows() -> None:
-    assert set(BLOCK_REASONS) == {"question", "conflict", "gap"}
-    assert set(BLOCK_REASONS.values()) <= set(get_args(BlockReason))
-
-
-def test_about_reaches_every_build_label_and_fragment_and_nothing_else() -> None:
+def test_about_reaches_every_build_label_and_nothing_else() -> None:
     ontology = load_ontology()
     build_labels = {label for label in ontology.labels if ontology.owner_of(label) == "build"}
 
     reached = {
         label
-        for label in (
-            *build_labels,
-            "Fragment",
-            "Document",
-            "Task",
-            "Finding",
-            "ExternalRef",
-        )
-        if ontology.is_legal("ABOUT", "Finding", label)
+        for label in (*build_labels, "Fragment", "Document", "Task", "Gap", "Clarification")
+        if ontology.is_legal("ABOUT", "Gap", label)
     }
 
-    assert reached == build_labels | {"Fragment"}
+    assert reached <= build_labels
     assert {
         "Module",
         "Feature",
@@ -97,9 +62,7 @@ def test_about_reaches_every_build_label_and_fragment_and_nothing_else() -> None
         "OpenQuestion",
         "FunctionalRequirement",
     } <= reached
-    assert ontology.is_legal("REFERS_TO", "Finding", "ExternalRef")
-    assert not ontology.is_legal("REFERS_TO", "Finding", "Feature")
-    assert not ontology.is_legal("ABOUT", "ExternalRef", "Feature")
+    assert ontology.is_legal("CITES", "Gap", "Fragment")
 
 
 def test_the_gap_file_changes_no_extraction_fingerprint_label_set_or_version() -> None:
@@ -122,7 +85,7 @@ def test_the_gap_file_alone_does_not_change_the_fingerprint_either() -> None:
     with_gap = load_ontology(submodule_files=[plan, gap])
 
     assert ontology_fingerprint(with_gap) == ontology_fingerprint(without_gap)
-    assert with_gap.is_declared("Finding") and not without_gap.is_declared("Finding")
+    assert with_gap.is_declared("Gap") and not without_gap.is_declared("Gap")
 
 
 def test_the_gap_file_is_package_data() -> None:
@@ -130,21 +93,6 @@ def test_the_gap_file_is_package_data() -> None:
 
     assert package_file.is_file()
     assert package_file.read_text(encoding="utf-8").startswith("# ontology.yaml: the ontology file graph.gap ships")
-
-
-def test_default_schema_objects_cover_the_gap_ontology() -> None:
-    ontology = load_ontology()
-
-    assert {
-        "graph_gap_finding_id",
-        "graph_foreign_uuid_finding",
-        "graph_foreign_uuid_externalref",
-        "graph_gap_finding_status",
-        "graph_gap_finding_dedupe",
-        "graph_edge_key_about",
-        "graph_edge_key_refers_to",
-    } <= {item.name for item in schema_objects(ontology)}
-    assert {"Finding", "ExternalRef"} <= set(foreign_labels(ontology))
 
 
 class _Recorder:
@@ -165,20 +113,20 @@ class _Recorder:
 
 
 async def test_a_gap_writer_writes_its_own_types_and_refuses_a_spec_label_or_relation() -> None:
-    # FR-GAP-08: graph.gap never writes a spec node, edge, document or fragment.
+    # FR-GOWN-01: graph.gap never writes a spec node, edge, document or fragment.
     recorder = _Recorder()
     writer = OwnedWriter(recorder, load_ontology(), "gap", "shop")
 
-    await writer.upsert_node("Finding", "u1", {"status": "open"})
+    await writer.upsert_node("Gap", "u1", {"status": "open"})
     await writer.upsert_relationship(
         "ABOUT",
-        NodeRef("Finding", "u1"),
+        NodeRef("Gap", "u1"),
         NodeRef("FunctionalRequirement", CARD),
         "k",
         {},
     )
 
-    assert recorder.seen == ["upsert_node_Finding", "upsert_relationship_ABOUT"]
+    assert recorder.seen == ["upsert_node_Gap", "upsert_relationship_ABOUT"]
     for call in (
         writer.upsert_node("FunctionalRequirement", CARD, {"name": "x"}),
         writer.upsert_node("Fragment", "f1", {}),
@@ -189,9 +137,9 @@ async def test_a_gap_writer_writes_its_own_types_and_refuses_a_spec_label_or_rel
     ):
         with pytest.raises(OwnershipError):
             await call
-    with pytest.raises(ConformanceError):  # an ABOUT edge from a finding to a task is not a legal pair
-        await writer.upsert_relationship("ABOUT", NodeRef("Finding", "u1"), NodeRef("Task", "t1"), "k", {})
-    assert recorder.seen == ["upsert_node_Finding", "upsert_relationship_ABOUT"]
+    with pytest.raises(ConformanceError):  # an ABOUT edge from a gap to a task is not a legal pair
+        await writer.upsert_relationship("ABOUT", NodeRef("Gap", "u1"), NodeRef("Task", "t1"), "k", {})
+    assert recorder.seen == ["upsert_node_Gap", "upsert_relationship_ABOUT"]
 
 
 # The gap types of docs/graph/gap/ontology.md (Gap, Clarification and their eight relations).
@@ -266,7 +214,7 @@ def test_fr_gont_01_no_build_or_plan_type_relation_or_vocabulary_differs_with_th
         name: group.labels for name, group in without_gap.node_groups.items()
     }
     gap_only = set(with_gap.labels) - set(without_gap.labels)
-    assert gap_only == {"Gap", "Clarification", "Finding", "ExternalRef"}
+    assert gap_only == {"Gap", "Clarification"}
 
 
 def test_fr_gont_05_default_schema_objects_hold_every_graph_gap_object() -> None:

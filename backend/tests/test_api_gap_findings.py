@@ -1,5 +1,5 @@
-"""The plan's findings port in the host, ``api.gap.findings.OpenGaps``: open gaps of the gap runner's ``GapService``
-merged with the first-slice findings store (docs/graph/gap/lifecycle.md "Plan link", FR-GPLN-02)."""
+"""The plan's findings port in the host, ``api.gap.findings.OpenGaps``: the open gaps of the gap runner's
+``GapService`` (docs/graph/gap/lifecycle.md "Plan link", FR-GPLN-02)."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class View:
 
 
 class Source:
-    """A findings source (first-slice store or gap service) with fixed items and counts; records the calls."""
+    """A gap service with fixed findings and counts; records the calls."""
 
     def __init__(self, items: Sequence[Item], counts: dict[str, int] | None = None) -> None:
         self.items = tuple(items)
@@ -74,55 +74,51 @@ class Runner:
         return self._service
 
 
-async def test_open_counts_add_the_gaps_to_the_first_slice_findings() -> None:
-    first = Source([], {"REQ::A": 1})
+async def test_open_counts_are_the_gap_services() -> None:
     gaps = Source([], {"REQ::A": 2, "REQ::B": 1})
-    port = OpenGaps(first, lambda: Runner(gaps))
+    port = OpenGaps(lambda: Runner(gaps))
 
-    assert await port.open_counts("p", ["REQ::A", "REQ::B", "REQ::A"]) == {"REQ::A": 3, "REQ::B": 1}
+    assert await port.open_counts("p", ["REQ::A", "REQ::B", "REQ::A"]) == {"REQ::A": 2, "REQ::B": 1}
     assert await port.open_counts("p", []) == {}
 
 
-async def test_findings_unite_both_sources_blocking_first_then_newest_first_within_the_limit() -> None:
-    first = Source([Item("FND::1", blocking=False, minute=1), Item("FND::2", blocking=True, minute=2)])
-    gaps = Source([Item("GAP::1", blocking=False, minute=5), Item("GAP::2", blocking=True, minute=1)])
-    port = OpenGaps(first, lambda: Runner(gaps))
+async def test_findings_are_ordered_blocking_first_then_newest_first_within_the_limit() -> None:
+    gaps = Source(
+        [
+            Item("GAP::1", blocking=False, minute=5),
+            Item("GAP::2", blocking=True, minute=1),
+            Item("GAP::3", blocking=False, minute=1),
+        ]
+    )
+    port = OpenGaps(lambda: Runner(gaps))
 
-    page = await port.findings("p", spec_ids=["REQ::A"], limit=3)
+    page = await port.findings("p", spec_ids=["REQ::A"], limit=2)
 
-    assert [item.finding_id for item in page.findings] == ["FND::2", "GAP::2", "GAP::1"]
-    assert ("findings", 200) in first.calls and ("findings", 200) in gaps.calls  # each source asked for a full page
-
-
-async def test_without_a_gap_runner_only_the_first_slice_findings_are_read() -> None:
-    first = Source([Item("FND::1", blocking=False, minute=1)], {"REQ::A": 1})
-    port = OpenGaps(first, lambda: None)
-
-    assert [item.finding_id for item in (await port.findings("p")).findings] == ["FND::1"]
-    assert await port.open_counts("p", ["REQ::A"]) == {"REQ::A": 1}
-    assert await port.severities("p", [Item("FND::1", blocking=False, minute=1)]) == {}
+    assert [item.finding_id for item in page.findings] == ["GAP::2", "GAP::1"]
+    assert ("findings", 200) in gaps.calls  # the service is asked for a full page
 
 
-async def test_without_a_first_slice_store_only_gaps_are_read() -> None:
-    gaps = Source([Item("GAP::1", blocking=True, minute=1)], {"REQ::A": 1})
-    port = OpenGaps(None, lambda: Runner(gaps))
+async def test_without_a_gap_runner_no_finding_is_read() -> None:
+    port = OpenGaps(lambda: None)
 
-    assert [item.finding_id for item in (await port.findings("p")).findings] == ["GAP::1"]
-    assert await port.open_counts("p", ["REQ::A"]) == {"REQ::A": 1}
+    assert (await port.findings("p")).findings == ()
+    assert await port.open_counts("p", ["REQ::A"]) == {"REQ::A": 0}
+    assert await port.severities("p", [Item("GAP::1", blocking=False, minute=1)]) == {}
+    assert await port.finding("p", "GAP::1") is None
+    assert await port.blocking_ids("p", "u1") == ()
 
 
 async def test_a_gap_service_that_cannot_be_built_is_left_out_and_logged(caplog) -> None:
-    first = Source([Item("FND::1", blocking=False, minute=1)])
-    port = OpenGaps(first, lambda: Runner(error=ConfigurationError("gap_rules_invalid")))
+    port = OpenGaps(lambda: Runner(error=ConfigurationError("gap_rules_invalid")))
 
     page = await port.findings("p")
 
-    assert [item.finding_id for item in page.findings] == ["FND::1"]
+    assert page.findings == ()
     assert "api.gap.findings_unavailable" in caplog.text
 
 
 async def test_a_store_outage_of_the_gap_service_passes_through() -> None:
-    port = OpenGaps(None, lambda: Runner(error=InfrastructureUnavailableError("neo4j_unreachable")))
+    port = OpenGaps(lambda: Runner(error=InfrastructureUnavailableError("neo4j_unreachable")))
 
     with pytest.raises(InfrastructureUnavailableError):
         await port.findings("p")
@@ -130,11 +126,11 @@ async def test_a_store_outage_of_the_gap_service_passes_through() -> None:
 
 async def test_severities_name_the_gaps_among_the_shown_findings_only() -> None:
     gaps = Source([Item("GAP::1", blocking=True, minute=1), Item("GAP::OTHER", blocking=False, minute=1)])
-    port = OpenGaps(None, lambda: Runner(gaps))
+    port = OpenGaps(lambda: Runner(gaps))
 
     shown = [
         Item("GAP::1", blocking=True, minute=1, about_spec_ids=("REQ::B", "REQ::A")),
-        Item("FND::1", blocking=False, minute=1),
+        Item("GAP::2", blocking=False, minute=1),
     ]
 
     assert await port.severities("p", shown) == {"GAP::1": "blocker"}

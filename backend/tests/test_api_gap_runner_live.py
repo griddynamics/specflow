@@ -112,5 +112,5 @@ async def test_fr_grun_01_the_runner_runs_the_library_after_a_build_on_live_stor
         await engine.dispose()
 
 
-async def _no_schema(*_args: Any) -> None:
+async def _no_schema(*_args: Any, **_kwargs: Any) -> None:
     """The live graph fixture owns its schema; the runner's ``ensure_gap_schema`` is checked elsewhere."""

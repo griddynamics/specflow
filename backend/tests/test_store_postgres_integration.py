@@ -325,8 +325,8 @@ async def test_documents_fragments_and_foreign_nodes_upsert_by_their_key(
         rows = await executor.write(q.UPSERT_DOCUMENT, project, key="d1", props={"path": "a.md", "title": None})
         assert rows == [{"written": 1}]
     await executor.write(q.UPSERT_FRAGMENT, project, key="f1", props={"document_id": "d1", "text": "t"})
-    await executor.write(q.upsert_foreign_node("Finding"), project, key="g1", props={"title": "x"})
-    await executor.write(q.upsert_foreign_node("Finding"), project, key="g1", props={"title": "y"})
+    await executor.write(q.upsert_foreign_node("Gap"), project, key="g1", props={"title": "x"})
+    await executor.write(q.upsert_foreign_node("Gap"), project, key="g1", props={"title": "y"})
     counts = await raw(
         store, "SELECT kind, count(*) AS n FROM graph.node WHERE group_id = :p GROUP BY kind ORDER BY kind", p=project
     )

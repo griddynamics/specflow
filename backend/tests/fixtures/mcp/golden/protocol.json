@@ -6387,7 +6387,7 @@
           "openWorldHint": false,
           "readOnlyHint": false
         },
-        "description": "Record a finding about the specification of a SpecFlow project: a gap (the spec does not say), a conflict (two parts disagree), a question for the spec owner, or a note of what you learned, linked to the spec nodes it is about and to your pull request, commits or files. A finding never changes the spec; people answer it. Use it instead of guessing when the spec does not allow a decision, and pass story_id when it concerns the story you hold. Set blocking to true, with story_id and your claim_token, only when the story cannot go on until a person answers: its claimed tasks become blocked and your claim ends, so tell the user. No claim_token in this session? Call claim_story for the same story first: for its holder it changes nothing and returns the same token. Never ask the user for the token and never show it. Adding the same finding again returns the existing one. Do not put secrets or personal data in the text.",
+        "description": "Record a finding about the specification of a SpecFlow project: a gap (the spec does not say), a conflict (two parts disagree), a question for the spec owner, or a note of what you learned, linked to the spec nodes it is about and to your pull request, commits or files. A gap, conflict or question becomes a gap in the project's Gaps inbox (finding_id is its gap id): it is investigated at once, and if the spec already answers it, it is closed with the answering lines; otherwise people answer it and the answer reaches the spec through a build. Write it as a question of 10 to 1000 characters. Use it instead of guessing when the spec does not allow a decision, and pass story_id when it concerns the story you hold. Set blocking to true, with story_id and your claim_token, only when the story cannot go on until a person answers: its claimed tasks become blocked and your claim ends, so tell the user; they are released when the gap is answered and applied, and you claim the story again. No claim_token in this session? Call claim_story for the same story first: for its holder it changes nothing and returns the same token. Never ask the user for the token and never show it. Adding the same finding again returns the existing one. Do not put secrets or personal data in the text.",
         "inputSchema": {
           "$defs": {
             "RefersTo": {
@@ -6493,7 +6493,7 @@
               "title": "Story Id"
             },
             "text": {
-              "description": "What you found, in 1 to 2000 characters; no secrets.",
+              "description": "What you found: a question of 10 to 1000 characters (a note: up to 2000); no secrets.",
               "maxLength": 2000,
               "minLength": 1,
               "title": "Text",

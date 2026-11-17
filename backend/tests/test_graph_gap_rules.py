@@ -184,8 +184,8 @@ def test_fr_gont_03_every_section_reports_its_problems_in_one_error(tmp_path: Pa
             "'task' is not a spec type",
         ),
         (
-            lambda data: data["detectors"]["MS-PROVIDER"].update(types=["finding"]),
-            "'finding' is not a spec type",
+            lambda data: data["detectors"]["MS-PROVIDER"].update(types=["gap"]),
+            "'gap' is not a spec type",
         ),
         (
             lambda data: data["detectors"]["MS-STORE"].update(relation="IMPLEMENTS"),
@@ -437,9 +437,7 @@ def _string_literals(path: Path) -> set[str]:
     }
 
 
-def test_fr_gont_04_no_spec_label_relation_or_attribute_is_a_literal_of_the_new_gap_modules() -> None:
-    # The first-slice modules (findings, blocking, arguments, resolve, rows) are replaced by the migration of
-    # first-slice findings and are not checked here.
+def test_fr_gont_04_no_spec_label_relation_or_attribute_is_a_literal_of_the_gap_modules() -> None:
     ontology = shipped_ontology()
     spec_names = (
         set(ontology.labels)
@@ -451,9 +449,8 @@ def test_fr_gont_04_no_spec_label_relation_or_attribute_is_a_literal_of_the_new_
     package = Path(graph.gap.__file__).resolve().parent
     # gap's own field names that a spec type also uses, and the gap kind open_question (a gap_kind value)
     shared = {"kind", "status", "name", "text", "type", "quote", "open_question"}
-    first_slice = {"findings.py", "blocking.py", "arguments.py", "resolve.py", "rows.py"}
-    modules = sorted(path for path in package.rglob("*.py") if path.relative_to(package).as_posix() not in first_slice)
-    assert package / "steps" / "detect.py" in modules
+    modules = sorted(package.rglob("*.py"))
+    assert {package / "steps" / "detect.py", package / "resolve.py", package / "migrate.py"} <= set(modules)
     for module in modules:
         found = (_string_literals(module) & spec_names) - shared
         assert not found, (module.relative_to(package).as_posix(), sorted(found))

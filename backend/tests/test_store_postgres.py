@@ -121,8 +121,8 @@ def test_the_catalog_has_core_build_and_plan_templates_of_which_postgres_runs_al
     all_build = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("build.")}
     all_plan = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("plan.")}
     all_gap = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("gap.")}
-    assert (len(all_core), len(all_build), len(all_plan), len(all_gap)) == (44, 42, 24, 5)
-    assert len(templates()) == 42 + 42 + 24 + 5
+    assert (len(all_core), len(all_build), len(all_plan), len(all_gap)) == (44, 42, 24, 4)
+    assert len(templates()) == 42 + 42 + 24 + 4
     assert (all_core | all_build | all_plan | all_gap) - templates() == CYPHER_ONLY
 
 
@@ -137,13 +137,13 @@ def catalog_queries() -> list[Query]:
         core_queries.upsert_relationship(
             "CONTAINS", NodeShape("Document", "document_id"), NodeShape("Fragment", "fragment_id")
         ),
-        core_queries.upsert_relationship("ABOUT", NodeShape("Finding", "uuid"), spec),
+        core_queries.upsert_relationship("ABOUT", NodeShape("Gap", "uuid"), spec),
         core_queries.delete_relationship("PART_OF"),
         core_queries.delete_keyed_node("Document", "document_id"),
         core_queries.delete_keyed_node("Fragment", "fragment_id"),
-        core_queries.delete_keyed_node("Finding", "uuid"),
+        core_queries.delete_keyed_node("Gap", "uuid"),
         core_queries.keyed_node_relationship_types("Document", "document_id"),
-        core_queries.upsert_foreign_node("Finding"),
+        core_queries.upsert_foreign_node("Gap"),
     ]
     queries += [value for value in vars(build_queries).values() if isinstance(value, Query)]
     queries += [
@@ -276,12 +276,12 @@ def test_a_hand_built_query_cannot_smuggle_names_into_the_text() -> None:
 def test_relationship_types_and_labels_are_bind_values_not_text() -> None:
     dialect = PostgresDialect()
     spec = NodeShape("SpecNode", "uuid", check_label=True)
-    query = core_queries.upsert_relationship("PART_OF", spec, NodeShape("Finding", "uuid"))
+    query = core_queries.upsert_relationship("PART_OF", spec, NodeShape("Gap", "uuid"))
     text = dialect.render(query, {})
-    assert "PART_OF" not in text and "Finding" not in text
+    assert "PART_OF" not in text and "Gap" not in text
     plan = dialect.plan(query, {"project_id": "p", "s_key": "a", "s_label": "L", "t_key": "b", "key": "k", "props": {}})
     params = plan.statements[0].params
-    assert params["rel_type"] == "PART_OF" and params["t_key_shape"] == "Finding"
+    assert params["rel_type"] == "PART_OF" and params["t_key_shape"] == "Gap"
 
 
 def test_node_shapes_pick_their_match_fragment() -> None:
@@ -290,7 +290,7 @@ def test_node_shapes_pick_their_match_fragment() -> None:
     fragment = NodeShape("Fragment", "fragment_id")
     text = dialect.render(core_queries.upsert_relationship("CONTAINS", document, fragment), {})
     assert "n.kind = 'document'" in text and "n.kind = 'fragment'" in text and "n.kind = 'spec'" not in text
-    foreign = dialect.render(core_queries.delete_keyed_node("Finding", "uuid"), {})
+    foreign = dialect.render(core_queries.delete_keyed_node("Gap", "uuid"), {})
     assert "n.kind = 'foreign'" in foreign and ":key_shape" in foreign
     with pytest.raises(ConformanceError):
         dialect.plan(

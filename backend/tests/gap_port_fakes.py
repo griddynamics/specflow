@@ -148,7 +148,7 @@ class MemoryGapRecords:
     async def unsuppress(self, project_id: str, signature: str) -> None:
         self.suppressions[project_id].pop(signature, None)
 
-    async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None:
+    async def put_notes(self, project_id: str, run_id: str | None, notes: Sequence[NoteRow]) -> None:
         self.notes[project_id].extend(note.model_copy(update={"run_id": run_id}) for note in notes)
 
     async def log(self, project_id: str, events: Sequence[EventRow]) -> None:
@@ -222,7 +222,8 @@ class ScriptedInvestigator:
 
 
 class MemoryStoryHolds:
-    """``StoryHolds`` that holds the tasks of ``tasks`` (spec id to task ids); ``in_progress`` tasks are left alone."""
+    """``StoryHolds`` that holds the tasks of ``tasks`` (spec id to task ids); ``in_progress`` tasks are left alone. A
+    block holds the story's id as its one task; ``released`` lists every release call (project id, gap id)."""
 
     def __init__(
         self,
@@ -233,18 +234,25 @@ class MemoryStoryHolds:
         self.in_progress = frozenset(in_progress)
         self.holds: dict[tuple[str, str], tuple[str, ...]] = {}
         self.blocks: list[tuple[str, str, str, str]] = []
+        self.reasons: dict[tuple[str, str], str] = {}
+        self.released: list[tuple[str, str]] = []
         self.refuse: GraphError | None = None
+        self.refuse_block: GraphError | None = None
 
-    async def hold_tasks(self, project_id: str, gap_id: str, spec_ids: Sequence[str]) -> HoldResult:
+    async def hold_tasks(
+        self, project_id: str, gap_id: str, spec_ids: Sequence[str], *, reason: str = "spec_ambiguous"
+    ) -> HoldResult:
         found = sorted({task for spec_id in spec_ids for task in self.tasks.get(spec_id, ())})
         held = tuple(task for task in found if task not in self.in_progress)
-        self.holds[(project_id, gap_id)] = held
+        self.holds[(project_id, gap_id)] = (*self.holds.get((project_id, gap_id), ()), *held)
+        self.reasons[(project_id, gap_id)] = reason
         return HoldResult(
             held=held,
             in_progress=tuple(task for task in found if task in self.in_progress),
         )
 
     async def release_gap(self, project_id: str, gap_id: str) -> Sequence[str]:
+        self.released.append((project_id, gap_id))
         return self.holds.pop((project_id, gap_id), ())
 
     async def check_block(
@@ -270,7 +278,10 @@ class MemoryStoryHolds:
         finding_id: str,
     ) -> Any:
         del claim_token
+        if self.refuse_block is not None:
+            raise self.refuse_block
         self.blocks.append((project_id, story_id, reason, finding_id))
+        self.holds[(project_id, finding_id)] = (story_id,)
         return story_id
 
 

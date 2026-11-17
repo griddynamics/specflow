@@ -316,17 +316,17 @@ async def test_a_relation_without_its_ddl_statement_fails_loudly(ontology: Ontol
 def test_a_foreign_label_without_its_ddl_statement_fails_loudly(tmp_path: Path) -> None:
     gap = load_gap_ontology(tmp_path)
     with pytest.raises(ConfigurationError) as raised:
-        schema_objects(gap)  # the shipped DDL covers the finding label and CITES, not this ontology's FLAGS
+        schema_objects(gap)  # the shipped DDL covers the Gap label and CITES, not this ontology's FLAGS
     assert raised.value.code == "schema_ddl_incomplete"
     assert raised.value.fields["missing"] == 1
-    ddl = tuple(statement for statement in load_gap_ddl(tmp_path) if "graph_foreign_uuid_finding " not in statement)
+    ddl = tuple(statement for statement in load_gap_ddl(tmp_path) if "graph_foreign_uuid_gap " not in statement)
     with pytest.raises(ConfigurationError) as raised:
         schema_objects(gap, ddl)
     assert raised.value.fields == {
         "missing": 1,
         "kind": "unique",
         "entity": "NODE",
-        "label": "Finding",
+        "label": "Gap",
         "properties": "group_id, uuid",
     }
 
@@ -471,8 +471,8 @@ def test_every_foreign_label_gets_a_group_and_uuid_unique_constraint(tmp_path: P
     gap = load_gap_ontology(tmp_path)
     labels = foreign_labels(gap)
     assert labels == tuple(sorted(label for label in gap.labels if gap.owner_of(label) != "build"))
-    assert "Finding" in labels
-    assert "graph_foreign_uuid_finding" in GAP_DDL_TEXT
+    assert "Gap" in labels
+    assert "graph_foreign_uuid_gap" in GAP_DDL_TEXT
     by_name = objects_by_name(gap, load_gap_ddl(tmp_path))
     for label in labels:
         item = by_name[f"graph_foreign_uuid_{label.lower()}"]
@@ -493,12 +493,11 @@ def test_the_foreign_constraint_template_renders_the_statement_a_submodule_ddl_h
     ddl = load_gap_ddl(tmp_path)
     rendered = tuple(foreign_node_constraint(label) for label in foreign_labels(gap))
     assert set(rendered) <= set(ddl)
-    assert foreign_node_constraint("Finding") == (
-        "CREATE CONSTRAINT graph_foreign_uuid_finding IF NOT EXISTS FOR (n:Finding) "
-        "REQUIRE (n.group_id, n.uuid) IS UNIQUE"
+    assert foreign_node_constraint("Gap") == (
+        "CREATE CONSTRAINT graph_foreign_uuid_gap IF NOT EXISTS FOR (n:Gap) REQUIRE (n.group_id, n.uuid) IS UNIQUE"
     )
     without = tuple(statement for statement in ddl if statement not in rendered)
-    assert "graph_foreign_uuid_finding" in {item.name for item in schema_objects(gap, (*without, *rendered))}
+    assert "graph_foreign_uuid_gap" in {item.name for item in schema_objects(gap, (*without, *rendered))}
     assert not set(rendered) & set(CORE_DDL)
     for label in ("Document", "Fragment", "SpecNode"):
         with pytest.raises(ConformanceError) as raised:
@@ -528,7 +527,7 @@ async def test_a_foreign_constraint_over_duplicate_nodes_fails_the_setup(tmp_pat
     ddl = load_gap_ddl(tmp_path)
     driver = SchemaDriver(gap, ddl=ddl)
     driver.add_all()
-    item = objects_by_name(gap, ddl)["graph_foreign_uuid_finding"]
+    item = objects_by_name(gap, ddl)["graph_foreign_uuid_gap"]
     driver.constraints = [row for row in driver.constraints if row["name"] != item.name]
     driver.indexes = [row for row in driver.indexes if row["name"] != item.name]
     error = ClientError._hydrate_neo4j(

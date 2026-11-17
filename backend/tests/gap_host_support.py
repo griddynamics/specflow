@@ -186,9 +186,15 @@ def make_gap_runner(
 
     StubGateway.instances.clear()
 
-    async def ensure(*args: Any) -> None:
+    async def ensure(*args: Any, **kwargs: Any) -> None:
         if ensured is not None:
-            ensured.append(args)
+            ensured.append((*args, kwargs) if kwargs else args)
+
+    async def holds(_store: Any, _ontology: Any) -> str:
+        return "holds"
+
+    async def project_ids(_transaction: Any) -> tuple[str, ...]:
+        return (PROJECT,)
 
     deps = GapRunnerDependencies(
         run=run or StubGapRun(),
@@ -203,6 +209,8 @@ def make_gap_runner(
         executor=lambda _store: "executor",
         reader=lambda _store, _ontology: "reader",
         plan=lambda _store, _ontology: "plan",
+        holds=holds,
+        project_ids=project_ids,
         service=(lambda *_args, **_kwargs: service) if service is not None else lambda *args, **kwargs: (args, kwargs),
     )
     settings = SETTINGS.model_copy(update={"state_dir": str(tmp_path)})
@@ -296,7 +304,7 @@ class Pipeline:
 def make_pipeline(tmp_path: Any, log: list[str], run: StubGapRun) -> Pipeline:
     stores = open_file_stores(tmp_path)
 
-    async def nothing(*_args: Any) -> None:
+    async def nothing(*_args: Any, **_kwargs: Any) -> None:
         return None
 
     gaps = make_gap_runner(tmp_path, run, builds=stores.builds)
@@ -310,7 +318,6 @@ def make_pipeline(tmp_path: Any, log: list[str], run: StubGapRun) -> Pipeline:
             stores=stores,
             ontology=object(),
             ensure=nothing,
-            refresh=nothing,
             gateway_factory=StubGateway,
         ),
         gaps=gaps,

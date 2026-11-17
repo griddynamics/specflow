@@ -167,6 +167,42 @@
       }
     }
   },
+  "invalid_arguments:add_finding_blocking_without_a_token": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"claim_token\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "claim_token"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:add_finding_question_too_short": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"text\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "text"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
   "invalid_arguments:add_finding_refers_to": {
     "content": [
       {

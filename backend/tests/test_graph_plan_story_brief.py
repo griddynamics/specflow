@@ -1,5 +1,5 @@
 """``PlanService.story_brief`` and the open findings joined into the brief and the story preview through the findings
-port (``graph.plan`` never imports ``graph.gap``; the real ``Findings`` library satisfies the port structurally)."""
+port (``graph.plan`` never imports ``graph.gap``; the host fills the port with ``GapService``, a memory port here)."""
 
 from __future__ import annotations
 
@@ -10,13 +10,11 @@ from typing import Any, cast
 
 import pytest
 
-from gap_support import Clock, MemoryGapExecutor
-from graph.core.ontology import load_ontology
-from graph.gap import Findings
 from graph.plan import PlanReadError, PlanService
 from graph.plan.findings_port import open_findings_about
 from graph.plan.reader import LoadedPlan
 from graph_plan_support import plan_ontology, plan_rules
+from plan_findings_support import MemoryFindings
 from plan_trace_support import CHECKOUT, COMMIT, PAYMENTS, PROJECT, STRIPE, ShopSpecGraph, offline, shop_plan, task
 
 LOGIC, DATA = "TASK::WEB_SHOP::LOGIC_CHECKOUT", "TASK::WEB_SHOP::DATA_CHECKOUT"
@@ -32,17 +30,6 @@ def service(plan: LoadedPlan | None = None, *, findings: Any = None, graph: Shop
     return PlanService(
         offline(), ontology, plan_rules(ontology), graph=graph or ShopSpecGraph(), load=load, findings=findings
     )
-
-
-def findings_library() -> tuple[Findings, MemoryGapExecutor]:
-    memory = MemoryGapExecutor()
-    for spec_id, label in (
-        ("FEAT::CHECKOUT", "Feature"),
-        ("REQ::FR::CHECKOUT", "FunctionalRequirement"),
-        ("MOD::STRIPE", "Module"),
-    ):
-        memory.spec(spec_id, label)
-    return Findings(memory, load_ontology(), clock=Clock()), memory
 
 
 async def test_the_story_brief_merges_its_tasks_in_topological_order_with_contracts_of_outside_prerequisites() -> None:
@@ -91,16 +78,11 @@ async def test_an_unknown_or_retired_story_has_no_brief(story_id: str) -> None:
 async def test_a_brief_shows_the_open_findings_about_its_nodes_blocking_first_and_only_open_ones() -> None:
     # Scenario: a note, a blocking question (newer), a resolved gap about the story's nodes and a finding about
     # another story.
-    library, _ = findings_library()
-
-    async def add(kind: str, text: str, about: list[str], **more: Any) -> Any:
-        return await library.add(PROJECT, created_by="u1", kind=kind, text=text, about=about, **more)
-
-    await add("note", "an old note", ["FEAT::CHECKOUT"])
-    await add("question", "which currency?", ["REQ::FR::CHECKOUT"], story_id=CHECKOUT, blocking=True)
-    closed = (await add("gap", "closed gap", ["FEAT::CHECKOUT"])).finding
-    await library.resolve(PROJECT, closed.finding_id, by="lead")
-    await add("gap", "other story", ["MOD::STRIPE"])
+    library = MemoryFindings()
+    library.add("note", "an old note", ["FEAT::CHECKOUT"])
+    library.add("question", "which currency?", ["REQ::FR::CHECKOUT"], story_id=CHECKOUT, blocking=True)
+    library.close(library.add("gap", "closed gap", ["FEAT::CHECKOUT"]).finding_id)
+    library.add("gap", "other story", ["MOD::STRIPE"])
 
     brief = await service(findings=library).story_brief(PROJECT, CHECKOUT)
 
@@ -114,9 +96,9 @@ async def test_a_brief_shows_the_open_findings_about_its_nodes_blocking_first_an
 
 
 async def test_the_preview_shows_the_open_findings_about_the_nodes_of_its_open_tasks() -> None:
-    library, _ = findings_library()
-    await library.add(PROJECT, created_by="u1", kind="gap", text="gap about the feature", about=["FEAT::CHECKOUT"])
-    await library.add(PROJECT, created_by="u1", kind="gap", text="gap about stripe", about=["MOD::STRIPE"])
+    library = MemoryFindings()
+    library.add("gap", "gap about the feature", ["FEAT::CHECKOUT"])
+    library.add("gap", "gap about stripe", ["MOD::STRIPE"])
 
     preview = await service(findings=library).story_preview(PROJECT, CHECKOUT)
     without_port = await service().story_preview(PROJECT, CHECKOUT)
@@ -131,12 +113,11 @@ async def test_a_preview_of_a_story_with_no_open_task_has_no_findings_query() ->
         for t in shop_plan().current.tasks
         if t.story_id == PAYMENTS
     )
-    library, memory = findings_library()
-    calls = memory.calls.copy()
+    library = MemoryFindings()
 
     preview = await service(shop_plan(tasks=done), findings=library).story_preview(PROJECT, PAYMENTS)
 
-    assert preview.findings == () and memory.calls == calls
+    assert preview.findings == () and library.calls == []
 
 
 async def test_the_open_findings_of_more_than_200_ids_are_read_in_chunks_blocking_first_newest_first() -> None:

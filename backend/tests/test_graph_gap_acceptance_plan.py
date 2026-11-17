@@ -7,11 +7,14 @@ One test per requirement unit; its docstring starts with the unit's acceptance t
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from agent_contracts import AGENT_ROUTES
 from gap_acceptance_support import Planted, pending
 from gap_agent_support import ALPHA, API_LOGIC, API_STORY, QUESTION, serve_gaps
 from gap_close_support import PLACE_STORY, cancel_answered_and_built, plan_update
+from gap_development_support import CLAIM, MEMBER, dev_rig
+from graph.gap import NewGap
 from specflow_api_agent_support import agent_env
 
 
@@ -47,16 +50,48 @@ async def test_fr_gpln_02_gap_service_satisfies_the_plan_findings_port(monkeypat
     assert counts[API_STORY].count >= 1 and counts["STORY::A::UI"].count == 0
 
 
-@pending("13")
-def test_fr_gpln_03_task_implements_node_open_blocker_gap_about() -> None:
+async def _blocker(dev: Any) -> str:
+    raised = await dev.gaps.raise_gap(
+        ALPHA,
+        NewGap(
+            kind="missing",
+            question="Which payment methods may a customer place an order with?",
+            about=(Planted.PLACE_ORDER,),
+            severity="blocker",
+            origin="person",
+            created_by=MEMBER,
+        ),
+    )
+    assert raised.held == (API_LOGIC,)
+    return raised.gap_id
+
+
+async def test_fr_gpln_03_task_implements_node_open_blocker_gap_about(monkeypatch, valid_env) -> None:
     """Given a blocker gap about `REQ::FR::PLACE_ORDER`, when an agent claims the Place order story, then the claim
     is refused naming the gap id.
     """
 
+    async with dev_rig(monkeypatch, valid_env) as dev:
+        gap_id = await _blocker(dev)
 
-@pending("13")
-def test_fr_gpln_04_held_tasks_released_gap_resolves_dismissed_becomes() -> None:
-    """Given the blocker gap resolved, then the story can be claimed."""
+        refused = await dev.rig.post(CLAIM, {"story_id": API_STORY}, project_id=ALPHA)
+
+    assert (refused.status_code, refused.json()["error"]["code"]) == (409, "not_available")
+    assert [item["finding_id"] for item in refused.json()["error"]["details"]["findings"]] == [gap_id]
+
+
+async def test_fr_gpln_04_held_tasks_released_gap_resolves_dismissed_becomes(monkeypatch, valid_env) -> None:
+    """Given the blocker gap resolved, then the story can be claimed.
+
+    Resolved by a pointer, dismissed or obsolete: every end of the gap releases its held tasks (the pointer and the
+    close check's resolution are covered in test_api_gap_development and FR-GDEV-04; here the dismissal)."""
+
+    async with dev_rig(monkeypatch, valid_env) as dev:
+        gap_id = await _blocker(dev)
+        await dev.gaps.dismiss_gap(ALPHA, gap_id, reason="Decided in the call.", by=MEMBER)
+        claimed = await dev.rig.post(CLAIM, {"story_id": API_STORY}, project_id=ALPHA)
+
+    assert claimed.status_code == 200 and dev.store.tasks[API_LOGIC]["status"] == "in_progress"
 
 
 async def test_fr_gpln_05_gap_answer_re_plan_stories_whose_members(tmp_path: Path) -> None:

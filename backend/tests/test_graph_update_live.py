@@ -783,7 +783,7 @@ def gap_variant(directory: Path) -> Ontology:
 
     data = copy.deepcopy(GAP_ONTOLOGY)
     data["edge_types"]["FLAGS"]["pairs"] += [
-        {"from": "finding", "to": "capability"},
+        {"from": "gap", "to": "capability"},
         {"from": "capability", "to": "module"},
         {"from": "capability", "to": "capability"},
     ]
@@ -792,8 +792,8 @@ def gap_variant(directory: Path) -> Ontology:
     return load_frozen_ontology(submodule_files=[path])
 
 
-FINDING = "finding"
-"""``foreign_flags``' name of the gap ``Finding`` end."""
+FINDING = "gap"
+"""``foreign_flags``' name of the gap ``Gap`` end."""
 
 
 async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivor(
@@ -821,9 +821,9 @@ async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivo
     trail, logging_ = first.named("Audit trail"), first.named("Audit logging")
     orders = first.named("Orders service")
     gap = graph_project.writer("gap", ontology=ontology)
-    finding = NodeRef("Finding", "gap-finding-1")
+    finding = NodeRef("Gap", "gap-finding-1")
     trail_ref, logging_ref = NodeRef("Capability", trail["uuid"]), NodeRef("Capability", logging_["uuid"])
-    await gap.upsert_node("Finding", finding.key, {"title": "Audit coverage"})
+    await gap.upsert_node("Gap", finding.key, {"title": "Audit coverage"})
     # incoming and outgoing foreign relationships of the loser-to-be
     await gap.upsert_relationship("FLAGS", finding, trail_ref, "gap|trail", {"severity": "low"})
     await gap.upsert_relationship(
@@ -836,13 +836,13 @@ async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivo
     (both,) = [
         e
         for e in await graph_project.edges("FLAGS", group_id=graph_project.project_id, edge_key="gap|both")
-        if "Finding" in e.source.labels and "SpecNode" in e.target.labels
+        if "Gap" in e.source.labels and "SpecNode" in e.target.labels
     ]
     await graph_project.create_edges(
         [
             EdgeSpec(
                 "FLAGS",
-                Match("Finding", {"uuid": both.source["uuid"]}),
+                Match("Gap", {"uuid": both.source["uuid"]}),
                 Match("SpecNode", {"uuid": logging_["uuid"]}),
                 both.props,
             )
@@ -883,12 +883,12 @@ async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivo
     third = await shop.build(3)
     assert third.nodes[ORDERS_SERVICE]["uuid"] == orders["uuid"]
     assert await foreign_flags(graph_project) == flags
-    assert [{"title": f.get("title")} for f in await graph_project.nodes("Finding")] == [{"title": "Audit coverage"}]
+    assert [{"title": f.get("title")} for f in await graph_project.nodes("Gap")] == [{"title": "Audit coverage"}]
 
 
 async def foreign_flags(project: GraphProject) -> list[tuple[str, str, str, str]]:
     """Every ``FLAGS`` relationship of the project as ``(edge_key, source, target, severity)``, sorted
-    (a list, so a duplicate shows); a spec node end is its uuid, the finding ``FINDING``."""
+    (a list, so a duplicate shows); a spec node end is its uuid, the gap ``FINDING``."""
 
     rows = [
         {

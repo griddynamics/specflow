@@ -583,7 +583,7 @@ async def test_names_owned_by_a_submodule_do_not_block_an_update(stores: FileSto
 @pytest.mark.parametrize(
     ("record", "expected"),
     [
-        (("Feature", "Finding"), ("Feature",)),
+        (("Feature", "Gap"), ("Feature",)),
         (("Feature", "WorkArea"), ("Feature",)),
         (("PART_OF", "FLAGS", "CITES"), ("PART_OF",)),
         (("PART_OF", "IN_AREA"), ("PART_OF",)),
