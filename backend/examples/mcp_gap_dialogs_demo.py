@@ -262,6 +262,9 @@ def build_server(*, stateless: bool, layout: Layout) -> MCPServer:
     SERVING["layout"] = layout
     server = MCPServer(
         "gap-demo",
+        # No `subscriptions/listen` (2026-07-28): the tools never change, and a client that holds the listen stream
+        # open (Claude Code does) would keep uvicorn waiting for it after Ctrl+C.
+        subscriptions=False,
         instructions=(
             "SpecFlow gaps are questions the specification leaves open: open questions, contradictions, missing "
             "details. When the user wants to see, answer, decide, resolve or clarify them, call list_open_gaps, then "
