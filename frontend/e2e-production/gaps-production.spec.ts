@@ -5,7 +5,7 @@
 // gaps-write-production.spec.ts.
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { CANCEL_TITLE, NOISE_RUN, PAYMENT_PROVIDER_FINDING, PAYMENT_PROVIDER_TITLE, shopGaps } from "./gaps-fixtures";
+import { CANCEL_TITLE, ME_ID, NOISE_RUN, PAYMENT_PROVIDER_FINDING, PAYMENT_PROVIDER_TITLE, shopGaps } from "./gaps-fixtures";
 import {
   allowConsoleErrors,
   buildGraphAndPlan,
@@ -108,7 +108,11 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(inboxRows(page)).toHaveCount(1);
     await expect(inboxRows(page)).toContainText('"Next day" delivery has no cut-off time');
     await pick(page, "Severity", "All");
-    await pick(page, "Assigned", "Mine");
+    await expect(page.getByTestId("select-Assigned").getByRole("button")).toBeVisible();
+    await page.getByTestId("select-Assigned").getByRole("button").click();
+    await expect(page.getByRole("menu", { name: "Assigned" }).getByRole("menuitemradio")).toHaveText(["All", "Unassigned", "dev (you)"]);
+    await page.keyboard.press("Escape");
+    await pick(page, "Assigned", "dev (you)");
     await expect(inboxRows(page)).toHaveCount(1);
     await expect(inboxRows(page)).toContainText(ROUNDING_TITLE);
     await pick(page, "Assigned", "Unassigned");
@@ -131,7 +135,7 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     const base = `/api/backend/projects/${pid}/gaps?`;
     expect(paths).toContain(`${base}kind=contradiction&route=ask&held_back=false`);
     expect(paths).toContain(`${base}severity=minor&route=ask&held_back=false`);
-    expect(paths).toContain(`${base}route=ask&assigned_to=me&held_back=false`);
+    expect(paths).toContain(`${base}route=ask&assigned_to=${ME_ID}&held_back=false`);
     expect(paths).toContain(`${base}route=ask&assigned_to=none&held_back=false`);
     expect(paths).toContain(`${base}route=ask&story_id=STORY%3A%3ACHECKOUT&held_back=false`);
     expect(paths).toContain(`${base}status=resolved&route=ask&held_back=false`);
@@ -144,7 +148,7 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     const { pid } = await shopProject(page);
     await page.goto(`/projects/${pid}/gaps`);
     const from = requests.length;
-    await row(page, CANCEL_TITLE).getByRole("button").click();
+    await row(page, CANCEL_TITLE).getByRole("button").first().click(); // the row's button; the second is the assignee menu
     await expect(page).toHaveURL(new RegExp(`/projects/${pid}/gaps\\?gap=GAP%3A%3ACANCEL_PAID$`));
     const card = page.getByRole("dialog", { name: CANCEL_TITLE });
     await expect(card).toBeVisible();

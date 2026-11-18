@@ -186,7 +186,7 @@ slice of agent findings.
 | FR-GWEB-02 | The web routes of [api.md](api.md) "Web routes" shall list, read, answer, preview, dismiss, revert, raise and apply gaps, start a full run, read runs and noise reports, manage noise rules and assign gaps, each for project members only. | Route tests: each route answers for a member and refuses a non-member. |
 | FR-GWEB-03 | The MCP tool `list_gaps` shall list open gaps for a story or nodes, and briefs shall include open gaps with severity. | Given an open gap on a story, then `list_gaps` returns it and the story brief lists it. |
 | FR-GWEB-04 | The Gaps screen shall show the inbox with filters, the question card with one option marked recommended and an own-answer field, the AI-answered review list with revert, and the noise report. | End-to-end test on the built frontend with the shop corpus fixture. |
-| FR-GWEB-06 | A project member shall assign a gap that is not resolved to one member of the project, or clear its assignee, and the Gaps screen shall show the assignee in a column and filter the inbox by assignee (mine, unassigned, one member). | End-to-end test: a member assigns a gap to a member on the card, and the Assigned filter and column show it. |
+| FR-GWEB-06 | A project member shall assign a gap that is not resolved to one member of the project, or clear its assignee, in the gap's row of the Gaps screen, and the Gaps screen shall show the assignee in a column and filter the inbox by assignee (unassigned, one member). | End-to-end test: a member assigns a gap to a member from the menu in its row without opening the card, and the Assigned filter and column show it. |
 
 ## Non-functional
 

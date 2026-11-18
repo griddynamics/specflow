@@ -18,7 +18,7 @@ import { PLACEMENT_LABEL, failureText, isStale, ownTextProblem, preselectedOptio
 export interface CardControl {
   gaps: GapsPort;
   projectId: string;
-  /** The project's members: the card's "Assigned to" choices and the names in its history. */
+  /** The project's members: the names in the card's history. */
   members: Member[];
   /** The `?gap=` link of another gap (history, follow-ups). */
   href: (gapId: string) => string;

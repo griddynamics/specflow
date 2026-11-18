@@ -3,7 +3,7 @@
 // preselected for a major gap, an own answer with its edits preview and a placement switch, Submit with the gap's updated_at, a stale
 // answer and Reload, refusals in words), "Not a gap" with a reason (and the "not spec" section rule), "Apply now", the "Answered by AI"
 // review list with Revert and the follow-up link, the history, "Raise a gap", the noise rules ("Mark as not spec", add, remove), assigning
-// a gap to a member on its card (the Assigned column and filter) and the Plan's links to the gap cards.
+// a gap to a member from the menu in its row (the Assigned column and filter) and the Plan's links to the gap cards.
 import { randomBytes } from "node:crypto";
 import type { Page, Request } from "@playwright/test";
 import { colourViolations, tabWalk } from "./audits";
@@ -55,6 +55,9 @@ const body = (r: Request): Record<string, unknown> => JSON.parse(r.postData() ??
 const isPost = (pid: string, tail: string) => (r: Request) =>
   r.method() === "POST" && r.url().endsWith(`/api/backend/projects/${pid}${tail}`);
 const CANCEL = "/gaps/GAP%3A%3ACANCEL_PAID";
+const isPut = (pid: string, tail: string) => (r: Request) =>
+  r.method() === "PUT" && r.url().endsWith(`/api/backend/projects/${pid}${tail}`);
+const ASSIGNEE = "gap-assignee";
 
 test.describe("Gaps: answering and the other writes on production routes", { tag: "@production" }, () => {
   test.setTimeout(120_000);
@@ -192,7 +195,7 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     const pid = await shopProject(page);
     await page.goto(`/projects/${pid}/gaps`);
     await expect(inboxRows(page)).toHaveCount(4);
-    await inboxRows(page).filter({ hasText: CANCEL_TITLE }).getByRole("button").click();
+    await inboxRows(page).filter({ hasText: CANCEL_TITLE }).getByRole("button").first().click();
     const c = card(page, CANCEL_TITLE);
     await c.getByTestId("gap-dismiss").click();
     const d = page.getByRole("dialog", { name: "Not a gap" });
@@ -322,26 +325,41 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await expect(notes.getByTestId("noise-mark-not-spec")).toBeVisible();
   });
 
-  test("FR-GWEB-06: a member assigns a gap to another member on its card; the history, the Assigned column and the Assigned filter show it", async ({
+  test("FR-GWEB-06: a member assigns a gap in its row from a menu of Unassigned and the members, never on its card; the history, the Assigned column and the Assigned filter show it", async ({
     page,
   }) => {
     const pid = await shopProject(page);
     const added = await bff(page, "POST", `/projects/${pid}/members`, { email: "bob.brown@example.test" });
     expect(added.status).toBe(201);
     const bob = (added.json as { member: { user_id: string } }).member.user_id;
+    const toAssignee = isPut(pid, `${CANCEL}/assignee`);
 
-    await page.goto(cardLink(pid, CANCEL_ID));
-    const c = card(page, CANCEL_TITLE);
-    await expect(c.getByTestId("select-Assigned to")).toContainText("Unassigned");
-    const assigned = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith(`/api/backend/projects/${pid}${CANCEL}/assignee`));
-    await pick(page, c, "Assigned to", "Bob Brown");
+    await page.goto(`/projects/${pid}/gaps`);
+    const cancel = inboxRows(page).filter({ hasText: CANCEL_TITLE });
+    await expect(cancel.getByTestId(ASSIGNEE)).toContainText("Unassigned");
+    await cancel.getByTestId(ASSIGNEE).click();
+    const menu = page.getByRole("menu", { name: "Assign to" });
+    const items = menu.getByRole("menuitemradio");
+    await expect(items).toHaveCount(3);
+    await expect(items.nth(0)).toHaveText("Unassigned");
+    await expect(items.nth(0)).toHaveAttribute(CHECKED, "true");
+    await expect(items.nth(1)).toContainText("dev (you)");
+    await expect(items.nth(2)).toContainText("Bob Brown");
+    const assigned = page.waitForRequest(toAssignee);
+    await items.nth(2).click();
     expect(body(await assigned)).toEqual({ user_id: bob });
-    await expect(c.getByTestId("select-Assigned to")).toContainText("Bob Brown");
+    await expect(page.getByRole("dialog")).toHaveCount(0); // assigning in the row never opens the card
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/gaps$`));
+    await expect(cancel.getByTestId(ASSIGNEE)).toContainText("Bob Brown");
+
+    await cancel.getByRole("button").first().click();
+    const c = card(page, CANCEL_TITLE);
+    await expect(c).toBeVisible();
+    await expect(c.getByTestId(ASSIGNEE)).toHaveCount(0); // the card has no assignee control
     await c.getByTestId("gap-history-toggle").click();
     await expect(c.getByTestId("gap-history-event").filter({ hasText: "Assigned to Bob Brown" })).toContainText("dev");
     await c.getByRole("button", { name: "Close" }).last().click();
 
-    await expect(inboxRows(page).filter({ hasText: CANCEL_TITLE })).toContainText("Bob Brown");
     await pick(page, page, "Assigned", "Bob Brown");
     await expect(inboxRows(page)).toHaveCount(1);
     await expect(inboxRows(page)).toContainText(CANCEL_TITLE);
@@ -349,13 +367,17 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await expect(inboxRows(page).filter({ hasText: CANCEL_TITLE })).toHaveCount(0);
     await pick(page, page, "Assigned", "All");
 
-    await inboxRows(page).filter({ hasText: CANCEL_TITLE }).getByRole("button").click();
-    const cleared = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith(`${CANCEL}/assignee`));
-    await pick(page, c, "Assigned to", "Unassigned");
+    const cleared = page.waitForRequest(toAssignee);
+    await cancel.getByTestId(ASSIGNEE).click();
+    await page.getByRole("menu", { name: "Assign to" }).getByRole("menuitemradio").nth(0).click();
     expect(body(await cleared)).toEqual({ user_id: null });
-    await expect(c.getByTestId("select-Assigned to")).toContainText("Unassigned");
-    await c.getByRole("button", { name: "Close" }).last().click();
-    await expect(inboxRows(page).filter({ hasText: CANCEL_TITLE })).toContainText("Unassigned");
+    await expect(cancel.getByTestId(ASSIGNEE)).toContainText("Unassigned");
+
+    // The last row's menu reaches past the list's edge and over no other row: its last choice is the element under the pointer.
+    await inboxRows(page).last().getByTestId(ASSIGNEE).click();
+    await page.getByRole("menu", { name: "Assign to" }).getByRole("menuitemradio").last().click({ trial: true });
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu", { name: "Assign to" })).toHaveCount(0);
   });
 
   test("FR-GWEB-04: the Plan's stories and tasks show their open gaps and link each to its card", async ({ page }) => {

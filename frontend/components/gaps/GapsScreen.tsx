@@ -5,13 +5,14 @@
 //  - Gate (as Plan): `useReadyGate`; not Ready or a failed read -> `NotReadyState` "No gaps yet" + "Open Mission Control"; data and `?gap=`
 //    load only once the gate is open.
 //  - Header row: the Inbox / Answered by AI / Noise report tabs; on the inbox the filters (status, kind, severity, story, assigned) join
-//    it. The table's last column is the assignee (avatar and name, or "Unassigned"); the Assigned filter offers All (the default), Mine,
-//    Unassigned and each member (the members port). The filters go to the server (`list_gaps`, which orders by severity, reach, then
+//    it. The table's last column is the assignee (avatar and name, or "Unassigned"), changed in place: a click opens a menu of
+//    Unassigned and the members (AssigneeMenu); a failed assignment is said above the list. The Assigned filter offers All (the
+//    default), Unassigned and each member (the members port). The filters go to the server (`list_gaps`, which orders by severity, reach, then
 //    newest): the inbox asks for route
 //    `ask` and `held_back=false` (its default view); the questions a run held back until the next run (FR-GRTE-06) are read with
 //    `held_back=true` and listed under "More found in this run", collapsed. Above the list: "Apply now" (applies the answers waiting for the
 //    quiet period; `409 gap_wrong_state` means none waits) and "Raise a gap" (a dialog; the new gap's card opens).
-//  - `?gap=<id>` opens the question card (GapCard, answerable and assignable here), also when the filters hide the row; closing removes the
+//  - `?gap=<id>` opens the question card (GapCard, answerable here), also when the filters hide the row; closing removes the
 //    parameter (history.replaceState). After an answer, an assignment, a withdrawal or a dismissal the lists read again without a loading
 //    state.
 //  - "Answered by AI" (AiAnswers) and the noise report with its rules (NoiseReport) are tabs.
@@ -37,6 +38,7 @@ import type { Gap, GapsPort } from "@/lib/domain/gaps";
 import type { Member } from "@/lib/domain/members";
 import { parseGapsQuery } from "@/lib/routes";
 import { AiAnswers } from "./AiAnswers";
+import { AssigneeMenu, type AssignControl } from "./AssigneeMenu";
 import { GapCheckStatus } from "./GapCheckStatus";
 import { GapCard, type CardControl } from "./GapCard";
 import { RaiseGapDialog } from "./GapDialogs";
@@ -171,8 +173,8 @@ function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, held
   return { list, more };
 }
 
-/** The Story filter's values (from the plan) and the project's members (the Assigned filter, the column and the card's assignee); a
- * failed read leaves the Story filter out, or names no member (the filter keeps All, Mine and Unassigned). */
+/** The Story filter's values (from the plan) and the project's members (the Assigned filter, the column and its menu); a failed read
+ * leaves the Story filter out, or names no member (the filter and the menu keep Unassigned). */
 function useFilterSources(projectId: string) {
   const { plan, members } = useGapsDeps();
   const [stories, setStories] = useState<Story[]>([]);
@@ -231,10 +233,10 @@ function useOpenGap(projectId: string, openId: string | null): { card: Gap | nul
 
 function GapRows({
   gaps,
-  people,
+  assign,
   label,
   onOpen,
-}: Readonly<{ gaps: Gap[]; people: Member[]; label: string; onOpen: (id: string) => void }>) {
+}: Readonly<{ gaps: Gap[]; assign: AssignControl; label: string; onOpen: (id: string) => void }>) {
   return (
     <DecisionList label={label} columns={["Gap", "Kind", "Severity", "Assigned"]}>
       {gaps.map((g) => (
@@ -246,7 +248,8 @@ function GapRows({
           severity={SEVERITY_LEVEL[g.severity]}
           severityLabel={SEVERITY_LABEL[g.severity]}
           status={g.status === "open" ? "open" : "answered"}
-          assignee={g.assignedTo === null ? undefined : assigneeText(g.assignedTo, people)}
+          assignee={g.assignedTo === null ? undefined : assigneeText(g.assignedTo, assign.people)}
+          aside={<AssigneeMenu gap={g} control={assign} />}
           onClick={() => {
             onOpen(g.id);
           }}
@@ -302,11 +305,11 @@ function Filters({
 /** "More found in this run" (FR-GRTE-06): the questions the run held back from the default view, collapsed until asked for. */
 function HeldBack({
   gaps,
-  people,
+  assign,
   next,
   onMore,
   onOpen,
-}: Readonly<{ gaps: Gap[]; people: Member[]; next: string | null; onMore: () => void; onOpen: (id: string) => void }>) {
+}: Readonly<{ gaps: Gap[]; assign: AssignControl; next: string | null; onMore: () => void; onOpen: (id: string) => void }>) {
   const [open, setOpen] = useState(false);
   if (gaps.length === 0) return null;
   return (
@@ -327,7 +330,7 @@ function HeldBack({
       <p className="gaps-count body-sm">These questions are shown with the next gap run.</p>
       {open ? (
         <>
-          <GapRows gaps={gaps} people={people} label="More found in this run" onOpen={onOpen} />
+          <GapRows gaps={gaps} assign={assign} label="More found in this run" onOpen={onOpen} />
           <ShowMore next={next} onMore={onMore} />
         </>
       ) : null}
@@ -378,14 +381,16 @@ const isDataErrorCode = (e: unknown, apiCode: string): boolean => isDataError(e)
 function Inbox({
   inbox,
   held,
-  people,
+  assign,
+  assignError,
   filtered,
   onOpen,
   onRetry,
 }: Readonly<{
   inbox: ReturnType<typeof useGapList>;
   held: ReturnType<typeof useGapList>;
-  people: Member[];
+  assign: AssignControl;
+  assignError: string | null;
   filtered: boolean;
   onOpen: (id: string) => void;
   onRetry: () => void;
@@ -402,7 +407,7 @@ function Inbox({
   }
   const shown = inboxOrder(list.gaps);
   let rows: ReactNode;
-  if (shown.length > 0) rows = <GapRows gaps={shown} people={people} label="Gaps" onOpen={onOpen} />;
+  if (shown.length > 0) rows = <GapRows gaps={shown} assign={assign} label="Gaps" onOpen={onOpen} />;
   else if (filtered) {
     rows = (
       <div data-testid="gaps-empty">
@@ -422,13 +427,18 @@ function Inbox({
   }
   return (
     <>
+      {assignError === null ? null : (
+        <p className="gaps-count body-sm" role="alert" data-testid="gaps-assign-error">
+          {assignError}
+        </p>
+      )}
       {rows}
       <ShowMore next={list.next} onMore={inbox.more} />
       <p className="gaps-count body-sm" role="status" data-testid="gap-count">
         {shown.length === 0 ? "" : countText(shown.length, list.next !== null)}
       </p>
       {held.list.phase === "ready" ? (
-        <HeldBack gaps={held.list.gaps} people={people} next={held.list.next} onMore={held.more} onOpen={onOpen} />
+        <HeldBack gaps={held.list.gaps} assign={assign} next={held.list.next} onMore={held.more} onOpen={onOpen} />
       ) : null}
     </>
   );
@@ -461,6 +471,23 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   const changed = useCallback(() => {
     setVersion((n) => n + 1);
   }, []);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const assign = useMemo<AssignControl>(
+    () => ({
+      people,
+      assign: async (gap, userId) => {
+        setAssignError(null);
+        try {
+          await gaps.assign(projectId, gap.id, userId);
+        } catch (e) {
+          setAssignError(`The assignment of "${gap.title}" was not saved. ${failureText(e)}`);
+          throw e;
+        }
+        changed();
+      },
+    }),
+    [gaps, projectId, people, changed],
+  );
   const control = useMemo<CardControl>(
     () => ({
       gaps,
@@ -492,7 +519,8 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
         <Inbox
           inbox={inbox}
           held={held}
-          people={people}
+          assign={assign}
+          assignError={assignError}
           filtered={filtered}
           onOpen={open}
           onRetry={() => {

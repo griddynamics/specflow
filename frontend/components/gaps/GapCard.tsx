@@ -1,18 +1,17 @@
 "use client";
 // FR-GWEB-04 (gap answers.md "The question card", "Answering", "Revert", "Dismissing"; api.md "User interface"): the question card of one
-// gap in the P04 Modal (focus trap, Esc, focus returns to the opener). Chips (severity, kind, origin, status, blocking), the assignee, the
+// gap in the P04 Modal (focus trap, Esc, focus returns to the opener). Chips (severity, kind, origin, status, blocking), the
 // title, the question with its options, why, the ABOUT and IMPACTS nodes, the quoted witness lines with their source (document › section ·
 // lines when the read names them), the reach (stories, tasks), the recorded answer, and the collapsible history with its follow-ups. With a
 // `control` (the Gaps screen) an open or answered gap is answerable (GapAnswer.tsx: options as a radio group, "Other", the edits preview,
 // the placement, Submit in the footer, stale handling) and can be dismissed ("Not a gap", GapDialogs.tsx); a recorded answer that is
-// pending, applied or absorbed can be withdrawn ("Withdraw answer", a revert with a reason). A gap that is not resolved can be assigned to
-// a member or unassigned ("Assigned to", FR-GWEB-06; answers.md "Who answers"). Without a `control` the card is read-only.
+// pending, applied or absorbed can be withdrawn ("Withdraw answer", a revert with a reason). The assignee is changed in the inbox row
+// (AssigneeMenu.tsx, FR-GWEB-06), not here. Without a `control` the card is read-only.
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { QuestionBlock } from "@/components/ui/QuestionBlock";
-import { Select } from "@/components/ui/Select";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { Tag } from "@/components/ui/Tag";
 import type { Gap, GapNode, RevertResult } from "@/lib/domain/gaps";
@@ -20,7 +19,6 @@ import { AnswerForm, AnswerMessages, useGapAnswer, type CardControl, type GapAns
 import { DismissDialog, ReasonDialog } from "./GapDialogs";
 import { GapHistory } from "./GapHistory";
 import {
-  ASSIGNED_TO_NOBODY,
   CLARIFICATION_STATUS_LABEL,
   KIND_LABEL,
   ORIGIN_LABEL,
@@ -29,11 +27,8 @@ import {
   STATUS_LABEL,
   answerable,
   appliedWhenText,
-  assigneeChoices,
-  assigneeText,
   clarificationText,
   confidenceText,
-  failureText,
   memberNames,
   quoteSource,
   withdrawable,
@@ -174,51 +169,6 @@ function ReadOnlyParts({ gap }: Readonly<{ gap: Gap }>) {
   );
 }
 
-/** "Assigned to": a select of Unassigned and the members while the gap is not resolved (any member assigns; the card reads the gap again
- * and the lists read again), else the assignee in words. */
-function Assignee({ gap, control }: Readonly<{ gap: Gap; control?: CardControl }>) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  if (control === undefined || gap.status === "resolved") {
-    if (gap.assignedTo === null) return null;
-    return (
-      <p className="gap-assignee gap-assignee__msg body-sm" data-testid="gap-assignee">
-        Assigned to {assigneeText(gap.assignedTo, control?.members ?? [])}
-      </p>
-    );
-  }
-  const change = async (value: string) => {
-    const userId = value === ASSIGNED_TO_NOBODY ? null : value;
-    if (busy || userId === gap.assignedTo) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await control.gaps.assign(control.projectId, gap.id, userId);
-      control.onChanged();
-      await control.onReload();
-    } catch (e) {
-      setError(`The assignment was not saved. ${failureText(e)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="gap-assignee" data-testid="gap-assignee" aria-busy={busy}>
-      <Select
-        label="Assigned to"
-        options={assigneeChoices(control.members, gap.assignedTo)}
-        value={gap.assignedTo ?? ASSIGNED_TO_NOBODY}
-        onChange={(v) => void change(v)}
-      />
-      {error === null ? null : (
-        <p className="gap-assignee__msg body-sm" role="alert" data-testid="gap-assign-error">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function revertedText(r: RevertResult): string {
   return r.followUp
     ? "Answer withdrawn. A follow-up gap is open for a person to answer; it is linked in the history."
@@ -343,7 +293,6 @@ export function GapCard({ gap, onClose, control }: Readonly<{ gap: Gap; onClose:
         )}
         {gap.blocking ? <Tag tone="warning">Holds tasks</Tag> : null}
       </div>
-      <Assignee gap={gap} control={control} />
       {editable ? (
         <section className="gap-sec" aria-label="Question" data-testid="gap-question">
           <h3 className="gap-sec__title eyebrow">Question</h3>

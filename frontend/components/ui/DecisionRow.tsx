@@ -1,7 +1,10 @@
 // FE-DEC-01, FE-DS-02 (R5): port of `DecisionRow` in bundle.js. One row, a single button: title and subtitle, domain Tag,
 // SeverityBadge, assignee avatar and name ("Unassigned" when none), caret. FR-GWEB-04, FR-GWEB-06: the Gaps inbox passes the gap's
-// `assignee` and `severityLabel` (Blocker, Major, Minor); `who` replaces the last cell where a screen needs other content.
+// `assignee` and `severityLabel` (Blocker, Major, Minor); `who` replaces the last cell where a screen needs other content. `aside` is a
+// control over the assignee cell (the Gaps inbox's assignee menu): a button cannot hold another control, so it sits beside the row's
+// button, laid over that cell (ui-gaps.css), and a click on it never opens the row.
 import type { ReactNode } from "react";
+import "./ui-gaps.css";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { SeverityBadge, type SeverityBadgeProps } from "./SeverityBadge";
@@ -20,6 +23,19 @@ export interface DecisionRowProps {
   who?: ReactNode;
   /** The severity word when it is not the level's own (SeverityBadge `label`). */
   severityLabel?: string;
+  /** A control in the assignee cell, outside the row's button; the cell under it stays empty. */
+  aside?: ReactNode;
+}
+
+/** The default assignee cell: the avatar and name, or "Unassigned". */
+function Assignee({ name }: Readonly<{ name?: string }>) {
+  if (!truthy(name)) return <span className="gdg-muted">Unassigned</span>;
+  return (
+    <>
+      <Avatar name={name} size="sm" title={false} />
+      <span>{name}</span>
+    </>
+  );
 }
 
 export function DecisionRow({
@@ -32,9 +48,11 @@ export function DecisionRow({
   onClick,
   who,
   severityLabel,
+  aside,
 }: Readonly<DecisionRowProps>) {
+  const control = aside !== undefined && aside !== null;
   return (
-    <li className={cx("gdg-drow", status === "answered" && "is-answered")}>
+    <li className={cx("gdg-drow", status === "answered" && "is-answered", control && "gdg-drow--aside")}>
       <button type="button" className="gdg-drow__btn" onClick={onClick}>
         <span className="gdg-drow__title">
           <b>{title}</b>
@@ -46,19 +64,12 @@ export function DecisionRow({
         <span className="gdg-drow__cell">
           <SeverityBadge level={severity} label={severityLabel} />
         </span>
-        <span className="gdg-drow__who">
-          {who ??
-            (truthy(assignee) ? (
-              <>
-                <Avatar name={assignee} size="sm" title={false} />
-                <span>{assignee}</span>
-              </>
-            ) : (
-              <span className="gdg-muted">Unassigned</span>
-            ))}
+        <span className="gdg-drow__who" aria-hidden={control || undefined}>
+          {control ? null : (who ?? <Assignee name={assignee} />)}
         </span>
         <Icon name="caret-right" size={16} className="gdg-drow__go" />
       </button>
+      {control ? <div className="gdg-drow__aside">{aside}</div> : null}
     </li>
   );
 }

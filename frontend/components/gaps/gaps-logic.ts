@@ -54,7 +54,7 @@ export interface GapFilters {
   kind: GapKind | "all";
   severity: GapSeverity | "all";
   story: string; // a story id, or "all"
-  assigned: string; // "me", "none", a member's user id, or "all"
+  assigned: string; // "none", a member's user id, or "all"
 }
 
 export const DEFAULT_GAP_FILTERS: GapFilters = {
@@ -65,8 +65,7 @@ export const DEFAULT_GAP_FILTERS: GapFilters = {
   assigned: "all",
 };
 
-/** The `assigned_to` values of the Assigned filter besides a member's user id: the caller, and nobody. */
-export const ASSIGNED_TO_ME = "me";
+/** The `assigned_to` value of the Assigned filter and the assignee menu for nobody (besides a member's user id). */
 export const ASSIGNED_TO_NOBODY = "none";
 
 type Options = { value: string; label: string }[];
@@ -96,13 +95,13 @@ export function assigneeText(userId: string | null, members: readonly Member[]):
   return m === undefined ? "A former member" : memberName(m);
 }
 
-/** The Assigned filter: All, Mine, Unassigned, then each member (the caller marked "(you)", as on the card). */
+/** The Assigned filter: All, Unassigned, then each member of the project (the caller marked "(you)", as in the assignee menu). */
 export function assignedOptions(members: readonly Member[]): Options {
-  return [ALL, { value: ASSIGNED_TO_ME, label: "Mine" }, { value: ASSIGNED_TO_NOBODY, label: "Unassigned" }, ...members.map(memberChoice)];
+  return [ALL, { value: ASSIGNED_TO_NOBODY, label: "Unassigned" }, ...members.map(memberChoice)];
 }
 
-/** The card's "Assigned to" choices: Unassigned, then each member (the caller marked "(you)"); a current assignee the list does not
- * hold stays a choice, so the control still shows it. */
+/** The assignee menu's choices: Unassigned, then each member (the caller marked "(you)"); a current assignee the list does not hold
+ * stays a choice, so the menu still marks it. */
 export function assigneeChoices(members: readonly Member[], current: string | null): Options {
   const choices = [{ value: ASSIGNED_TO_NOBODY, label: "Unassigned" }, ...members.map(memberChoice)];
   if (current !== null && !members.some((m) => m.userId === current)) choices.push({ value: current, label: "A former member" });

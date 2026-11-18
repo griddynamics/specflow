@@ -16,6 +16,8 @@ async function load() {
     OptionCards: (await import("../../components/ui/OptionCards")).OptionCards,
     QuestionBlock: (await import("../../components/ui/QuestionBlock")).QuestionBlock,
     GapCard: (await import("../../components/gaps/GapCard")).GapCard,
+    AssigneeMenu: (await import("../../components/gaps/AssigneeMenu")).AssigneeMenu,
+    DecisionRow: (await import("../../components/ui/DecisionRow")).DecisionRow,
   };
 }
 before(async () => {
@@ -204,18 +206,40 @@ test("FR-GWEB-04: a minor gap preselects nothing; a resolved gap is read-only an
   assert.doesNotMatch(view, /\{&quot;outcome/);
 });
 
-test("FR-GWEB-06: an open gap offers Assigned to with Unassigned and the members, named from the members list", () => {
-  const view = renderToStaticMarkup(createElement(M.GapCard, { gap: gap({ assignedTo: "u-2" }), onClose: () => undefined, control }));
-  assert.match(view, /data-testid="select-Assigned to"/);
-  assert.match(view, /lee@example\.com/);
+test("FR-GWEB-06: the card has no assignee control, open or resolved, with or without a control", () => {
+  for (const g of [gap({ assignedTo: "u-2" }), gap({ status: "resolved", assignedTo: "u-1" })]) {
+    const view = renderToStaticMarkup(createElement(M.GapCard, { gap: g, onClose: () => undefined, control }));
+    assert.doesNotMatch(view, /data-testid="gap-assignee"/);
+    assert.doesNotMatch(view, /Assigned to/);
+  }
 });
 
-test("FR-GWEB-06: a resolved gap names its assignee without a control; a read-only card shows no assignee control", () => {
+const assign = { people: control.members, assign: () => Promise.resolve() };
+
+test("FR-GWEB-06: an open gap's row cell is a menu trigger with the assignee's avatar and name, beside the row's button", () => {
+  const menu = createElement(M.AssigneeMenu, { gap: gap({ assignedTo: "u-2" }), control: assign });
   const view = renderToStaticMarkup(
-    createElement(M.GapCard, { gap: gap({ status: "resolved", assignedTo: "u-1" }), onClose: () => undefined, control }),
+    createElement(M.DecisionRow, { title: "Cancelling a paid order", domain: "Missing", severity: "high", aside: menu }),
   );
-  assert.doesNotMatch(view, /data-testid="select-Assigned to"/);
-  assert.match(view, /Assigned to Dana/);
-  const utils = renderToStaticMarkup(createElement(M.GapCard, { gap: gap(), onClose: () => undefined }));
-  assert.doesNotMatch(utils, /data-testid="gap-assignee"/);
+  const parts = view.split('<div class="gdg-drow__aside">');
+  assert.equal(parts.length, 2, "the menu sits beside the row's button");
+  const [row, aside] = parts;
+  assert.doesNotMatch(row, /aria-haspopup/); // nothing interactive inside the row's button but the button itself
+  assert.match(aside, /aria-haspopup="menu"/);
+  assert.match(aside, /aria-label="Assigned: lee@example\.com\. Change the assignee"/);
+  assert.match(aside, />lee@example\.com</);
+});
+
+test("FR-GWEB-06: an unassigned gap's row cell says Unassigned and opens the same menu", () => {
+  const view = renderToStaticMarkup(createElement(M.AssigneeMenu, { gap: gap(), control: assign }));
+  assert.match(view, /aria-label="Assigned: Unassigned\. Change the assignee"/);
+  assert.match(view, />Unassigned</);
+});
+
+test("FR-GWEB-06: a resolved gap's row names its assignee without a menu", () => {
+  const view = renderToStaticMarkup(
+    createElement(M.AssigneeMenu, { gap: gap({ status: "resolved", assignedTo: "u-1" }), control: assign }),
+  );
+  assert.doesNotMatch(view, /aria-haspopup/);
+  assert.match(view, />Dana</);
 });

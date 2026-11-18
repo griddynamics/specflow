@@ -47,17 +47,6 @@
   align-items: center;
   gap: var(--space-xs) var(--space-sm);
 }
-/* The card's "Assigned to": the select, and a failed assignment in words. */
-.gap-assignee {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-xs) var(--space-sm);
-}
-.gap-assignee__msg {
-  margin: 0;
-  color: var(--ink-2);
-}
 .gap-sec {
   display: grid;
   gap: var(--space-xs);
@@ -357,4 +346,49 @@
 .gap-check__detail {
   margin: 0;
   color: var(--ink-2);
+}
+
+/* The assignee menu of an inbox row (AssigneeMenu.tsx, FR-GWEB-06): the cell's avatar and name are the trigger. */
+.gaps-assignee {
+  min-width: 0;
+  max-width: 100%;
+}
+.gaps-assignee--fixed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.gaps-assignee__trigger {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.gaps-assignee__trigger:hover {
+  background: var(--glass-tint);
+}
+.gaps-assignee__trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.gaps-assignee__trigger:disabled {
+  cursor: progress;
+}
+.gaps-assignee__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

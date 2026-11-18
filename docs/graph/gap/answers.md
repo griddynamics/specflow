@@ -431,7 +431,7 @@ to any member of the project, or clears its assignee, on the gap's card (`PUT ..
 | Follow-up gap | Takes the assignee of the gap it follows up (event `assigned` with `from_gap`; the run or the member who withdrew the answer as actor) |
 | Dismissed or obsolete gap | Its assignment is deleted |
 | Member leaves or is removed | The database deletes their assignments with the membership; the gaps are unassigned (no event) |
-| Inbox | The "Assigned" column shows the assignee; the "Assigned" filter lists All (the default), Mine, Unassigned and each member (`assigned_to=me`, `none` or a user id) |
+| Inbox | The "Assigned" column shows the assignee and changes it in place: a click opens a menu of Unassigned and the members. The "Assigned" filter lists All (the default), Unassigned and each member (`assigned_to=none` or a user id; the API also takes `me`, for the MCP tools). The question card has no assignee control |
 
 ## Raising a gap by hand
 

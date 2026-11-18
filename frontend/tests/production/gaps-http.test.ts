@@ -272,13 +272,12 @@ const member = (userId: string, name: string | null, isYou = false): Member => (
   isYou,
 });
 
-test("FR-GWEB-06: the Assigned filter's options, the card's choices, the assignee in words and the history's names", () => {
+test("FR-GWEB-06: the Assigned filter's options, the assignee menu's choices, the assignee in words and the history's names", () => {
   const members = [member("u-1", "Dana", true), member("u-2", null)];
   assert.deepEqual(
     assignedOptions(members).map((o) => [o.value, o.label]),
     [
       ["all", "All"],
-      ["me", "Mine"],
       ["none", "Unassigned"],
       ["u-1", "Dana (you)"],
       ["u-2", "u-2@example.com"],

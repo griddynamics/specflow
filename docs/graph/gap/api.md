@@ -439,7 +439,7 @@ answers `409 plan_applying` the same way: `dismiss_gap` releases the holds befor
 |---|---|
 | Gaps screen, gap check line | Above every tab: "Waiting for the knowledge build" while the build runs, "Looking for gaps" with the step, its items and a progress bar while the gap run runs, then when the last check finished and what it found (new, updated, resolved gaps), or that it failed |
 | Gaps screen, inbox | Open gaps with filters (status, kind, severity, story, assigned) and the columns gap, kind, severity and assigned, sorted by severity and reach; development gaps that hold tasks first; "Apply now"; "Raise a gap" |
-| Gaps screen, card | Title, question, why, chips for `ABOUT` and `IMPACTS` nodes, quoted witness lines with their source (document, section, lines), reach (stories, tasks), options with the recommended one marked, "Other" with free text and an edits preview, placement choice, "Not a gap" with a reason, the history (events, follow-up chain), "Withdraw answer" for an answered gap, "Assigned to" (Unassigned or a member) while the gap is not resolved |
+| Gaps screen, card | Title, question, why, chips for `ABOUT` and `IMPACTS` nodes, quoted witness lines with their source (document, section, lines), reach (stories, tasks), options with the recommended one marked, "Other" with free text and an edits preview, placement choice, "Not a gap" with a reason, the history (events, follow-up chain), "Withdraw answer" for an answered gap |
 | Gaps screen, answered by AI | AI answers with their basis and confidence; Revert per row |
 | Gaps screen, noise report | Sections judged tracking or mixed, their signals, "Mark as not spec" and the noise rules (add, remove) |
 | Plan screens | Stories and tasks show open gaps and held tasks with a link to the card |
@@ -449,9 +449,10 @@ AI and Noise report (FR-GWEB-06 removed the Documents tab and the Origin and Doc
 (severity, reach, newest) with development gaps that hold tasks first; a second read with `held_back=true` fills a
 collapsed "More found in this run" section. The card answers through `edits_preview` and `answer` (with the gap's
 `updated_at` as read; `409 gap_stale` offers a reload), dismisses with a reason ("Not spec" also offers a section noise
-rule), withdraws an answer through the revert route, and assigns the gap through `PUT .../assignee`. The Assigned
-filter lists All (the default), Mine (`assigned_to=me`), Unassigned (`none`) and each member of the project
-(`GET .../members`), whose names the Assigned column and the history also show. The plan
+rule) and withdraws an answer through the revert route. The Assigned column assigns the gap in place (`PUT
+.../assignee`): a click opens a menu of Unassigned and the members; a resolved gap's cell has no menu. The Assigned
+filter lists All (the default), Unassigned (`none`) and each member of the project (`GET .../members`), whose names the
+Assigned column and the history also show. The plan
 screens read the open gaps once (status open, answered, applying; any route) and show on a task the gaps whose `ABOUT`
 ids meet the task's implemented spec ids, and on a story those of its tasks, each linking to the card (`?gap=<id>`).
 The gap check line reads `GET .../gap/runs/latest` and `GET .../graph_build` every 3 s while the build or the gap

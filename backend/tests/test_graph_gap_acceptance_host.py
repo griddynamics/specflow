@@ -148,7 +148,8 @@ def test_fr_gweb_04_gaps_screen_show_inbox_filters_question_card() -> None:
 
 
 def test_fr_gweb_06_the_gaps_screen_assigns_and_filters_by_assignee() -> None:
-    """End-to-end test: a member assigns a gap to a member on the card, and the Assigned filter and column show it.
+    """End-to-end test: a member assigns a gap to a member from the menu in its row without opening the card, and the
+    Assigned filter and column show it.
 
     The browser test of ``make e2e-production`` (``gaps-write-production.spec.ts``); here: it exists under the
     production config.
