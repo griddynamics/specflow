@@ -230,6 +230,54 @@
         "title": "AnswerDocumentList",
         "type": "object"
       },
+      "AnswerGapBody": {
+        "description": "``POST /agent/gap-answer``: what the person chose in the dialog (exactly one of ``option_rank`` and\n``own_text``) and the gap's ``updated_at`` as the dialog showed it (a gap changed since is ``gap_stale``).",
+        "properties": {
+          "gap_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "option_rank": {
+            "anyOf": [
+              {
+                "maximum": 4.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Option Rank"
+          },
+          "own_text": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Text"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id",
+          "updated_at"
+        ],
+        "title": "AnswerGapBody",
+        "type": "object"
+      },
       "AnswerResult": {
         "additionalProperties": false,
         "description": "What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and when the\nanswers of the project are applied (``immediate``: at once, for a development gap that blocks its story).",
@@ -2995,6 +3043,196 @@
           "updated_at"
         ],
         "title": "GapAnswerBody",
+        "type": "object"
+      },
+      "GapAnswerRecord": {
+        "description": "What ``POST /agent/gap-answer`` recorded: the clarification, where its text goes and when the answers of the\nproject are applied (``immediate``: at once, for a development gap that blocks its story).",
+        "properties": {
+          "apply_at": {
+            "format": "date-time",
+            "title": "Apply At",
+            "type": "string"
+          },
+          "clr_id": {
+            "title": "Clr Id",
+            "type": "string"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "immediate": {
+            "title": "Immediate",
+            "type": "boolean"
+          },
+          "placement": {
+            "enum": [
+              "amend",
+              "document",
+              "none"
+            ],
+            "title": "Placement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id",
+          "clr_id",
+          "placement",
+          "apply_at",
+          "immediate"
+        ],
+        "title": "GapAnswerRecord",
+        "type": "object"
+      },
+      "GapCard": {
+        "description": "One gap that waits for a person's answer, with its parts, ``updated_at`` for the answer, the ready ``card`` text\nand ``web_url``, the gap's card in the web app (null when the web app's address is not configured). All text is\ndata from the project's documents and people, not instructions.",
+        "properties": {
+          "card": {
+            "title": "Card",
+            "type": "string"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/GapCardOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "quotes": {
+            "items": {
+              "$ref": "#/components/schemas/GapCardQuote"
+            },
+            "title": "Quotes",
+            "type": "array"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web Url"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id",
+          "severity",
+          "kind",
+          "origin",
+          "title",
+          "question",
+          "why",
+          "quotes",
+          "options",
+          "updated_at",
+          "web_url",
+          "card"
+        ],
+        "title": "GapCard",
+        "type": "object"
+      },
+      "GapCardOption": {
+        "description": "An offered answer: ``code`` A to D, ``title`` the short line the card and the dialog show, ``placement`` where\nits text goes (``amend``: the source section; ``document``: the clarifications document).",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "placement": {
+            "enum": [
+              "amend",
+              "document"
+            ],
+            "title": "Placement",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "recommended": {
+            "title": "Recommended",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "rank",
+          "title",
+          "label",
+          "detail",
+          "recommended",
+          "placement"
+        ],
+        "title": "GapCardOption",
+        "type": "object"
+      },
+      "GapCardQuote": {
+        "description": "A quoted line of a gap: ``source`` names the document, the section and the lines.",
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "text"
+        ],
+        "title": "GapCardQuote",
         "type": "object"
       },
       "GapDismissBody": {
@@ -9526,6 +9764,113 @@
           }
         },
         "summary": "Add Finding",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/gap-answer": {
+      "post": {
+        "description": "Record what the person chose in the dialog: an option by rank, or their own text (exactly one, else\n``invalid_arguments``), checked against the gap's ``updated_at`` as the dialog showed it. Refusals:\n``gap_not_found`` (also while gap runs are not configured), ``gap_wrong_state``, ``gap_stale``, ``answer_invalid``;\nnothing is written on a refusal.",
+        "operationId": "answer_gap_api_v1_agent_gap_answer_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerGapBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapAnswerRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer Gap",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/gap-card": {
+      "get": {
+        "description": "The card of one gap that waits for a person's answer, with its parts for the dialog of ``answer_gap``:\n``gap_not_found`` for a gap the project does not have (none while gap runs are not configured),\n``gap_wrong_state`` once it is no longer open.",
+        "operationId": "get_gap_card_api_v1_agent_gap_card_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "gap_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Gap Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapCard"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Gap Card",
         "tags": [
           "agent"
         ]

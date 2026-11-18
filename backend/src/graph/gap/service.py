@@ -766,7 +766,13 @@ class GapService:
                 at=now,
                 actor=answer.answered_by,
                 event="answered",
-                detail={"mode": mode, "placement": placement, "amendments": len(rows), "replaces": replaces},
+                detail={
+                    "mode": mode,
+                    "placement": placement,
+                    "amendments": len(rows),
+                    "replaces": replaces,
+                    "via": answer.via,
+                },
             )
         )
         await retried(self._records.log, project_id, events)

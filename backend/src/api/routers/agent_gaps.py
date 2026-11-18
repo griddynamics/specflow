@@ -1,6 +1,7 @@
-"""The agent reads of gaps: ``list_gaps`` (``GET /agent/gaps``; tools.md "list_gaps", docs/graph/gap/api.md "MCP
-tools", FR-GWEB-03) and ``list_open_gaps`` (``GET /agent/open-gaps``: the gaps that wait for a person's answer, as cards
-for the chat, docs/mcp-server/apps.md "Terminal dialogs").
+"""The agent routes of gaps: ``list_gaps`` (``GET /agent/gaps``; tools.md "list_gaps", docs/graph/gap/api.md "MCP
+tools", FR-GWEB-03), ``list_open_gaps`` (``GET /agent/open-gaps``: the gaps that wait for a person's answer, as cards
+for the chat, docs/mcp-server/apps.md "Terminal dialogs") and the two routes of ``answer_gap``: ``GET /agent/gap-card``
+(the card its dialog shows) and ``POST /agent/gap-answer`` (what the person chose in the dialog).
 
 Same ``AgentRoute``, auth and membership-first dependency chain as ``api.routers.agent``. Exactly one of ``story_id``
 and ``spec_ids`` (``invalid_arguments`` otherwise); a story is resolved through the plan to the nodes its tasks
@@ -10,6 +11,10 @@ implement (``no_plan``, ``story_not_found`` as for ``trace``), then ``GapService
 empty. ``list_open_gaps`` lists what the web inbox's default view lists (open, route ``ask``, not held back) and reads
 each gap whole for its card (``api.gap.cards``); the card links to the web app at ``PUBLIC_URL``. Nothing here writes;
 logs carry no question or answer text (NFR-GSEC-02).
+
+``answer_gap`` writes only what the person sent from the dialog that the client showed on the MCP server's request,
+never the agent's text (decision D6): the answer is recorded as the token's user with ``via`` ``elicitation``, with the
+web card's checks and apply (``api.gap.answering``), and audited as ``api.agent.written``.
 """
 
 from __future__ import annotations
@@ -18,15 +23,33 @@ from typing import Annotated, Final
 
 from fastapi import APIRouter, Query
 
-from agent_contracts import GapItem, GapList, ListGapsQuery, ListOpenGapsQuery, OpenGapList
+from agent_contracts import (
+    AnswerGapBody,
+    GapAnswerRecord,
+    GapCard,
+    GapCardQuery,
+    GapItem,
+    GapList,
+    ListGapsQuery,
+    ListOpenGapsQuery,
+    OpenGapList,
+)
 from api.agent_reads import agent_reads
-from api.deps import AgentProjectDep, RuntimeDep
+from api.deps import AgentProjectDep, AgentUserDep, RuntimeDep
 from api.errors import invalid_arguments, invalid_cursor
+from api.gap.answering import answer_invalid, gap_not_found, gap_stale, gap_wrong_state, record_answer
 from api.gap.cards import gap_card, open_item
 from api.routers.agent import AgentRoute, cursor_within_limit
 from api.runtime import Runtime
-from api.write_support import plan_read
-from graph.gap import AnswerInvalidError, GapNotFoundError, GapView
+from api.write_support import plan_read, written
+from graph.gap import (
+    AnswerInput,
+    AnswerInvalidError,
+    GapNotFoundError,
+    GapStateError,
+    GapView,
+    StaleGapError,
+)
 
 router = APIRouter(prefix="/agent", tags=["agent"], route_class=AgentRoute)
 
@@ -112,3 +135,76 @@ async def list_open_gaps(
             continue
         items.append(open_item(gap_card(whole, graph_id, base)))
     return OpenGapList(project_id=graph_id, items=items, next_cursor=page.next)
+
+
+OPEN: Final = "open"
+
+
+@router.get("/gap-card", response_model=GapCard)
+async def get_gap_card(
+    project: AgentProjectDep, runtime: RuntimeDep, args: Annotated[GapCardQuery, Query()]
+) -> GapCard:
+    """The card of one gap that waits for a person's answer, with its parts for the dialog of ``answer_gap``:
+    ``gap_not_found`` for a gap the project does not have (none while gap runs are not configured),
+    ``gap_wrong_state`` once it is no longer open."""
+
+    graph_id = str(project.id)
+    if runtime.gaps is None:
+        raise gap_not_found()
+    service = await runtime.gaps.service()
+    try:
+        gap = await service.get_gap(graph_id, args.gap_id)
+    except GapNotFoundError:
+        raise gap_not_found() from None
+    if gap.status != OPEN:
+        raise gap_wrong_state(GapStateError(status=gap.status, allowed=(OPEN,), gap_id=gap.gap_id))
+    return gap_card(gap, graph_id, public_url(runtime))
+
+
+@router.post("/gap-answer", response_model=GapAnswerRecord)
+async def answer_gap(
+    project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, body: AnswerGapBody
+) -> GapAnswerRecord:
+    """Record what the person chose in the dialog: an option by rank, or their own text (exactly one, else
+    ``invalid_arguments``), checked against the gap's ``updated_at`` as the dialog showed it. Refusals:
+    ``gap_not_found`` (also while gap runs are not configured), ``gap_wrong_state``, ``gap_stale``, ``answer_invalid``;
+    nothing is written on a refusal."""
+
+    if (body.option_rank is None) == (body.own_text is None):
+        raise invalid_arguments("answer")
+    graph_id = str(project.id)
+    runner = runtime.gaps
+    if runner is None:
+        raise gap_not_found()
+    answer = AnswerInput(
+        gap_id=body.gap_id,
+        option_rank=body.option_rank,
+        own_text=body.own_text,
+        answered_by=str(user.id),
+        updated_at=body.updated_at,
+        via="elicitation",
+    )
+    ids: dict[str, str | None] = {"gap_id": body.gap_id, "clr_id": None}
+
+    async def record() -> tuple[GapAnswerRecord, bool]:
+        try:
+            result = await record_answer(runner, graph_id, answer)
+        except GapNotFoundError:
+            raise gap_not_found() from None
+        except GapStateError as error:
+            raise gap_wrong_state(error) from None
+        except StaleGapError:
+            raise gap_stale() from None
+        except AnswerInvalidError as error:
+            raise answer_invalid(error) from None
+        ids["clr_id"] = result.clr_id
+        recorded = GapAnswerRecord(
+            gap_id=result.gap_id,
+            clr_id=result.clr_id,
+            placement=result.placement,
+            apply_at=result.apply_at,
+            immediate=result.immediate,
+        )
+        return recorded, False
+
+    return await written("gap-answer", graph_id, user, ids, record)

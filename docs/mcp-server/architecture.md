@@ -278,6 +278,7 @@ argument is a repeated parameter (`spec_ids=A&spec_ids=B`).
 | `expand_brief` | `/brief-expansion` | `project_id`, `story_id`, `budget_tokens` 500–8000 (3000) | `BriefExpansion` | `project_not_found`, `no_plan`, `story_not_found` → 404 |
 | `list_gaps` | `/gaps` | `project_id`, `story_id`?, `spec_ids`* 1–20, `status`*, `limit` 1–100 (50), `cursor` | `GapList` | `project_not_found`, `story_not_found`, `no_plan` → 404; `invalid_arguments`, `invalid_cursor` → 400 |
 | `list_open_gaps` | `/open-gaps` | `project_id`, `limit` 1–25 (10), `cursor` | `OpenGapList` | `project_not_found` → 404; `invalid_cursor` → 400 |
+| `answer_gap` (its card, before the dialog) | `/gap-card` | `project_id`, `gap_id` | `GapCard` | `project_not_found`, `gap_not_found` → 404; `gap_wrong_state` (not open) → 409 |
 
 `*` a list parameter. Schema-bound as for the earlier routes (`422` if violated; MCP's input schema makes it
 unreachable): every range, length and enum above. Checked in the handler: `story_id` xor `spec_ids`, `relations`
@@ -304,10 +305,12 @@ The five write tools are the first agent routes that change data. Each is one `P
 | `add_finding` | `/findings` | `kind`, `text`, `about`, `refers_to` ([]), `story_id`?, `claim_token`?, `blocking` (false) | `FindingResult` | `project_not_found`, `node_not_found`, `story_not_found` → 404; `invalid_arguments` → 400; `claim_mismatch`, `finding_limit`, `plan_applying` (blocking) → 409 |
 | `report_task` | `/task-progress` | `task_id`, `claim_token`, `progress`, `note`? | `TaskReport` (`task`) | `project_not_found`, `no_plan`, `task_not_found` → 404; `invalid_arguments` → 400; `claim_mismatch`, `plan_applying` → 409 |
 | `complete_story` | `/story-completion` | `story_id`, `claim_token`, `merge_commit`, `pr_url`?, `done`? | `StoryCompletion` | `project_not_found`, `no_plan`, `story_not_found` → 404; `invalid_commit`, `invalid_arguments` → 400; `claim_mismatch`, `plan_applying` → 409 |
+| `answer_gap` | `/gap-answer` | `gap_id`, `option_rank`? or `own_text`? (exactly one), `updated_at` | `GapAnswerRecord` (`clr_id`, `placement`, `apply_at`, `immediate`) | `project_not_found`, `gap_not_found` → 404; `invalid_arguments`, `answer_invalid` → 400; `gap_wrong_state`, `gap_stale` → 409 |
 
 Every new code is listed with its status in the API's error-code registry (`backend/archkit.toml`, `[error_codes]`):
 `*_not_found` 404; `invalid_arguments`, `invalid_commit`, `unknown_relation` 400; `story_claimed`, `not_available`,
-`partly_claimed`, `plan_applying`, `claim_mismatch`, `finding_limit` 409. The MCP role maps a 409 with a known code
+`partly_claimed`, `plan_applying`, `claim_mismatch`, `finding_limit` 409; the gap codes of `answer_gap` are the web
+routes' own (`gap_not_found` 404, `answer_invalid` 400, `gap_wrong_state` and `gap_stale` 409). The MCP role maps a 409 with a known code
 like any other known code: the code, its fixed message and the validated details.
 
 ## Import rules

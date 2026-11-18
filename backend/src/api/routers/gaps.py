@@ -31,6 +31,7 @@ from fastapi import APIRouter, Path, Query, Response
 
 from api.deps import RuntimeDep, UserDep
 from api.errors import ApiError, document_not_found, invalid_arguments, invalid_cursor, plan_applying
+from api.gap.answering import answer_invalid, gap_not_found, gap_stale, gap_wrong_state, record_answer
 from api.gap.state import GapRunnerReads, GapRunState
 from api.gap_models import (
     DEFAULT_LIMIT,
@@ -100,29 +101,6 @@ DOCUMENT_PREFIX: Final = "doc:"
 
 def gap_unavailable() -> ApiError:
     return ApiError(503, "gap_unavailable", "Gap runs are not configured.")
-
-
-def gap_not_found() -> ApiError:
-    return ApiError(404, "gap_not_found", "The gap does not exist.")
-
-
-def gap_wrong_state(error: GapStateError) -> ApiError:
-    return ApiError(
-        409,
-        "gap_wrong_state",
-        "The gap is not in a state this action applies to.",
-        details={"status": error.status, "allowed": list(error.allowed)},
-    )
-
-
-def gap_stale() -> ApiError:
-    return ApiError(409, "gap_stale", "The gap changed since it was read. Reload it.")
-
-
-def answer_invalid(error: AnswerInvalidError) -> ApiError:
-    return ApiError(
-        400, "answer_invalid", "The answer is not valid.", details={"field": error.field, "reason": error.reason}
-    )
 
 
 def one_answer_needed() -> ApiError:
@@ -424,7 +402,6 @@ async def answer_gap(
 
     await require_project(runtime, user.id, pid)
     runner = _runner(runtime)
-    service = await runner.service()
     if not body.one_answer:
         raise one_answer_needed()
     answer = AnswerInput(
@@ -437,7 +414,7 @@ async def answer_gap(
         updated_at=body.updated_at,
     )
     try:
-        result = await service.answer_gap(str(pid), answer)
+        result = await record_answer(runner, str(pid), answer)
     except GapNotFoundError:
         raise gap_not_found() from None
     except GapStateError as error:
@@ -446,8 +423,6 @@ async def answer_gap(
         raise gap_stale() from None
     except AnswerInvalidError as error:
         raise answer_invalid(error) from None
-    if not result.immediate:
-        runner.schedule_apply(str(pid), result.apply_at)
     log_event(
         logger,
         INFO,

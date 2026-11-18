@@ -23,6 +23,7 @@ AGENT_ROUTES: Final[Mapping[str, str]] = {
     "expand_brief": f"{AGENT_PREFIX}/brief-expansion",
     "list_gaps": f"{AGENT_PREFIX}/gaps",
     "list_open_gaps": f"{AGENT_PREFIX}/open-gaps",
+    "answer_gap": f"{AGENT_PREFIX}/gap-answer",
     "list_areas": f"{AGENT_PREFIX}/areas",
     "list_stories": f"{AGENT_PREFIX}/stories",
     "preview_story": f"{AGENT_PREFIX}/story-preview",
@@ -32,4 +33,6 @@ AGENT_ROUTES: Final[Mapping[str, str]] = {
     "report_task": f"{AGENT_PREFIX}/task-progress",
     "complete_story": f"{AGENT_PREFIX}/story-completion",
 }
+# answer_gap reads the gap's card here before its dialog, then writes the answer on its own route.
+GAP_CARD_ROUTE: Final = f"{AGENT_PREFIX}/gap-card"
 USER_ID_HEADER: Final = "X-SpecFlow-User-Id"

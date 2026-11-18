@@ -19,6 +19,16 @@
       ],
       "name": "start",
       "summary": "Walks you from a project to a claimed story: areas, stories, preview, claim."
+    },
+    {
+      "arguments": [
+        {
+          "name": "gap",
+          "required": false
+        }
+      ],
+      "name": "answer_gaps",
+      "summary": "Walks you through the open gaps of your project; you answer each one in a dialog."
     }
   ],
   "tools": [
@@ -126,6 +136,11 @@
       "name": "list_open_gaps",
       "read_only": true,
       "summary": "Lists the gaps that wait for a person's answer, each as a ready card with its web link."
+    },
+    {
+      "name": "answer_gap",
+      "read_only": false,
+      "summary": "Lets you answer one open gap in a dialog of your coding agent; the answer is recorded as yours."
     },
     {
       "name": "add_finding",

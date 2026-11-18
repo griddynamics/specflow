@@ -618,7 +618,9 @@ class AnswerInput(GapModel):
     """An answer to a gap: an offered option by rank or the person's own text (exactly one). ``edits`` are the edits
     confirmed in ``preview_edits`` (an option's own edits when None; an own text without edits goes to the
     clarifications document as written). ``updated_at`` is the gap's ``updated_at`` as the caller read it: a gap
-    changed since then refuses the answer (``StaleGapError``); None skips the check."""
+    changed since then refuses the answer (``StaleGapError``); None skips the check. ``via`` is where the person
+    answered: the web card, or the dialog a coding agent's client showed (``elicitation``); the ``answered`` event
+    keeps it."""
 
     gap_id: str
     option_rank: int | None = Field(default=None, ge=1)
@@ -627,6 +629,7 @@ class AnswerInput(GapModel):
     edits: tuple[Edit, ...] | None = None
     answered_by: str
     updated_at: AwareDatetime | None = None
+    via: Literal["web", "elicitation"] = "web"
 
     @model_validator(mode="after")
     def _one_answer(self) -> Self:

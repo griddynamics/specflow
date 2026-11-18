@@ -19,11 +19,12 @@ import inspect
 import json
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Final, cast
 
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.elicitation import AcceptedElicitation, ElicitationResult
+from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
 from mcp.server.mcpserver.prompts.base import Prompt
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, Field
@@ -31,8 +32,10 @@ from starlette.requests import Request
 
 from agent_contracts import (
     AGENT_ROUTES,
+    GAP_CARD_ROUTE,
     INTERNAL_ERROR,
     AddFindingArgs,
+    AnswerGapArgs,
     AreaList,
     BriefExpansion,
     ClaimStoryArgs,
@@ -42,6 +45,9 @@ from agent_contracts import (
     FeatureList,
     FeatureTaskList,
     FindingResult,
+    GapAnswerOutcome,
+    GapAnswerRecord,
+    GapCard,
     GapList,
     GetEvidenceArgs,
     GetNodeArgs,
@@ -84,8 +90,8 @@ from agent_contracts import (
 )
 from logger.correlation import current_request_id
 from logger.logger import INFO, get_logger, log_event
-from mcp_server import descriptions, guidance
-from mcp_server.api_client import request_api_client
+from mcp_server import descriptions, gap_dialog, guidance
+from mcp_server.api_client import ApiResult, request_api_client
 from mcp_server.errors import McpToolError, error_body, from_api
 from mcp_server.http import McpInvariantError, required
 
@@ -101,6 +107,10 @@ READ_ONLY: Final = ToolAnnotations(
 WRITE: Final = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
 )
+
+
+ANSWER_GAP: Final = "answer_gap"
+INPUT_REQUIRED: Final = "input_required"  # the audit outcome of a round that only asks
 
 
 @dataclass(frozen=True)
@@ -119,6 +129,8 @@ class ToolDeclaration:
     route: str
     project_scoped: bool
     annotations: ToolAnnotations = field(default_factory=lambda: READ_ONLY)
+    asks_user: bool = False
+    """The tool asks the person in a dialog of their client (elicitation) before it writes (``answer_gap``)."""
 
     @property
     def writes(self) -> bool:
@@ -324,6 +336,17 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         project_scoped=True,
     ),
     ToolDeclaration(
+        name=ANSWER_GAP,
+        summary="Lets you answer one open gap in a dialog of your coding agent; the answer is recorded as yours.",
+        description=descriptions.ANSWER_GAP_DESCRIPTION,
+        arguments=AnswerGapArgs,
+        output=GapAnswerOutcome,
+        route=AGENT_ROUTES["answer_gap"],
+        project_scoped=True,
+        annotations=WRITE,
+        asks_user=True,
+    ),
+    ToolDeclaration(
         name="add_finding",
         summary="Records a gap, conflict, question or note about the spec, linked to nodes and code; people answer it.",
         description=descriptions.ADD_FINDING_DESCRIPTION,
@@ -390,6 +413,14 @@ PROMPTS: Final[tuple[PromptDeclaration, ...]] = (
         argument_description=guidance.AREA_ARGUMENT_DESCRIPTION,
         render=guidance.render_start,
     ),
+    PromptDeclaration(
+        name=guidance.ANSWER_GAPS_NAME,
+        summary="Walks you through the open gaps of your project; you answer each one in a dialog.",
+        description=guidance.ANSWER_GAPS_DESCRIPTION,
+        argument=guidance.GAP_ARGUMENT,
+        argument_description=guidance.GAP_ARGUMENT_DESCRIPTION,
+        render=guidance.render_answer_gaps,
+    ),
 )
 
 
@@ -440,6 +471,83 @@ def _error_result(error: McpToolError) -> CallToolResult:
     )
 
 
+def _parameters(arguments: type[BaseModel]) -> tuple[list[inspect.Parameter], dict[str, Any]]:
+    """One keyword per argument field, as the SDK reads a signature (it builds the input schema from them)."""
+
+    parameters: list[inspect.Parameter] = []
+    annotations: dict[str, Any] = {}
+    for name, info in arguments.model_fields.items():
+        # ``alias``: a wire name that is no Python name (``from``)
+        described = info.description or info.alias
+        extras = [*info.metadata, *([Field(description=info.description, alias=info.alias)] if described else [])]
+        annotation = Annotated[(info.annotation, *extras)] if extras else info.annotation
+        default = inspect.Parameter.empty if info.is_required() else info.get_default(call_default_factory=True)
+        parameters.append(
+            inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, default=default, annotation=annotation)
+        )
+        annotations[name] = annotation
+    return parameters, annotations
+
+
+def _log_completed(fields: dict[str, Any], outcome: str, item_count: int, started: float) -> None:
+    log_event(
+        logger,
+        INFO,
+        "mcp.tool.completed",
+        outcome=outcome,
+        item_count=item_count,
+        duration_ms=round((time.monotonic() - started) * 1000),
+        **fields,
+    )
+
+
+async def _completed(
+    fields: dict[str, Any], run: Callable[[], Awaitable[tuple[CallToolResult, int]]]
+) -> CallToolResult:
+    """The wrapper every tool runs in: ``run`` builds the result, any failure becomes the error result of its code,
+    and the ``mcp.tool.completed`` audit event is logged with ``fields``."""
+
+    started = time.monotonic()
+    outcome: str = INTERNAL_ERROR  # what an escaping BaseException (cancellation) leaves
+    item_count = 0
+    try:
+        try:
+            result, count = await run()  # builds the result: a failure is mapped too
+        except McpToolError:
+            raise
+        except Exception as error:  # the one boundary: nothing but a code leaves
+            raise McpToolError(INTERNAL_ERROR, type(error).__name__) from error
+    except McpToolError as error:
+        outcome = error.code
+        fields["error_type"] = error.error_type
+        return _error_result(error)
+    else:
+        outcome, item_count = "ok", count  # only after the result was built
+        return result
+    finally:
+        _log_completed(fields, outcome, item_count, started)
+
+
+async def _api_call(
+    ctx: Context, route: str, params: Mapping[str, str | list[str]], body: dict[str, Any] | None = None
+) -> ApiResult:
+    """One call of an agent route with the caller's token and the MCP request id."""
+
+    request = ctx.request_context.request
+    if not isinstance(request, Request):
+        raise McpInvariantError("tools run over HTTP, behind the guard")
+    authorization = required(request.headers.get("authorization"), "the request passed the MCP guard")
+    return await request_api_client(request).call(
+        route, params, authorization, required(current_request_id(), "the request has an id"), body=body
+    )
+
+
+def _scope(fields: dict[str, Any], project_id: str) -> None:
+    project = _canonical_uuid(project_id)
+    if project is not None:  # a malformed id is raw caller text: never logged
+        fields["project_id"] = project
+
+
 class _ToolFunction:
     """The callable the SDK registers for one declaration.
 
@@ -449,84 +557,198 @@ class _ToolFunction:
 
     def __init__(self, declaration: ToolDeclaration) -> None:
         self.declaration = declaration
-        parameters = [inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context)]
-        annotations: dict[str, Any] = {"ctx": Context}
-        for name, info in declaration.arguments.model_fields.items():
-            # ``alias``: a wire name that is no Python name (``from``)
-            described = info.description or info.alias
-            extras = [*info.metadata, *([Field(description=info.description, alias=info.alias)] if described else [])]
-            annotation = Annotated[(info.annotation, *extras)] if extras else info.annotation
-            default = inspect.Parameter.empty if info.is_required() else info.get_default(call_default_factory=True)
-            parameters.append(
-                inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, default=default, annotation=annotation)
-            )
-            annotations[name] = annotation
+        fields, annotations = _parameters(declaration.arguments)
+        parameters = [inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context), *fields]
         returns = Annotated[CallToolResult, declaration.output]  # publishes the output schema
-        annotations["return"] = returns
         self.__name__ = declaration.name
         self.__signature__ = inspect.Signature(parameters, return_annotation=returns)
-        self.__annotations__ = annotations
+        self.__annotations__ = {"ctx": Context, **annotations, "return": returns}
 
     async def __call__(self, **raw: Any) -> CallToolResult:
         ctx: Context = raw.pop("ctx")
-        declaration = self.declaration
-        started = time.monotonic()
-        fields: dict[str, Any] = {"tool": declaration.name}
-        outcome: str = INTERNAL_ERROR  # what an escaping BaseException (cancellation) leaves
-        item_count = 0
-        try:
-            try:
-                result, count = await self._run(ctx, raw, fields)  # builds the result: a failure is mapped too
-            except McpToolError:
-                raise
-            except Exception as error:  # the one boundary: nothing but a code leaves
-                raise McpToolError(INTERNAL_ERROR, type(error).__name__) from error
-        except McpToolError as error:
-            outcome = error.code
-            fields["error_type"] = error.error_type
-            return _error_result(error)
-        else:
-            outcome, item_count = "ok", count  # only after the result was built
-            return result
-        finally:
-            log_event(
-                logger,
-                INFO,
-                "mcp.tool.completed",
-                outcome=outcome,
-                item_count=item_count,
-                duration_ms=round((time.monotonic() - started) * 1000),
-                **fields,
-            )
+        fields: dict[str, Any] = {"tool": self.declaration.name}
+        return await _completed(fields, lambda: self._run(ctx, raw, fields))
 
     async def _run(self, ctx: Context, raw: dict[str, Any], fields: dict[str, Any]) -> tuple[CallToolResult, int]:
         declaration = self.declaration
-        request = ctx.request_context.request
-        if not isinstance(request, Request):
-            raise McpInvariantError("tools run over HTTP, behind the guard")
-        authorization = required(request.headers.get("authorization"), "the request passed the MCP guard")
         args = declaration.arguments.model_validate(raw)
         scoped = args if isinstance(args, ProjectArguments) else None
         if declaration.project_scoped and scoped is None:
             raise McpInvariantError("a project-scoped tool takes a project_id")
         if scoped is not None:
-            project_id = _canonical_uuid(scoped.project_id)
-            if project_id is not None:  # a malformed id is raw caller text: never logged
-                fields["project_id"] = project_id
+            _scope(fields, scoped.project_id)
         # a write sends the project in the query, the other arguments as the JSON body (architecture.md, Write routes)
         params = {"project_id": scoped.project_id} if declaration.writes and scoped is not None else _query(args)
         body = _body(args) if declaration.writes else None
-        reply = await request_api_client(request).call(
-            declaration.route,
-            params,
-            authorization,
-            required(current_request_id(), "the request has an id"),
-            body=body,
-        )
+        reply = await _api_call(ctx, declaration.route, params, body)
         if reply.user_id is not None:  # the API names the provisioned user on every answer after provisioning
             fields["user_id"] = reply.user_id
         result = from_api(reply, declaration.output)
         return _result(result), _item_count(result)
+
+
+# --- answer_gap: the answer dialog (docs/mcp-server/apps.md "Terminal dialogs", D6) --------------------------------
+
+# The first protocol whose tools/call carries the dialog as ``input_required``: a stateless server has no session to
+# send ``elicitation/create`` on during an older call.
+DIALOG_PROTOCOL: Final = "2026-07-28"
+NOT_SHOWN: Final = (
+    "Nothing was recorded. If the user saw no dialog (the Claude Desktop Code tab and the VS Code extension do not "
+    "show it), give them web_url to answer on the web card."
+)
+NO_DIALOG: Final = "Nothing was recorded: {reason} Give the user web_url to answer on the web card."
+RETRY: Final = "Nothing was recorded: {problem} Call answer_gap again so that the user can answer."
+RECORDED: Final = (
+    "Recorded as the user's answer. It reaches the specification with the next update build, after a short quiet "
+    "period."
+)
+
+
+@dataclass(frozen=True)
+class GapRead:
+    """What ``read_gap`` found: the card, or the error that ends the call; ``user_id`` and ``started`` for the audit."""
+
+    started: float
+    card: GapCard | None = None
+    error: McpToolError | None = None
+    user_id: str | None = None
+
+
+@dataclass(frozen=True)
+class NoDialog:
+    """Why the client gets no dialog; empty when the card could not be read (the tool reports that error)."""
+
+    reason: str = ""
+
+
+async def read_gap(ctx: Context, project_id: str, gap_id: str) -> GapRead:
+    """The first resolver of ``answer_gap``: the gap's card through the API with the caller's token. It runs on every
+    round of the call and never raises: a failure becomes the tool's error result, not SDK text."""
+
+    started = time.monotonic()
+    try:
+        try:
+            reply = await _api_call(ctx, GAP_CARD_ROUTE, {"project_id": project_id, "gap_id": gap_id})
+            return GapRead(started, card=from_api(reply, GapCard), user_id=reply.user_id)
+        except McpToolError:
+            raise
+        except Exception as error:  # as in ``_completed``: nothing but a code leaves
+            raise McpToolError(INTERNAL_ERROR, type(error).__name__) from error
+    except McpToolError as error:
+        return GapRead(started, error=error)
+
+
+def _shows_forms(ctx: Context) -> bool:
+    """As the SDK decides: a bare ``elicitation`` capability counts as form support, url-only does not."""
+
+    capabilities = ctx.client_capabilities
+    elicitation = capabilities.elicitation if capabilities is not None else None
+    return elicitation is not None and (elicitation.form is not None or elicitation.url is None)
+
+
+async def ask_gap_answer(
+    ctx: Context, read: Annotated[GapRead, Resolve(read_gap)], project_id: str
+) -> Elicit[BaseModel] | NoDialog:
+    """The second resolver: the dialog, when the card was read and the client can show it on this stateless server.
+    The first round of a call only asks; it is audited here, the last round by the tool."""
+
+    if read.card is None:
+        return NoDialog()
+    version = ctx.protocol_version
+    if version is None or version < DIALOG_PROTOCOL:  # protocol versions are dates: YYYY-MM-DD
+        return NoDialog(f"this client speaks MCP protocol {version or 'unknown'}; the dialog needs {DIALOG_PROTOCOL}.")
+    if not _shows_forms(ctx):
+        return NoDialog("this client shows no forms.")
+    if ctx.request_state is None:
+        fields: dict[str, Any] = {"tool": ANSWER_GAP}
+        _scope(fields, project_id)
+        if read.user_id is not None:
+            fields["user_id"] = read.user_id
+        _log_completed(fields, INPUT_REQUIRED, 0, read.started)
+    return Elicit(gap_dialog.message(read.card), gap_dialog.form(read.card))
+
+
+async def _answer(
+    declaration: ToolDeclaration,
+    *,
+    ctx: Context,
+    read: GapRead,
+    answer: ElicitationResult[BaseModel],
+    raw: dict[str, Any],
+    fields: dict[str, Any],
+) -> tuple[CallToolResult, int]:
+    """The last round: what the person did, checked; an answer is written through the agent route."""
+
+    args = AnswerGapArgs.model_validate(raw)
+    _scope(fields, args.project_id)
+    if read.user_id is not None:
+        fields["user_id"] = read.user_id
+    if read.error is not None:
+        raise read.error
+    card = required(read.card, "a read without an error has a card")
+
+    def outcome(**values: Any) -> CallToolResult:
+        return _result(GapAnswerOutcome(project_id=args.project_id, gap_id=card.gap_id, web_url=card.web_url, **values))
+
+    # a plain NoDialog from the resolver arrives as accepted data, beside the form of an accepted dialog
+    data: object = answer.data if isinstance(answer, AcceptedElicitation) else None
+    if isinstance(data, NoDialog):
+        fields["dialog"] = "no_dialog"
+        return outcome(answered=False, action="no_dialog", note=NO_DIALOG.format(reason=data.reason)), 1
+    if not isinstance(data, BaseModel):  # declined or cancelled: the dialog, if any, recorded nothing
+        fields["dialog"] = answer.action
+        return outcome(answered=False, action=answer.action, note=NOT_SHOWN), 1
+    fields["dialog"] = "accept"
+    sent = gap_dialog.checked(card, data)
+    if sent.problem is not None:
+        return outcome(answered=False, action="accept", note=RETRY.format(problem=sent.problem)), 1
+    chosen = {"option_rank": sent.option.rank} if sent.option is not None else {"own_text": sent.own_text}
+    body = {"gap_id": card.gap_id, "updated_at": card.updated_at.isoformat(), **chosen}
+    reply = await _api_call(ctx, declaration.route, {"project_id": args.project_id}, body)
+    record = from_api(reply, GapAnswerRecord)
+    return (
+        outcome(
+            answered=True,
+            action="accept",
+            choice=sent.choice,
+            placement=record.placement,
+            clr_id=record.clr_id,
+            apply_at=record.apply_at,
+            note=RECORDED,
+        ),
+        1,
+    )
+
+
+def _dialog_function(declaration: ToolDeclaration) -> Callable[..., Awaitable[CallToolResult]]:
+    """The function the SDK registers for a tool that asks the person (``answer_gap``): ``Context``, the two resolved
+    parameters (the card, then the person's answer) and one keyword per argument field. A real function, so that the
+    SDK finds the ``Resolve`` markers in its annotations."""
+
+    async def tool(**raw: Any) -> CallToolResult:
+        ctx: Context = raw.pop("ctx")
+        read: GapRead = raw.pop("read")
+        answer: ElicitationResult[BaseModel] = raw.pop("answer")
+        fields: dict[str, Any] = {"tool": declaration.name}
+        return await _completed(
+            fields, lambda: _answer(declaration, ctx=ctx, read=read, answer=answer, raw=raw, fields=fields)
+        )
+
+    resolved = {
+        "read": Annotated[GapRead, Resolve(read_gap)],
+        "answer": Annotated[ElicitationResult[BaseModel], Resolve(ask_gap_answer)],
+    }
+    fields, annotations = _parameters(declaration.arguments)
+    parameters = [
+        inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context),
+        *(inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, annotation=kind) for name, kind in resolved.items()),
+        *fields,
+    ]
+    returns = Annotated[CallToolResult, declaration.output]
+    tool.__name__ = declaration.name
+    cast(Any, tool).__signature__ = inspect.Signature(parameters, return_annotation=returns)
+    tool.__annotations__ = {"ctx": Context, **resolved, **annotations, "return": returns}
+    return tool
 
 
 def _canonical_uuid(value: str) -> str | None:
@@ -611,7 +833,7 @@ def install(
     _unique([p.name for p in prompts], "prompt")
     for declaration in tools:
         server.add_tool(
-            _ToolFunction(declaration),
+            _dialog_function(declaration) if declaration.asks_user else _ToolFunction(declaration),
             name=declaration.name,
             description=declaration.description,
             annotations=declaration.annotations,

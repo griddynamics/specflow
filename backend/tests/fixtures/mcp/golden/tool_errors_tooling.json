@@ -104,6 +104,21 @@
       }
     }
   },
+  "gap_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"gap_not_found\",\"message\":\"The gap is not in the project. Call list_open_gaps for the gaps that wait for an answer.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "gap_not_found",
+        "message": "The gap is not in the project. Call list_open_gaps for the gaps that wait for an answer."
+      }
+    }
+  },
   "graph_unavailable": {
     "content": [
       {
