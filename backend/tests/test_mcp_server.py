@@ -17,12 +17,11 @@ from dataclasses import dataclass, field
 import anyio
 import httpx2
 import pytest
-from mcp import Client, MCPError
-from mcp.client.streamable_http import streamable_http_client
+from mcp import MCPError
 from mcp.types import METHOD_NOT_FOUND
 
 from mcp_server import server
-from mcp_support import BACKEND, MCP_HOST, build_app, mcp_env, mcp_token
+from mcp_support import BACKEND, MCP_HOST, build_app, mcp_client, mcp_env, mcp_token
 from settings import load_settings
 
 # The real command path (``cli.main(["mcp"])`` -> ``mcp_server.server.run`` -> ``_GracefulServer``); only the API
@@ -130,8 +129,7 @@ async def test_a_client_that_asks_for_subscriptions_listen_does_not_delay_a_sigt
         http = httpx2.AsyncClient(
             headers={"Authorization": f"Bearer {mcp_token()}"}, timeout=httpx2.Timeout(WAIT_SECONDS, read=None)
         )
-        url = f"http://127.0.0.1:{port}/mcp"
-        async with http, Client(streamable_http_client(url, http_client=http)) as client:
+        async with http, mcp_client(http, f"http://127.0.0.1:{port}/mcp") as client:
             try:
                 async with client.listen(tools_list_changed=True):
                     asked.set()

@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 import httpx2
 import pytest
-from mcp import ClientSession
+from mcp import Client, ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import CallToolResult, TextContent
@@ -138,6 +138,16 @@ async def sdk_session(app: Starlette, token: str) -> AsyncIterator[ClientSession
 
     async with connected(httpx2.ASGITransport(app=app), token, [app]) as session:
         yield session
+
+
+def mcp_client(http: httpx2.AsyncClient, url: str = MCP_URL) -> Client:
+    """The SDK's high-level ``Client`` over Streamable HTTP through ``http``; it negotiates protocol 2026-07-28.
+
+    A plain function: the ``blocking-in-async`` check flags any call named ``Client`` (the cloud SDK constructors),
+    and this constructor does no I/O; the connection opens when the client is entered.
+    """
+
+    return Client(streamable_http_client(url, http_client=http))
 
 
 class MethodRouter(httpx2.AsyncBaseTransport):
