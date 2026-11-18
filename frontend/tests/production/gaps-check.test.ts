@@ -35,9 +35,9 @@ test("a running gap run is running, with its step, items and the last run's coun
   assert.deepEqual([c.step, c.stepsDone, c.stepsTotal, c.itemsDone, c.itemsTotal], ["investigate", 5, 9, 7, 21]);
   assert.deepEqual([c.newGaps, c.updatedGaps, c.resolvedGaps], [2, 9, 1]);
   assert.equal(checkActive(c), true);
-  assert.equal(checkStepText(c), "Step 6 of 9: Investigating (7 of 21)");
+  assert.equal(checkStepText(c), "Step 6 of 9: Investigating · 7 of 21 sites");
   assert.equal(checkProgress(c), 59); // (5 + 7/21) of 9
-  assert.deepEqual(checkText(c), { title: "Looking for gaps", detail: "Step 6 of 9: Investigating (7 of 21)" });
+  assert.deepEqual(checkText(c), { title: "Looking for gaps", detail: "Step 6 of 9: Investigating · 7 of 21 sites" });
 });
 
 test("a running build before its gap run is building; a queued or running gap run wins over the build", () => {
@@ -84,6 +84,17 @@ test("progress stays within 0..100 and a run without steps shows only its step",
   assert.equal(checkProgress({ ...base, stepsDone: 9, itemsDone: 30 }), 100);
   assert.equal(checkStepText({ ...base, stepsTotal: 0, itemsTotal: null }), "Investigating");
   assert.equal(checkStepText({ ...base, step: null, itemsTotal: null }), "Step 6 of 9: Starting");
+  assert.equal(checkStepText({ ...base, itemsTotal: 0 }), "Step 6 of 9: Investigating"); // a step with no sites
+});
+
+test("the check step counts sites too; a step not named shows bare counts and never more done than in all", () => {
+  const base: GapCheck = toGapCheck(running, null);
+  assert.equal(checkStepText({ ...base, step: "check", stepsDone: 6, itemsDone: 3 }), "Step 7 of 9: Checking the findings · 3 of 21 sites");
+  assert.equal(
+    checkStepText({ ...base, step: "route", stepsDone: 7, itemsDone: 2, itemsTotal: 4 }),
+    "Step 8 of 9: Choosing who answers · 2 of 4",
+  );
+  assert.equal(checkStepText({ ...base, itemsDone: 30 }), "Step 6 of 9: Investigating · 21 of 21 sites");
 });
 
 // ---- Layer P ----

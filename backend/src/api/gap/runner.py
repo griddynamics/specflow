@@ -756,6 +756,7 @@ class GapRunner:
         run_id: str | None = None,
         site_ids: tuple[str, ...] = (),
     ) -> None:
+        active.items = None  # a resumed run's counts are not this run's
         ontology, rules, runs = await self._prepare()
         changes = await self._changes(project_id, build_id)
         facts = await self._facts(project_id, build_id)

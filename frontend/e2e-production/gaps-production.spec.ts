@@ -252,7 +252,7 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     const line = page.getByTestId("gap-check");
     await expect(line).toHaveAttribute("data-phase", "running");
     await expect(line.getByTestId("gap-check-title")).toHaveText("Looking for gaps");
-    await expect(line.getByTestId("gap-check-detail")).toHaveText("Step 6 of 9: Investigating (7 of 21)");
+    await expect(line.getByTestId("gap-check-detail")).toHaveText("Step 6 of 9: Investigating · 7 of 21 sites");
     await expect(line.getByRole("progressbar", { name: "Gap check progress" })).toHaveAttribute("aria-valuenow", "59");
 
     // The run ends: the line reads again within seconds, says what the run found, and the inbox reads again.

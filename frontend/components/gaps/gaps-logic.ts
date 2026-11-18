@@ -428,11 +428,16 @@ export function checkProgress(c: GapCheck): number {
   return Math.min(100, Math.round(((Math.min(c.stepsDone, c.stepsTotal) + part) / c.stepsTotal) * 100));
 }
 
-/** The step the running gap run is on, in words: "Step 6 of 9: Investigating (7 of 21)". */
+/** What the items of a step are (graph.gap reports the sites of these steps); a step not named here shows bare counts. */
+const GAP_STEP_ITEMS: Readonly<Partial<Record<string, string>>> = { investigate: "sites", check: "sites" };
+
+/** The step the running gap run is on, in words, its items as the plan shows them: "Step 6 of 9: Investigating · 7 of 21 sites". */
 export function checkStepText(c: GapCheck): string {
   const label = c.step === null ? "Starting" : (GAP_STEP_LABEL[c.step] ?? c.step);
-  const hasItems = c.itemsDone !== null && c.itemsTotal !== null && c.itemsTotal > 0;
-  const items = hasItems ? ` (${String(c.itemsDone)} of ${String(c.itemsTotal)})` : "";
+  const { itemsDone: done, itemsTotal: total } = c;
+  const noun = c.step === null ? undefined : GAP_STEP_ITEMS[c.step];
+  const what = noun === undefined ? "" : " " + noun;
+  const items = done !== null && total !== null && total > 0 ? ` · ${String(Math.min(done, total))} of ${String(total)}${what}` : "";
   if (c.stepsTotal <= 0) return label + items;
   const n = Math.min(c.stepsDone + 1, c.stepsTotal);
   return `Step ${String(n)} of ${String(c.stepsTotal)}: ${label}${items}`;

@@ -38,6 +38,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Final, Literal, cast, get_args
 
 from graph.core.errors import ConfigurationError, ConformanceError
@@ -326,7 +327,7 @@ class _Run:
     async def investigated(self) -> list[Site]:
         return [site for site in await self.sites() if site.state == "investigate"]
 
-    async def execute(self, index: int, step: StepName) -> None:
+    async def execute(self, step: StepName) -> None:
         if self.record.progress.get(step) != "done":
             await self.store.put_progress(self.project_id, self.run_id, step, "running")
             try:
@@ -348,8 +349,12 @@ class _Run:
             log_event(
                 logger, INFO, "graph.gap.run.step_done", project_id=self.project_id, run_id=self.run_id, step=step
             )
+
+    def report_items(self, step: StepName, done: int, total: int) -> None:
+        """Tell ``ctx.on_progress`` (when set) that ``done`` of ``total`` items of ``step`` are done."""
+
         if self.ctx.on_progress is not None:
-            self.ctx.on_progress(step, index + 1, len(RUN_STEPS))
+            self.ctx.on_progress(step, done, total)
 
     # Steps
 
@@ -476,6 +481,7 @@ class _Run:
                 reader=self.ctx.reader,
                 gaps=await self.gaps(),
                 plan=self.ctx.plan,
+                on_progress=partial(self.report_items, "investigate"),
             ),
         )
         return {"results": {site_id: item.payload() for site_id, item in found.items()}}
@@ -500,7 +506,9 @@ class _Run:
             )
         )
         checked: Payload = {}
-        for site in await self.investigated():
+        sites = await self.investigated()
+        self.report_items("check", 0, len(sites))
+        for done, site in enumerate(sites, start=1):
             stored = results.get(site.site_id)
             investigated = (
                 Investigated(InvestigationResult(error="no_result"))
@@ -508,6 +516,7 @@ class _Run:
                 else Investigated.from_payload(stored)
             )
             checked[site.site_id] = (await checker.check(site, investigated)).payload()
+            self.report_items("check", done, len(sites))
         usage = {"calls": checker.usage.calls, "tokens": checker.usage.tokens}
         return {"checked": checked, "usage": usage}
 
@@ -896,8 +905,8 @@ async def run_gap(
     if stored is not None:
         return stored
     try:
-        for index, step in enumerate(RUN_STEPS):
-            await run.execute(index, step)
+        for step in RUN_STEPS:
+            await run.execute(step)
         result = await run.result()
     except (ConfigurationError, ConformanceError) as error:
         await _fail(ctx, store, run, error.code)
