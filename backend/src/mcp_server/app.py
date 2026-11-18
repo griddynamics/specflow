@@ -83,8 +83,9 @@ def create_mcp_app(
 
     auth, mcp = settings.auth, settings.mcp
     resource_url = mcp.resource_url  # the one value of the PRM, the instructions and the prompt
-    # never auth= or token_verifier=: the guard owns 401 and 403
-    server = MCPServer("SpecFlow", instructions=guidance.server_instructions(resource_url))
+    # never auth= or token_verifier=: the guard owns 401 and 403. No `subscriptions/listen` (2026-07-28): the tools
+    # never change, and a client that holds the listen stream open (Claude Code does) keeps the role from shutting down.
+    server = MCPServer("SpecFlow", subscriptions=False, instructions=guidance.server_instructions(resource_url))
     (tools or partial(install, resource_url=resource_url))(server)
     server.streamable_http_app(  # called only to create the session manager; its Starlette is unused
         json_response=True,

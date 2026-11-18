@@ -93,13 +93,14 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
         "path",
         "expand_brief",
         "list_gaps",
+        "list_open_gaps",
         "add_finding",
         "report_task",
         "complete_story",
     ]
     for tool in TOOLS:
         assert ("project_id" in tool.arguments.model_fields) == tool.project_scoped, tool.name
-    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 22)]
+    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 23)]
 
 
 async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_which_owns_the_membership(valid_env):
@@ -198,6 +199,7 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         "list_feature_tasks",
         "list_features",
         "list_gaps",
+        "list_open_gaps",
         "list_projects",
         "list_stories",
         "list_tasks",
@@ -281,10 +283,13 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
         "get_task_path",
         "list_stories",
         "list_gaps",
+        "list_open_gaps",
     }
+    cards = {**limit, "maximum": 25, "default": 10, "description": "Gaps per page, 1 to 25."}  # one gap read per card
     for name, schema in paged.items():
         properties = schema["properties"]
-        assert {k: v for k, v in properties["limit"].items() if k != "title"} == limit, name
+        expected = cards if name == "list_open_gaps" else limit
+        assert {k: v for k, v in properties["limit"].items() if k != "title"} == expected, name
         assert {t["type"] for t in properties["cursor"]["anyOf"]} == {"string", "null"}, name
         assert "cursor" not in schema.get("required", []) and "limit" not in schema.get("required", []), name
     assert set(schemas["list_projects"]["properties"]) == {"limit", "cursor"}

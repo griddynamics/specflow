@@ -616,12 +616,50 @@ def _exact_entries(value: tuple[str, ...]) -> tuple[str, ...]:
 ResourceUrl = Annotated[str, BeforeValidator(_resource_url)]
 
 
-class McpSettings(_MappedSettings):
-    """The MCP role (FR-MCP-OPS-01): the public resource URL, audience, clients and transport allowlists."""
+_SCHEME: Final = re.compile(r"[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
-    blank_is_unset: ClassVar[tuple[str, ...]] = ("MCP_AUDIENCE", "MCP_CLIENT_IDS", "MCP_PORT")
+
+def _internal_url(value: Any) -> Any:
+    """``API_INTERNAL_URL`` as the web app reads it (``normalizeInternalUrl``): a bare ``host[:port]`` becomes
+    ``http://host[:port]`` and trailing slashes go. Refused (the API client forwards the caller's token to this
+    address): userinfo, a query, a fragment, a scheme other than http(s), a host named like a scheme and a ``%``
+    in the host."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        raise ValueError("must not be blank")
+    if not _SCHEME.match(text):
+        text = f"http://{text}"
+    text = text.rstrip("/")
+    if not text.isascii() or not text.isprintable() or any(c in text for c in ' "\\'):
+        raise ValueError("must be a plain http(s) URL")
+    try:
+        parts = urlsplit(text)
+        _ = parts.port
+    except ValueError as error:
+        raise ValueError("must be a valid URL") from error
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError("must be an http(s) URL with a host")
+    if parts.hostname in ("http", "https") or "%" in parts.netloc:  # typos such as ``http:/api`` or ``api%40evil``
+        raise ValueError("must name a real host")
+    if "@" in parts.netloc or parts.query or parts.fragment or "?" in text or "#" in text:
+        raise ValueError("must have no user information, query or fragment")
+    return text
+
+
+InternalUrl = Annotated[str, BeforeValidator(_internal_url)]
+
+
+class McpSettings(_MappedSettings):
+    """The MCP role (FR-MCP-OPS-01): the public resource URL, audience, clients and transport allowlists; for the
+    api role's agent routes also ``PUBLIC_URL``, the web app's address that the gap cards link to (none when unset)."""
+
+    blank_is_unset: ClassVar[tuple[str, ...]] = ("MCP_AUDIENCE", "MCP_CLIENT_IDS", "MCP_PORT", "PUBLIC_URL")
 
     resource_url: ResourceUrl = Field(validation_alias="MCP_RESOURCE_URL")
+    public_url: InternalUrl | None = Field(default=None, validation_alias="PUBLIC_URL")
     audience_override: StrippedOptionalText = Field(default=None, validation_alias="MCP_AUDIENCE")
     client_ids: Csv = Field(default=(MCP_CLIENT_ID,), validation_alias="MCP_CLIENT_IDS")
     allowed_hosts: Csv = Field(default=(), validation_alias="MCP_ALLOWED_HOSTS")
@@ -661,42 +699,6 @@ class McpSettings(_MappedSettings):
         default = {"https": HTTPS_PORT, "http": HTTP_PORT}[parts.scheme]
         resource = host if parts.port in (None, default) else f"{host}:{parts.port}"
         return tuple(dict.fromkeys((resource, *self.allowed_hosts)))
-
-
-_SCHEME: Final = re.compile(r"[a-z][a-z0-9+.-]*://", re.IGNORECASE)
-
-
-def _internal_url(value: Any) -> Any:
-    """``API_INTERNAL_URL`` as the web app reads it (``normalizeInternalUrl``): a bare ``host[:port]`` becomes
-    ``http://host[:port]`` and trailing slashes go. Refused (the API client forwards the caller's token to this
-    address): userinfo, a query, a fragment, a scheme other than http(s), a host named like a scheme and a ``%``
-    in the host."""
-
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if not text:
-        raise ValueError("must not be blank")
-    if not _SCHEME.match(text):
-        text = f"http://{text}"
-    text = text.rstrip("/")
-    if not text.isascii() or not text.isprintable() or any(c in text for c in ' "\\'):
-        raise ValueError("must be a plain http(s) URL")
-    try:
-        parts = urlsplit(text)
-        _ = parts.port
-    except ValueError as error:
-        raise ValueError("must be a valid URL") from error
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ValueError("must be an http(s) URL with a host")
-    if parts.hostname in ("http", "https") or "%" in parts.netloc:  # typos such as ``http:/api`` or ``api%40evil``
-        raise ValueError("must name a real host")
-    if "@" in parts.netloc or parts.query or parts.fragment or "?" in text or "#" in text:
-        raise ValueError("must have no user information, query or fragment")
-    return text
-
-
-InternalUrl = Annotated[str, BeforeValidator(_internal_url)]
 
 
 class ApiInternalSettings(_MappedSettings):

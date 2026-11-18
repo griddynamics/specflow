@@ -1,5 +1,6 @@
-"""The ``list_gaps`` agent route (``GET /agent/gaps``; docs/mcp-server/tools.md "list_gaps", FR-GWEB-03) and the open
-gaps the agent briefs show, over the shop gap corpus after a gap run (``gap_agent_support``)."""
+"""The ``list_gaps`` agent route (``GET /agent/gaps``; docs/mcp-server/tools.md "list_gaps", FR-GWEB-03), the
+``list_open_gaps`` route (``GET /agent/open-gaps``: the gap cards, docs/mcp-server/apps.md "Terminal dialogs") and the
+open gaps the agent briefs show, over the shop gap corpus after a gap run (``gap_agent_support``)."""
 
 from __future__ import annotations
 
@@ -7,16 +8,24 @@ import pytest
 
 from agent_contracts import AGENT_ROUTES
 from gap_acceptance_support import Planted
-from gap_agent_support import ALPHA, API_LOGIC, API_STORY, GapRig, serve_gaps
+from gap_agent_support import ALPHA, API_LOGIC, API_STORY, QUESTION, GapRig, serve_gaps
 from graph.gap.gaps import gap_uuid
 from specflow_api_agent_support import FOREIGN, agent_env
 
 GAPS = AGENT_ROUTES["list_gaps"]
+OPEN = AGENT_ROUTES["list_open_gaps"]
+WEB = "https://app.example.test"
 
 
 @pytest.fixture
 async def gaps(monkeypatch, valid_env):
     async with serve_gaps(monkeypatch, agent_env(valid_env)) as rig:
+        yield rig
+
+
+@pytest.fixture
+async def cards(monkeypatch, valid_env):
+    async with serve_gaps(monkeypatch, agent_env(valid_env, PUBLIC_URL=WEB)) as rig:
         yield rig
 
 
@@ -118,3 +127,69 @@ async def test_the_story_preview_shows_the_gap_with_its_severity(gaps: GapRig) -
     preview = (await gaps.get(AGENT_ROUTES["preview_story"], project_id=ALPHA, story_id=API_STORY)).json()
 
     assert {item["finding_id"]: item["severity"] for item in preview["findings"]}[gap_id] == "major"
+
+
+# --- list_open_gaps: the cards of the gaps that wait for a person -------------------------------------------------
+
+
+async def test_list_open_gaps_shows_each_open_gap_as_a_card_with_its_web_link(cards: GapRig) -> None:
+    gap_id = cards.question_gap()
+    whole = await cards.gaps.get_gap(ALPHA, gap_id)
+
+    body = (await cards.get(OPEN, project_id=ALPHA, limit=25)).json()
+    item = {item["gap_id"]: item for item in body["items"]}[gap_id]
+
+    assert body["project_id"] == ALPHA and body["next_cursor"] is None
+    assert (item["severity"], item["kind"], item["title"]) == (whole.severity, whole.kind, whole.title)
+    assert item["web_url"] == f"{WEB}/projects/{ALPHA}/gaps?gap={gap_id}"
+    card = item["card"]
+    assert card.startswith(f"**{whole.title}** ({whole.severity} open question, found by analysis, `{gap_id}`)")
+    assert f"**Question:** {QUESTION}" in card
+    labels = [option.label for option in sorted(whole.options, key=lambda option: option.rank)]
+    assert labels and all(f"- **{chr(65 + index)}) {label}" in card for index, label in enumerate(labels))
+    assert card.count("(recommended)") == 1 and "- **Other**: your own answer" in card
+    assert '> orders-spec.md, "Place order", line' in card and f': "{QUESTION}"' in card
+    assert card.endswith(f"Web card: {item['web_url']}")
+
+
+async def test_list_open_gaps_lists_blockers_first_and_pages_with_its_cursor(cards: GapRig) -> None:
+    every = (await cards.get(OPEN, project_id=ALPHA, limit=25)).json()["items"]
+    first = (await cards.get(OPEN, project_id=ALPHA, limit=2)).json()
+    rest = (await cards.get(OPEN, project_id=ALPHA, limit=25, cursor=first["next_cursor"])).json()
+
+    ranks = [("blocker", "major", "minor").index(item["severity"]) for item in every]
+    assert len(every) > 2 and ranks == sorted(ranks)
+    assert [item["gap_id"] for item in (*first["items"], *rest["items"])] == [item["gap_id"] for item in every]
+
+
+async def test_list_open_gaps_leaves_out_gaps_no_longer_open(cards: GapRig) -> None:
+    gap_id = cards.question_gap()
+    resolve(cards, gap_id)
+
+    listed = (await cards.get(OPEN, project_id=ALPHA, limit=25)).json()["items"]
+
+    assert gap_id not in {item["gap_id"] for item in listed}
+
+
+async def test_without_the_web_app_address_the_cards_have_no_link(gaps: GapRig) -> None:
+    listed = (await gaps.get(OPEN, project_id=ALPHA)).json()["items"]
+
+    assert listed and all(item["web_url"] is None and "Web card:" not in item["card"] for item in listed)
+
+
+async def test_list_open_gaps_refuses_a_foreign_project_and_a_bad_cursor(cards: GapRig) -> None:
+    foreign = await cards.get(OPEN, project_id=FOREIGN)
+    bad = await cards.get(OPEN, project_id=ALPHA, cursor="not-a-cursor")
+    long = await cards.get(OPEN, project_id=ALPHA, cursor="x" * 513)
+
+    assert (foreign.status_code, foreign.json()["error"]["code"]) == (404, "project_not_found")
+    assert (bad.status_code, bad.json()["error"]["code"]) == (400, "invalid_cursor")
+    assert (long.status_code, long.json()["error"]["code"]) == (400, "invalid_cursor")
+
+
+async def test_without_a_gap_runner_there_are_no_open_gaps(cards: GapRig) -> None:
+    cards.rig.runtime.gaps = None
+
+    response = await cards.get(OPEN, project_id=ALPHA)
+
+    assert response.status_code == 200 and response.json() == {"project_id": ALPHA, "items": [], "next_cursor": None}

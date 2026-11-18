@@ -1747,6 +1747,37 @@
       "project_id": "00000000-0000-4000-8000-000000000001"
     }
   },
+  "list_open_gaps_first_page": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"gap_id\":\"GAP::2ACAD8855B21\",\"severity\":\"major\",\"kind\":\"missing\",\"title\":\"Missing in the spec: ENT::REFUND\",\"card\":\"**Missing in the spec: ENT::REFUND** (major missing, found by analysis, `GAP::2ACAD8855B21`)\\n\\n**Question:** What must the spec state to settle this missing about ENT::REFUND?\\n\\n**Why it matters:** Found by the detectors MS-STORE (1 seeds).\\n\\n**Options:**\\n- **A) Clarifications document (recommended)**\\n- **B) Clarifications document, owner decides**\\n- **Other**: your own answer\\n\\nWeb card: https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::2ACAD8855B21\",\"web_url\":\"https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::2ACAD8855B21\"},{\"gap_id\":\"GAP::4D5B5E912AC8\",\"severity\":\"major\",\"kind\":\"assumption\",\"title\":\"Unconfirmed assumption in the spec: REQ::CON::CUSTOMER_HAS_EMAIL\",\"card\":\"**Unconfirmed assumption in the spec: REQ::CON::CUSTOMER_HAS_EMAIL** (major assumption, found by analysis, `GAP::4D5B5E912AC8`)\\n\\n**Question:** Is this assumption confirmed: We assume every customer has an email address?\\n\\n**Why it matters:** Found by the detectors AS-FLAG (1 seeds).\\n\\n**Options:**\\n- **A) State it in the section (recommended)**\\n- **B) Clarifications document**\\n- **Other**: your own answer\\n\\n**Quoted lines:**\\n> account-spec.md, \\\"Sign-in and profile\\\", line 8: \\\"We assume every customer has an email address.\\\"\\n\\nWeb card: https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8\",\"web_url\":\"https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8\"}],\"next_cursor\":\"WzEsIDAsIC0xNzk0OTkyNDAwMDAwMDAwLCAiR0FQOjo0RDVCNUU5MTJBQzgiXQ\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "card": "**Missing in the spec: ENT::REFUND** (major missing, found by analysis, `GAP::2ACAD8855B21`)\n\n**Question:** What must the spec state to settle this missing about ENT::REFUND?\n\n**Why it matters:** Found by the detectors MS-STORE (1 seeds).\n\n**Options:**\n- **A) Clarifications document (recommended)**\n- **B) Clarifications document, owner decides**\n- **Other**: your own answer\n\nWeb card: https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::2ACAD8855B21",
+          "gap_id": "GAP::2ACAD8855B21",
+          "kind": "missing",
+          "severity": "major",
+          "title": "Missing in the spec: ENT::REFUND",
+          "web_url": "https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::2ACAD8855B21"
+        },
+        {
+          "card": "**Unconfirmed assumption in the spec: REQ::CON::CUSTOMER_HAS_EMAIL** (major assumption, found by analysis, `GAP::4D5B5E912AC8`)\n\n**Question:** Is this assumption confirmed: We assume every customer has an email address?\n\n**Why it matters:** Found by the detectors AS-FLAG (1 seeds).\n\n**Options:**\n- **A) State it in the section (recommended)**\n- **B) Clarifications document**\n- **Other**: your own answer\n\n**Quoted lines:**\n> account-spec.md, \"Sign-in and profile\", line 8: \"We assume every customer has an email address.\"\n\nWeb card: https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8",
+          "gap_id": "GAP::4D5B5E912AC8",
+          "kind": "assumption",
+          "severity": "major",
+          "title": "Unconfirmed assumption in the spec: REQ::CON::CUSTOMER_HAS_EMAIL",
+          "web_url": "https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8"
+        }
+      ],
+      "next_cursor": "WzEsIDAsIC0xNzk0OTkyNDAwMDAwMDAwLCAiR0FQOjo0RDVCNUU5MTJBQzgiXQ",
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
   "list_stories_done_completed": {
     "content": [
       {

@@ -123,6 +123,11 @@
       "summary": "Lists the open gaps in the spec about a story or spec nodes: question, severity, status and answer."
     },
     {
+      "name": "list_open_gaps",
+      "read_only": true,
+      "summary": "Lists the gaps that wait for a person's answer, each as a ready card with its web link."
+    },
+    {
       "name": "add_finding",
       "read_only": false,
       "summary": "Records a gap, conflict, question or note about the spec, linked to nodes and code; people answer it."
