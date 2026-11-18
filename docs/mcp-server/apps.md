@@ -155,27 +155,28 @@ and "The answer_gaps prompt".
 | 4 | Claude Code calls `answer_gap` again with the person's answers and the `requestState` |
 | 5 | The server reads the card again; the SDK takes the answer only for the dialog as shown. The answer is checked as on the web card (`updated_at` included) and recorded as the token's user, with `via` `elicitation` |
 
-The form is flat (the specification allows only primitive fields). A gap has one answer, so the form asks for one
-choice: a titled "several choices" list limited to one item, with the options and "Other", and a text field for an own
-answer.
+The form is flat (the specification allows only primitive fields). A gap has one answer, and the form shows it as a
+flat list: one box per option, a box for "Other", and a text field for an own answer.
 
 | Part | Content |
 |---|---|
-| Message, first three lines | The question; why it matters; "The options' details and the quoted lines are in the chat above" |
+| Message, first three lines | The question; why it matters; "Tick one box. The options' details and the quoted lines are in the chat above" |
 | Message, folded | Each option with its detail, the quoted lines with their source, and last the gap id, severity, kind, title and version (`updated_at`): a gap changed since the person saw it is asked again |
-| `answer`, a list with at most one item | "Your answer (pick one)": an array field (`maxItems` 1) of the options titled with their short labels, `(recommended)` on one, then "Other: my own answer, written below"; the recommended option is preset for `major` only, so no other field shows as set; two items are refused with a note |
+| `option_a` to `option_d`, `other` | One box (boolean) per option, titled with its short label and `(recommended)` on one, then "Other: my own answer, written below". Every box starts unticked, so each line shows a box; the recommended option starts ticked for `major` only. A box the client leaves out counts as unticked; two ticked boxes are refused with a note |
 | `own_text` | "Your own answer (with Other)": up to 4,000 characters, checked by the server |
 
-One option, or Other (or no choice) with an own answer, is an answer; two items, an option together with own text, or
-nothing, return a note that says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer goes to
+One ticked option, or Other (or no box) with an own answer, is an answer; two ticked boxes, an option together with own
+text, or nothing, return a note that says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer goes to
 the clarifications document as written. A confirm round with the edits of `preview_edits` is deferred
 ([later.md](later.md) "Own answers with edits"): the preview is a model call, so its text would change between the
 dialog's two calls and the SDK would ask again. Declining or cancelling records nothing. Layouts tried (Q10): a single titled
 choice, whose list opens only with the right arrow key (the first person who tried it did not find it); then one
 yes/no line per option, which reads as several independent questions (Claude Code marks every field with a value with
-"✔", and the defaults gave every line a value). The built dialog uses a "several choices" list limited to one item
-(variant V5 of the variants page), so the options can show without the right arrow key; how Claude Code 2.1.327 draws
-it is checked in the next trial.
+"✔", and the defaults gave every line a value); then a "several choices" list limited to one item (variant V5 of the
+variants page), which Claude Code 2.1.327 also folds: its form starts every list field, single choice or several
+choices, folded, and opens it only with the right arrow key or by typing an option's first letter. Only boxes show one
+line per option from the start, so the built dialog has one box per option. Each line shows a box and Claude Code's dim
+"✔" (an unticked box is a value too); the person chose this over lines that read "not set" until ticked.
 Several choices per gap are an exception for later ([later.md](later.md) "Several choices per gap").
 
 Protocol and transport, as the SDK's client showed against the stateless `mcp` role:
@@ -305,7 +306,7 @@ Deferred: the `assigned` argument of `list_open_gaps` (D2), upload (D3).
 |---|---|---|
 | Q8 | The target if the Code tab does not render views | Chosen with the spike's evidence |
 | Q9 | Does `submit_gap_answer` require the answer ticket? | The spike checks whether the model sees the result's `_meta` |
-| Q10 | Which dialog layout do people understand without help: one yes/no line per option, or the single choice? | Chosen: a "several choices" list limited to one item ("Terminal dialogs"); the yes/no lines read as separate questions and the single choice hides its list. The next trial in Claude Code confirms it |
+| Q10 | Which dialog layout do people understand without help? | Chosen: one box per option, a box for Other and the own answer ("Terminal dialogs"). Claude Code folds every list field until the right arrow key opens it, so a single choice and a "several choices" list both hide the options |
 
 ## Deferred designs
 

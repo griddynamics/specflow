@@ -91,7 +91,7 @@ def accept(**content: Any) -> ElicitResult:
     return ElicitResult(action="accept", content=content)
 
 
-async def test_the_dialog_holds_the_question_and_a_list_of_the_options_and_records_the_one_picked(served) -> None:
+async def test_the_dialog_holds_the_question_and_a_box_per_option_and_records_the_one_ticked(served) -> None:
     gap_id = served.gaps.question_gap()
     whole = await served.gaps.gaps.get_gap(ALPHA, gap_id)
     options = sorted(whole.options, key=lambda option: option.rank)
@@ -99,16 +99,20 @@ async def test_the_dialog_holds_the_question_and_a_list_of_the_options_and_recor
     async with modern(served.app) as session:
         asked = await ask(session, gap_id)
         fields = asked.schema["properties"]
-        result = await reply(session, gap_id, asked, accept(answer=["A"]))
+        result = await reply(session, gap_id, asked, accept(option_a=True))
 
     assert asked.message.splitlines()[0] == QUESTION
-    assert asked.message.splitlines()[2] == "The options' details and the quoted lines are in the chat above."
-    assert list(fields) == ["answer", "own_text"]
-    codes = [choice["const"] for choice in fields["answer"]["items"]["anyOf"]]
-    assert codes == [*(chr(65 + index) for index in range(len(options))), "other"]
-    assert (fields["answer"]["type"], fields["answer"]["maxItems"]) == ("array", 1)
+    assert (
+        asked.message.splitlines()[2]
+        == "Tick one box. The options' details and the quoted lines are in the chat above."
+    )
+    boxes = [f"option_{chr(97 + index)}" for index in range(len(options))]
+    assert list(fields) == [*boxes, "other", "own_text"]
+    assert {fields[name]["type"] for name in [*boxes, "other"]} == {"boolean"}
     recommended = next(index for index, option in enumerate(options) if option.recommended)
-    assert fields["answer"].get("default") == ([chr(65 + recommended)] if whole.severity == "major" else None)
+    assert [fields[name]["default"] for name in boxes] == [
+        whole.severity == "major" and index == recommended for index in range(len(options))
+    ]
     outcome = result.structured_content
     assert not result.is_error and outcome is not None
     assert (outcome["answered"], outcome["action"], outcome["note"]) == (True, "accept", RECORDED)
@@ -126,7 +130,7 @@ async def test_other_with_an_own_answer_is_recorded_as_written(served) -> None:
 
     async with modern(served.app) as session:
         asked = await ask(session, gap_id)
-        result = await reply(session, gap_id, asked, accept(answer=["other"], own_text=text))
+        result = await reply(session, gap_id, asked, accept(other=True, own_text=text))
 
     outcome = result.structured_content
     gap = await served.gaps.gaps.get_gap(ALPHA, gap_id)
@@ -156,10 +160,10 @@ async def test_a_declined_or_cancelled_dialog_records_nothing_and_gives_the_web_
 @pytest.mark.parametrize(
     ("content", "problem"),
     [
-        ({"answer": None}, "Pick one option, or pick Other"),  # the preset cleared (Backspace)
-        ({"answer": ["other"]}, "Pick one option, or pick Other"),
-        ({"answer": ["A", "B"]}, "Pick only one option"),
-        ({"answer": ["A"], "own_text": "Mine."}, "pick Other to send your text"),
+        ({}, "Tick one box, or tick Other"),  # every box left out, the preset one too (Backspace)
+        ({"other": True}, "Tick one box, or tick Other"),
+        ({"option_a": True, "option_b": True}, "Tick only one box"),
+        ({"option_a": True, "own_text": "Mine."}, "tick Other to send your text"),
     ],
     ids=["nothing", "other without text", "two options", "option and text"],
 )
@@ -217,7 +221,7 @@ async def test_a_gap_that_changed_between_the_rounds_is_asked_again(served, chan
         again = await session.call_tool(
             "answer_gap",
             {"project_id": ALPHA, "gap_id": gap_id},
-            input_responses={asked.key: accept(answer=["A"])},
+            input_responses={asked.key: accept(option_a=True)},
             request_state=asked.state,
             allow_input_required=True,
         )
@@ -233,7 +237,7 @@ async def test_only_an_open_gap_of_a_project_of_yours_opens_a_dialog(served) -> 
 
     async with modern(served.app) as session:
         asked = await ask(session, gap_id)
-        await reply(session, gap_id, asked, accept(answer=["A"]))
+        await reply(session, gap_id, asked, accept(option_a=True))
         answered = await call(session, "answer_gap", project_id=ALPHA, gap_id=gap_id)
         unknown = await call(session, "answer_gap", project_id=ALPHA, gap_id="GAP::000000000000")
         foreign = await call(session, "answer_gap", project_id=FOREIGN, gap_id=gap_id)
@@ -272,7 +276,8 @@ async def test_accepting_the_preset_choice_of_a_major_gap_records_its_recommende
 
     async with modern(served.app) as session:
         asked = await ask(session, gap_id)
-        result = await reply(session, gap_id, asked, accept())  # Accept without a change
+        shown = {name: field["default"] for name, field in asked.schema["properties"].items() if "default" in field}
+        result = await reply(session, gap_id, asked, accept(**shown))  # Accept without a change: the defaults
 
     outcome = result.structured_content
     assert outcome is not None and outcome["answered"] is True
