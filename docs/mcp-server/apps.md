@@ -38,7 +38,8 @@ draft: no tool, route or rule in it is built.
 | D3 | Upload and attachments are out of scope for now |
 | D4 | An answer comes only from a click in the view, through app-only tools. The model may suggest an answer and never sends one. Dismissing stays in the web app |
 | D5 | Next step: the spike ("Delivery"). If the Code tab does not render views, the next target is chosen with the spike's evidence |
-| D6 | In a terminal, a person answers a gap in an elicitation form that the server asks for ("Terminal dialogs"). The answer goes from the client to the server, never through the model. Claude's own question wizard is not an answer path |
+| D6 | In a terminal, a person answers a gap in an elicitation form that the server asks for ("Terminal dialogs"). The answer goes from the client to the server, never through the model. Claude first shows the gap's full card in the chat, because the dialog shows only three lines of text. Confirmed after two trials; Claude's own question wizard was offered and not chosen |
+| D7 | Engineers install nothing beyond today's MCP server setup: no Claude Code plugin, no hooks. Server instructions, tool descriptions and the prompt `answer_gaps` lead Claude |
 
 ## MCP Apps in short
 
@@ -57,11 +58,12 @@ draft: no tool, route or rule in it is built.
 
 | Host | View | Elicitation form | For an engineer with a coding agent |
 |---|---|---|---|
-| Claude Code CLI (terminal) | No, text only | Yes, interactive sessions only | Text path only |
-| Claude Desktop, Code tab | Not known: the spike checks it | Not known | Best fit if it renders: the repository and the view in one place |
+| Claude Code CLI (terminal) | No, text only | Yes (tried with Claude Code 2.1.327) | The dialog of D6, with the card in the chat |
+| Claude Desktop, Code tab | Not known: the spike checks it | No: cancelled without a dialog (tried; also reported by others) | The view, if the spike shows it renders; until then the web link |
 | Claude Desktop, chat | Yes, local and remote servers | Not known | A view, but no repository |
 | claude.ai | Yes, remote connector | Not known | As Desktop chat |
 | VS Code with GitHub Copilot | Partly (no fullscreen, no pip) | Not known | Possible second client |
+| Claude Code VS Code extension | Not known | No: declined without a dialog (reported by others) | The web link |
 
 ## What exists today
 
@@ -141,6 +143,7 @@ answer the gaps"), and the server instructions and the tool descriptions lead Cl
 
 | Step | What happens |
 |---|---|
+| 0 | The model reads the gap with `list_open_gaps` (or a list tool of the real server) and shows its card in the chat: title, question, why, each option with its detail, the quoted lines. The card is ready text from the server; nothing in it is folded |
 | 1 | The model calls `answer_gap(project_id, gap_id)` |
 | 2 | On protocol 2026-07-28 the server answers with `input_required`: one form-mode elicitation request and a sealed `requestState`. No session and no event stream are needed |
 | 3 | Claude Code shows the form: a dialog in the terminal, a card in the Desktop Code tab and at claude.ai/code |
@@ -152,10 +155,10 @@ is on screen.
 
 | Part | Content |
 |---|---|
-| Message, first three lines | The question; a line that names every option (`A) 14 days · B) 30 days (recommended) · ... · or your own answer`); why it matters |
-| Message, folded | Each option with its detail, the quoted lines with their source, and last the gap id, severity, kind and title |
-| One yes/no field per option | Titled with the option's short label, `(recommended)` on one; the recommended one is ticked for `major` |
-| `own_text` | "Or write your own answer (untick the options above)": 1 to 4,000 characters |
+| Message, first three lines | The question; why it matters; "The options' details and the quoted lines are in the chat above" |
+| Message, folded | Each option with its detail, the quoted lines with their source, and last the gap id, severity, kind and title (for clients that show all of it) |
+| One yes/no field per option | Titled with the option's short label, `(recommended)` on one, the detail as the field's description; the recommended one is ticked for `major` |
+| `own_text` | "Or your own answer (untick A-C)": 1 to 4,000 characters |
 
 Exactly one ticked option, or no ticked option and an own answer, is an answer; anything else returns a message that
 says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer takes
@@ -172,8 +175,10 @@ Protocol and transport, as the demo shows with the SDK's client:
 | 2025-11-25 and older | No form: a request during the call needs a session. The tool answers with an error that names the protocol, and `web_url` | Works: `elicitation/create` during the call |
 
 Claude Code's v2 MCP runtime speaks 2026-07-28 with HTTP servers that support it (from Claude Code 2.1.232 where it
-fetches feature flags, from 2.1.274 otherwise). A non-interactive session (`claude -p`) cancels a form; the tool then
-returns the text with `web_url`. The SDK seals `requestState` with a per-process key by default; several `mcp`
+fetches feature flags, from 2.1.274 otherwise). A non-interactive session (`claude -p`) cancels a form, and the Claude
+Desktop Code tab and the VS Code extension cancel or decline it without showing it. The server cannot tell such a cancel
+from a person's, so a cancelled or declined result always carries `web_url` and tells the model to offer it when the
+person saw no dialog. The SDK seals `requestState` with a per-process key by default; several `mcp`
 replicas need one shared key (a new setting).
 
 Verified with the demo in Claude Code 2.1.327 (the CLI): the `input_required` result of an ordinary tool call opens
@@ -181,8 +186,9 @@ the dialog "MCP server ... requests your input" ("Fulfilling input required by '
 the titled choice preset to the recommended option, the text field and the placement; Accept and Decline reach the
 server. The dialog shows the first lines of the message and folds the rest ("+N more lines", opened with the right
 arrow key); it shows only the chosen value of a titled choice (the list opens with the right arrow key) and cuts a long
-option title to the terminal's width. Hence the layout above: the question and every option in the first lines, one
-line per option, short titles.
+option title to the terminal's width. A second trial with one yes/no line per option showed the options and the
+first three lines clearly (Space ticks, arrows move), but nothing of the folded details. Hence the card in the chat
+before the dialog, and the first three lines that point to it.
 
 Claude's question wizard (its `AskUserQuestion` tool) was weighed and is not an answer path:
 
