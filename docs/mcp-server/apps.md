@@ -10,7 +10,8 @@ tags: [mcp]
 Engineers answer the gaps of the gap module ([../graph/gap/answers.md](../graph/gap/answers.md)) from their own coding
 agent (Claude first). The agent shows an interactive view instead of only text from read and write tools. This
 document holds the research (state of November 2026), the decisions taken so far and the open questions. It is a
-draft: no tool, route or rule in it is built.
+draft: the terminal dialog of D6 is built (`list_open_gaps`, `answer_gap` and the prompt `answer_gaps`,
+[tools.md](tools.md)); the view is not.
 
 ## Summary
 
@@ -71,7 +72,7 @@ draft: no tool, route or rule in it is built.
 |---|---|
 | Answer contract | `answer_gap(AnswerInput)`: exactly one of `option_rank` (2 to 4 options, one Recommended, preselected for `major`) and `own_text` (1 to 4,000 characters); optional `edits` from `preview_edits`; `placement` `amend` or `document`; `updated_at` is required (`409 gap_stale`) ([../graph/gap/answers.md](../graph/gap/answers.md)) |
 | Card | Chips, title, question, why, `ABOUT` and `IMPACTS` nodes, quoted lines with document, section and lines, options with an edits preview, Other, placement ([../graph/gap/answers.md](../graph/gap/answers.md) "The question card") |
-| MCP gap tools | `list_gaps` reads, `add_finding` raises a development gap. No tool answers a gap. AC12: only people resolve or dismiss gaps, in the web app ([tools.md](tools.md), [access-control.md](access-control.md)) |
+| MCP gap tools | `list_gaps` reads, `add_finding` raises a development gap, `list_open_gaps` lists the gaps that wait for a person as cards, `answer_gap` lets the person answer one in a dialog (D6). AC12: only people answer, resolve or dismiss gaps ([tools.md](tools.md), [access-control.md](access-control.md)) |
 | MCP server | `MCPServer` of `mcp` 2.3.0, stateless HTTP with JSON responses (no event stream), a 1 MiB request limit, a thin proxy to the API's agent routes with the caller's token, one tool registry, no resources ([architecture.md](architecture.md)) |
 | Identity | OAuth through the organization's identity provider. The user is the token's subject. No tool takes a user argument (AC9) |
 | OAuth client | One public client, `specflow-mcp`, with loopback redirects on port 8765 only ([auth.md](auth.md)) |
@@ -112,7 +113,8 @@ the web gap card (`/projects/{pid}/gaps?gap=<id>`).
 | `preview_gap_edits` | app | none | `POST /agent/gaps/{gap_id}/edits_preview` | Own text to edits (a diff) |
 | `submit_gap_answer` | app | none | `POST /agent/gaps/{gap_id}/answer` | `option_rank` or `own_text`, `edits`, `placement`, `updated_at` |
 | `suggest_gap_answer` | model | Answer | none | The model's draft, shown preselected; it writes nothing |
-| `answer_gap` | model | none | `GET /agent/gaps/{gap_id}`, `POST .../answer` | Takes only the gap id and asks the person in a dialog ("Terminal dialogs", D6) |
+| `list_open_gaps` | model | none | `GET /agent/open-gaps` | Built: the gaps that wait for a person, each as a ready card for the chat and `web_url` |
+| `answer_gap` | model | none | `GET /agent/gap-card`, `POST /agent/gap-answer` | Built: takes only the gap id and asks the person in a dialog ("Terminal dialogs", D6) |
 
 `list_gaps` stays as it is for agents that build a story. Not planned: a dismiss tool (D4), assignment tools (D2),
 an upload tool (D3).
@@ -138,17 +140,19 @@ view sets it with `textContent`, never `innerHTML`.
 Where no view renders (the Claude Code CLI), the person answers in a form that Claude Code shows on the server's
 request (D6). The model calls `answer_gap` with the gap id only; it never sees the form and cannot write the answer.
 People never need to know the word "form": they ask in their own words ("which spec questions are open?", "let me
-answer the gaps"), and the server instructions and the tool descriptions lead Claude to `answer_gap`; the prompt
-`answer_gaps` is the slash command for the same.
+answer the gaps"), and the tool descriptions lead Claude to `list_open_gaps` and `answer_gap`; the prompt
+`answer_gaps` is the slash command for the same. The server instructions carry no gap rule: they are at the client's
+2048-character limit for the longest valid server URL. As built: [tools.md](tools.md) "list_open_gaps", "answer_gap"
+and "The answer_gaps prompt".
 
 | Step | What happens |
 |---|---|
-| 0 | The model reads the gap with `list_open_gaps` (or a list tool of the real server) and shows its card in the chat: title, question, why, each option with its detail, the quoted lines. The card is ready text from the server; nothing in it is folded |
+| 0 | The model reads the gap with `list_open_gaps` and shows its card in the chat: title, question, why, each option with its detail, the quoted lines, the web link. The card is ready text from the server; nothing in it is folded |
 | 1 | The model calls `answer_gap(project_id, gap_id)` |
 | 2 | On protocol 2026-07-28 the server answers with `input_required`: one form-mode elicitation request and a sealed `requestState`. No session and no event stream are needed |
 | 3 | Claude Code shows the form: a dialog in the terminal, a card in the Desktop Code tab and at claude.ai/code |
 | 4 | Claude Code calls `answer_gap` again with the person's answers and the `requestState` |
-| 5 | The server checks the answer as `submit_gap_answer` does (`updated_at` included) and records it as the token's user, with `via` `elicitation` |
+| 5 | The server reads the card again; the SDK takes the answer only for the dialog as shown. The answer is checked as on the web card (`updated_at` included) and recorded as the token's user, with `via` `elicitation` |
 
 The form is flat (the specification allows only primitive fields). It never needs the right arrow key: every option
 is on screen.
@@ -156,39 +160,40 @@ is on screen.
 | Part | Content |
 |---|---|
 | Message, first three lines | The question; why it matters; "The options' details and the quoted lines are in the chat above" |
-| Message, folded | Each option with its detail, the quoted lines with their source, and last the gap id, severity, kind and title (for clients that show all of it) |
+| Message, folded | Each option with its detail, the quoted lines with their source, and last the gap id, severity, kind, title and version (`updated_at`): a gap changed since the person saw it is asked again |
 | One yes/no field per option | Titled with the option's short label, `(recommended)` on one, the detail as the field's description; the recommended one is ticked for `major` |
 | `own_text` | "Or your own answer (untick A-C)": 1 to 4,000 characters |
 
-Exactly one ticked option, or no ticked option and an own answer, is an answer; anything else returns a message that
-says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer takes
-a second round in which the server previews the edits (`preview_edits`) and asks to confirm them, the diff in the
-message; when the preview fails, the text goes to the clarifications document as written. Declining or cancelling
-records nothing. A single titled choice (`select`) was the first layout; its options open only with the right arrow
-key, which the first person who tried it did not find. The demo keeps it for comparison (Q10).
+Exactly one ticked option, or no ticked option and an own answer, is an answer; anything else returns a note that
+says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer goes to
+the clarifications document as written. A confirm round with the edits of `preview_edits` is deferred
+([later.md](later.md) "Own answers with edits"): the preview is a model call, so its text would change between the
+dialog's two calls and the SDK would ask again. Declining or cancelling records nothing. A single titled choice
+(`select`) was the first layout; its options open only with the right arrow key, which the first person who tried it
+did not find, so the built dialog has one line per option (Q10).
 
-Protocol and transport, as the demo shows with the SDK's client:
+Protocol and transport, as the SDK's client showed against the stateless `mcp` role:
 
-| Client protocol | Stateless HTTP (the `mcp` role) | stdio |
-|---|---|---|
-| 2026-07-28 | Works: the `input_required` round trip | Works: the same round trip |
-| 2025-11-25 and older | No form: a request during the call needs a session. The tool answers with an error that names the protocol, and `web_url` | Works: `elicitation/create` during the call |
+| Client protocol | What the client gets |
+|---|---|
+| 2026-07-28 with form elicitation | The `input_required` round trip |
+| 2025-11-25 and older, or no form elicitation | No form: a request during the call needs a session. The tool answers `no_dialog` with a note that names the reason, and `web_url` |
 
 Claude Code's v2 MCP runtime speaks 2026-07-28 with HTTP servers that support it (from Claude Code 2.1.232 where it
 fetches feature flags, from 2.1.274 otherwise). A non-interactive session (`claude -p`) cancels a form, and the Claude
 Desktop Code tab and the VS Code extension cancel or decline it without showing it. The server cannot tell such a cancel
 from a person's, so a cancelled or declined result always carries `web_url` and tells the model to offer it when the
 person saw no dialog. The SDK seals `requestState` with a per-process key by default; several `mcp`
-replicas need one shared key (a new setting).
+replicas, or a restart between the two calls, need one shared key ([later.md](later.md) "Shared dialog state key").
 
-Verified with the demo in Claude Code 2.1.327 (the CLI): the `input_required` result of an ordinary tool call opens
-the dialog "MCP server ... requests your input" ("Fulfilling input required by 'tools/call' (round 1)"), with
-the titled choice preset to the recommended option, the text field and the placement; Accept and Decline reach the
-server. The dialog shows the first lines of the message and folds the rest ("+N more lines", opened with the right
-arrow key); it shows only the chosen value of a titled choice (the list opens with the right arrow key) and cuts a long
-option title to the terminal's width. A second trial with one yes/no line per option showed the options and the
-first three lines clearly (Space ticks, arrows move), but nothing of the folded details. Hence the card in the chat
-before the dialog, and the first three lines that point to it.
+Verified with a demo server (since removed) in Claude Code 2.1.327 (the CLI): the `input_required` result of an ordinary
+tool call opens the dialog "MCP server ... requests your input" ("Fulfilling input required by 'tools/call' (round 1)"),
+with the titled choice preset to the recommended option, the text field and the placement; Accept and Decline reach the
+server. The dialog shows the first lines of the message and folds the rest ("+N more lines", opened with the right arrow
+key); it shows only the chosen value of a titled choice (the list opens with the right arrow key) and cuts a long option
+title to the terminal's width. A second trial with one yes/no line per option showed the options and the first three
+lines clearly (Space ticks, arrows move), but nothing of the folded details. Hence the card in the chat before the
+dialog, and the first three lines that point to it.
 
 Claude's question wizard (its `AskUserQuestion` tool) was weighed and is not an answer path:
 
@@ -201,30 +206,12 @@ Claude's question wizard (its `AskUserQuestion` tool) was weighed and is not an 
 
 The wizard may later help a person pick which gaps to work on; no answer passes through it.
 
-### Demo
+### Try it
 
-`backend/examples/mcp_gap_dialogs_demo.py` serves five sample gaps of an online shop (a blocker, three major gaps, one
-of them reported by a coding agent, and a minor gap; two to four options each), with no sign-in and no storage:
-`list_open_gaps` (blockers first), `answer_gap` (the dialog) and the prompt `answer_gaps`, which goes through the open
-gaps one by one. Answers are kept in memory until the server stops. From `backend/`, with the layout above:
-
-```bash
-uv run --extra mcp python examples/mcp_gap_dialogs_demo.py
-```
-
-or with the single choice, for comparison:
-
-```bash
-uv run --extra mcp python examples/mcp_gap_dialogs_demo.py --layout select
-```
-
-```bash
-claude mcp add --transport http gap-demo http://localhost:8011/mcp
-```
-
-Then, in an interactive Claude Code session, ask in your own words ("Which spec questions are open?"), or run
-`/mcp__gap-demo__answer_gaps`. The result of `answer_gap` names the path the client took. Remove the server afterwards
-with `claude mcp remove gap-demo`.
+The tools are part of the `mcp` role. With the local stack and the local server in Claude Code
+([deployment.md](deployment.md#local-endpoint)), and a project with gaps, ask in an interactive Claude Code session in
+your own words ("Which spec questions are open?"), or run `/mcp__specflow-local__answer_gaps`. Claude shows each gap's
+card, then the dialog opens; the answer shows on the gap's web card.
 
 `client_supports_apps(ctx)` reads the client capabilities of the session. Our server is stateless, so a
 `tools/call` request may carry none. The tools do not branch on it: they always return the full text and the UI
@@ -282,7 +269,7 @@ would need a tunnel or a public endpoint and a second OAuth client (Security).
 | P0 spike, 2 to 3 days | A hello-world view on our server. Check: the Desktop Code tab, Desktop chat and claude.ai; our sign-in on each; the identity of a call from the view; whether the model sees the result's `_meta`; Apps with the stateless server; the MCP settings that the Code tab reads | A support table with evidence |
 | P1 browse | `browse_gaps`, `open_gap`, `get_gap`, the Browse and Answer screens; answers through `web_url` | The list and the card show in the target host; the CLI gets the text |
 | P2 answer | Options, Other with preview, placement, reload, `suggest_gap_answer`, "Ask Claude"; AC12 changed in [access-control.md](access-control.md) | An answer from the view moves the gap to `answered` with `via` `mcp_app` |
-| P3 terminal form | `answer_gap` with the `input_required` round trip, the confirm round for own answers, the shared `requestState` key | An answer from the form in the Claude Code CLI moves the gap to `answered` with `via` `elicitation` |
+| P3 terminal form | Built: `list_open_gaps`, `answer_gap` with the `input_required` round trip, the prompt `answer_gaps`. Deferred: the confirm round for own answers, the shared `requestState` key ([later.md](later.md)) | An answer from the form in the Claude Code CLI moves the gap to `answered` with `via` `elicitation` |
 
 Deferred: the `assigned` argument of `list_open_gaps` (D2), upload (D3).
 
@@ -312,7 +299,7 @@ Deferred: the `assigned` argument of `list_open_gaps` (D2), upload (D3).
 |---|---|---|
 | Q8 | The target if the Code tab does not render views | Chosen with the spike's evidence |
 | Q9 | Does `submit_gap_answer` require the answer ticket? | The spike checks whether the model sees the result's `_meta` |
-| Q10 | Which dialog layout do people understand without help: one yes/no line per option, or the single choice? | One line per option ("Terminal dialogs"), until the next trial says otherwise |
+| Q10 | Which dialog layout do people understand without help: one yes/no line per option, or the single choice? | Answered: one line per option ("Terminal dialogs"); the built dialog uses it |
 
 ## Deferred designs
 

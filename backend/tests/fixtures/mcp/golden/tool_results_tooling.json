@@ -142,6 +142,27 @@
       "project_id": "00000000-0000-4000-8000-000000000001"
     }
   },
+  "answer_gap_without_a_dialog": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"gap_id\":\"GAP::4D5B5E912AC8\",\"answered\":false,\"action\":\"no_dialog\",\"choice\":null,\"placement\":null,\"clr_id\":null,\"apply_at\":null,\"note\":\"Nothing was recorded: this client speaks MCP protocol 2025-03-26; the dialog needs 2026-07-28. Give the user web_url to answer on the web card.\",\"web_url\":\"https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "action": "no_dialog",
+      "answered": false,
+      "apply_at": null,
+      "choice": null,
+      "clr_id": null,
+      "gap_id": "GAP::4D5B5E912AC8",
+      "note": "Nothing was recorded: this client speaks MCP protocol 2025-03-26; the dialog needs 2026-07-28. Give the user web_url to answer on the web card.",
+      "placement": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "web_url": "https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8"
+    }
+  },
   "claim_story": {
     "content": [
       {

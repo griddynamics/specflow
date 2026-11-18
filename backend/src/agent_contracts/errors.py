@@ -25,6 +25,10 @@ ErrorCode = Literal[
     "invalid_arguments",
     "unknown_relation",
     "finding_limit",
+    "gap_not_found",
+    "gap_wrong_state",
+    "gap_stale",
+    "answer_invalid",
 ]
 
 PROJECT_NOT_FOUND: Final = "project_not_found"
@@ -47,3 +51,7 @@ INVALID_COMMIT: Final = "invalid_commit"
 INVALID_ARGUMENTS: Final = "invalid_arguments"
 UNKNOWN_RELATION: Final = "unknown_relation"
 FINDING_LIMIT: Final = "finding_limit"
+GAP_NOT_FOUND: Final = "gap_not_found"
+GAP_WRONG_STATE: Final = "gap_wrong_state"
+GAP_STALE: Final = "gap_stale"
+ANSWER_INVALID: Final = "answer_invalid"

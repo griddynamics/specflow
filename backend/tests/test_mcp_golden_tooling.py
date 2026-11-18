@@ -45,7 +45,14 @@ ERROR_CODES = (
     "task_not_found",
     "invalid_commit",
     "finding_limit",
+    "gap_not_found",
+    "gap_wrong_state",
+    "gap_stale",
+    "answer_invalid",
 )
+# Reached only after a person accepted the dialog of answer_gap, which a plain tools/call cannot do: covered by
+# test_mcp_answer_gap.py (gap_wrong_state) and test_api_agent_gaps.py (all three).
+AFTER_A_DIALOG = ("gap_wrong_state", "gap_stale", "answer_invalid")
 STRIPE = "STORY::STRIPE::CORE"
 TASK = "TASK::WEB_SHOP::LOGIC_CHECKOUT"
 COMMIT = "e44f0c1a7b9d3c5e8f2a4b6d8e0f1a2b3c4d5e6f"
@@ -124,6 +131,8 @@ GAP_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
         {"project_id": ALPHA, "spec_ids": ["REQ::FR::PLACE_ORDER", "QST::CANCEL_PAID_ORDER"], "limit": 1},
     ),
     "list_open_gaps_first_page": ("list_open_gaps", {"project_id": ALPHA, "limit": 2}),
+    # This client speaks an older protocol: no dialog on a stateless server, the web link instead.
+    "answer_gap_without_a_dialog": ("answer_gap", {"project_id": ALPHA, "gap_id": "GAP::4D5B5E912AC8"}),
     "get_story_brief_with_a_gap": ("get_story_brief", {"project_id": ALPHA, "story_id": GAP_STORY}),
     "get_task_brief_with_a_gap": ("get_task_brief", {"project_id": ALPHA, "task_id": "TASK::A::API_LOGIC"}),
     "preview_story_with_a_gap": ("preview_story", {"project_id": ALPHA, "story_id": GAP_STORY}),
@@ -293,6 +302,7 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             "release_story",
             {"project_id": ALPHA, "story_id": CHECKOUT, "claim_token": "not-the-token"},
         ),
+        "gap_not_found": ("gaps", "answer_gap", {"project_id": ALPHA, "gap_id": "GAP::000000000000"}),
         "task_not_found": (
             "free",
             "report_task",
@@ -432,7 +442,7 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             {**held, "merge_commit": COMMIT},
         ),
     }
-    assert set(cases) == set(ERROR_CODES) - {"finding_limit"}, "the cases must be the ErrorCodes these tools return"
+    assert set(cases) == set(ERROR_CODES) - {"finding_limit", *AFTER_A_DIALOG}, "the cases must be these tools' codes"
     errors: dict[str, Any] = {}
     every = {**cases, **extra}
     for scenario in dict.fromkeys(scenario for scenario, _, _ in every.values()):  # one server per scenario
