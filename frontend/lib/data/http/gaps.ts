@@ -3,9 +3,9 @@
 // `held_back=true`, FR-GRTE-06, and `assigned_to` for the Assigned filter; the Plan screens send none), `GET .../gaps/{gap_id}`,
 // `GET .../gap/runs/latest` (the noise report of the latest finished run, and with `GET .../graph_build` the gap check status line),
 // `GET .../gaps/ai_answers` and `GET .../gaps/noise_rules`. Writes: `POST .../gaps/{gap_id}/edits_preview`, `.../answer`, `.../dismiss`,
-// `PUT .../gaps/{gap_id}/assignee`, `POST .../gaps` (raise), `POST .../gaps/apply`, `POST .../gaps/clarifications/{clr_id}/revert`,
-// `POST .../gaps/noise_rules` and `DELETE .../gaps/noise_rules/{rule_id}`. Bodies are parsed strictly: any other shape is
-// `invalid_response`. Failures are `DataError`s with the API code and, for `400 answer_invalid` and `409 gap_wrong_state`, the `field`,
+// `PUT .../gaps/{gap_id}/assignee`, `POST .../gaps` (raise), `POST .../gaps/apply` ("Resolve gaps"),
+// `POST .../gaps/clarifications/{clr_id}/revert`, `POST .../gaps/noise_rules` and `DELETE .../gaps/noise_rules/{rule_id}`. Bodies are
+// parsed strictly: any other shape is `invalid_response`. Failures are `DataError`s with the API code and, for `400 answer_invalid` and `409 gap_wrong_state`, the `field`,
 // `reason` and gap `state` of the envelope's details; `503 gap_unavailable` rejects as `unavailable` (the screen's "not available" state).
 import {
   addNoiseRule,
@@ -376,14 +376,14 @@ export function answerWire(input: AnswerInput): Record<string, unknown> {
 const ids = (v: unknown): string[] => listOf(v, text);
 
 function toAnswerResult(v: unknown): AnswerResult {
-  expectShape(isRecord(v) && isString(v.gap_id) && isString(v.clr_id) && isString(v.apply_at));
+  expectShape(isRecord(v) && isString(v.gap_id) && isString(v.clr_id));
   return {
     gapId: v.gap_id,
     clrId: v.clr_id,
     replaced: textOrNull(v.replaced),
     placement: oneOf(CLARIFICATION_PLACEMENTS, v.placement),
     amendments: ids(v.amendments),
-    applyAt: v.apply_at,
+    applyAt: textOrNull(v.apply_at),
     immediate: flag(v.immediate),
   };
 }

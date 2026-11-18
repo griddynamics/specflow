@@ -1,13 +1,15 @@
-// FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "User interface", answers.md "The question card", "Answering", "Placement rules",
-// "Review list", "Dismissing", "Who answers"; detection.md "Relevance filter"): pure helpers of the Gaps screen and the Plan's gap links.
-// No React, no fetch: the words of kinds, severities, origins, assignees, noise sections, placements, history events and failures, the
-// filters' options and the `list_gaps` query they make, the inbox order, the section noise-rule value, and which open gaps belong to a
-// plan task or story.
+// FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "User interface", answers.md "The question card", "Answering", "Applying answers",
+// "Placement rules", "Review list", "Dismissing", "Who answers"; detection.md "Relevance filter"): pure helpers of the Gaps screen and the
+// Plan's gap links. No React, no fetch: the words of kinds, severities, origins, statuses (Open, Staged, Resolved), assignees, noise
+// sections, placements, history events and failures, the filters' options and the `list_gaps` query they make, the inbox order, the card's
+// answer button and the "Resolve gaps" button, the section noise-rule value, and which open gaps belong to a plan task or story.
 import type { SeverityLevel } from "@/components/ui/SeverityBadge";
 import { isDataError } from "@/lib/domain/errors";
 import {
   GAP_KINDS,
+  GAP_STATUSES,
   type AnswerResult,
+  type ApplyResult,
   type ClarificationStatus,
   type EditPlacement,
   type GapEvent,
@@ -46,11 +48,27 @@ export const ORIGIN_LABEL: Record<GapOrigin, string> = {
   person: "Raised by a person",
 };
 
-export const STATUS_LABEL: Record<GapStatus, string> = { open: "Open", answered: "Answered", applying: "Applying", resolved: "Resolved" };
+/** A gap's status in words: an answered gap is Staged (its answer waits for "Resolve gaps"), and so is one whose rebuild runs
+ * (`applying`, shown with the "Resolving…" tag). */
+export const STATUS_LABEL: Record<GapStatus, string> = { open: "Open", answered: "Staged", applying: "Staged", resolved: "Resolved" };
 
-/** The inbox filters as the screen holds them; "all" (and "active" for the status) sends no parameter. */
+/** The tag of a gap whose rebuild runs (`applying`), beside its spinner. */
+export const RESOLVING_LABEL = "Resolving…";
+
+const STATUS_FILTERS = ["open", "staged", "resolved", "all"] as const;
+export type StatusFilter = (typeof STATUS_FILTERS)[number];
+
+/** The stored statuses each Status filter value asks `list_gaps` for. */
+export const STATUS_QUERY: Readonly<Record<StatusFilter, GapStatus[]>> = {
+  open: ["open"],
+  staged: ["answered", "applying"],
+  resolved: ["resolved"],
+  all: [...GAP_STATUSES],
+};
+
+/** The inbox filters as the screen holds them; "all" sends no parameter (the status always sends its stored statuses). */
 export interface GapFilters {
-  status: "active" | GapStatus | "all";
+  status: StatusFilter;
   kind: GapKind | "all";
   severity: GapSeverity | "all";
   story: string; // a story id, or "all"
@@ -58,7 +76,7 @@ export interface GapFilters {
 }
 
 export const DEFAULT_GAP_FILTERS: GapFilters = {
-  status: "active",
+  status: "open",
   kind: "all",
   severity: "all",
   story: "all",
@@ -72,12 +90,10 @@ type Options = { value: string; label: string }[];
 const ALL = { value: "all", label: "All" };
 
 export const STATUS_OPTIONS: Options = [
-  { value: "active", label: "Not resolved" },
   { value: "open", label: "Open" },
-  { value: "answered", label: "Answered" },
-  { value: "applying", label: "Applying" },
+  { value: "staged", label: "Staged" },
   { value: "resolved", label: "Resolved" },
-  { value: "all", label: "All" },
+  ALL,
 ];
 export const KIND_OPTIONS: Options = [ALL, ...Object.entries(KIND_LABEL).map(([value, label]) => ({ value, label }))];
 export const SEVERITY_OPTIONS: Options = [ALL, ...Object.entries(SEVERITY_LABEL).map(([value, label]) => ({ value, label }))];
@@ -118,11 +134,9 @@ export function withAll(items: { id: string; name: string }[]): Options {
   return [ALL, ...items.map((i) => ({ value: i.id, label: i.name }))];
 }
 
-const STATUS_VALUES = ["active", "open", "answered", "applying", "resolved", "all"] as const;
-
 /** A value from a filter control; anything outside the vocabulary means the default. */
 export function patchOf(key: keyof GapFilters, v: string): Partial<GapFilters> {
-  if (key === "status") return { status: STATUS_VALUES.find((x) => x === v) ?? "active" };
+  if (key === "status") return { status: STATUS_FILTERS.find((x) => x === v) ?? "open" };
   if (key === "kind") return { kind: GAP_KINDS.find((x) => x === v) ?? "all" };
   if (key === "severity") return { severity: GAP_SEVERITIES.find((x) => x === v) ?? "all" };
   const value = v === "" ? "all" : v;
@@ -130,13 +144,12 @@ export function patchOf(key: keyof GapFilters, v: string): Partial<GapFilters> {
 }
 
 /**
- * The `list_gaps` query of the inbox: route `ask` (the inbox shows the questions for people; AI answers are not in it), the chosen
- * filters, and `held_back` (false: the default view; true: "More found in this run", FR-GRTE-06).
+ * The `list_gaps` query of the inbox: route `ask` (the inbox shows the questions for people; AI answers are not in it), the stored
+ * statuses of the Status filter (Staged is `answered` and `applying`), the other chosen filters, and `held_back` (false: the default
+ * view; true: "More found in this run", FR-GRTE-06).
  */
 export function gapQuery(f: GapFilters, heldBack: boolean): GapQuery {
-  const q: GapQuery = { route: ["ask"], heldBack };
-  if (f.status === "all") q.status = ["open", "answered", "applying", "resolved"];
-  else if (f.status !== "active") q.status = [f.status];
+  const q: GapQuery = { route: ["ask"], heldBack, status: STATUS_QUERY[f.status] };
   if (f.kind !== "all") q.kind = [f.kind];
   if (f.severity !== "all") q.severity = [f.severity];
   if (f.story !== "all") q.storyId = f.story;
@@ -144,10 +157,13 @@ export function gapQuery(f: GapFilters, heldBack: boolean): GapQuery {
   return q;
 }
 
+/** A development gap that holds a coding agent's task: the inbox lists it first, and its answer is applied at once (with every other
+ * staged answer of the project). */
+export const holdsAgent = (g: Gap): boolean => g.origin === "development" && g.blocking;
+
 /** The inbox order (api.md "User interface"): development gaps that hold tasks first, then the server's order (severity, reach, newest). */
 export function inboxOrder(gaps: Gap[]): Gap[] {
-  const holds = (g: Gap) => g.origin === "development" && g.blocking;
-  return gaps.toSorted((a, b) => Number(holds(b)) - Number(holds(a)));
+  return gaps.toSorted((a, b) => Number(holdsAgent(b)) - Number(holdsAgent(a)));
 }
 
 /** The row's second line: the question, after the status when the gap is not open. */
@@ -221,16 +237,28 @@ export function preselectedOption(g: Gap): number | undefined {
   return g.severity === "major" ? g.options.find((o) => o.recommended)?.rank : undefined;
 }
 
-/** A gap can be answered while it is open or answered (a pending answer is replaced). */
+/** A gap can be answered while it is open or staged (`answered`: the staged answer is replaced). */
 export const answerable = (g: Gap): boolean => g.status === "open" || g.status === "answered";
 
-/** "Withdraw answer" fits a clarification that is pending (gap answered or applying) or applied/absorbed (gap resolved). */
+/** "Unstage" fits a staged answer (pending, gap answered), "Withdraw answer" an applied or absorbed one (gap resolved); a gap whose
+ * rebuild runs (`applying`) is read-only. */
 export function withdrawable(g: Gap): boolean {
   const c = g.clarification;
-  if (c?.clrId === undefined) return false;
+  if (c?.clrId === undefined || g.status === "applying") return false;
   const live: ClarificationStatus[] = ["pending", "applied", "absorbed"];
   return live.includes(c.status);
 }
+
+/** The card's answer button: "Change answer" for a staged gap; "Answer and resolve" for a gap a coding agent waits on (applied at
+ * once); else "Stage answer". */
+export function submitLabel(g: Gap): string {
+  if (g.status === "answered") return "Change answer";
+  return holdsAgent(g) ? "Answer and resolve" : "Stage answer";
+}
+
+/** The line under the answer of a gap a coding agent waits on. */
+export const AT_ONCE_TEXT =
+  "This answer applies at once because a coding agent waits on it, together with every staged answer of the project.";
 
 /** The answer's own text is 1..4000 characters (after trimming); null when it fits, else the words to show. */
 export function ownTextProblem(text: string): string | null {
@@ -240,7 +268,6 @@ export function ownTextProblem(text: string): string | null {
   return null;
 }
 
-const TIME = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 /** A timestamp in words ("12 Nov 2026, 14:05"); an unreadable one is shown as sent. */
@@ -249,17 +276,15 @@ export function whenText(iso: string): string {
   return Number.isNaN(t) ? iso : WHEN.format(new Date(t));
 }
 
-/** What happens to a recorded answer: applied at once, or at the end of the quiet period (or with "Apply now"). */
-export function appliedWhenText(r: AnswerResult): string {
-  if (r.immediate) return "Your answer is recorded and is being applied now.";
-  const t = Date.parse(r.applyAt);
-  const at = Number.isNaN(t) ? r.applyAt : TIME.format(new Date(t));
-  return `Your answer is recorded. It will be applied at ${at}, or sooner with "Apply now".`;
+/** What happens to a recorded answer: applied at once (a coding agent waits on it), or staged until someone presses "Resolve gaps". */
+export function answerOutcomeText(r: AnswerResult): string {
+  if (r.immediate) return "Your answer is being applied now: a coding agent waits on it.";
+  return "Staged: it reaches the spec when someone presses Resolve gaps.";
 }
 
 /** The clarification's status in words (the review list and the card). */
 export const CLARIFICATION_STATUS_LABEL: Record<ClarificationStatus, string> = {
-  pending: "Waiting to be applied",
+  pending: "Staged",
   applied: "Applied",
   absorbed: "In the source file",
   conflict: "In conflict with the source",
@@ -293,6 +318,8 @@ const PLACEMENT_WORDS: Record<string, string> = {
   no_anchor: "This answer has no line to amend in the source. Choose the clarifications document.",
 };
 
+const STATE_WORDS: Record<GapStatus, string> = { open: "open", answered: "staged", applying: "being resolved", resolved: "resolved" };
+
 /** A refused write in words: `400 answer_invalid` by field and reason, `409 gap_wrong_state` by the gap's state, the other failures. */
 export function failureText(e: unknown): string {
   if (!isDataError(e)) return "Something went wrong. Try again.";
@@ -307,7 +334,7 @@ export function failureText(e: unknown): string {
     const state = e.detail?.state;
     return state === undefined
       ? "This gap is no longer in a state this action applies to."
-      : `This gap is ${STATUS_LABEL[state].toLowerCase()} now, so this action no longer applies.`;
+      : `This gap is ${STATE_WORDS[state]} now, so this action no longer applies.`;
   }
   if (api === "gap_stale") return "This gap changed since you opened it.";
   if (api === "gap_not_found") return "This gap no longer exists.";
@@ -319,6 +346,73 @@ export function failureText(e: unknown): string {
 
 /** True for `409 gap_stale`: the card shows "This gap changed since you opened it" with Reload. */
 export const isStale = (e: unknown): boolean => isDataError(e) && e.detail?.apiCode === "gap_stale";
+
+/** True for `409 gap_wrong_state` of "Resolve gaps": no staged answer waits. */
+export const isNothingStaged = (e: unknown): boolean => isDataError(e) && e.detail?.apiCode === "gap_wrong_state";
+
+// ---- staging and resolving ----
+
+/** Who staged or gave an answer: "AI" for an AI or pointer answer, else the member by name (`names`) or "a person". */
+export function answeredByText(c: GapClarification, names: Readonly<Record<string, string>> = {}): string {
+  return c.mode === "ai" || c.mode === "pointer" ? "AI" : actorText(c.answeredBy, names);
+}
+
+/** The chosen answer of a staged gap in the "Resolve gaps" list: the option's label, else "Own answer". */
+export const stagedChoiceText = (c: GapClarification): string => c.optionLabel ?? "Own answer";
+
+/** The line under a recorded answer: who staged it and what waits ("Staged by Dana · waits for Resolve gaps"), or who answered it and
+ * its status, then an AI answer's confidence and the build that applied it. */
+export function answerMetaText(g: Gap, c: GapClarification, names: Readonly<Record<string, string>> = {}): string {
+  const who = answeredByText(c, names);
+  const parts =
+    c.status === "pending"
+      ? [`Staged by ${who}`, g.status === "applying" ? "being resolved" : "waits for Resolve gaps"]
+      : [`Answered by ${who}`, CLARIFICATION_STATUS_LABEL[c.status]];
+  const confidence = confidenceText(c.confidence);
+  if (confidence !== null) parts.push(confidence);
+  if (c.appliedBuildId !== null && c.appliedBuildId !== undefined) parts.push(`applied by build ${c.appliedBuildId}`);
+  return parts.join(" · ");
+}
+
+/** "1 gap", "3 gaps". */
+const gapsText = (n: number): string => `${String(n)} ${n === 1 ? "gap" : "gaps"}`;
+
+/** The "Resolve gaps" button: its label, whether it is off or busy, and the reason it gives (tooltip and accessible description). */
+export interface ResolveView {
+  label: string;
+  state: "ready" | "off" | "busy";
+  hint: string;
+}
+
+/** The button for `staged` gaps waiting (`answered`), `resolving` while a gap's rebuild runs (`applying`); `failed` when the staged
+ * answers could not be read. */
+export function resolveView(staged: number, resolving: boolean, failed = false): ResolveView {
+  if (resolving) {
+    return {
+      label: RESOLVING_LABEL,
+      state: "busy",
+      hint: "A rebuild applies the staged answers now. The gaps become Resolved when it ends.",
+    };
+  }
+  if (failed) return { label: "Resolve gaps", state: "off", hint: "The staged answers could not be read. Reload the page to try again." };
+  if (staged === 0) return { label: "Resolve gaps", state: "off", hint: "Stage an answer first." };
+  return { label: `Resolve ${gapsText(staged)}`, state: "ready", hint: "Applies every staged answer of the project in one rebuild." };
+}
+
+/** The toast after "Resolve gaps" started the rebuild. */
+export function resolvedToast(r: ApplyResult): { title: string; message: string } {
+  const build = r.build === null ? "" : ` (build ${r.build})`;
+  return {
+    title: `Resolving ${gapsText(r.gapIds.length)}`,
+    message: `One rebuild applies the staged answers${build}. The gaps become Resolved when it ends.`,
+  };
+}
+
+/** The toast when nothing waited any more (`409 gap_wrong_state`). */
+export const NOTHING_STAGED_TOAST = {
+  title: "Nothing to resolve",
+  message: "No staged answers are waiting. Someone may have resolved them already.",
+};
 
 // ---- dismissing and noise rules ----
 
@@ -364,9 +458,9 @@ const EVENT_WORDS: Record<string, string> = {
   created: "Gap found",
   raised: "Gap raised",
   routed: "Routed",
-  answered: "Answered",
-  replaced: "Answer replaced",
-  applying: "Answer sent to the build",
+  answered: "Answer staged",
+  replaced: "Staged answer replaced",
+  applying: "Resolve started",
   applied: "Answer applied",
   resolved: "Resolved",
   reverted: "Answer withdrawn",
@@ -376,7 +470,7 @@ const EVENT_WORDS: Record<string, string> = {
   cite_removed: "A quoted line left the source",
   follow_up: "Follow-up gap opened",
   reopened: "Reopened",
-  apply_failed: "Applying failed",
+  apply_failed: "Resolving failed",
   assigned: "Assigned",
   unassigned: "Unassigned",
 };

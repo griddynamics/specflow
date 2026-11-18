@@ -24,17 +24,15 @@ wait for the process's run slot. Triggers:
 - ``start_site``: a gap a person raised (``POST .../gaps``) queues a ``site`` run on it at the head of the queue (never
   beside the running run), on the build of the project's latest finished gap run, so the next update run's change
   reports still start there.
-- ``schedule_apply``: an answer moves the project's apply time to the end of its quiet period; when it passes with no
-  newer answer, ``GapService.apply_now`` makes the pending amendments active and requests one update build through the
-  build runner (``use_builds``; answers.md "Applying answers"). A run that recorded AI answers schedules the apply the
-  same way (AI answers never apply at once). The time lives in this process; the stored answers make it durable:
+- Answers (a person's, and the AI answers a run records) are staged: nothing applies them on a timer. "Resolve
+  gaps" (``POST /gaps/apply``, ``GapService.apply_now``) makes the staged amendments active and requests one update
+  build through the build runner (``use_builds``; answers.md "Applying answers"); only a development gap that blocks
+  its story applies at once, inside ``answer_gap``.
 - ``start_recovery``: once per process, in the background, ``recover`` looks at every project of the application
-  database. ``recover`` asks ``GapService.pending_answers`` what a restart left behind: answers still in their quiet
-  period are scheduled again (at the end of the quiet period after the latest one; at once when it has passed), an
-  apply whose update build never started (no build started after its request finished, and none runs) requests it
-  again, an apply whose build finished without a gap run after it queues that ``update`` run, and pending amendment
-  rows of deleted clarifications are deleted. A failed quiet-period apply calls ``recover`` again after
-  ``RECOVERY_RETRY_SECONDS`` (longer each time, at most ``RECOVERY_RETRIES`` times).
+  database. ``recover`` asks ``GapService.pending_answers`` what a restart left behind: an apply whose update build
+  never started (no build started after its request finished, and none runs) requests it again, an apply whose build
+  finished without a gap run after it queues that ``update`` run, and pending amendment rows of deleted
+  clarifications are deleted.
 
 - ``corpus_answers``: the build's corpus reader (``api.graph_build.corpus.CorpusAnswers``) reads the project's active
   amendments and the clarifications of its clarifications document here, so the build reads the answered text.
@@ -61,7 +59,7 @@ import re
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -92,7 +90,6 @@ from graph.gap import (
     GapRunStore,
     GapService,
     GapSettings,
-    GapStateError,
     LoopInvestigator,
     NoiseReport,
     ensure_gap_schema,
@@ -118,10 +115,7 @@ FAILED: Final = "failed"  # the status of a failed build and of a failed gap run
 RUN_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")  # names a folder of the run store: no separator
 
 RequestMode = Literal["update", "full", "site"]
-APPLY_ACTOR: Final = "gap-apply"  # the actor of an apply the quiet period triggers
 APPLY_BUILD_REASON: Final = "gap_answers"  # the reason of an update build ``recover`` requests again
-RECOVERY_RETRY_SECONDS: Final = 60.0  # after a failed quiet-period apply, the pause before ``recover`` (times the try)
-RECOVERY_RETRIES: Final = 5
 Transaction = Callable[[], Any]  # ``Runtime.transaction``: an async context manager of one session
 GapRunFunction = Callable[..., Awaitable[GapRunResult]]
 PortsFactory = Callable[[Transaction], tuple[Any, Any]]
@@ -213,8 +207,6 @@ class _Project:
     task: asyncio.Task[None] | None = None
     active: _Active | None = None
     failure: _Failure | None = None
-    apply_at: datetime | None = None  # when the pending answers are applied (end of the quiet period)
-    applier: asyncio.Task[None] | None = None
 
 
 @dataclass
@@ -314,55 +306,6 @@ class GapRunner:
             raise RunnerClosedError("the gap runner is closed")
         self._enqueue(project_id, _Request("site", None, (gap_id,)), front=True)
 
-    def schedule_apply(self, project_id: str, at: datetime) -> None:
-        """Apply the project's pending answers at ``at`` (the end of the quiet period after its last answer); a later
-        time replaces an earlier one."""
-
-        if self._closed:
-            return
-        project = self._project(project_id)
-        project.apply_at = at if project.apply_at is None else max(project.apply_at, at)
-        if project.applier is None or project.applier.done():
-            project.applier = asyncio.create_task(
-                self._apply_when_quiet(project_id, project), name=f"gap-apply-{project_id}"
-            )
-
-    def applied(self, project_id: str) -> None:
-        """The answers were applied now ("Apply now"): no apply is due any more."""
-
-        project = self._projects.get(project_id)
-        if project is not None:
-            project.apply_at = None
-
-    async def _apply_when_quiet(self, project_id: str, project: _Project) -> None:
-        failures = 0
-        while project.apply_at is not None and not self._closed:
-            wait = (project.apply_at - datetime.now(UTC)).total_seconds()
-            if wait > 0:
-                await asyncio.sleep(wait)
-                continue
-            project.apply_at = None
-            with Contained() as applying:
-                service = await self.service()
-                result = await service.apply_now(project_id, by=APPLY_ACTOR)
-                log_event(
-                    logger, INFO, "api.gap.applied", project_id=project_id, gaps=len(result.gap_ids), build=result.build
-                )
-            if applying.failed:
-                error = applying.error
-                log_event(
-                    logger,
-                    INFO if isinstance(error, GapStateError) else WARNING,
-                    "api.gap.apply_skipped" if isinstance(error, GapStateError) else "api.gap.apply_failed",
-                    project_id=project_id,
-                    error_code=error_code(error) if error is not None else None,
-                    error_type=applying.error_type,
-                )
-                if not isinstance(error, GapStateError) and failures < RECOVERY_RETRIES:
-                    failures += 1  # the answers are stored: look again later (a retried apply or its build)
-                    await asyncio.sleep(RECOVERY_RETRY_SECONDS * failures)
-                    await self.recover(project_id)
-
     # Recovery ------------------------------------------------------------------
 
     def start_recovery(self) -> None:
@@ -409,10 +352,6 @@ class GapRunner:
     async def _recover(self, project_id: str) -> None:
         service = await self.service()
         found = await service.pending_answers(project_id)
-        scheduled: datetime | None = None
-        if found.answered_at is not None:
-            scheduled = found.answered_at + timedelta(seconds=service.quiet_seconds())
-            self.schedule_apply(project_id, scheduled)
         build: str | None = None
         gap_run = False
         waiting = found.apply_requested_at
@@ -424,13 +363,12 @@ class GapRunner:
                 gap_run = await self._gap_run_missing(project_id, after)
                 if gap_run:
                     await self.after_build(project_id, after)
-        if scheduled is not None or build is not None or gap_run or found.orphans:
+        if build is not None or gap_run or found.orphans:
             log_event(
                 logger,
                 INFO,
                 "api.gap.recovered",
                 project_id=project_id,
-                apply_at=scheduled.isoformat() if scheduled is not None else None,
                 build=build,
                 gap_run=gap_run,
                 orphans=found.orphans,
@@ -616,10 +554,7 @@ class GapRunner:
 
         self._closed = True
         tasks = [
-            task
-            for project in self._projects.values()
-            for task in (project.task, project.applier)
-            if task is not None and not task.done()
+            project.task for project in self._projects.values() if project.task is not None and not project.task.done()
         ]
         if self._recovery is not None and not self._recovery.done():
             tasks.append(self._recovery)
@@ -817,9 +752,6 @@ class GapRunner:
             warnings=len(result.warnings),
             llm_calls=gateway.usage().total().calls,
         )
-        if int(result.counts.get("ai_answered") or 0) > 0:  # applied like a person's answers, never at once
-            quiet = self._gap.effective_limits(rules.limits).apply_quiet_seconds
-            self.schedule_apply(project_id, datetime.now(UTC) + timedelta(seconds=quiet))
 
     async def _changes(self, project_id: str, build_id: str | None) -> tuple[GapChangeReport, ...]:
         """The gap-side change reports after the build of the latest finished gap run up to ``build_id``; none

@@ -63,7 +63,7 @@ async def test_a_pending_ai_answer_reverted_reopens_its_gap_for_a_person() -> No
 
 async def test_an_applying_answer_reverted_requests_a_build_without_its_text() -> None:
     rig, listed = await ai_rig()
-    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    await rig.service.apply_now(rig.project_id, by=MEMBER)
     clr = listed.clarification.clr_id
     assert await statuses(rig, clr) == {"active"}
 
@@ -103,7 +103,7 @@ async def test_a_revert_needs_a_known_revertible_clarification_and_a_reason() ->
 
 async def test_a_revert_that_needs_a_build_refuses_without_a_build_port_and_a_failed_write_sets_rows_back() -> None:
     rig, listed = await ai_rig()
-    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    await rig.service.apply_now(rig.project_id, by=MEMBER)
     clr = listed.clarification.clr_id
     portless, _, _, _ = service_of(rig.world, builds=None)
 
@@ -139,7 +139,7 @@ def resolve(rig, gap_id: str, clr: str) -> None:
 
 async def test_after_a_revert_the_follow_up_is_answered_not_the_old_gap() -> None:
     rig, listed = await ai_rig()
-    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    await rig.service.apply_now(rig.project_id, by=MEMBER)
     resolve(rig, listed.gap_id, listed.clarification.clr_id)
 
     result = await rig.service.revert_clarification(rig.project_id, listed.clarification.clr_id, by=MEMBER, reason="A")
@@ -160,7 +160,7 @@ async def test_a_reopened_gap_with_a_reverted_answer_is_never_obsolete() -> None
     rig, listed = await ai_rig()
     spec = {"sections": [{"section": "S1", "relevance": "spec", "signal": "states behaviour"}]}
     rig.world.gateway.handle(RELEVANCE_PROMPT, lambda _request: spec)
-    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    await rig.service.apply_now(rig.project_id, by=MEMBER)
     await rig.service.revert_clarification(rig.project_id, listed.clarification.clr_id, by=MEMBER, reason="No.")
     criteria = {Planted.OWNERLESS_CSV_EXPORT: {"acceptance_criteria": str(listed.clarification.text)}}
 

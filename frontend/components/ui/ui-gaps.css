@@ -97,6 +97,19 @@
   display: flex;
   align-items: center;
 }
+/* DecisionRow `badge` (FR-GWEB-04): a Tag after the title on its line; the title keeps its ellipsis, the Tag its size. */
+.gdg-drow__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.gdg-drow__line > b {
+  min-width: 0;
+}
+.gdg-drow__line > :not(b) {
+  flex: none;
+}
 /* A list with row controls lets their menus reach past its edge (bundle.css clips `.gdg-dlist`); its last row rounds itself. */
 .gdg-dlist:has(.gdg-drow--aside) {
   overflow: visible;

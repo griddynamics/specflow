@@ -89,11 +89,7 @@ def test_the_shipped_rules_load_against_the_merged_ontology(ontology: Ontology) 
     assert rules.routing.ai_kinds == ("missing", "ambiguous", "inconsistency")
     assert rules.routing.gates.min_confidence == 0.85
     assert set(rules.routing.severity_prior) == set(ontology.node_type("Gap").attributes["kind"].values)
-    assert (
-        rules.limits.options_min,
-        rules.limits.options_max,
-        rules.limits.apply_quiet_seconds,
-    ) == (2, 4, 120)
+    assert (rules.limits.options_min, rules.limits.options_max) == (2, 4)
 
 
 def test_the_shipped_rules_resolve_only_spec_types(ontology: Ontology) -> None:
@@ -225,6 +221,7 @@ def test_fr_gont_03_every_section_reports_its_problems_in_one_error(tmp_path: Pa
         (lambda data: data.update(relevance=None), "relevance must be a mapping"),
         (lambda data: data.update(routing=None), "routing must be a mapping"),
         (lambda data: data.update(limits=None), "limits must be a mapping"),
+        (lambda data: data["limits"].update(apply_quiet_seconds=120), "limits.apply_quiet_seconds: unknown key"),
         (
             lambda data: data["routing"]["severity_prior"].update(missing=-1),
             "must be positive numbers: missing",

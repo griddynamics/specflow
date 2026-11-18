@@ -32,7 +32,7 @@ async def test_my_gaps_as_rows_then_one_gap_whole_with_its_card(served) -> None:
     assert not mine.is_error and mine.structured_content is not None
     rows = mine.structured_content["items"]
     assert [(row["gap_id"], row["status"], row["assignee"]["you"]) for row in rows] == [(gap_id, "open", True)]
-    assert set(rows[0]) == {"gap_id", "title", "severity", "kind", "status", "assignee"}
+    assert set(rows[0]) == {"gap_id", "title", "severity", "kind", "status", "resolving", "assignee"}
     assert not opened.is_error and opened.structured_content is not None
     detail = opened.structured_content
     assert (detail["gap_id"], detail["question"], detail["answerable"]) == (gap_id, QUESTION, True)

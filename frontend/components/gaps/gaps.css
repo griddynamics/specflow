@@ -251,18 +251,51 @@
   color: var(--ink-2);
 }
 
-/* The inbox actions: the outcome of "Apply now" on the left, the two actions on the right. */
+/* The header row's actions, right of the tabs: "Raise a gap", then "Resolve gaps" (busy: not dimmed, a small spinner before the label;
+   off and busy are aria-disabled, ui-gaps-app.css dims off). */
 .gaps-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
   gap: var(--space-xs) var(--space-sm);
 }
-.gaps-actions__msg {
-  flex: 1;
-  min-width: 12rem;
+.gaps-actions .gdg-btn {
+  white-space: nowrap;
+}
+.gaps-actions .gdg-btn.gaps-resolve {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.gaps-actions .gdg-btn.gaps-resolve--busy {
+  opacity: 1;
+  cursor: progress;
+}
+.gaps-resolve__spin {
+  width: 14px;
+  height: 14px;
+}
+
+/* The "Resolve gaps" confirmation: one line per staged gap (title), then its answer and who staged it. */
+.gaps-staged {
+  display: grid;
   margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gaps-staged__item {
+  display: grid;
+  gap: var(--space-2xs);
+  padding-block: var(--space-xs);
+}
+.gaps-staged__item + .gaps-staged__item {
+  border-top: 1px solid var(--hairline);
+}
+.gaps-staged__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.gaps-staged__meta {
   color: var(--ink-2);
 }
 

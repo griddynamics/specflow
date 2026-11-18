@@ -14,6 +14,7 @@ from typing import Final
 from urllib.parse import quote
 
 from agent_contracts import (
+    GAP_STAGES,
     GapAnswerView,
     GapCard,
     GapCardOption,
@@ -25,6 +26,7 @@ from agent_contracts import (
     GapHistoryItem,
     GapNode,
     GapRow,
+    GapStage,
     Holder,
 )
 from api.agent_views import Holders
@@ -154,14 +156,22 @@ def gap_row(gap: GapView, assignee: Holder | None) -> GapRow:
         title=_one_line(gap.title),
         severity=gap.severity,
         kind=gap.kind,
-        status=gap.status,
+        status=stage(gap.status),
+        resolving=gap.status == APPLYING,
         assignee=assignee,
     )
+
+
+def stage(status: str) -> GapStage:
+    """What people see of a stored status: open, staged (answered or applying) or resolved."""
+
+    return next(name for name, statuses in GAP_STAGES.items() if status in statuses)
 
 
 # --- open_gap: one gap whole, as its web card shows it --------------------------------------------------------------
 
 OPEN: Final = "open"
+APPLYING: Final = "applying"
 SPECFLOW: Final = "SpecFlow"
 # The history in words, as the web card's history says it (frontend gaps-logic.ts "history").
 EVENT_WORDS: Final = {
@@ -319,10 +329,11 @@ def _head(detail: GapDetail) -> list[str]:
 
     origin = ORIGINS.get(detail.origin, detail.origin)
     blocks = ", blocks work" if detail.blocking else ""
+    resolving = " (resolving: the rebuild that applies it runs)" if detail.resolving else ""
     kind = detail.kind.replace("_", " ")
     parts = [
         f"**{_one_line(detail.title)}** ({detail.severity} {kind}, {origin}, `{detail.gap_id}`)",
-        f"**Status:** {detail.status}{blocks} · **Assigned to:** {assignee_text(detail.assignee)}",
+        f"**Status:** {detail.status}{resolving}{blocks} · **Assigned to:** {assignee_text(detail.assignee)}",
         f"**Question:** {_one_line(detail.question)}",
     ]
     if detail.why.strip():
@@ -390,7 +401,8 @@ def gap_detail(gap: GapView, project_id: str, public_url: str | None, holders: H
         severity=gap.severity,
         kind=gap.kind,
         origin=gap.origin,
-        status=gap.status,
+        status=stage(gap.status),
+        resolving=gap.status == APPLYING,
         blocking=gap.blocking,
         question=gap.question,
         why=gap.why,

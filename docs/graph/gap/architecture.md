@@ -130,7 +130,6 @@ The plan's `FindingsReads` port is filled by `GapService`.
 | `GAP_INVESTIGATOR` | `loop` | `loop` or `agents` |
 | `GAP_AI_ANSWERS` | `true` | Allows the `ai` route; when off, every gap is asked |
 | `GAP_RULES_PATH` | empty | A project-wide rules file replacing the shipped one |
-| `GAP_APPLY_QUIET_SECONDS` | `120` | Quiet period before pending answers are applied |
 | Gateway roles `gap_relevance`, `gap_investigate`, `gap_judge`, `gap_edits` | the gateway defaults | Model, token limits and timeouts per role |
 
 The host maps the settings to `GapSettings` ([api.md](api.md) "Models") when the graph build is configured

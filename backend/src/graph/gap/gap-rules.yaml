@@ -105,4 +105,3 @@ limits:                         # detection.md "Limits"
   ai_answers_max_node_share: 0.05
   options_min: 2
   options_max: 4
-  apply_quiet_seconds: 120

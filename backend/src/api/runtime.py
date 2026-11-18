@@ -242,7 +242,7 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
     )
     if runtime.gaps is not None:  # answers are applied by update builds of this runner
         runtime.gaps.use_builds(runtime.graph_builds)
-        runtime.gaps.start_recovery()  # answers a restart left behind (quiet periods, apply builds)
+        runtime.gaps.start_recovery()  # applies a restart left behind (their update builds)
     runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps)
     # Pushed last, so they run first: plan runs, builds and then gap runs stop before the store and engine close.
     stack.push_async_callback(runtime.graph_builds.aclose)

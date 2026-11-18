@@ -179,7 +179,6 @@ def make_gap_runner(
     ensured: list[Any] | None = None,
     builds: Any = None,
     service: Any = None,
-    rules: Any = None,
 ) -> GapRunner:
     """A runner on ``tmp_path`` (build store) and a memory run store, with stub ports, readers and gateway; its
     ``service()`` is ``service`` when given, else the (args, kwargs) the service was built with."""
@@ -201,7 +200,7 @@ def make_gap_runner(
         runs=runs if runs is not None else MemoryGapRunStore(),
         builds=builds if builds is not None else open_file_stores(tmp_path).builds,
         ontology=object(),
-        rules=rules if rules is not None else object(),
+        rules=object(),
         ensure=ensure,
         gateway_factory=StubGateway,
         ports=lambda _transaction: ("records", "amendments"),

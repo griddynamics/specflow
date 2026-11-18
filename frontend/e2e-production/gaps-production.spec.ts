@@ -1,7 +1,9 @@
 // FR-GWEB-04 (read part), FR-GRTE-06: the Gaps screen on the PRODUCTION routes against the stub API through the real BFF, with shop-corpus
-// gaps seeded through the stub's control port (no paid model call): the inbox (held_back=false) and "More found in this run" (held_back=true),
-// the filters going to the server (the Assigned filter and column, FR-GWEB-06), the question card with its recommended option preselected, quotes and ABOUT/IMPACTS chips, the noise
-// report tab, the gap check status line and the "not available" state of `503 gap_unavailable`. Opening the screen and a card only reads (GETs); the writes are in
+// gaps seeded through the stub's control port (no paid model call): the inbox (the open gaps, held_back=false) and "More found in this
+// run" (held_back=true), "Raise a gap" and "Resolve gaps" in the header row beside the tabs (off with its reason while nothing is
+// staged), the filters going to the server (Status: Open, Staged, Resolved, All; the Assigned filter and column, FR-GWEB-06), the
+// question card with its recommended option preselected, quotes and ABOUT/IMPACTS chips, the noise report tab, the gap check status line
+// and the "not available" state of `503 gap_unavailable`. Opening the screen and a card only reads (GETs); the writes are in
 // gaps-write-production.spec.ts.
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
@@ -11,6 +13,7 @@ import {
   buildGraphAndPlan,
   calls,
   createViaNew,
+  defined,
   expect,
   expectUploadReady,
   login,
@@ -79,13 +82,46 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(held.getByRole("list", { name: "More found in this run" }).getByRole("listitem")).toHaveText(/Guest checkout is assumed/);
 
     const made = calls(requests.slice(from));
-    expect(made.map((r) => r.path + r.search)).toContain(`/api/backend/projects/${pid}/gaps?route=ask&held_back=false`);
-    expect(made.map((r) => r.path + r.search)).toContain(`/api/backend/projects/${pid}/gaps?route=ask&held_back=true`);
+    const base = `/api/backend/projects/${pid}/gaps?`;
+    expect(made.map((r) => r.path + r.search)).toContain(`${base}status=open&route=ask&held_back=false`);
+    expect(made.map((r) => r.path + r.search)).toContain(`${base}status=open&route=ask&held_back=true`);
+    expect(made.map((r) => r.path + r.search)).toContain(`${base}status=answered&status=applying&limit=200`); // the staged answers
     expect(made.filter((r) => r.method !== "GET")).toEqual([]);
-    await expect(page.getByTestId("gaps-apply-now")).toBeVisible();
-    await expect(page.getByTestId("gaps-raise")).toBeVisible();
     for (const tab of ["inbox", "ai", "noise"]) await expect(page.getByTestId(`gaps-tab-${tab}`)).toBeVisible();
     await expect(page.getByTestId("gaps-tab-documents")).toHaveCount(0);
+  });
+
+  test("FR-GWEB-04: 'Raise a gap' and 'Resolve gaps' sit in the header row right of the tabs on every tab; with nothing staged Resolve gaps is off and says why", async ({
+    page,
+  }) => {
+    const { pid } = await shopProject(page);
+    await page.goto(`/projects/${pid}/gaps`);
+    await expect(inboxRows(page)).toHaveCount(4);
+    const head = page.getByTestId("shell-head");
+    const tabs = head.getByRole("group", { name: "View" });
+    const raise = head.getByTestId("gaps-raise");
+    const resolve = head.getByTestId("gaps-resolve");
+    for (const tab of ["inbox", "ai", "noise"]) {
+      await page.getByTestId(`gaps-tab-${tab}`).click();
+      await expect(raise).toBeVisible();
+      await expect(resolve).toBeVisible();
+      const [t, r, x] = (await Promise.all([tabs.boundingBox(), raise.boundingBox(), resolve.boundingBox()])).map((b) =>
+        defined(b, "a laid-out header row"),
+      );
+      expect(Math.abs(t.y + t.height / 2 - (x.y + x.height / 2)), "on the tabs' line").toBeLessThan(4);
+      expect(r.x, "Raise a gap right of the tabs").toBeGreaterThan(t.x + t.width);
+      expect(x.x, "Resolve gaps right of Raise a gap").toBeGreaterThan(r.x + r.width);
+    }
+    await expect(page.getByTestId("gaps-actions")).toHaveCount(1);
+    await expect(resolve).toHaveText("Resolve gaps");
+    await expect(resolve).toHaveAttribute("aria-disabled", "true");
+    await expect(resolve).toHaveAttribute("data-state", "off");
+    await expect(resolve).toHaveAccessibleDescription("Stage an answer first.");
+    await expect(resolve).toHaveClass(/gdg-btn--primary/);
+    await expect(raise).toHaveClass(/gdg-btn--glass/);
+    await resolve.focus(); // off but focusable (aria-disabled): Enter opens nothing
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
   test("FR-GWEB-04, FR-GWEB-06: the filters (status, kind, severity, story, assigned) go to the server and narrow the inbox", async ({
@@ -123,22 +159,32 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(inboxRows(page)).toHaveCount(1);
     await expect(inboxRows(page)).toContainText(CANCEL_TITLE);
     await pick(page, "Story", "All");
+    await page.getByTestId("select-Status").getByRole("button").click();
+    await expect(page.getByRole("menu", { name: "Status" }).getByRole("menuitemradio")).toHaveText(["Open", "Staged", "Resolved", "All"]);
+    await page.keyboard.press("Escape");
     await pick(page, "Status", "Resolved");
     await expect(inboxRows(page)).toHaveCount(1);
     await expect(inboxRows(page)).toContainText("The return window is not stated");
-    await pick(page, "Status", "Not resolved");
+    await expect(inboxRows(page)).toContainText("Resolved · How many days may a customer return goods?");
+    await pick(page, "Status", "Staged");
+    await expect(page.getByTestId("gaps-empty")).toBeVisible(); // nothing is staged in the shop gaps
+    await pick(page, "Status", "All");
+    await expect(inboxRows(page)).toHaveCount(5);
+    await pick(page, "Status", "Open");
     await pick(page, "Kind", "Assumption");
     await expect(page.getByTestId("gaps-empty").getByRole("heading", { name: "No gaps match these filters" })).toBeVisible();
     await expect(page.getByTestId("gap-count")).toHaveText("");
 
     const paths = calls(requests).map((r) => r.path + r.search);
     const base = `/api/backend/projects/${pid}/gaps?`;
-    expect(paths).toContain(`${base}kind=contradiction&route=ask&held_back=false`);
-    expect(paths).toContain(`${base}severity=minor&route=ask&held_back=false`);
-    expect(paths).toContain(`${base}route=ask&assigned_to=${ME_ID}&held_back=false`);
-    expect(paths).toContain(`${base}route=ask&assigned_to=none&held_back=false`);
-    expect(paths).toContain(`${base}route=ask&story_id=STORY%3A%3ACHECKOUT&held_back=false`);
+    expect(paths).toContain(`${base}status=open&kind=contradiction&route=ask&held_back=false`);
+    expect(paths).toContain(`${base}status=open&severity=minor&route=ask&held_back=false`);
+    expect(paths).toContain(`${base}status=open&route=ask&assigned_to=${ME_ID}&held_back=false`);
+    expect(paths).toContain(`${base}status=open&route=ask&assigned_to=none&held_back=false`);
+    expect(paths).toContain(`${base}status=open&route=ask&story_id=STORY%3A%3ACHECKOUT&held_back=false`);
     expect(paths).toContain(`${base}status=resolved&route=ask&held_back=false`);
+    expect(paths).toContain(`${base}status=answered&status=applying&route=ask&held_back=false`);
+    expect(paths).toContain(`${base}status=open&status=answered&status=applying&status=resolved&route=ask&held_back=false`);
   });
 
   test("FR-GWEB-04: the question card shows the question, why, ABOUT and IMPACTS chips, quotes with their document and section, reach and the options with A recommended and preselected (major); opening it only reads", async ({
@@ -178,6 +224,7 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(card.getByTestId("option-recommended")).toHaveCount(1);
     for (let i = 0; i < 4; i++) await expect(radios.nth(i)).toBeEnabled();
     await expect(card.getByTestId("gap-submit")).toBeEnabled();
+    await expect(card.getByTestId("gap-submit")).toHaveText("Stage answer");
     await expect(card.getByTestId("gap-dismiss")).toBeVisible();
     await expect(card.getByRole("button", { name: "Add comment" })).toHaveCount(0);
 

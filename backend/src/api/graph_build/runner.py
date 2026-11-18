@@ -164,7 +164,7 @@ class GraphBuildRunner:
     async def request_update_build(self, project_id: str, reason: str, *, immediate: bool) -> str:
         """``BuildRequests`` of the gap module: start an update build of the project now (``started``), or, while
         one runs, start the next one when it ends (``queued``); never a second build beside the running one.
-        ``immediate`` only says the caller skipped its quiet period: the request is served the same way."""
+        ``immediate`` only says the caller did not wait for "Resolve gaps": the request is served the same way."""
 
         if self._closed:
             raise RunnerClosedError("the graph build runner is closed")

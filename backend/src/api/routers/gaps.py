@@ -9,7 +9,7 @@ configured (no graph build settings, or ``GAP_ENABLED`` off). Logs carry ids, co
 
 The writes are ``GapService`` calls with the member as actor (FR-GANS-13: membership is the only access rule):
 ``POST /gaps`` raises a gap (origin ``person``) and queues a ``site`` run on it; ``POST /gaps/{gap_id}/edits_preview``
-and ``/answer``; an answer schedules the apply at the end of the quiet period (``POST /gaps/apply`` applies at once);
+and ``/answer``; an answer is staged until ``POST /gaps/apply`` ("Resolve gaps") applies the staged answers;
 ``POST /gaps/{gap_id}/dismiss``; ``PUT /gaps/{gap_id}/assignee`` assigns the gap to a member or clears it
 (``GET /gaps?assigned_to=me|none|<user id>`` lists by assignee); ``GET``/``POST /gaps/noise_rules`` and
 ``DELETE /gaps/noise_rules/{rule_id}`` (registered before ``/gaps/{gap_id}``). ``GET /gaps/ai_answers`` is the review
@@ -243,12 +243,11 @@ async def raise_gap(pid: uuid.UUID, body: GapRaiseBody, runtime: RuntimeDep, use
 
 @router.post("/gaps/apply", response_model=ApplyResult)
 async def apply_answers(pid: uuid.UUID, runtime: RuntimeDep, user: UserDep) -> ApplyResult:
-    """Apply the project's pending answers now ("Apply now"): one update build is requested."""
+    """Apply the project's staged answers ("Resolve gaps"): one update build is requested."""
 
     await require_project(runtime, user.id, pid)
     runner = _runner(runtime)
     service = await runner.service()
-    runner.applied(str(pid))  # before the apply: an answer recorded during it schedules its own apply
     try:
         result = await service.apply_now(str(pid), by=str(user.id))
     except GapStateError as error:
@@ -351,8 +350,8 @@ async def preview_edits(
 async def answer_gap(
     pid: uuid.UUID, gap_id: GapId, body: GapAnswerBody, runtime: RuntimeDep, user: UserDep
 ) -> AnswerResult:
-    """Answer a gap with an option or own text: a pending clarification and its amendments; the answers of the
-    project are applied after the quiet period (or at once for a development gap that blocks its story)."""
+    """Answer a gap with an option or own text: a pending clarification and its amendments, staged until "Resolve
+    gaps" (or applied at once for a development gap that blocks its story)."""
 
     await require_project(runtime, user.id, pid)
     runner = _runner(runtime)

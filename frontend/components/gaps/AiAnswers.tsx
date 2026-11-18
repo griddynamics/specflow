@@ -1,8 +1,9 @@
 "use client";
-// FR-GWEB-04 (answers.md "Review list", "Revert"): the "Answered by AI" tab. Every AI and pointer answer, newest first: the gap's title (a
-// link to its card), the answer, the basis quotes, the confidence in words, the build that applied it and its status. "Revert" per row (a
-// reason 1..500) withdraws it; the list reads again and a reverted row names the follow-up gap a person answers instead, as a link to its
-// card. Nothing waits for a review here: the list exists so a person can check and undo. `503 gap_unavailable` shows "not available".
+// FR-GWEB-04 (answers.md "Review list", "Revert", "Applying answers"): the "Answered by AI" tab. Every AI and pointer answer, newest
+// first: the gap's title (a link to its card), the answer, the basis quotes, the confidence in words, its status and the build that
+// applied it. An AI answer is staged like a person's: it reaches the spec when someone presses "Resolve gaps". Per row (a reason
+// 1..500) "Unstage" drops a staged answer and "Revert" withdraws an applied one; the screen's lists, this one too, read again and a
+// reverted row names the follow-up gap a person answers instead, as a link to its card. `503 gap_unavailable` shows "not available".
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -18,6 +19,17 @@ import { CLARIFICATION_STATUS_LABEL, clarificationText, confidenceText, failureO
 type Load = AiAnswer[] | "unavailable" | "failed" | null;
 
 const REVERTIBLE = new Set(["pending", "applied", "absorbed"]);
+
+/** "Unstage" a staged answer, "Revert" an applied one. */
+const undoLabel = (c: AiAnswer["clarification"]): string => (c.status === "pending" ? "Unstage" : "Revert");
+
+/** Where the answer is: applied by a build, being resolved, staged for "Resolve gaps", or not applied. */
+function appliedText(row: AiAnswer): string {
+  const c = row.clarification;
+  if (c.appliedBuildId !== null && c.appliedBuildId !== undefined) return `Applied by build ${c.appliedBuildId}`;
+  if (c.status !== "pending") return "Not applied";
+  return row.gapStatus === "applying" ? "Being resolved" : "Waits for Resolve gaps";
+}
 
 function AiRow({
   row,
@@ -50,13 +62,7 @@ function AiRow({
         {clarificationText(c)}
       </p>
       <p className="ai-row__meta body-sm" data-testid="ai-answer-meta">
-        {[
-          confidence,
-          c.appliedBuildId === null || c.appliedBuildId === undefined ? "Not applied yet" : `Applied by build ${c.appliedBuildId}`,
-          `answered ${whenText(c.answeredAt)}`,
-        ]
-          .filter((x) => x !== null)
-          .join(" · ")}
+        {[confidence, appliedText(row), `answered ${whenText(c.answeredAt)}`].filter((x) => x !== null).join(" · ")}
       </p>
       {basis.length === 0 ? null : (
         <ul className="gap-quotes" aria-label="Basis" data-testid="ai-answer-basis">
@@ -88,15 +94,22 @@ function AiRow({
             variant="glass"
             size="sm"
             onClick={onRevert}
-            aria-label={`Revert the AI answer to ${row.title === "" ? row.gapId : row.title}`}
+            aria-label={`${undoLabel(c)} the AI answer to ${row.title === "" ? row.gapId : row.title}`}
             data-testid="ai-revert"
           >
-            Revert
+            {undoLabel(c)}
           </Button>
         </div>
       ) : null}
     </li>
   );
+}
+
+function revertedText(followUp: boolean, staged: boolean): string {
+  if (staged) return "Answer unstaged. The gap is open again for a person in the inbox.";
+  return followUp
+    ? "Answer reverted. A follow-up gap is open for a person; it is linked on the row."
+    : "Answer reverted. The gap is open again for a person in the inbox.";
 }
 
 export function AiAnswers({
@@ -105,12 +118,15 @@ export function AiAnswers({
   href,
   onOpenGap,
   onChanged,
+  version,
 }: Readonly<{
   gaps: GapsPort;
   projectId: string;
   href: (id: string) => string;
   onOpenGap: (id: string) => void;
   onChanged: () => void;
+  /** Changes when the screen's lists read again (an answer, "Resolve gaps"): the rows read again too. */
+  version: number;
 }>) {
   const [data, setData] = useState<Load>(null);
   const [tries, setTries] = useState(0);
@@ -129,7 +145,7 @@ export function AiAnswers({
     return () => {
       alive = false;
     };
-  }, [gaps, projectId, tries]);
+  }, [gaps, projectId, tries, version]);
   const again = useCallback(() => {
     setTries((n) => n + 1);
   }, []);
@@ -146,7 +162,8 @@ export function AiAnswers({
   return (
     <div className="ai-answers" data-testid="ai-answers">
       <p className="gaps-count body-sm">
-        Gaps that Specflow answered itself, with the lines it relied on. Nothing waits for your review; revert any answer you disagree with.
+        Gaps that Specflow answered itself, with the lines it relied on. Its answers are staged like yours: they reach the spec when someone
+        presses Resolve gaps. Unstage or revert any answer you disagree with.
       </p>
       {done === null ? null : (
         <p className="gap-done body-sm" role="status" data-testid="ai-revert-result">
@@ -178,22 +195,21 @@ export function AiAnswers({
       )}
       {reverting === null ? null : (
         <ReasonDialog
-          title="Revert AI answer"
-          description="The answer's text leaves the specification with the next build, and a person answers the question instead."
-          confirmLabel="Revert"
+          title={`${undoLabel(reverting.clarification)} AI answer`}
+          description={
+            reverting.clarification.status === "pending"
+              ? "The staged answer is dropped before it reaches the spec, and a person answers the question instead."
+              : "The answer's text leaves the specification with the next build, and a person answers the question instead."
+          }
+          confirmLabel={undoLabel(reverting.clarification)}
           onClose={() => {
             setReverting(null);
           }}
           onConfirm={async (reason) => {
             const r = await gaps.revert(projectId, reverting.clarification.clrId, reason);
             setReverting(null);
-            setDone(
-              r.followUp
-                ? "Answer reverted. A follow-up gap is open for a person; it is linked on the row."
-                : "Answer reverted. The gap is open again for a person in the inbox.",
-            );
+            setDone(revertedText(r.followUp, reverting.clarification.status === "pending"));
             onChanged();
-            again();
           }}
         />
       )}

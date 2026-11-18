@@ -58,7 +58,7 @@ The shop spec says, under "Place order": "Can a customer cancel a paid order?". 
 7. **Answer.** The product owner picks option A in the Gaps inbox. A `Clarification` node `ANSWERS` the gap
    and is `PLACED_IN` orders-spec.md. Its edit, "replace the question line with the answer", is stored as an
    amendment.
-8. **Apply.** After a quiet period (or "Apply now") the host requests one update build. The corpus reader
+8. **Apply.** When someone presses "Resolve gaps", the host requests one update build for every staged answer. The corpus reader
    applies the amendment, so the build sees a new version of the "Place order" section and re-extracts only
    that fragment: the question node is removed and `REQ::FR::CANCEL_PAID_ORDER` is added.
 9. **Close.** The gap run after the build finds OQ-STATED silent on that line and the answer grounded in the

@@ -23,8 +23,8 @@ Investigation (investigation.md): ``investigate`` builds each site's context pac
 ``ctx.investigator`` (the structured loop ``LoopInvestigator`` by default); ``check`` validates every report, finds
 duplicates and runs the second check of pointers and AI answers; ``route`` decides severity and route (the gates and
 the valve of AI answers) and holds back new questions beyond the run's limit; ``record`` writes gaps, options, pointer
-clarifications and AI answers (a ``pending`` clarification of mode ``ai`` with its amendment rows, applied like a
-person's answer by the host's quiet period). A ``not_spec`` report turns the
+clarifications and AI answers (a ``pending`` clarification of mode ``ai`` with its amendment rows: staged like a
+person's answer until "Resolve gaps"). A ``not_spec`` report turns the
 sections of its nodes ``mixed`` and lists the nodes in the run's noise report (FR-GREL-07). ``close`` is the close
 check of applied answers, obsolete gaps and stale witnesses (``steps.close``, lifecycle.md "Close check"); the follow-up
 gaps it opens get a site in the same run.

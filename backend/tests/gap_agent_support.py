@@ -52,7 +52,6 @@ class ServiceRunner:
         self._world = world
         self._holds = holds
         self.sites: list[tuple[str, str]] = []
-        self.applies: list[tuple[str, Any]] = []
 
     async def service(self) -> GapService:
         return self._service
@@ -62,12 +61,6 @@ class ServiceRunner:
         if self._world is not None:
             context = dataclasses.replace(self._world.context(), holds=self._holds)
             await run_gap(context, mode="site", site_ids=(gap_id,))
-
-    def schedule_apply(self, project_id: str, at: Any) -> None:
-        self.applies.append((project_id, at))
-
-    def applied(self, project_id: str) -> None:
-        del project_id
 
 
 @dataclass

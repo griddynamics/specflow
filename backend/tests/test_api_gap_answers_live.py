@@ -3,15 +3,14 @@ scratch database (docs/graph/gap/answers.md; FR-GANS-01, FR-GANS-03, FR-GANS-08,
 
 A returned build queues the gap run (seed investigator: no model call); then the runner's ``GapService`` answers
 option A of the cancel-paid-order gap (clarification on the graph store, a ``pending`` amendment row in PostgreSQL),
-a stale answer is refused, the quiet-period apply makes the amendment ``active``, moves the gap to ``applying`` and
-requests one update build; a dismissal deletes the node and stores the suppression; a raised gap gets options from
-its ``site`` run. Needs ``SPECFLOW_TEST_POSTGRES=1`` and a live graph store (``SPECFLOW_TEST_GRAPH_STORE``).
+staged: no build is requested; a stale answer is refused; "Resolve gaps" (``apply_now``) makes the amendment
+``active``, moves the gap to ``applying`` and requests one update build; a dismissal deletes the node and stores the
+suppression; a raised gap gets options from its ``site`` run. Needs ``SPECFLOW_TEST_POSTGRES=1`` and a live graph
+store (``SPECFLOW_TEST_GRAPH_STORE``).
 """
 
 from __future__ import annotations
 
-import asyncio
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,19 +40,6 @@ pytestmark = [requires_live("POSTGRES"), requires_live_graph()]
 MEMBER = "user-member-2"
 
 
-class SignalledBuilds(MemoryBuildRequests):
-    """Build requests that set ``requested`` when one arrives (the apply ran)."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.requested = asyncio.Event()
-
-    async def request_update_build(self, project_id: str, reason: str, *, immediate: bool) -> str:
-        found = await super().request_update_build(project_id, reason, immediate=immediate)
-        self.requested.set()
-        return found
-
-
 async def _check_witness_lines(service: Any, project_id: str, gap_id: str) -> None:
     """FR-GWEB-04: the witness lines name their document and section."""
 
@@ -71,7 +57,7 @@ async def test_answer_apply_dismiss_and_raise_on_live_stores(
         graph_project.project_ids.append(project_id)
         await write_gap_corpus_graph(graph_project, project_id)
         await store_build(tmp_path, "build-1", minutes=0, project_id=project_id)
-        builds = SignalledBuilds()
+        builds = MemoryBuildRequests()
         runner = GapRunner(
             SETTINGS.model_copy(update={"state_dir": str(tmp_path)}),
             GapSettings(),
@@ -101,6 +87,7 @@ async def test_answer_apply_dismiss_and_raise_on_live_stores(
                 AnswerInput(gap_id=gap.gap_id, option_rank=1, answered_by=MEMBER, updated_at=gap.updated_at),
             )
 
+            assert (result.immediate, result.apply_at, builds.requests) == (False, None, [])
             answered = await service.get_gap(project_id, gap.gap_id)
             assert answered.status == "answered" and answered.clarification is not None
             assert (answered.clarification.clr_id, answered.clarification.answered_by) == (result.clr_id, MEMBER)
@@ -112,10 +99,9 @@ async def test_answer_apply_dismiss_and_raise_on_live_stores(
                     AnswerInput(gap_id=gap.gap_id, option_rank=2, answered_by=MEMBER, updated_at=gap.updated_at),
                 )
 
-            runner.schedule_apply(project_id, datetime.now(UTC))  # the quiet period has passed
+            applied = await service.apply_now(project_id, by=MEMBER)
 
-            await asyncio.wait_for(builds.requested.wait(), 10)
-            assert builds.requests == [(project_id, "gap_answers", False)]
+            assert result.clr_id in applied.clr_ids and builds.requests == [(project_id, "gap_answers", False)]
             assert (await service.get_gap(project_id, gap.gap_id)).status == "applying"
             assert [row.status for row in await amendments.for_clarification(project_id, result.clr_id)] == ["active"]
             await _check_witness_lines(service, project_id, gap.gap_id)

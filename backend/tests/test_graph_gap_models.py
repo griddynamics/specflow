@@ -301,21 +301,15 @@ def test_settings_default_and_map_the_environment(tmp_path: Path) -> None:
         }
     )
 
-    assert (settings.enabled, settings.auto_run_after_build, settings.ai_answers) == (
-        False,
-        False,
-        False,
-    )
-    assert (
-        settings.investigator,
-        settings.rules_path,
-        settings.apply_quiet_seconds,
-    ) == (
-        "agents",
-        tmp_path / "rules.yaml",
-        30,
+    assert settings == GapSettings(
+        enabled=False,
+        auto_run_after_build=False,
+        ai_answers=False,
+        investigator="agents",
+        rules_path=tmp_path / "rules.yaml",
     )
     assert gap_settings_from_env({"GAP_ENABLED": " ", "GAP_RULES_PATH": ""}) == GapSettings()
+    assert gap_settings_from_env({"GAP_APPLY_QUIET_SECONDS": "soon"}) == GapSettings()
 
 
 @pytest.mark.parametrize(
@@ -323,8 +317,6 @@ def test_settings_default_and_map_the_environment(tmp_path: Path) -> None:
     [
         ({"GAP_ENABLED": "maybe"}, "GAP_ENABLED"),
         ({"GAP_INVESTIGATOR": "crew"}, "GAP_INVESTIGATOR"),
-        ({"GAP_APPLY_QUIET_SECONDS": "soon"}, "GAP_APPLY_QUIET_SECONDS"),
-        ({"GAP_APPLY_QUIET_SECONDS": "0"}, "GAP_APPLY_QUIET_SECONDS"),
     ],
 )
 def test_invalid_settings_name_the_variable(environ: dict[str, str], variable: str) -> None:
@@ -341,14 +333,16 @@ def test_limit_overrides_apply_over_the_rules_and_are_checked() -> None:
     base = load_gap_rules(ontology=load_ontology()).limits
 
     assert GapSettings().effective_limits(base) is base
-    limits = GapSettings(limits={"sites_full_run": 10}, apply_quiet_seconds=5).effective_limits(base)
+    limits = GapSettings(limits={"sites_full_run": 10, "options_max": 3}).effective_limits(base)
     assert (
         limits.sites_full_run,
-        limits.apply_quiet_seconds,
+        limits.options_max,
         limits.sites_update_run,
-    ) == (10, 5, base.sites_update_run)
+    ) == (10, 3, base.sites_update_run)
     with pytest.raises(ValidationError, match="unknown limits: sites"):
         GapSettings(limits={"sites": 1})
+    with pytest.raises(ValidationError, match="unknown limits: apply_quiet_seconds"):
+        GapSettings(limits={"apply_quiet_seconds": 5})
     with pytest.raises(ConfigurationError, match="invalid_gap_settings"):
         GapSettings(limits={"options_max": 9}).effective_limits(base)
     with pytest.raises(ValidationError, match="options_min must not exceed"):

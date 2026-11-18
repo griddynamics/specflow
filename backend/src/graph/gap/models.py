@@ -684,32 +684,33 @@ class NewGap(GapModel):
 
 
 class AnswerResult(GapModel):
-    """What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and when the
-    answers of the project are applied (``immediate``: at once, for a development gap that blocks its story)."""
+    """What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and whether it was
+    applied at once (``immediate``, with ``apply_at``: a development gap that blocks its story). Any other answer is
+    staged: it waits for ``apply_now`` ("Resolve gaps"), and ``apply_at`` is None."""
 
     gap_id: str
     clr_id: str
     replaced: str | None = None
     placement: ClarificationPlacement
     amendments: tuple[str, ...] = ()
-    apply_at: AwareDatetime
+    apply_at: AwareDatetime | None = None
     immediate: bool = False
 
 
 class PendingAnswers(GapModel):
     """What ``pending_answers`` finds of a project's answers after a restart (answers.md "Applying answers"):
-    ``answered_at`` is the latest answer still waiting for its quiet period (None when none waits),
     ``apply_requested_at`` the earliest apply still waiting for its update build (None when none waits), and
-    ``orphans`` the pending amendment rows of clarifications that no longer exist, deleted now."""
+    ``orphans`` the pending amendment rows of clarifications that no longer exist, deleted now. Staged answers wait
+    for "Resolve gaps" and need nothing."""
 
-    answered_at: AwareDatetime | None = None
     apply_requested_at: AwareDatetime | None = None
     orphans: int = 0
 
 
 class ApplyResult(GapModel):
-    """What ``apply_now`` (and the quiet-period apply) returns: the gaps moved to ``applying``, the clarifications
-    whose amendments became active and the build request's answer (``None`` without a ``BuildRequests`` port)."""
+    """What ``apply_now`` ("Resolve gaps", or an immediate answer) returns: the gaps moved to ``applying``, the
+    clarifications whose amendments became active and the build request's answer (``None`` without a
+    ``BuildRequests`` port)."""
 
     gap_ids: tuple[str, ...] = ()
     clr_ids: tuple[str, ...] = ()

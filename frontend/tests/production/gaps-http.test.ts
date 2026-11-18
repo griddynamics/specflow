@@ -9,7 +9,18 @@ import type { Gap } from "@/lib/domain/gaps";
 import type { Member } from "@/lib/domain/members";
 import {
   DEFAULT_GAP_FILTERS,
+  NOTHING_STAGED_TOAST,
+  STATUS_LABEL,
+  STATUS_OPTIONS,
   actorText,
+  answerMetaText,
+  answerOutcomeText,
+  answeredByText,
+  isNothingStaged,
+  resolveView,
+  resolvedToast,
+  stagedChoiceText,
+  submitLabel,
   assignedOptions,
   assigneeChoices,
   assigneeText,
@@ -154,9 +165,9 @@ test("FR-GWEB-04: toNoise reads the latest finished run's sections; before any f
   assert.throws(() => toNoise({ status: "sleeping" }), invalid);
 });
 
-test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for route ask and held_back=false; the held-back view for held_back=true; list filters repeat", () => {
-  assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS, false)), "route=ask&held_back=false");
-  assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS, true)), "route=ask&held_back=true");
+test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for the open gaps of route ask and held_back=false; the held-back view for held_back=true; list filters repeat", () => {
+  assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS, false)), "status=open&route=ask&held_back=false");
+  assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS, true)), "status=open&route=ask&held_back=true");
   const f = {
     ...DEFAULT_GAP_FILTERS,
     status: "all" as const,
@@ -167,7 +178,10 @@ test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for route ask and held_back=f
     gapQueryString(gapQuery({ ...f, story: "STORY::A", assigned: "me" }, false)),
     "status=open&status=answered&status=applying&status=resolved&kind=missing&severity=blocker&route=ask&story_id=STORY%3A%3AA&assigned_to=me&held_back=false",
   );
-  assert.equal(gapQueryString(gapQuery({ ...DEFAULT_GAP_FILTERS, assigned: "none" }, false)), "route=ask&assigned_to=none&held_back=false");
+  assert.equal(
+    gapQueryString(gapQuery({ ...DEFAULT_GAP_FILTERS, assigned: "none" }, false)),
+    "status=open&route=ask&assigned_to=none&held_back=false",
+  );
   assert.equal(gapQueryString({ heldBack: false, cursor: "c2" }), "held_back=false&cursor=c2");
   // The Plan's read: no route, no held_back (both), the open statuses, up to 200.
   assert.equal(
@@ -176,10 +190,25 @@ test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for route ask and held_back=f
   );
 });
 
+test("FR-GWEB-04: the Status filter offers Open (the default), Staged, Resolved and All; Staged asks for answered and applying", () => {
+  assert.deepEqual(
+    STATUS_OPTIONS.map((o) => o.label),
+    ["Open", "Staged", "Resolved", "All"],
+  );
+  assert.equal(DEFAULT_GAP_FILTERS.status, "open");
+  const q = (status: (typeof DEFAULT_GAP_FILTERS)["status"]) => gapQueryString(gapQuery({ ...DEFAULT_GAP_FILTERS, status }, false));
+  assert.equal(q("staged"), "status=answered&status=applying&route=ask&held_back=false");
+  assert.equal(q("resolved"), "status=resolved&route=ask&held_back=false");
+  assert.equal(q("all"), "status=open&status=answered&status=applying&status=resolved&route=ask&held_back=false");
+  assert.deepEqual(STATUS_LABEL, { open: "Open", answered: "Staged", applying: "Staged", resolved: "Resolved" });
+});
+
 test("FR-GWEB-04: a filter value outside its vocabulary is the default", () => {
   assert.deepEqual(patchOf("kind", "idea"), { kind: "all" });
   assert.deepEqual(patchOf("kind", "assumption"), { kind: "assumption" });
-  assert.deepEqual(patchOf("status", "nope"), { status: "active" });
+  assert.deepEqual(patchOf("status", "nope"), { status: "open" });
+  assert.deepEqual(patchOf("status", "answered"), { status: "open" }); // a stored status is not a filter value
+  assert.deepEqual(patchOf("status", "staged"), { status: "staged" });
   assert.deepEqual(patchOf("story", ""), { story: "all" });
   assert.deepEqual(patchOf("assigned", ""), { assigned: "all" });
   assert.deepEqual(patchOf("assigned", "u-2"), { assigned: "u-2" });
@@ -232,7 +261,7 @@ test("FR-GWEB-04, FR-GRTE-06: list sends the filters with held_back and reads th
   const page = await createHttpGaps().list(PID, gapQuery(DEFAULT_GAP_FILTERS, false));
   assert.equal(page.gaps.length, 1);
   assert.equal(page.next, "c2");
-  assert.deepEqual(calls, [`GET /projects/${PID}/gaps?route=ask&held_back=false`]);
+  assert.deepEqual(calls, [`GET /projects/${PID}/gaps?status=open&route=ask&held_back=false`]);
   answer(200, { gaps: "none" });
   await assert.rejects(createHttpGaps().list(PID, {}), invalid);
 });
@@ -407,7 +436,7 @@ test("FR-GWEB-04: the preview and the answer body: the edits go back exactly, wi
   assert.throws(() => toPreview({ ...PREVIEW, edits: [{ ...EDIT, operation: "delete" }] }), invalid);
 });
 
-test("FR-GWEB-04: the recommended option is preselected only for a major gap; the recorded option wins; withdraw fits pending, applied and absorbed", () => {
+test("FR-GWEB-04: the recommended option is preselected only for a major gap; the recorded option wins; unstage and withdraw fit pending, applied and absorbed, never while a rebuild runs", () => {
   const major = toGap(wireGap());
   assert.equal(preselectedOption(major), 1);
   assert.equal(preselectedOption({ ...major, severity: "blocker" }), undefined);
@@ -422,9 +451,82 @@ test("FR-GWEB-04: the recommended option is preselected only for a major gap; th
     answeredAt: "",
   };
   assert.equal(preselectedOption({ ...major, clarification: c }), 3);
-  assert.equal(withdrawable({ ...major, clarification: c }), true);
-  assert.equal(withdrawable({ ...major, clarification: { ...c, status: "reverted" } }), false);
-  assert.equal(withdrawable({ ...major, clarification: { ...c, clrId: undefined } }), false);
+  const staged = { ...major, status: "answered" as const, clarification: c };
+  assert.equal(withdrawable(staged), true);
+  assert.equal(withdrawable({ ...staged, status: "applying" }), false); // read-only while its rebuild runs
+  assert.equal(withdrawable({ ...staged, status: "resolved", clarification: { ...c, status: "applied" } }), true);
+  assert.equal(withdrawable({ ...staged, clarification: { ...c, status: "reverted" } }), false);
+  assert.equal(withdrawable({ ...staged, clarification: { ...c, clrId: undefined } }), false);
+});
+
+test("FR-GWEB-04: an open gap's button stages the answer; a gap a coding agent waits on is answered and resolved at once; a staged one changes its answer", () => {
+  const open = toGap(wireGap());
+  assert.equal(submitLabel(open), "Stage answer");
+  assert.equal(submitLabel({ ...open, origin: "development", blocking: true }), "Answer and resolve");
+  assert.equal(submitLabel({ ...open, origin: "development", blocking: false }), "Stage answer");
+  assert.equal(submitLabel({ ...open, origin: "analysis", blocking: true }), "Stage answer");
+  assert.equal(submitLabel({ ...open, status: "answered" }), "Change answer");
+  const result = { gapId: "GAP::1", clrId: "C", replaced: null, placement: "amend" as const, amendments: [], applyAt: null };
+  assert.equal(answerOutcomeText({ ...result, immediate: false }), "Staged: it reaches the spec when someone presses Resolve gaps.");
+  assert.equal(
+    answerOutcomeText({ ...result, applyAt: T0, immediate: true }),
+    "Your answer is being applied now: a coding agent waits on it.",
+  );
+});
+
+test("FR-GWEB-04: a recorded answer says who staged it and what waits, or who answered it and its status; AI answers are staged by AI", () => {
+  const g = toGap(wireGap({ status: "answered" }));
+  const c = {
+    clrId: "C",
+    mode: "option" as const,
+    status: "pending" as const,
+    optionLabel: "Refund",
+    text: null,
+    answeredBy: "u-1",
+    answeredAt: "",
+  };
+  const names = { "u-1": "Dana" };
+  assert.equal(answerMetaText(g, c, names), "Staged by Dana · waits for Resolve gaps");
+  assert.equal(answerMetaText({ ...g, status: "applying" }, c, names), "Staged by Dana · being resolved");
+  assert.equal(
+    answerMetaText({ ...g, status: "resolved" }, { ...c, status: "applied", appliedBuildId: "gb-9" }, names),
+    "Answered by Dana · Applied · applied by build gb-9",
+  );
+  const ai = { ...c, mode: "ai" as const, answeredBy: "ai", confidence: 0.87 };
+  assert.equal(answerMetaText(g, ai, names), "Staged by AI · waits for Resolve gaps · 87% confident");
+  assert.equal(answeredByText({ ...c, answeredBy: "u-gone" }, names), "a person");
+  const event = { gapId: "GAP::1", clrId: "C", at: T0, actor: "u-1", detail: {} };
+  assert.deepEqual(
+    ["answered", "replaced", "applying", "resolved"].map((name) => eventText({ ...event, event: name })),
+    ["Answer staged", "Staged answer replaced", "Resolve started", "Resolved"],
+  );
+  assert.equal(stagedChoiceText(c), "Refund");
+  assert.equal(stagedChoiceText({ ...c, mode: "own", optionLabel: null, text: "Mine" }), "Own answer");
+});
+
+test("FR-GWEB-04: Resolve gaps names the staged count; it is off with a reason when nothing is staged or the read failed, and busy while a rebuild runs", () => {
+  assert.deepEqual(resolveView(3, false), {
+    label: "Resolve 3 gaps",
+    state: "ready",
+    hint: "Applies every staged answer of the project in one rebuild.",
+  });
+  assert.equal(resolveView(1, false).label, "Resolve 1 gap");
+  assert.deepEqual(resolveView(0, false), { label: "Resolve gaps", state: "off", hint: "Stage an answer first." });
+  assert.equal(resolveView(2, false, true).state, "off");
+  assert.match(resolveView(2, false, true).hint, /could not be read/);
+  const busy = resolveView(2, true);
+  assert.equal(busy.label, "Resolving…");
+  assert.equal(busy.state, "busy");
+  assert.equal(resolveView(0, true).state, "busy");
+  assert.deepEqual(resolvedToast({ gapIds: ["A", "B"], clrIds: ["C1", "C2"], amendments: [], build: "gb-7" }), {
+    title: "Resolving 2 gaps",
+    message: "One rebuild applies the staged answers (build gb-7). The gaps become Resolved when it ends.",
+  });
+  assert.equal(resolvedToast({ gapIds: ["A"], clrIds: ["C1"], amendments: [], build: null }).title, "Resolving 1 gap");
+  assert.equal(NOTHING_STAGED_TOAST.title, "Nothing to resolve");
+  const conflict = new DataError("conflict", false, { status: 409, apiCode: "gap_wrong_state" });
+  assert.equal(isNothingStaged(conflict), true);
+  assert.equal(isNothingStaged(new DataError("conflict", false, { status: 409, apiCode: "gap_stale" })), false);
 });
 
 test("FR-GWEB-04: refusals in words: answer_invalid by field, gap_wrong_state by state, gap_stale, noise_rule_not_found", () => {
@@ -433,6 +535,11 @@ test("FR-GWEB-04: refusals in words: answer_invalid by field, gap_wrong_state by
   assert.match(failureText(e("answer_invalid", { field: "placement", reason: "contradiction_amends" })), /contradiction is always fixed/);
   assert.match(failureText(e("answer_invalid", { field: "about", reason: "unknown" })), /spec ids/);
   assert.equal(failureText(e("gap_wrong_state", { state: "resolved" })), "This gap is resolved now, so this action no longer applies.");
+  assert.equal(failureText(e("gap_wrong_state", { state: "answered" })), "This gap is staged now, so this action no longer applies.");
+  assert.equal(
+    failureText(e("gap_wrong_state", { state: "applying" })),
+    "This gap is being resolved now, so this action no longer applies.",
+  );
   assert.equal(failureText(e("gap_stale")), "This gap changed since you opened it.");
   assert.equal(failureText(e("noise_rule_not_found")), "This rule was already removed.");
 });
@@ -499,11 +606,12 @@ test("FR-GWEB-04: previewEdits and answer post the choice; the answer carries th
     replaced: null,
     placement: "amend",
     amendments: ["AMD::1"],
-    apply_at: "2026-01-01T10:02:00Z",
+    apply_at: null,
     immediate: false,
   });
   const r = await gaps.answer(PID, "GAP::1", { choice: { optionRank: 1 }, placement: "amend", edits: p.edits, updatedAt: "T1" });
   assert.equal(r.clrId, "CLR::1");
+  assert.equal(r.applyAt, null); // staged: it waits for Resolve gaps
   assert.deepEqual(calls, [`POST /projects/${PID}/gaps/${G}/answer`]);
   assert.deepEqual(bodies[0], { option_rank: 1, placement: "amend", edits: [EDIT], updated_at: "T1" });
 });
@@ -532,7 +640,7 @@ test("FR-GWEB-04: 409 gap_stale, 409 gap_wrong_state and 400 answer_invalid keep
   await assert.rejects(gaps.answer(PID, "GAP::1", input), invalid);
 });
 
-test("FR-GWEB-04: dismiss (204), raise (201), apply now and revert", async () => {
+test("FR-GWEB-04: dismiss (204), raise (201), Resolve gaps (apply) and revert", async () => {
   const gaps = createHttpGaps();
   answerWrite(204, null);
   await gaps.dismiss(PID, "GAP::1", "not spec");

@@ -1,20 +1,22 @@
 "use client";
 // FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "User interface"; answers.md "The question card", "Applying answers", "Review list",
 // "Raising a gap by hand", "Who answers"): the Gaps screen, built from the decision components (DecisionList, DecisionRow, SeverityBadge,
-// OptionCards with the "Recommended" mark) over the real gaps port.
+// OptionCards with the "Recommended" mark) over the real gaps port. People list gaps, open one, assign it, and answer it: an answer is
+// staged; "Resolve gaps" applies every staged answer of the project in one rebuild.
 //  - Gate (as Plan): `useReadyGate`; not Ready or a failed read -> `NotReadyState` "No gaps yet" + "Open Mission Control"; data and `?gap=`
 //    load only once the gate is open.
-//  - Header row: the Inbox / Answered by AI / Noise report tabs; on the inbox the filters (status, kind, severity, story, assigned) join
-//    it. The table's last column is the assignee (avatar and name, or "Unassigned"), changed in place: a click opens a menu of
-//    Unassigned and the members (AssigneeMenu); a failed assignment is said above the list. The Assigned filter offers All (the
-//    default), Unassigned and each member (the members port). The filters go to the server (`list_gaps`, which orders by severity, reach, then
-//    newest): the inbox asks for route
-//    `ask` and `held_back=false` (its default view); the questions a run held back until the next run (FR-GRTE-06) are read with
-//    `held_back=true` and listed under "More found in this run", collapsed. Above the list: "Apply now" (applies the answers waiting for the
-//    quiet period; `409 gap_wrong_state` means none waits) and "Raise a gap" (a dialog; the new gap's card opens).
+//  - Header row: the Inbox / Answered by AI / Noise report tabs, then "Raise a gap" (glass; a dialog, the new gap's card opens) and
+//    "Resolve gaps" (the yellow action, ResolveGaps.tsx) on every tab; on the inbox the filters (status, kind, severity, story,
+//    assigned) join it. The statuses read Open, Staged (stored `answered`, and `applying` with the "Resolving…" tag while its rebuild
+//    runs) and Resolved; the Status filter offers Open (the default), Staged, Resolved and All. The table's last column is the assignee
+//    (avatar and name, or "Unassigned"), changed in place: a click opens a menu of Unassigned and the members (AssigneeMenu); a failed
+//    assignment is said above the list. The Assigned filter offers All (the default), Unassigned and each member (the members port).
+//    The filters go to the server (`list_gaps`, which orders by severity, reach, then newest): the inbox asks for route `ask` and
+//    `held_back=false` (its default view); the questions a run held back until the next run (FR-GRTE-06) are read with `held_back=true`
+//    and listed under "More found in this run", collapsed.
 //  - `?gap=<id>` opens the question card (GapCard, answerable here), also when the filters hide the row; closing removes the
-//    parameter (history.replaceState). After an answer, an assignment, a withdrawal or a dismissal the lists read again without a loading
-//    state.
+//    parameter (history.replaceState). After an answer, an assignment, an unstage, a withdrawal, a dismissal or "Resolve gaps" the lists
+//    read again without a loading state.
 //  - "Answered by AI" (AiAnswers) and the noise report with its rules (NoiseReport) are tabs.
 //  - Above every tab: the gap check status line (GapCheckStatus): whether the build or the gap run after it runs now, with the step and
 //    progress, or when the last check finished and what it found; when a run ends the lists read again.
@@ -31,9 +33,9 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Select } from "@/components/ui/Select";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Tag } from "@/components/ui/Tag";
 import { PageTitle } from "@/components/ui/TopBar";
 import { usePorts, useRoutes } from "@/lib/data/provider";
-import { isDataError } from "@/lib/domain/errors";
 import type { Gap, GapsPort } from "@/lib/domain/gaps";
 import type { Member } from "@/lib/domain/members";
 import { parseGapsQuery } from "@/lib/routes";
@@ -44,11 +46,13 @@ import { GapCard, type CardControl } from "./GapCard";
 import { RaiseGapDialog } from "./GapDialogs";
 import { GapsUnavailable } from "./GapsUnavailable";
 import { NoiseReport } from "./NoiseReport";
+import { ResolveButton, ResolveDialog, useStaged } from "./ResolveGaps";
 import { gapLink } from "./gap-links";
 import {
   DEFAULT_GAP_FILTERS,
   KIND_LABEL,
   KIND_OPTIONS,
+  RESOLVING_LABEL,
   SEVERITY_LABEL,
   SEVERITY_LEVEL,
   SEVERITY_OPTIONS,
@@ -60,6 +64,7 @@ import {
   failureText,
   gapQuery,
   inboxOrder,
+  memberNames,
   patchOf,
   rowSubtitle,
   withAll,
@@ -248,6 +253,13 @@ function GapRows({
           severity={SEVERITY_LEVEL[g.severity]}
           severityLabel={SEVERITY_LABEL[g.severity]}
           status={g.status === "open" ? "open" : "answered"}
+          badge={
+            g.status === "applying" ? (
+              <span data-testid="gap-row-resolving">
+                <Tag tone="pending">{RESOLVING_LABEL}</Tag>
+              </span>
+            ) : undefined
+          }
           assignee={g.assignedTo === null ? undefined : assigneeText(g.assignedTo, assign.people)}
           aside={<AssigneeMenu gap={g} control={assign} />}
           onClick={() => {
@@ -338,46 +350,6 @@ function HeldBack({
   );
 }
 
-/** "Apply now" and "Raise a gap" above the inbox, with the outcome of "Apply now" in words. */
-function InboxActions({ projectId, onApplied, onRaise }: Readonly<{ projectId: string; onApplied: () => void; onRaise: () => void }>) {
-  const { gaps } = useGapsDeps();
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const apply = async () => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const r = await gaps.applyNow(projectId);
-      const n = r.clrIds.length;
-      const what = n === 1 ? "1 answer is" : `${String(n)} answers are`;
-      const build = r.build === null ? "" : ` (build ${r.build})`;
-      setMessage(`${what} being applied${build}. The gaps resolve when the build finishes.`);
-      onApplied();
-    } catch (e) {
-      setMessage(
-        isDataErrorCode(e, "gap_wrong_state") ? "No answers are waiting to be applied." : `Answers could not be applied. ${failureText(e)}`,
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="gaps-actions" data-testid="gaps-actions">
-      <p className="gaps-actions__msg body-sm" role="status" data-testid="gaps-apply-result">
-        {message ?? ""}
-      </p>
-      <Button variant="glass" size="sm" onClick={() => void apply()} disabled={busy} data-testid="gaps-apply-now">
-        Apply now
-      </Button>
-      <Button variant="glass" size="sm" onClick={onRaise} data-testid="gaps-raise">
-        Raise a gap
-      </Button>
-    </div>
-  );
-}
-
-const isDataErrorCode = (e: unknown, apiCode: string): boolean => isDataError(e) && e.detail?.apiCode === apiCode;
-
 function Inbox({
   inbox,
   held,
@@ -452,6 +424,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   const [tries, setTries] = useState(0);
   const [version, setVersion] = useState(0);
   const [raising, setRaising] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const inbox = useGapList(gaps, projectId, filters, false, tries, version);
   const held = useGapList(gaps, projectId, filters, true, tries, version);
   const { stories, people } = useFilterSources(projectId);
@@ -471,6 +444,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   const changed = useCallback(() => {
     setVersion((n) => n + 1);
   }, []);
+  const staged = useStaged(gaps, projectId, version, changed);
   const [assignError, setAssignError] = useState<string | null>(null);
   const assign = useMemo<AssignControl>(
     () => ({
@@ -508,29 +482,20 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   let content: ReactNode;
   if (view === "inbox") {
     content = (
-      <>
-        <InboxActions
-          projectId={projectId}
-          onApplied={changed}
-          onRaise={() => {
-            setRaising(true);
-          }}
-        />
-        <Inbox
-          inbox={inbox}
-          held={held}
-          assign={assign}
-          assignError={assignError}
-          filtered={filtered}
-          onOpen={open}
-          onRetry={() => {
-            setTries((n) => n + 1);
-          }}
-        />
-      </>
+      <Inbox
+        inbox={inbox}
+        held={held}
+        assign={assign}
+        assignError={assignError}
+        filtered={filtered}
+        onOpen={open}
+        onRetry={() => {
+          setTries((n) => n + 1);
+        }}
+      />
     );
   } else if (view === "ai") {
-    content = <AiAnswers gaps={gaps} projectId={projectId} href={href} onOpenGap={open} onChanged={changed} />;
+    content = <AiAnswers gaps={gaps} projectId={projectId} href={href} onOpenGap={open} onChanged={changed} version={version} />;
   } else {
     content = <NoiseReport gaps={gaps} projectId={projectId} />;
   }
@@ -539,15 +504,34 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
     <>
       <ShellHeader
         tabs={
-          <SegmentedControl
-            label="View"
-            options={VIEWS}
-            value={view}
-            testId="gaps-tab"
-            onChange={(v) => {
-              setView(VIEWS.find((x) => x.value === v)?.value ?? "inbox");
-            }}
-          />
+          <>
+            <SegmentedControl
+              label="View"
+              options={VIEWS}
+              value={view}
+              testId="gaps-tab"
+              onChange={(v) => {
+                setView(VIEWS.find((x) => x.value === v)?.value ?? "inbox");
+              }}
+            />
+            <div className="gaps-actions" data-testid="gaps-actions">
+              <Button
+                variant="glass"
+                onClick={() => {
+                  setRaising(true);
+                }}
+                data-testid="gaps-raise"
+              >
+                Raise a gap
+              </Button>
+              <ResolveButton
+                view={staged.view}
+                onOpen={() => {
+                  setResolving(true);
+                }}
+              />
+            </div>
+          </>
         }
         tools={
           view === "inbox" ? (
@@ -565,6 +549,18 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
       <GapCheckStatus gaps={gaps} projectId={projectId} onFinished={changed} />
       {content}
       {card ? <GapCard key={card.id} gap={card} onClose={close} control={control} /> : null}
+      {resolving ? (
+        <ResolveDialog
+          gaps={gaps}
+          projectId={projectId}
+          staged={staged.gaps}
+          names={memberNames(people)}
+          onClose={() => {
+            setResolving(false);
+          }}
+          onResolved={changed}
+        />
+      ) : null}
       {raising ? (
         <RaiseGapDialog
           gaps={gaps}

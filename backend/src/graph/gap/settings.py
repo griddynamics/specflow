@@ -2,7 +2,7 @@
 
 docs/graph/gap/architecture.md "Settings" names the environment variables; the host maps them to ``GapSettings``
 (``gap_settings_from_env`` does that mapping for it). The limits come from the rules file (``limits``); a project may
-override some of them through ``GapSettings.limits`` and ``GapSettings.apply_quiet_seconds``.
+override some of them through ``GapSettings.limits``.
 """
 
 from __future__ import annotations
@@ -33,14 +33,12 @@ ENV_AUTO_RUN_AFTER_BUILD: Final = "GAP_AUTO_RUN_AFTER_BUILD"
 ENV_INVESTIGATOR: Final = "GAP_INVESTIGATOR"
 ENV_AI_ANSWERS: Final = "GAP_AI_ANSWERS"
 ENV_RULES_PATH: Final = "GAP_RULES_PATH"
-ENV_APPLY_QUIET_SECONDS: Final = "GAP_APPLY_QUIET_SECONDS"
 ENV_NAMES: Final = (
     ENV_ENABLED,
     ENV_AUTO_RUN_AFTER_BUILD,
     ENV_INVESTIGATOR,
     ENV_AI_ANSWERS,
     ENV_RULES_PATH,
-    ENV_APPLY_QUIET_SECONDS,
 )
 _TRUE: Final = frozenset({"1", "true", "yes", "on"})
 _FALSE: Final = frozenset({"0", "false", "no", "off"})
@@ -62,7 +60,6 @@ class GapLimits(BaseModel):
     ai_answers_max_node_share: float = Field(gt=0, le=1)
     options_min: int = Field(ge=OPTIONS_FLOOR)
     options_max: int = Field(le=OPTIONS_CEILING, gt=0)
-    apply_quiet_seconds: int = Field(gt=0)
 
     @model_validator(mode="after")
     def _options_order(self) -> Self:
@@ -89,9 +86,9 @@ class ReconcileSettings(BaseModel):
 class GapSettings(BaseModel):
     """What the host decides for gap runs (docs/graph/gap/api.md "Models").
 
-    ``limits`` overrides single limits of the rules file by name; ``apply_quiet_seconds`` overrides the rules'
-    value; ``ignore_cache`` makes a ``full`` run investigate every site again (investigation.md "Verdict cache");
-    ``reconcile`` holds the thresholds of reconcile (reconcile.md).
+    ``limits`` overrides single limits of the rules file by name; ``ignore_cache`` makes a ``full`` run investigate
+    every site again (investigation.md "Verdict cache"); ``reconcile`` holds the thresholds of reconcile
+    (reconcile.md).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -102,7 +99,6 @@ class GapSettings(BaseModel):
     auto_run_after_build: bool = True
     ai_answers: bool = True
     limits: Mapping[str, int | float] = Field(default_factory=lambda: MappingProxyType({}))
-    apply_quiet_seconds: int | None = Field(default=None, gt=0)
     ignore_cache: bool = False
     reconcile: ReconcileSettings = Field(default_factory=ReconcileSettings)
 
@@ -119,8 +115,6 @@ class GapSettings(BaseModel):
         limit's range."""
 
         overrides = dict(self.limits)
-        if self.apply_quiet_seconds is not None:
-            overrides["apply_quiet_seconds"] = self.apply_quiet_seconds
         if not overrides:
             return base
         try:
@@ -148,12 +142,6 @@ def gap_settings_from_env(variables: Mapping[str, str]) -> GapSettings:
     rules_path = _raw(variables, ENV_RULES_PATH)
     if rules_path is not None:
         values["rules_path"] = Path(rules_path)
-    quiet = _raw(variables, ENV_APPLY_QUIET_SECONDS)
-    if quiet is not None:
-        try:
-            values["apply_quiet_seconds"] = int(quiet)
-        except ValueError as error:
-            raise ConfigurationError(INVALID_GAP_SETTINGS, variable=ENV_APPLY_QUIET_SECONDS) from error
     try:
         return GapSettings.model_validate(values)
     except ValidationError as error:

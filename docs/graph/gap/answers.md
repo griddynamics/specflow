@@ -121,7 +121,7 @@ next run's record step clears the mark.
 | Options | 2 to 4 offered answers; exactly one marked **Recommended** and preselected for `major`; each with label, detail and a preview of its edits | `gap_option` rows |
 | Other | A free-text answer of the person's own | Always offered |
 | Placement | "Amend the source section" or "Clarifications document"; preset from the option's edits; the person may switch | Option edits |
-| Actions | Submit answer; Not a gap (with a reason); Open in graph | |
+| Actions | Stage answer ("Answer and resolve" for a development gap that blocks a coding agent's task: applied at once); on a staged gap Change answer and Unstage; Not a gap (with a reason, open gaps only); Open in graph | |
 
 A card never shows an option without edits, and never more than one recommendation. When the investigation
 of a development gap is still running, the card shows the agent's question with "Options are being
@@ -191,7 +191,7 @@ placement)` asks the gateway role `gap_edits` to turn the text into edits for th
 gap's question, why, the witness lines and the sections they are in (as untrusted data), and the text. It
 returns edits in the same shape as an option's edits. Code checks every edit ("Edits" below), and the card
 shows the result as a diff before the person submits. The person can change the placement, or go back to
-the text; nothing is stored until Submit.
+the text; nothing is stored until Stage answer.
 
 When the `gap_edits` call fails or its edits do not check, the preview offers the clarifications document
 placement with the text as written, which needs no anchor.
@@ -293,13 +293,15 @@ the build's answered-elsewhere check then drops the question node, because anoth
 
 ## Applying answers
 
-Answers are applied in batches by one update build:
+An answer is staged: it is stored, and nothing reaches the spec until a person presses "Resolve gaps" in the Gaps
+screen. Every staged answer of the project, everyone's, is then applied in one update build. People see three
+statuses: Open (`open`), Staged (`answered`, and `applying` while the rebuild runs, shown "Resolving…") and Resolved
+(`resolved`).
 
 ```
-answer recorded (gap answered, clarification pending)
-  -> quiet period: limits.apply_quiet_seconds (120) after the last answer of the project,
-     or "Apply now" in the inbox (GapService.apply_now),
-     or at once for a development gap that blocks a task
+answer recorded (gap answered = staged, clarification pending)
+  -> "Resolve gaps" in the Gaps screen (POST /gaps/apply, GapService.apply_now),
+     or at once for a development gap that blocks a task (a coding agent waits on it)
   -> amendments active, clarifications document rebuilt
   -> BuildRequests.request_update_build(project_id, reason="gap_answers", immediate=...)
   -> every answered gap in the batch moves to applying
@@ -311,23 +313,22 @@ answer recorded (gap answered, clarification pending)
 |---|---|
 | One build at a time | `BuildRequests` queues the request when a build of the project is running; one queued request covers every answer recorded before it starts. The host's build runner answers `started` or `queued` |
 | Order of writes | Amendments `pending` to `active` (and the superseded ones' to `reverted`) first, then the graph (`answered` to `applying`, `superseded` clarifications) in one transaction; when it fails the rows are set back. Then an `applying` event per clarification and the build request |
-| The quiet period | Kept by the host per project ("Host runner" in [api.md](api.md)): each answer moves the apply to `apply_quiet_seconds` after it; "Apply now" (`apply_now`) applies at once. The time lives in the API process; the stored answers make it durable ("Restarts and failures") |
-| `immediate` | Skips the quiet period; it never starts a second concurrent build |
+| Staged answers | Wait without a timer until "Resolve gaps"; a person may change or unstage (withdraw) them before. "Resolve gaps" is enabled while at least one gap is `answered` and lists the staged answers, with who staged them, before it applies them |
+| `immediate` | Applies a blocking development answer without waiting for "Resolve gaps"; it never starts a second concurrent build |
 | A failed build | Gaps stay `applying`; the next successful update build settles them. After two failed builds the event log records "apply failed" and the inbox shows it |
 | Answers recorded while a build runs | Wait for the next request |
 
 ### Restarts and failures
 
-Every answer is stored before its quiet period starts (a `pending` clarification, its `pending` amendment rows), so
-nothing an answer needs lives only in the process:
+Every answer is stored when it is staged (a `pending` clarification, its `pending` amendment rows), so nothing an
+answer needs lives only in the process:
 
 | What happens | What follows |
 |---|---|
-| The API restarts during a quiet period | At startup the host looks at every project (`GapService.pending_answers`): the answers still `pending` are applied `apply_quiet_seconds` after the latest one (at once when that time has passed) |
 | The API restarts, or the build request fails, after an apply | The clarifications carry `apply_requested_at`. When no build started at or after it finished and none runs, the host requests the update build again; when one finished but no gap run followed it, the host queues that `update` run |
 | A write after a committed answer, apply, revert or dismissal fails once | The event log, the deletion of a replaced answer's amendment rows and the build request are retried twice after short pauses (`graph.gap.retry`); a refusal of the callee (a `GraphError`) is not retried |
 | The deletion of a replaced answer's rows fails for good | `pending_answers` deletes `pending` rows whose clarification no longer exists |
-| A quiet-period apply fails | The host looks at the project again after one minute, then longer, at most five times; after that the next restart does |
+| "Resolve gaps" fails | Nothing is applied and the screen says so; the answers stay staged and the person presses it again |
 
 ## AI answers
 
@@ -336,15 +337,16 @@ A gap routed `ai` is answered by the gap run that created it, with the recommend
 1. A clarification with mode `ai`, `answered_by` `ai`, the option label, the basis quotes and the second
    check's confidence.
 2. Its edits become amendments or a clarifications document section, as for a person's answer.
-3. The gap moves to `answered`, then `applying` with the next batch; AI answers never use `immediate`.
+3. The gap moves to `answered` (staged, listed under "Answered by AI"), then `applying` with the next "Resolve gaps";
+   AI answers never use `immediate`.
 
 As built: the record step writes the gap `answered` with route `ai` and its clarification (status `pending`,
 placement by the edits as in "Placement rules", `ANSWERS`, `PLACED_IN` each source document it amends) in one
 transaction; the amendment rows (`pending`) go first through `Amendments` and are deleted again when the graph write
 fails. The gap's option rows are stored as for any gap, so a revert hands them to a person. The events are
 `created`, `routed` (gates and confidence) and `answered` (actor `ai`, mode `ai`). A run that recorded AI answers
-(run metric `ai_answered`) makes the host schedule the apply at the end of the quiet period, as an answer of a person
-does; from there the apply, the update build and the close check are the same (resolution `ai_answered`). A gap that
+(run metric `ai_answered`) leaves them staged, as a person's answers are, until someone presses "Resolve gaps"; from
+there the apply, the update build and the close check are the same (resolution `ai_answered`). A gap that
 a run answered by AI and that is still `answered` is not part of the input hash of the sites on its nodes (as an open
 gap of origin `analysis` is not), so the next run on an unchanged graph investigates nothing again.
 

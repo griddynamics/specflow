@@ -4,9 +4,10 @@
 // marked and preselected for a `major` gap, plus "Other" with the person's own text (1..4000 characters). "Preview edits" asks the server
 // for the edits the answer would make (`edits_preview`) and shows them as before/after per section; the placement choice ("Amend the source
 // section" / "Clarifications document") is preset from the preview and switching it asks again with that placement; a `contradiction` is
-// always amended in its source. Submit (in the card's footer) sends the choice, the placement, the preview's edits and the gap's
-// `updated_at` as read; `409 gap_stale` turns into "This gap changed since you opened it" with Reload (the choice stays when the reloaded
-// gap still offers it). Own text needs a preview before Submit, so the person sees the diff first.
+// always amended in its source. The answer button (in the card's footer: "Stage answer", "Change answer" or "Answer and resolve") sends
+// the choice, the placement, the preview's edits and the gap's `updated_at` as read; `409 gap_stale` turns into "This gap changed since
+// you opened it" with Reload (the choice stays when the reloaded gap still offers it). Own text needs a preview before the answer is
+// sent, so the person sees the diff first.
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { OTHER_VALUE, OptionCards } from "@/components/ui/OptionCards";
@@ -42,7 +43,7 @@ interface PreviewState {
 const keyOf = (gap: Gap, choice: GapAnswerChoice, placement: EditPlacement | undefined) =>
   JSON.stringify([gap.id, gap.updatedAt, choice, placement ?? null]);
 
-/** The answer form's state and actions; the card renders the form and puts Submit in its footer. */
+/** The answer form's state and actions; the card renders the form and puts the answer button in its footer. */
 export function useGapAnswer(gap: Gap, control: CardControl | undefined) {
   const [picked, setPicked] = useState<string | undefined>(() => {
     const rank = preselectedOption(gap);
@@ -274,7 +275,7 @@ export function AnswerForm({ gap, a }: Readonly<{ gap: Gap; a: GapAnswerState }>
         <Button variant="glass" size="sm" disabled={a.choice === null || a.busy} onClick={a.previewNow} data-testid="gap-preview-button">
           Preview edits
         </Button>
-        {a.needsPreview && a.choice !== null ? <span className="gap-text body-sm">Preview the edits before you submit.</span> : null}
+        {a.needsPreview && a.choice !== null ? <span className="gap-text body-sm">Preview the edits before you answer.</span> : null}
       </div>
       {a.preview === null ? null : <PreviewView state={a.preview} />}
       {a.preview?.phase === "ready" ? <PlacementChoice a={a} /> : null}
@@ -308,8 +309,9 @@ function PlacementChoice({ a }: Readonly<{ a: GapAnswerState }>) {
   );
 }
 
-/** The outcome messages under the form: stale (with Reload), a refusal in words, or when the recorded answer will be applied. */
-export function AnswerMessages({ a, appliedText }: Readonly<{ a: GapAnswerState; appliedText: string | null }>) {
+/** The outcome messages under the form: stale (with Reload), a refusal in words, or what happens to the recorded answer (staged, or
+ * applied at once). */
+export function AnswerMessages({ a, outcome }: Readonly<{ a: GapAnswerState; outcome: string | null }>) {
   return (
     <>
       {a.stale ? (
@@ -325,9 +327,9 @@ export function AnswerMessages({ a, appliedText }: Readonly<{ a: GapAnswerState;
           {a.error}
         </p>
       )}
-      {appliedText === null ? null : (
+      {outcome === null ? null : (
         <p className="gap-done body-sm" role="status" data-testid="gap-answer-result">
-          {appliedText}
+          {outcome}
         </p>
       )}
     </>

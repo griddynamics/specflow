@@ -1,13 +1,16 @@
 "use client";
-// FR-GWEB-04 (gap answers.md "The question card", "Answering", "Revert", "Dismissing"; api.md "User interface"): the question card of one
-// gap in the P04 Modal (focus trap, Esc, focus returns to the opener). Chips (severity, kind, origin, status, blocking), the
-// title, the question with its options, why, the ABOUT and IMPACTS nodes, the quoted witness lines with their source (document › section ·
-// lines when the read names them), the reach (stories, tasks), the recorded answer, and the collapsible history with its follow-ups. With a
-// `control` (the Gaps screen) an open or answered gap is answerable (GapAnswer.tsx: options as a radio group, "Other", the edits preview,
-// the placement, Submit in the footer, stale handling) and can be dismissed ("Not a gap", GapDialogs.tsx); a recorded answer that is
-// pending, applied or absorbed can be withdrawn ("Withdraw answer", a revert with a reason). The assignee is changed in the inbox row
-// (AssigneeMenu.tsx, FR-GWEB-06), not here. Without a `control` the card is read-only.
-import { useState } from "react";
+// FR-GWEB-04 (gap answers.md "The question card", "Answering", "Applying answers", "Revert", "Dismissing"; api.md "User interface"): the
+// question card of one gap in the P04 Modal (focus trap, Esc, focus returns to the opener). Chips (severity, kind, origin, status: Staged
+// with "Resolving…" while its rebuild runs, or Resolved; blocking), the title, the question with its options, why, the ABOUT and IMPACTS
+// nodes, the quoted witness lines with their source (document › section · lines when the read names them), the reach (stories, tasks),
+// the recorded answer (who staged it), and the collapsible history with its follow-ups. With a `control` (the Gaps screen) an open or
+// staged gap is answerable (GapAnswer.tsx: options as a radio group, "Other", the edits preview, the placement, stale handling).
+// The footer's primary button stages the answer ("Stage answer"; "Change answer" replaces a staged one); a gap a coding agent waits
+// on is applied at once ("Answer and resolve", with the line that says so). An open gap can be dismissed ("Not a gap", GapDialogs.tsx);
+// a staged answer can be unstaged ("Unstage": the gap is open again) and an applied or absorbed one withdrawn ("Withdraw answer"), both
+// reverts with a reason. A gap whose rebuild runs (`applying`) is read-only. The assignee is changed in the inbox row (AssigneeMenu.tsx,
+// FR-GWEB-06), not here. Without a `control` the card is read-only.
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
@@ -19,18 +22,21 @@ import { AnswerForm, AnswerMessages, useGapAnswer, type CardControl, type GapAns
 import { DismissDialog, ReasonDialog } from "./GapDialogs";
 import { GapHistory } from "./GapHistory";
 import {
-  CLARIFICATION_STATUS_LABEL,
+  AT_ONCE_TEXT,
   KIND_LABEL,
   ORIGIN_LABEL,
+  RESOLVING_LABEL,
   SEVERITY_LABEL,
   SEVERITY_LEVEL,
   STATUS_LABEL,
+  answerMetaText,
+  answerOutcomeText,
   answerable,
-  appliedWhenText,
   clarificationText,
-  confidenceText,
+  holdsAgent,
   memberNames,
   quoteSource,
+  submitLabel,
   withdrawable,
   witnessSection,
 } from "./gaps-logic";
@@ -85,19 +91,17 @@ function GapQuestion({ gap }: Readonly<{ gap: Gap }>) {
   );
 }
 
-/** The recorded answer: its words, who answered, its status, an AI answer's confidence and basis, and "Withdraw answer". */
-function RecordedAnswer({ gap, onWithdraw }: Readonly<{ gap: Gap; onWithdraw: (() => void) | null }>) {
+/** The recorded answer: its words, who staged or answered it and its status, an AI answer's confidence and basis. */
+function RecordedAnswer({ gap, names }: Readonly<{ gap: Gap; names: Readonly<Record<string, string>> }>) {
   const c = gap.clarification;
   if (c === null) return null;
-  const confidence = confidenceText(c.confidence);
+  const title = c.status === "pending" ? "Staged answer" : "Answer";
   return (
-    <section className="gap-sec" aria-label="Answer" data-testid="gap-answer">
-      <h3 className="gap-sec__title eyebrow">Answer</h3>
+    <section className="gap-sec" aria-label={title} data-testid="gap-answer">
+      <h3 className="gap-sec__title eyebrow">{title}</h3>
       <p className="gap-text">{clarificationText(c)}</p>
-      <p className="gap-quote__src body-sm">
-        {c.mode === "ai" ? "Answered by AI" : `Answered by ${c.answeredBy}`} · {CLARIFICATION_STATUS_LABEL[c.status]}
-        {confidence === null ? null : ` · ${confidence}`}
-        {c.appliedBuildId === null || c.appliedBuildId === undefined ? null : ` · applied by build ${c.appliedBuildId}`}
+      <p className="gap-quote__src body-sm" data-testid="gap-answer-meta">
+        {answerMetaText(gap, c, names)}
       </p>
       {(c.basis ?? []).length === 0 ? null : (
         <ul className="gap-quotes" aria-label="Basis">
@@ -107,13 +111,6 @@ function RecordedAnswer({ gap, onWithdraw }: Readonly<{ gap: Gap; onWithdraw: ((
             </li>
           ))}
         </ul>
-      )}
-      {onWithdraw === null ? null : (
-        <div>
-          <Button variant="glass" size="sm" onClick={onWithdraw} data-testid="gap-withdraw">
-            Withdraw answer
-          </Button>
-        </div>
       )}
     </section>
   );
@@ -169,34 +166,60 @@ function ReadOnlyParts({ gap }: Readonly<{ gap: Gap }>) {
   );
 }
 
-function revertedText(r: RevertResult): string {
+function revertedText(r: RevertResult, staged: boolean): string {
+  if (staged) return "Answer unstaged. The gap is open again.";
   return r.followUp
     ? "Answer withdrawn. A follow-up gap is open for a person to answer; it is linked in the history."
     : "Answer withdrawn. The gap is open again.";
 }
 
-/** Close, and for an answerable gap "Not a gap" and Submit (the one primary action of the card). */
+/** Close; "Not a gap" for an open gap; "Unstage" a staged answer or "Withdraw answer" an applied one; the answer button (the one
+ * primary action of the card) for an answerable gap. */
 function CardFooter({
   gap,
   a,
   editable,
+  dismissable,
+  withdraw,
+  atOnceId,
   closeCard,
   askDismissal,
-}: Readonly<{ gap: Gap; a: GapAnswerState; editable: boolean; closeCard: () => void; askDismissal: () => void }>) {
+}: Readonly<{
+  gap: Gap;
+  a: GapAnswerState;
+  editable: boolean;
+  dismissable: boolean;
+  withdraw: (() => void) | null;
+  /** The id of the line that says the answer applies at once, when the card shows it. */
+  atOnceId: string | undefined;
+  closeCard: () => void;
+  askDismissal: () => void;
+}>) {
   return (
     <>
       <Button variant="glass" onClick={closeCard}>
         Close
       </Button>
+      {dismissable ? (
+        <Button variant="glass" onClick={askDismissal} data-testid="gap-dismiss">
+          Not a gap
+        </Button>
+      ) : null}
+      {withdraw === null ? null : (
+        <Button variant="glass" onClick={withdraw} data-testid="gap-withdraw">
+          {gap.clarification?.status === "pending" ? "Unstage" : "Withdraw answer"}
+        </Button>
+      )}
       {editable ? (
-        <>
-          <Button variant="glass" onClick={askDismissal} data-testid="gap-dismiss">
-            Not a gap
-          </Button>
-          <Button variant="primary" onClick={() => void a.submit()} disabled={!a.canSubmit} data-testid="gap-submit">
-            {gap.status === "answered" ? "Change answer" : "Submit answer"}
-          </Button>
-        </>
+        <Button
+          variant="primary"
+          onClick={() => void a.submit()}
+          disabled={!a.canSubmit}
+          aria-describedby={atOnceId}
+          data-testid="gap-submit"
+        >
+          {submitLabel(gap)}
+        </Button>
       ) : null}
     </>
   );
@@ -214,7 +237,7 @@ function CardDialog({
   control: CardControl;
   dialog: "dismiss" | "withdraw";
   finish: () => void;
-  onWithdrawn: (r: RevertResult) => void;
+  onWithdrawn: (note: string) => void;
 }>) {
   const clrId = gap.clarification?.clrId;
   if (dialog === "dismiss") {
@@ -236,20 +259,63 @@ function CardDialog({
     );
   }
   if (clrId === undefined) return null;
+  const staged = gap.clarification?.status === "pending";
   return (
     <ReasonDialog
-      title="Withdraw answer"
-      description="The answer's text leaves the specification with the next build, and the question goes back to a person."
-      confirmLabel="Withdraw answer"
+      title={staged ? "Unstage answer" : "Withdraw answer"}
+      description={
+        staged
+          ? "The staged answer is dropped before it reaches the spec, and the gap is open again."
+          : "The answer's text leaves the specification with the next build, and the question goes back to a person."
+      }
+      confirmLabel={staged ? "Unstage" : "Withdraw answer"}
       onClose={finish}
       onConfirm={async (reason) => {
         const r = await control.gaps.revert(control.projectId, clrId, reason);
         finish();
-        onWithdrawn(r);
+        onWithdrawn(revertedText(r, staged));
         control.onChanged();
         await control.onReload();
       }}
     />
+  );
+}
+
+/** The chips: severity, kind, origin, the status (Staged, with "Resolving…" while its rebuild runs, or Resolved) and "Holds tasks". */
+function CardMeta({ gap }: Readonly<{ gap: Gap }>) {
+  return (
+    <div className="gap-meta" data-testid="gap-meta">
+      <SeverityBadge level={SEVERITY_LEVEL[gap.severity]} label={SEVERITY_LABEL[gap.severity]} />
+      <Tag>{KIND_LABEL[gap.kind]}</Tag>
+      <Tag>{ORIGIN_LABEL[gap.origin]}</Tag>
+      {gap.status === "open" ? null : (
+        <span data-testid="gap-status">
+          <Tag tone={gap.status === "resolved" ? "success" : "info"}>{STATUS_LABEL[gap.status]}</Tag>
+        </span>
+      )}
+      {gap.status === "applying" ? (
+        <span data-testid="gap-resolving">
+          <Tag tone="pending">{RESOLVING_LABEL}</Tag>
+        </span>
+      ) : null}
+      {gap.blocking ? <Tag tone="warning">Holds tasks</Tag> : null}
+    </div>
+  );
+}
+
+/** The question: the answer form (and the line that says a coding agent's answer applies at once) or, read-only, the options. */
+function CardQuestion({ gap, a, editable, atOnceId }: Readonly<{ gap: Gap; a: GapAnswerState; editable: boolean; atOnceId?: string }>) {
+  if (!editable) return <GapQuestion gap={gap} />;
+  return (
+    <section className="gap-sec" aria-label="Question" data-testid="gap-question">
+      <h3 className="gap-sec__title eyebrow">Question</h3>
+      <AnswerForm gap={gap} a={a} />
+      {atOnceId === undefined ? null : (
+        <p className="gap-text body-sm" id={atOnceId} data-testid="gap-at-once">
+          {AT_ONCE_TEXT}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -259,7 +325,15 @@ export function GapCard({ gap, onClose, control }: Readonly<{ gap: Gap; onClose:
   const [note, setNote] = useState<string | null>(null);
   const editable = control !== undefined && answerable(gap);
   const canWithdraw = control !== undefined && withdrawable(gap);
-  const appliedText = note ?? (a.result === null ? null : appliedWhenText(a.result));
+  const outcome = note ?? (a.result === null ? null : answerOutcomeText(a.result));
+  const names = memberNames(control?.members ?? []);
+  const atOnceId = useId();
+  const describedBy = editable && holdsAgent(gap) ? atOnceId : undefined;
+  const withdraw = canWithdraw
+    ? () => {
+        setDialog("withdraw");
+      }
+    : null;
   const closeDialog = () => {
     setDialog(null);
   };
@@ -275,6 +349,9 @@ export function GapCard({ gap, onClose, control }: Readonly<{ gap: Gap; onClose:
           gap={gap}
           a={a}
           editable={editable}
+          dismissable={control !== undefined && gap.status === "open"}
+          atOnceId={describedBy}
+          withdraw={withdraw}
           closeCard={onClose}
           askDismissal={() => {
             setDialog("dismiss");
@@ -282,55 +359,21 @@ export function GapCard({ gap, onClose, control }: Readonly<{ gap: Gap; onClose:
         />
       }
     >
-      <div className="gap-meta" data-testid="gap-meta">
-        <SeverityBadge level={SEVERITY_LEVEL[gap.severity]} label={SEVERITY_LABEL[gap.severity]} />
-        <Tag>{KIND_LABEL[gap.kind]}</Tag>
-        <Tag>{ORIGIN_LABEL[gap.origin]}</Tag>
-        {gap.status === "open" ? null : (
-          <span data-testid="gap-status">
-            <Tag tone="success">{STATUS_LABEL[gap.status]}</Tag>
-          </span>
-        )}
-        {gap.blocking ? <Tag tone="warning">Holds tasks</Tag> : null}
-      </div>
-      {editable ? (
-        <section className="gap-sec" aria-label="Question" data-testid="gap-question">
-          <h3 className="gap-sec__title eyebrow">Question</h3>
-          <AnswerForm gap={gap} a={a} />
-        </section>
-      ) : (
-        <GapQuestion gap={gap} />
-      )}
-      <AnswerMessages a={a} appliedText={appliedText} />
-      <RecordedAnswer
-        gap={gap}
-        onWithdraw={
-          canWithdraw
-            ? () => {
-                setDialog("withdraw");
-              }
-            : null
-        }
-      />
+      <CardMeta gap={gap} />
+      <CardQuestion gap={gap} a={a} editable={editable} atOnceId={describedBy} />
+      <AnswerMessages a={a} outcome={outcome} />
+      <RecordedAnswer gap={gap} names={names} />
       <ReadOnlyParts gap={gap} />
       {gap.history === null || gap.history === undefined ? null : (
         <GapHistory
           history={gap.history}
-          names={memberNames(control?.members ?? [])}
+          names={names}
           href={control?.href ?? ((id) => `?gap=${encodeURIComponent(id)}`)}
           onOpenGap={control?.onOpenGap ?? (() => undefined)}
         />
       )}
       {dialog === null || control === undefined ? null : (
-        <CardDialog
-          gap={gap}
-          control={control}
-          dialog={dialog}
-          finish={closeDialog}
-          onWithdrawn={(r) => {
-            setNote(revertedText(r));
-          }}
-        />
+        <CardDialog gap={gap} control={control} dialog={dialog} finish={closeDialog} onWithdrawn={setNote} />
       )}
     </Modal>
   );

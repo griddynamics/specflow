@@ -142,7 +142,8 @@ def test_fr_gweb_04_gaps_screen_show_inbox_filters_question_card() -> None:
     assert any("inbox" in title for title in titles)
     assert any("filters" in title for title in titles)
     assert any("question card" in title for title in titles)
-    assert any("Submit" in title for title in titles)
+    assert any("Stage answer" in title for title in titles)
+    assert any("Resolve gaps" in title for title in titles)
     assert any("'Answered by AI' tab" in title and "Revert" in title for title in titles)
     assert any("noise report" in title for title in titles)
 

@@ -67,7 +67,6 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `GAP_INVESTIGATOR` | `loop` | api | The gap investigator: `loop` or `agents`. |
 | `GAP_AI_ANSWERS` | `true` | api | Allows AI answers to gaps; when off, every gap is asked. |
 | `GAP_RULES_PATH` | empty | api | A rules file that replaces the shipped gap rules. |
-| `GAP_APPLY_QUIET_SECONDS` | `120` | api | Quiet period before pending answers are applied. |
 | `API_PORT`, `WORKER_HEALTH_PORT` | `8000`, `8001` | api, workers | Listen ports. The worker port answers `GET /healthz`. |
 | `DATABASE_PORT` | `5432` | api, workers | PostgreSQL port. |
 | `DATABASE_AGENT_USER` | `specflow_agent` | api, workers | Role for agent tools. It must differ from `DATABASE_USER`. |

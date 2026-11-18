@@ -33,6 +33,7 @@ from agent_contracts.errors import (
     ErrorCode,
 )
 from agent_contracts.gap_models import (
+    GAP_STAGES,
     MAX_NAME_CHARS,
     OWN_TEXT_MAX,
     AnswerGapArgs,
@@ -60,6 +61,7 @@ from agent_contracts.gap_models import (
     GapRow,
     GapRowList,
     GapSeverityFilter,
+    GapStage,
     GapStatusFilter,
     ListGapsArgs,
     ListGapsQuery,
@@ -223,6 +225,7 @@ __all__ = [
     "FINDING_LIMIT",
     "GAP_CARD_ROUTE",
     "GAP_NOT_FOUND",
+    "GAP_STAGES",
     "GAP_STALE",
     "GAP_WRONG_STATE",
     "GRAPH_UNAVAILABLE",
@@ -327,6 +330,7 @@ __all__ = [
     "GapRow",
     "GapRowList",
     "GapSeverityFilter",
+    "GapStage",
     "GapStatusFilter",
     "GetEvidenceArgs",
     "GetNodeArgs",

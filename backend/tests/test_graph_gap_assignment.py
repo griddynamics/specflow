@@ -97,7 +97,7 @@ async def test_the_follow_up_of_a_reverted_answer_takes_the_assignee() -> None:
     rig = await answer_world(ai_answers=True)
     (listed,) = (await rig.service.ai_answers(rig.project_id)).answers
     await rig.service.assign_gap(rig.project_id, listed.gap_id, MEMBER, by=OWNER)
-    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    await rig.service.apply_now(rig.project_id, by=MEMBER)
     for key, props in rig.world.executor.nodes.items():  # as the close check leaves a fixed gap
         if key[0] == "Gap" and props["gap_id"] == listed.gap_id:
             props.update(status="resolved", resolution="answered")

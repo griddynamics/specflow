@@ -118,7 +118,7 @@ async def test_fr_gown_01_graph_gap_write_types_ontology_file_never() -> None:
     rig.world.gateway.handle(RELEVANCE_PROMPT, lambda _request: SPEC_SECTION)
     specs = {spec_id: dict(node) for spec_id, node in rig.world.executor.specs.items()}
     (answer,) = (await rig.service.ai_answers(rig.project_id)).answers
-    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    await rig.service.apply_now(rig.project_id, by=MEMBER)
     assert rig.world.executor.specs == specs
     criteria = {Planted.OWNERLESS_CSV_EXPORT: {"acceptance_criteria": answer.clarification.text}}
     await update_run(rig.world, await apply_build(rig.world, attributes=criteria))

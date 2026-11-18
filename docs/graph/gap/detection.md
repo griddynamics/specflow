@@ -258,7 +258,6 @@ From `limits` in the rules file; all are starting values for the test corpus.
 | `ai_answers_per_run` | 20 | AI answers per run |
 | `ai_answers_max_node_share` | 0.05 | Share of spec nodes AI answers of one run may touch |
 | `options_min`, `options_max` | 2, 4 | Options per gap |
-| `apply_quiet_seconds` | 120 | Quiet period before answers are applied ([answers.md](answers.md) "Applying answers") |
 
 ## Rules file
 

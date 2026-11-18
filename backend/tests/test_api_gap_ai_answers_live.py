@@ -2,11 +2,11 @@
 scratch database (docs/graph/gap/answers.md "AI answers", "Review list", "Revert"; FR-GRTE-03, FR-GANS-10).
 
 A returned build queues the gap run (the structured loop answered by site, the recorded second check): the CSV export
-gap is answered by AI (an ``ai`` clarification on the graph store, a ``pending`` amendment row in PostgreSQL) and the
-runner schedules the apply. The review list shows it; the apply makes the row ``active``; a revert of the pending
-answer reopens the gap for a person and requests a build. A second answer, resolved as the close check would leave it,
-is reverted into a follow-up gap that ``FOLLOWS_UP`` it with its question and options. Needs
-``SPECFLOW_TEST_POSTGRES=1`` and a live graph store (``SPECFLOW_TEST_GRAPH_STORE``).
+gap is answered by AI (an ``ai`` clarification on the graph store, a ``pending`` amendment row in PostgreSQL), staged
+like a person's answer: the run requests no build. The review list shows it; "Resolve gaps" (``apply_now``) makes the
+row ``active``; a revert of the pending answer reopens the gap for a person and requests a build. A second answer,
+resolved as the close check would leave it, is reverted into a follow-up gap that ``FOLLOWS_UP`` it with its question
+and options. Needs ``SPECFLOW_TEST_POSTGRES=1`` and a live graph store (``SPECFLOW_TEST_GRAPH_STORE``).
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ async def test_an_ai_answer_is_listed_applied_and_reverted_on_live_stores(
             await runner.wait_idle(project_id)
             status = await runner.status(project_id)
             assert status.result is not None and status.result.counts["ai_answered"] == 1
-            assert runner._projects[project_id].apply_at is not None  # the quiet-period apply is due
+            assert builds.requests == []
             service = await runner.service()
 
             (listed,) = (await service.ai_answers(project_id)).answers
@@ -83,8 +83,7 @@ async def test_an_ai_answer_is_listed_applied_and_reverted_on_live_stores(
             clr = listed.clarification.clr_id
             assert [row.status for row in await amendments.for_clarification(project_id, clr)] == ["pending"]
 
-            runner.applied(project_id)
-            await service.apply_now(project_id, by="gap-apply")
+            await service.apply_now(project_id, by=MEMBER)
             assert [row.status for row in await amendments.for_clarification(project_id, clr)] == ["active"]
             reverted = await service.revert_clarification(project_id, clr, by=MEMBER, reason="A person decides.")
 

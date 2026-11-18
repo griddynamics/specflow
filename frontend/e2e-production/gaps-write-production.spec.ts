@@ -1,9 +1,11 @@
 // FR-GWEB-04, FR-GWEB-06: the interactive Gaps screen on the PRODUCTION routes against the stub API through the real BFF, with the shop-corpus
 // gaps seeded through the stub's control port (no paid model call). The question card answers (keyboard radios, the recommended option
-// preselected for a major gap, an own answer with its edits preview and a placement switch, Submit with the gap's updated_at, a stale
-// answer and Reload, refusals in words), "Not a gap" with a reason (and the "not spec" section rule), "Apply now", the "Answered by AI"
-// review list with Revert and the follow-up link, the history, "Raise a gap", the noise rules ("Mark as not spec", add, remove), assigning
-// a gap to a member from the menu in its row (the Assigned column and filter) and the Plan's links to the gap cards.
+// preselected for a major gap, an own answer with its edits preview and a placement switch, "Stage answer" with the gap's updated_at, a
+// stale answer and Reload, refusals in words); a staged answer is changed or unstaged; a gap a coding agent waits on is answered and
+// resolved at once; "Resolve gaps" names the staged count, confirms what it resolves (title, answer, who staged it) and is busy with
+// "Resolving…" while the rebuild runs; "Not a gap" with a reason (and the "not spec" section rule), the "Answered by AI" review list with
+// Revert and the follow-up link, the history, "Raise a gap", the noise rules ("Mark as not spec", add, remove), assigning a gap to a
+// member from the menu in its row (the Assigned column and filter) and the Plan's links to the gap cards.
 import { randomBytes } from "node:crypto";
 import type { Page, Request } from "@playwright/test";
 import { colourViolations, tabWalk } from "./audits";
@@ -34,6 +36,23 @@ const RETURN_TITLE = "The return window is not stated";
 const CHECKED = "aria-checked";
 const SUBMIT = "gap-submit";
 const OWN = "Refund the payment in full, then cancel the order.";
+const STAGED_TEXT = "Staged: it reaches the spec when someone presses Resolve gaps.";
+const RESOLVE = "gaps-resolve";
+const RESULT = "gap-answer-result";
+const WITHDRAW = "gap-withdraw";
+const STATE = "data-state";
+const RESOLVE_ITEM = "gaps-resolve-item";
+const ROUNDING_ID = "GAP::TOTAL_ROUNDING";
+const ROUNDING_TITLE = "Order totals are rounded differently";
+const STATUS = "gap-status";
+const RESOLVING = "Resolving…";
+
+/** Another member stages an answer in another tab: an option by rank, or own text. */
+async function stageElsewhere(page: Page, pid: string, gapId: string, choice: { option_rank: number } | { own_text: string }) {
+  const path = `/projects/${pid}/gaps/${encodeURIComponent(gapId)}`;
+  const read = (await bff(page, "GET", path)).json as { updated_at: string };
+  expect((await bff(page, "POST", `${path}/answer`, { ...choice, updated_at: read.updated_at })).status).toBe(200);
+}
 
 /** A Ready project (one processed document) with the shop gaps and the noise run seeded; returns its id. */
 async function shopProject(page: Page, opts: { plan?: boolean } = {}): Promise<string> {
@@ -66,10 +85,9 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await stubTiming(STUB_TIMING);
   });
 
-  test("FR-GWEB-04: the options are a keyboard radio group; an own answer gets an edits preview, the placement switch asks again, Submit sends the edits and updated_at and says when it applies; Apply now applies it", async ({
+  test("FR-GWEB-04: the options are a keyboard radio group; an own answer gets an edits preview, the placement switch asks again, Stage answer sends the edits and updated_at and stages it; Resolve gaps confirms and resolves it", async ({
     page,
   }) => {
-    allowConsoleErrors(page, /status of 409/); // the second "Apply now": nothing waits
     const pid = await shopProject(page);
     await page.goto(cardLink(pid, CANCEL_ID));
     const c = card(page, CANCEL_TITLE);
@@ -101,30 +119,146 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
 
     const read = (await bff(page, "GET", `/projects/${pid}${CANCEL}`)).json as { updated_at: string };
     const answer = page.waitForRequest(isPost(pid, `${CANCEL}/answer`));
+    await expect(c.getByTestId(SUBMIT)).toHaveText("Stage answer");
     await c.getByTestId(SUBMIT).click();
     const sent = body(await answer);
     expect(sent).toMatchObject({ own_text: OWN, placement: "document", updated_at: read.updated_at });
     expect(sent.edits).toEqual([{ placement: "document", target: { heading: CANCEL_TITLE }, operation: "append_section", text: OWN }]);
-    await expect(c.getByTestId("gap-answer-result")).toContainText("Your answer is recorded. It will be applied at");
-    await expect(c.getByTestId("gap-status")).toHaveText("Answered");
+    await expect(c.getByTestId(RESULT)).toHaveText(STAGED_TEXT);
+    await expect(c.getByTestId(STATUS)).toHaveText("Staged");
     await expect(c.getByTestId("gap-answer")).toContainText(OWN);
+    await expect(c.getByTestId("gap-answer-meta")).toHaveText("Staged by dev · waits for Resolve gaps");
+    await expect(c.getByTestId(SUBMIT)).toHaveText("Change answer");
+    await expect(c.getByTestId(WITHDRAW)).toHaveText("Unstage");
+    await expect(c.getByTestId("gap-dismiss")).toHaveCount(0); // "Not a gap" is for open gaps only
     await c.getByRole("button", { name: "Close" }).last().click();
 
-    await expect(inboxRows(page).filter({ hasText: CANCEL_TITLE })).toContainText("Answered");
-    await page.getByTestId("gaps-apply-now").click();
-    await expect(page.getByTestId("gaps-apply-result")).toHaveText(/^1 answer is being applied \(build gb-apply-\d+\)\./);
-    await page.getByTestId("gaps-apply-now").click();
-    await expect(page.getByTestId("gaps-apply-result")).toHaveText("No answers are waiting to be applied.");
+    // The staged gap leaves the Open view and is listed under Staged; the header button names the staged count.
+    await expect(inboxRows(page).filter({ hasText: CANCEL_TITLE })).toHaveCount(0);
+    await pick(page, page, "Status", "Staged");
+    await expect(inboxRows(page)).toHaveCount(1);
+    await expect(inboxRows(page)).toContainText("Staged · What happens when a customer cancels an order that is already paid?");
+    const resolve = page.getByTestId(RESOLVE);
+    await expect(resolve).toHaveText("Resolve 1 gap");
+    await expect(resolve).toHaveAttribute(STATE, "ready");
+    await expect(resolve).not.toHaveAttribute("aria-disabled", /.*/);
 
+    await resolve.click();
+    const d = page.getByRole("dialog", { name: "Resolve 1 gap?" });
+    await expect(d).toContainText("One rebuild applies every staged answer in this project, not only yours.");
+    const items = d.getByTestId(RESOLVE_ITEM);
+    await expect(items).toHaveCount(1);
+    await expect(items).toContainText(CANCEL_TITLE);
+    await expect(items).toContainText("Own answer · Staged by dev");
+    const applied = page.waitForRequest(isPost(pid, "/gaps/apply"));
+    await d.getByTestId("gaps-resolve-confirm").click();
+    await applied;
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const toast = page.getByTestId("toast").filter({ hasText: "Resolving 1 gap" });
+    await expect(toast).toContainText(
+      /One rebuild applies the staged answers \(build gb-apply-\d+\)\. The gaps become Resolved when it ends\./,
+    );
+
+    // While the rebuild runs: the button is busy, the row says Resolving… (a spinner and the word) and its card is read-only.
+    await expect(resolve).toHaveText(RESOLVING);
+    await expect(resolve).toHaveAttribute(STATE, "busy");
+    await expect(resolve).toHaveAttribute("aria-disabled", "true");
+    const row = inboxRows(page).filter({ hasText: CANCEL_TITLE });
+    await expect(row.getByTestId("gap-row-resolving")).toHaveText(RESOLVING);
+    await expect(row.getByTestId("gap-row-resolving").getByTestId("tag-spin")).toHaveCount(1);
+    await row.getByRole("button").first().click();
+    await expect(c.getByTestId(STATUS)).toHaveText("Staged");
+    await expect(c.getByTestId("gap-resolving")).toHaveText(RESOLVING);
+    for (const id of [SUBMIT, WITHDRAW, "gap-dismiss", "gap-answer-form"]) await expect(c.getByTestId(id)).toHaveCount(0);
+    await c.getByRole("button", { name: "Close" }).last().click();
+
+    // The rebuild ends: the button reads again within seconds and is off; the gap is resolved.
     await settleGaps(pid);
+    await expect(resolve).toHaveText("Resolve gaps", { timeout: 15_000 });
+    await expect(resolve).toHaveAttribute(STATE, "off");
+    await expect(inboxRows(page)).toHaveCount(0);
     await page.goto(cardLink(pid, CANCEL_ID));
-    await expect(c.getByTestId("gap-status")).toHaveText("Resolved");
+    await expect(c.getByTestId(STATUS)).toHaveText("Resolved");
     await expect(c.getByTestId("gap-answer")).toContainText("Applied");
     await expect(c.getByTestId(SUBMIT)).toHaveCount(0);
-    await expect(c.getByTestId("gap-withdraw")).toBeVisible();
+    await expect(c.getByTestId(WITHDRAW)).toHaveText("Withdraw answer");
   });
 
-  test("FR-GWEB-04: an answer to a gap that changed since it was read says so; Reload re-reads it and keeps the choice; the second Submit replaces the answer", async ({
+  test("FR-GWEB-04: Resolve gaps lists everyone's staged answers; when another tab resolved them first, Confirm says nothing waits", async ({
+    page,
+  }) => {
+    allowConsoleErrors(page, /status of 409/);
+    const pid = await shopProject(page);
+    await stageElsewhere(page, pid, CANCEL_ID, { option_rank: 2 });
+    await stageElsewhere(page, pid, ROUNDING_ID, { own_text: "Round on the total only." });
+    await page.goto(`/projects/${pid}/gaps`);
+    const resolve = page.getByTestId(RESOLVE);
+    await expect(resolve).toHaveText("Resolve 2 gaps");
+    await expect(resolve).toHaveAccessibleDescription("Applies every staged answer of the project in one rebuild.");
+    await resolve.click();
+    const d = page.getByRole("dialog", { name: "Resolve 2 gaps?" });
+    const items = d.getByTestId(RESOLVE_ITEM);
+    await expect(items).toHaveCount(2);
+    await expect(items.filter({ hasText: CANCEL_TITLE })).toContainText("Cancel only before shipping · Staged by dev");
+    await expect(items.filter({ hasText: ROUNDING_TITLE })).toContainText("Own answer · Staged by dev");
+    await expect(d.getByTestId("gaps-resolve-more")).toHaveCount(0);
+
+    // Another tab resolves first.
+    expect((await bff(page, "POST", `/projects/${pid}/gaps/apply`, {})).status).toBe(200);
+    await d.getByTestId("gaps-resolve-confirm").click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByTestId("toast").filter({ hasText: "Nothing to resolve" })).toContainText(
+      "No staged answers are waiting. Someone may have resolved them already.",
+    );
+    await expect(resolve).toHaveText(RESOLVING);
+  });
+
+  test("FR-GWEB-04: Unstage drops a staged answer with a reason; the gap is open again and nothing waits for Resolve gaps", async ({
+    page,
+  }) => {
+    const pid = await shopProject(page);
+    await page.goto(cardLink(pid, CANCEL_ID));
+    const c = card(page, CANCEL_TITLE);
+    await c.getByTestId(SUBMIT).click(); // the recommended option, preselected
+    await expect(c.getByTestId(RESULT)).toHaveText(STAGED_TEXT);
+    await expect(page.getByTestId(RESOLVE)).toHaveText("Resolve 1 gap");
+    await c.getByTestId(WITHDRAW).click();
+    const d = page.getByRole("dialog", { name: "Unstage answer" });
+    await expect(d).toContainText("The staged answer is dropped before it reaches the spec, and the gap is open again.");
+    await d.getByTestId("revert-reason").fill("Wrong option.");
+    const reverted = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes(`/api/backend/projects/${pid}/gaps/clarifications/`),
+    );
+    await d.getByTestId("revert-confirm").click();
+    expect(body(await reverted)).toEqual({ reason: "Wrong option." });
+    await expect(c.getByTestId(RESULT)).toHaveText("Answer unstaged. The gap is open again.");
+    await expect(c.getByTestId(STATUS)).toHaveCount(0); // open
+    await expect(c.getByTestId(SUBMIT)).toHaveText("Stage answer");
+    await expect(c.getByTestId("gap-dismiss")).toBeVisible();
+    await expect(page.getByTestId(RESOLVE)).toHaveAttribute(STATE, "off");
+  });
+
+  test("FR-GWEB-04: a coding agent's blocking question is answered and resolved at once, and the card says so", async ({ page }) => {
+    const pid = await shopProject(page);
+    await page.goto(cardLink(pid, "GAP::PAYMENT_PROVIDER"));
+    const c = card(page, "Which payment provider takes the payment?");
+    await expect(c.getByTestId(SUBMIT)).toHaveText("Answer and resolve");
+    await expect(c.getByTestId("gap-at-once")).toHaveText(
+      "This answer applies at once because a coding agent waits on it, together with every staged answer of the project.",
+    );
+    await expect(c.getByTestId(SUBMIT)).toHaveAccessibleDescription(/applies at once because a coding agent waits on it/);
+    await c.getByRole("radio", { name: /Other/ }).click();
+    await c.getByTestId("option-other-text").fill("Use the provider the shop already has a contract with.");
+    await c.getByTestId("gap-preview-button").click();
+    await expect(c.getByTestId("gap-preview")).toBeVisible();
+    await c.getByTestId(SUBMIT).click();
+    await expect(c.getByTestId(RESULT)).toHaveText("Your answer is being applied now: a coding agent waits on it.");
+    await expect(c.getByTestId("gap-resolving")).toHaveText(RESOLVING);
+    await expect(c.getByTestId(SUBMIT)).toHaveCount(0);
+    await expect(page.getByTestId(RESOLVE)).toHaveText(RESOLVING);
+  });
+
+  test("FR-GWEB-04: an answer to a gap that changed since it was read says so; Reload re-reads it and keeps the choice; Change answer replaces the staged answer", async ({
     page,
   }) => {
     allowConsoleErrors(page, /status of 409/);
@@ -140,12 +274,14 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await expect(c.getByTestId("gap-stale")).toContainText("This gap changed since you opened it.");
     await c.getByTestId("gap-stale-reload").click();
     await expect(c.getByTestId("gap-stale")).toHaveCount(0);
-    await expect(c.getByTestId("gap-status")).toHaveText("Answered");
+    await expect(c.getByTestId(STATUS)).toHaveText("Staged");
     await expect(c.getByTestId("gap-answer")).toContainText("Cancel only before shipping");
     await expect(c.getByRole("radio", { name: /Refund in full and cancel/ })).toHaveAttribute(CHECKED, "true"); // kept
+    await expect(c.getByTestId(SUBMIT)).toHaveText("Change answer");
     await c.getByTestId(SUBMIT).click();
-    await expect(c.getByTestId("gap-answer-result")).toContainText("Your answer is recorded");
+    await expect(c.getByTestId(RESULT)).toHaveText(STAGED_TEXT);
     await expect(c.getByTestId("gap-answer")).toContainText("Refund in full and cancel");
+    await expect(page.getByTestId(RESOLVE)).toHaveText("Resolve 1 gap"); // replaced, not added
   });
 
   test("FR-GWEB-04: refusals are shown in words (answer_invalid by field, gap_wrong_state); a contradiction is always amended in its source", async ({
@@ -179,8 +315,8 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await expect(c.getByTestId("gap-answer-error")).toHaveText("This gap is resolved now, so this action no longer applies.");
     await page.unroute(`**/api/backend/projects/${pid}${CANCEL}/answer`);
 
-    await page.goto(cardLink(pid, "GAP::TOTAL_ROUNDING"));
-    const t = card(page, "Order totals are rounded differently");
+    await page.goto(cardLink(pid, ROUNDING_ID));
+    const t = card(page, ROUNDING_TITLE);
     await t.getByRole("radio", { name: /^B?\s*Other/ }).click();
     await t.getByTestId("option-other-text").fill("Round on the total only.");
     await t.getByTestId("gap-preview-button").click();
@@ -258,7 +394,7 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await expect(events).toHaveCount(3);
     await expect(events.nth(0)).toContainText("Gap found");
     await expect(events.nth(0)).toContainText("Specflow");
-    await expect(events.nth(1)).toContainText("Answered");
+    await expect(events.nth(1)).toContainText("Answer staged");
     await expect(events.nth(1)).toContainText("a person");
     await expect(events.nth(2)).toContainText("Checked against a new source revision: moved to a changed line");
     await expect(c.getByTestId("gap-history")).not.toContainText("{");

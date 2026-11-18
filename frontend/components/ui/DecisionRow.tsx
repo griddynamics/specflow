@@ -2,7 +2,8 @@
 // SeverityBadge, assignee avatar and name ("Unassigned" when none), caret. FR-GWEB-04, FR-GWEB-06: the Gaps inbox passes the gap's
 // `assignee` and `severityLabel` (Blocker, Major, Minor); `who` replaces the last cell where a screen needs other content. `aside` is a
 // control over the assignee cell (the Gaps inbox's assignee menu): a button cannot hold another control, so it sits beside the row's
-// button, laid over that cell (ui-gaps.css), and a click on it never opens the row.
+// button, laid over that cell (ui-gaps.css), and a click on it never opens the row. `badge` is a Tag beside the title (the Gaps inbox's
+// "Resolving…" while a gap's rebuild runs).
 import type { ReactNode } from "react";
 import "./ui-gaps.css";
 import { Avatar } from "./Avatar";
@@ -25,6 +26,8 @@ export interface DecisionRowProps {
   severityLabel?: string;
   /** A control in the assignee cell, outside the row's button; the cell under it stays empty. */
   aside?: ReactNode;
+  /** A Tag on the title's line, after the title. */
+  badge?: ReactNode;
 }
 
 /** The default assignee cell: the avatar and name, or "Unassigned". */
@@ -49,13 +52,21 @@ export function DecisionRow({
   who,
   severityLabel,
   aside,
+  badge,
 }: Readonly<DecisionRowProps>) {
   const control = aside !== undefined && aside !== null;
   return (
     <li className={cx("gdg-drow", status === "answered" && "is-answered", control && "gdg-drow--aside")}>
       <button type="button" className="gdg-drow__btn" onClick={onClick}>
         <span className="gdg-drow__title">
-          <b>{title}</b>
+          {truthy(badge) ? (
+            <span className="gdg-drow__line">
+              <b>{title}</b>
+              {badge}
+            </span>
+          ) : (
+            <b>{title}</b>
+          )}
           {truthy(subtitle) ? <small>{subtitle}</small> : null}
         </span>
         <span className="gdg-drow__cell">

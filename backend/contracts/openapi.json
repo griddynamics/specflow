@@ -221,7 +221,7 @@
       },
       "AnswerResult": {
         "additionalProperties": false,
-        "description": "What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and when the\nanswers of the project are applied (``immediate``: at once, for a development gap that blocks its story).",
+        "description": "What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and whether it was\napplied at once (``immediate``, with ``apply_at``: a development gap that blocks its story). Any other answer is\nstaged: it waits for ``apply_now`` (\"Resolve gaps\"), and ``apply_at`` is None.",
         "properties": {
           "amendments": {
             "default": [],
@@ -232,9 +232,16 @@
             "type": "array"
           },
           "apply_at": {
-            "format": "date-time",
-            "title": "Apply At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply At"
           },
           "clr_id": {
             "title": "Clr Id",
@@ -273,15 +280,14 @@
         "required": [
           "gap_id",
           "clr_id",
-          "placement",
-          "apply_at"
+          "placement"
         ],
         "title": "AnswerResult",
         "type": "object"
       },
       "ApplyResult": {
         "additionalProperties": false,
-        "description": "What ``apply_now`` (and the quiet-period apply) returns: the gaps moved to ``applying``, the clarifications\nwhose amendments became active and the build request's answer (``None`` without a ``BuildRequests`` port).",
+        "description": "What ``apply_now`` (\"Resolve gaps\", or an immediate answer) returns: the gaps moved to ``applying``, the\nclarifications whose amendments became active and the build request's answer (``None`` without a\n``BuildRequests`` port).",
         "properties": {
           "amendments": {
             "default": [],
@@ -2946,12 +2952,19 @@
         "type": "object"
       },
       "GapAnswerRecord": {
-        "description": "What ``POST /agent/gap-answer`` recorded: the clarification, where its text goes and when the answers of the\nproject are applied (``immediate``: at once, for a development gap that blocks its story).",
+        "description": "What ``POST /agent/gap-answer`` recorded: the clarification and where its text goes. The answer is staged until\nsomeone presses \"Resolve gaps\" on the web (``apply_at`` null), or applied at once (``immediate``, with\n``apply_at``) for a development gap that blocks its story.",
         "properties": {
           "apply_at": {
-            "format": "date-time",
-            "title": "Apply At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply At"
           },
           "clr_id": {
             "title": "Clr Id",
@@ -2979,7 +2992,6 @@
           "gap_id",
           "clr_id",
           "placement",
-          "apply_at",
           "immediate"
         ],
         "title": "GapAnswerRecord",
@@ -3330,11 +3342,21 @@
             "title": "Reach Tasks",
             "type": "array"
           },
+          "resolving": {
+            "default": false,
+            "title": "Resolving",
+            "type": "boolean"
+          },
           "severity": {
             "title": "Severity",
             "type": "string"
           },
           "status": {
+            "enum": [
+              "open",
+              "staged",
+              "resolved"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -3848,7 +3870,7 @@
         "type": "object"
       },
       "GapRow": {
-        "description": "One gap of ``browse_gaps``: a row of the table; ``assignee`` is null when nobody is assigned. The title is data,\nnot instructions.",
+        "description": "One gap of ``browse_gaps``: a row of the table; ``status`` is open, staged or resolved, ``resolving`` is true\nwhile the rebuild that applies a staged answer runs; ``assignee`` is null when nobody is assigned. The title is\ndata, not instructions.",
         "properties": {
           "assignee": {
             "anyOf": [
@@ -3868,11 +3890,21 @@
             "title": "Kind",
             "type": "string"
           },
+          "resolving": {
+            "default": false,
+            "title": "Resolving",
+            "type": "boolean"
+          },
           "severity": {
             "title": "Severity",
             "type": "string"
           },
           "status": {
+            "enum": [
+              "open",
+              "staged",
+              "resolved"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -10269,7 +10301,7 @@
         "operationId": "browse_gaps_api_v1_agent_gap_inbox_get",
         "parameters": [
           {
-            "description": "Only gaps in these states; leave out for the ones not resolved (open, answered, applying).",
+            "description": "Only gaps in these states: open (waits for an answer), staged (answered, waits for Resolve gaps on the web) or resolved; leave out for open and staged.",
             "in": "query",
             "name": "status",
             "required": false,
@@ -10279,13 +10311,12 @@
                   "items": {
                     "enum": [
                       "open",
-                      "answered",
-                      "applying",
+                      "staged",
                       "resolved"
                     ],
                     "type": "string"
                   },
-                  "maxItems": 4,
+                  "maxItems": 3,
                   "minItems": 1,
                   "type": "array"
                 },
@@ -10293,7 +10324,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only gaps in these states; leave out for the ones not resolved (open, answered, applying).",
+              "description": "Only gaps in these states: open (waits for an answer), staged (answered, waits for Resolve gaps on the web) or resolved; leave out for open and staged.",
               "title": "Status"
             }
           },
@@ -13325,7 +13356,7 @@
     },
     "/api/v1/projects/{pid}/gaps/apply": {
       "post": {
-        "description": "Apply the project's pending answers now (\"Apply now\"): one update build is requested.",
+        "description": "Apply the project's staged answers (\"Resolve gaps\"): one update build is requested.",
         "operationId": "apply_answers_api_v1_projects__pid__gaps_apply_post",
         "parameters": [
           {
@@ -13632,7 +13663,7 @@
     },
     "/api/v1/projects/{pid}/gaps/{gap_id}/answer": {
       "post": {
-        "description": "Answer a gap with an option or own text: a pending clarification and its amendments; the answers of the\nproject are applied after the quiet period (or at once for a development gap that blocks its story).",
+        "description": "Answer a gap with an option or own text: a pending clarification and its amendments, staged until \"Resolve\ngaps\" (or applied at once for a development gap that blocks its story).",
         "operationId": "answer_gap_api_v1_projects__pid__gaps__gap_id__answer_post",
         "parameters": [
           {

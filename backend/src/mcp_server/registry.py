@@ -610,9 +610,13 @@ NOT_SHOWN: Final = (
 )
 NO_DIALOG: Final = "Nothing was recorded: {reason} Give the user web_url to answer on the web card."
 RETRY: Final = "Nothing was recorded: {problem} Call answer_gap again so that the user can answer."
-RECORDED: Final = (
-    "Recorded as the user's answer. It reaches the specification with the next update build, after a short quiet "
-    "period."
+STAGED: Final = (
+    "Staged as the user's answer. It reaches the specification when someone presses Resolve gaps on the web Gaps "
+    "screen (web_url)."
+)
+APPLIED_AT_ONCE: Final = (
+    "Recorded as the user's answer and applied at once, because a coding agent waits on this gap: the specification "
+    "is being rebuilt."
 )
 
 
@@ -726,7 +730,7 @@ async def _answer(
             placement=record.placement,
             clr_id=record.clr_id,
             apply_at=record.apply_at,
-            note=RECORDED,
+            note=APPLIED_AT_ONCE if record.immediate else STAGED,
         ),
         1,
     )

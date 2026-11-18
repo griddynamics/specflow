@@ -12,7 +12,7 @@ clarifications-document edit is an ``append_section`` under a heading. A failed 
 (``field`` ``edits``, ``reason`` the check) and nothing is written.
 
 Every amended text ends with the answer marker naming the gap (``> Clarified by GAP::...``). Amendment rows are written
-``pending`` with the answer and become ``active`` when the answers are applied (quiet period or ``apply_now``).
+``pending`` with the answer (staged) and become ``active`` when the answers are applied (``apply_now``, "Resolve gaps").
 Nothing here logs a question, an answer, a quote or document text (NFR-GSEC-02).
 """
 

@@ -204,9 +204,9 @@ async def test_fr_gans_07_applied_text_carry_answer_marker_naming_gap() -> None:
     assert marker(gap.gap_id) in orders.markdown.split("\n")
 
 
-async def test_fr_gans_08_answers_applied_after_quiet_period_apply_now() -> None:
-    """Given three answers within the quiet period, then one build is requested; given a blocking development gap
-    answered, then a build is requested at once.
+async def test_fr_gans_08_answers_staged_until_person_presses_resolve_gaps() -> None:
+    """Given three staged answers, then no build is requested until `apply_now`, which requests one build; given a
+    blocking development gap answered, then a build is requested at once.
     """
 
     rig = await answer_world()
@@ -214,11 +214,11 @@ async def test_fr_gans_08_answers_applied_after_quiet_period_apply_now() -> None
     for gap in (await rig.cancel_gap(), await rig.review_gap(), await rig.gap_about(Planted.VAGUE_REQUIREMENT)):
         answer = AnswerInput(gap_id=gap.gap_id, option_rank=1, answered_by=MEMBER)
         results.append(await rig.service.answer_gap(rig.project_id, answer))
-    quiet = timedelta(seconds=rig.service.quiet_seconds())
-    assert quiet == timedelta(seconds=120) and not rig.builds.requests
-    assert all(not item.immediate and item.apply_at > item.apply_at - quiet for item in results)
+    assert all((item.immediate, item.apply_at) == (False, None) for item in results) and not rig.builds.requests
+    staged = await rig.service.list_gaps(rig.project_id, status="answered")
+    assert {item.gap_id for item in results} <= {gap.gap_id for gap in staged.gaps}
 
-    applied = await rig.service.apply_now(rig.project_id, by="gap-apply")
+    applied = await rig.service.apply_now(rig.project_id, by=MEMBER)
 
     assert rig.builds.requests == [(rig.project_id, "gap_answers", False)]
     assert len(applied.gap_ids) == 3 and set(applied.clr_ids) == {item.clr_id for item in results}
@@ -313,11 +313,12 @@ async def test_fr_gans_10_ai_answers_listed_review_revert_clarification_mark() -
     """Given an AI answer reverted, then after the build its text is gone from the graph and a follow-up gap
     `FOLLOWS_UP` the old one.
 
-    The CSV export gap is answered by AI in the full run, listed for review, applied by the quiet-period apply and an
-    update build (which fills the requirement's acceptance criteria), then resolved ``ai_answered`` by the close
-    check. A member reverts it: the clarification and its amendment are ``reverted``, one update build is requested,
-    and a follow-up routed ``ask`` opens with the old gap's question and options. The next build reads the account
-    spec without the answer, and the follow-up stays open for a person.
+    The CSV export gap is answered by AI in the full run and listed for review; it stays staged like a person's answer
+    until "Resolve gaps" (``apply_now``) applies it and an update build (which fills the requirement's acceptance
+    criteria) runs, then it is resolved ``ai_answered`` by the close check. A member reverts it: the clarification and
+    its amendment are ``reverted``, one update build is requested, and a follow-up routed ``ask`` opens with the old
+    gap's question and options. The next build reads the account spec without the answer, and the follow-up stays open
+    for a person.
     """
 
     rig = await answer_world(ai_answers=True)
@@ -326,7 +327,8 @@ async def test_fr_gans_10_ai_answers_listed_review_revert_clarification_mark() -
     (listed,) = (await rig.service.ai_answers(rig.project_id)).answers
     clr, text = listed.clarification.clr_id, str(listed.clarification.text)
     old = await rig.service.get_gap(rig.project_id, listed.gap_id)
-    await rig.service.apply_now(rig.project_id, by="gap-apply")
+    assert text not in await account_text(rig) and not rig.builds.requests
+    await rig.service.apply_now(rig.project_id, by=MEMBER)
     assert text in await account_text(rig)
     built = await apply_build(rig.world, attributes={Planted.OWNERLESS_CSV_EXPORT: {"acceptance_criteria": text}})
     await update_run(rig.world, built)

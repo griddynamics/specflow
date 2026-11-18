@@ -440,8 +440,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   // options, history and reach from the items; `cursor` is an offset. Every gap has `assigned_to` (null unless seeded or assigned). Writes, in memory, with the API's
   // checks and codes: `edits_preview` (edits made from the option or the own text: `amend` after the first witness line, or a
   // clarifications-document section; own text containing "FALLBACK" falls back to the document), `answer` (409 gap_stale unless
-  // `updated_at` is the gap's; the gap moves to answered with a pending clarification and a new `updated_at`), `dismiss` (204), raise
-  // (`POST /gaps`, 201), `apply` (answered -> applying; 409 gap_wrong_state when nothing waits), `ai_answers`, revert (an applied answer of a
+  // `updated_at` is the gap's; the gap moves to answered with a pending clarification by the caller and a new `updated_at`: the answer
+  // is staged, `apply_at` null; a development gap that blocks applies every staged answer at once, `immediate`), `dismiss` (204, an
+  // open gap only), raise (`POST /gaps`, 201), `apply` ("Resolve gaps": answered -> applying; 409 gap_wrong_state when nothing is
+  // staged), `ai_answers`, revert (an applied answer of a
   // resolved gap opens a follow-up gap, linked both ways in `history.follow_ups`; a pending one sends the gap back open), the noise rules
   // and `PUT /gaps/{id}/assignee` (a member of the project or null; 400 assignee_not_member, 409 gap_wrong_state for a resolved gap; an
   // `assigned` or `unassigned` event by the caller). `settleGaps` (control) settles the
@@ -675,26 +677,26 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     set.gaps.push(g);
     return json(res, 201, { gap_id: id, created: true });
   }
+  /** Every staged answer goes to one rebuild: answered -> applying; null when nothing is staged. */
+  function applyStaged(set) {
+    const waiting = set.gaps.filter((g) => g.status === "answered" && g.clarification?.status === "pending");
+    if (waiting.length === 0) return null;
+    const build = `gb-apply-${String(++set.seq)}`;
+    for (const g of waiting) {
+      g.status = "applying";
+      g.updated_at = tick();
+      g.applying_build = build;
+      event(g, "applying", { build }, g.clarification.clr_id, "apply");
+    }
+    return { gap_ids: waiting.map((g) => g.gap_id), clr_ids: waiting.map((g) => g.clarification.clr_id), amendments: [], build };
+  }
   async function gapWrite({ req, res, set, did, action, rest }) {
     const body = await readJsonBody(req);
     if (body === null || typeof body !== "object" || Array.isArray(body)) return err(res, 422, "validation_failed");
     if (!did) return raise(set, body, res);
     if (did === "apply") {
-      const waiting = set.gaps.filter((g) => g.status === "answered" && g.clarification?.status === "pending");
-      if (waiting.length === 0) return wrongState(res, "open", ["answered"]);
-      const build = `gb-apply-${String(++set.seq)}`;
-      for (const g of waiting) {
-        g.status = "applying";
-        g.updated_at = tick();
-        g.applying_build = build;
-        event(g, "applying", { build }, g.clarification.clr_id, "apply");
-      }
-      return json(res, 200, {
-        gap_ids: waiting.map((g) => g.gap_id),
-        clr_ids: waiting.map((g) => g.clarification.clr_id),
-        amendments: [],
-        build,
-      });
+      const applied = applyStaged(set);
+      return applied ? json(res, 200, applied) : wrongState(res, "nothing_pending", ["answered"]);
     }
     if (did === "noise_rules") {
       if (!["document", "section", "pattern"].includes(body.scope)) return err(res, 422, "validation_failed");
@@ -718,7 +720,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!g) return err(res, 404, "gap_not_found");
     if (action === "dismiss") {
       if (!textLength(body.reason, 1, 500)) return invalid(res, "reason", "length");
-      if (!["open", "answered"].includes(g.status)) return wrongState(res, g.status, ["open", "answered"]);
+      if (g.status !== "open") return wrongState(res, g.status, ["open"]);
       set.gaps = set.gaps.filter((x) => x !== g);
       res.writeHead(204);
       return res.end();
@@ -745,7 +747,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       status: "pending",
       option_label: checked.option ? checked.option.label : null,
       text: checked.text,
-      answered_by: "u1",
+      answered_by: ME.id,
       answered_at: tick(),
       applied_build_id: null,
       basis: [],
@@ -753,14 +755,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     };
     g.updated_at = tick();
     event(g, "answered", { mode: g.clarification.mode }, clrId);
+    const immediate = g.origin === "development" && g.blocking === true;
+    if (immediate) applyStaged(set);
     return json(res, 200, {
       gap_id: g.gap_id,
       clr_id: clrId,
       replaced,
       placement,
       amendments: edits.filter((e) => e.placement === "amend").map((_, i) => `AMD::${clrId}::${String(i + 1)}`),
-      apply_at: new Date(Date.now() + 120_000).toISOString(),
-      immediate: false,
+      apply_at: immediate ? tick() : null,
+      immediate,
     });
   }
   /** `PUT /gaps/{gap_id}/assignee` (see the header). */

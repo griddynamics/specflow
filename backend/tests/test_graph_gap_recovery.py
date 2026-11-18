@@ -1,6 +1,6 @@
 """What a restart or a passing failure leaves of the answers (answers.md "Applying answers"): ``pending_answers``
-finds the answers still in their quiet period, the applies still waiting for their build and the amendment rows of
-deleted clarifications; the writes after a committed answer or apply are retried (``graph.gap.retry``)."""
+finds the applies still waiting for their build and the amendment rows of deleted clarifications, and leaves staged
+answers to "Resolve gaps"; the writes after a committed answer or apply are retried (``graph.gap.retry``)."""
 
 from __future__ import annotations
 
@@ -35,19 +35,21 @@ class Flaky:
         return await self.call(*args, **kwargs)
 
 
-async def test_an_answer_in_its_quiet_period_is_found_with_its_time() -> None:
+async def test_a_staged_answer_leaves_nothing_to_recover_and_keeps_its_rows() -> None:
     rig = await answer_world()
     gap = await rig.cancel_gap()
-    await rig.service.answer_gap(rig.project_id, AnswerInput(gap_id=gap.gap_id, option_rank=1, answered_by=MEMBER))
-    answered = (await rig.service.get_gap(rig.project_id, gap.gap_id)).clarification
+    result = await rig.service.answer_gap(
+        rig.project_id, AnswerInput(gap_id=gap.gap_id, option_rank=1, answered_by=MEMBER)
+    )
 
     found = await rig.service.pending_answers(rig.project_id)
 
-    assert answered is not None and found.answered_at == answered.answered_at
-    assert (found.apply_requested_at, found.orphans) == (None, 0)
+    assert (found.apply_requested_at, found.orphans) == (None, 0) and not rig.builds.requests
+    rows = await rig.world.amendments.for_clarification(rig.project_id, result.clr_id)
+    assert rows and {row.status for row in rows} == {"pending"}
 
 
-async def test_an_applied_answer_waits_for_its_build_and_not_for_its_quiet_period() -> None:
+async def test_an_applied_answer_waits_for_its_build() -> None:
     rig = await answer_world()
     gap = await rig.cancel_gap()
     await rig.service.answer_gap(rig.project_id, AnswerInput(gap_id=gap.gap_id, option_rank=1, answered_by=MEMBER))
@@ -55,7 +57,7 @@ async def test_an_applied_answer_waits_for_its_build_and_not_for_its_quiet_perio
 
     found = await rig.service.pending_answers(rig.project_id)
 
-    assert found.answered_at is None and found.apply_requested_at is not None
+    assert found.apply_requested_at is not None
 
 
 async def test_a_project_without_answers_has_nothing_pending() -> None:
@@ -63,7 +65,7 @@ async def test_a_project_without_answers_has_nothing_pending() -> None:
 
     found = await rig.service.pending_answers(rig.project_id)
 
-    assert (found.answered_at, found.apply_requested_at, found.orphans) == (None, None, 0)
+    assert (found.apply_requested_at, found.orphans) == (None, 0)
 
 
 async def test_pending_rows_of_a_deleted_clarification_are_deleted() -> None:

@@ -25,8 +25,8 @@ For each investigated site, by its checked outcome:
   label, basis quotes and edits' text, the second check's confidence, status ``pending``, placement by the edits),
   ``ANSWERS`` and ``PLACED_IN`` each source document it amends, in the gap's transaction; its amendment rows
   (``pending``) are written first through ``Amendments`` and deleted again when the graph write fails. The gap's options
-  are stored as for any gap (a revert gives them to a person). The host applies the answer with the next batch of the
-  quiet period, like a person's answer; it never applies at once.
+  are stored as for any gap (a revert gives them to a person). The answer is staged like a person's answer and applied
+  with the next "Resolve gaps"; it never applies at once.
 - ``duplicate``: the site row with the gap it repeats, and a ``duplicate`` event on that gap; nothing else is written
   (FR-GINV-06). A rejected report (outcome ``not_a_gap`` with failed checks): the site row and a ``report_rejected``
   event naming the checks. ``not_a_gap``, ``not_spec``: the site row only (the run lists a ``not_spec`` site's nodes in

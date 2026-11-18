@@ -439,7 +439,7 @@ async def test_a_failed_dismissal_keeps_an_earlier_suppression_of_the_signature(
     assert gap.signature in rig.world.records.suppressions[rig.project_id]
 
 
-async def test_an_immediate_apply_that_fails_leaves_the_answer_to_the_quiet_period() -> None:
+async def test_an_immediate_apply_that_fails_leaves_the_answer_staged() -> None:
     rig = await answer_world()
     service, *_ = service_of(rig.world, builds=None)
     raised = await service.raise_gap(
@@ -460,5 +460,9 @@ async def test_an_immediate_apply_that_fails_leaves_the_answer_to_the_quiet_peri
         rig.project_id, AnswerInput(gap_id=raised.gap_id, own_text="Five business days.", answered_by=MEMBER)
     )
 
-    assert not result.immediate and result.apply_at > rig.clock.now
-    assert (await service.get_gap(rig.project_id, raised.gap_id)).status == "answered"
+    assert (result.immediate, result.apply_at) == (False, None)
+    staged = await service.get_gap(rig.project_id, raised.gap_id)
+    assert staged.status == "answered" and staged.clarification is not None
+    assert staged.clarification.status == "pending"
+    applied = await rig.service.apply_now(rig.project_id, by=MEMBER)
+    assert result.clr_id in applied.clr_ids and rig.builds.requests == [(rig.project_id, "gap_answers", False)]

@@ -58,7 +58,6 @@ NOISE = NoiseReport(
     sections=(NoiseSection(lineage="doc:1", heading_path=("Status",), relevance="tracking", by="rules"),)
 )
 RESULT = GapRunResult(run_id="run-1", mode="update", build_id="build-1", status="completed", counts={"gaps_new": 2})
-APPLY_AT = datetime(2026, 11, 5, 9, 30, tzinfo=UTC)
 RULE_ID = "NR::0123456789AB"
 RULE = NoiseRuleRow(
     rule_id=RULE_ID, scope="section", value="Status", reason="tracking", created_by="someone", created_at=NOW
@@ -106,7 +105,11 @@ class FakeService:
     async def answer_gap(self, project_id: str, answer: AnswerInput) -> AnswerResult:
         self._call("answer_gap", project_id, answer)
         return AnswerResult(
-            gap_id=answer.gap_id, clr_id="CLR::1", placement="document", apply_at=APPLY_AT, immediate=self.immediate
+            gap_id=answer.gap_id,
+            clr_id="CLR::1",
+            placement="document",
+            apply_at=NOW if self.immediate else None,
+            immediate=self.immediate,
         )
 
     async def dismiss_gap(self, project_id: str, gap_id: str, **kwargs: Any) -> None:
@@ -147,8 +150,6 @@ class FakeGapRunner:
         self.starts: list[str] = []
         self.built: set[str] = set()
         self.sites: list[tuple[str, str]] = []
-        self.schedules: list[tuple[str, datetime]] = []
-        self.applies: list[str] = []
 
     async def start_full(self, project_id: str) -> GapRunState:
         if project_id not in self.built:
@@ -179,12 +180,6 @@ class FakeGapRunner:
 
     async def start_site(self, project_id: str, gap_id: str) -> None:
         self.sites.append((project_id, gap_id))
-
-    def schedule_apply(self, project_id: str, at: datetime) -> None:
-        self.schedules.append((project_id, at))
-
-    def applied(self, project_id: str) -> None:
-        self.applies.append(project_id)
 
 
 async def project(harness, email: str = "alice@example.com") -> uuid.UUID:
@@ -459,7 +454,7 @@ async def test_a_non_member_gets_404_on_every_write_route(harness, route):
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "project_not_found"
     assert runner.gap_service.calls == []
-    assert (runner.sites, runner.schedules, runner.applies) == ([], [], [])
+    assert runner.sites == []
 
 
 @pytest.mark.parametrize("route", WRITE_ROUTES, ids=WRITE_IDS)
@@ -495,38 +490,41 @@ async def test_a_member_who_is_not_the_owner_answers_as_themselves(harness):
     assert dismiss_kwargs == {"reason": "duplicate", "by": str(bob)}
 
 
-async def test_an_answer_schedules_the_apply_at_its_time(harness):
+async def test_an_answer_is_staged_until_resolve_gaps(harness):
     runner, pid = await gap_project(harness)
 
     response = await harness.client.post(url(pid, "/gaps/GAP::A/answer"), json=ANSWER, headers=bearer())
 
     assert response.status_code == 200
-    assert response.json()["clr_id"] == "CLR::1"
-    [(_, (_, answer), _)] = runner.gap_service.calls
-    assert answer.answered_by == user_id(harness)
-    assert runner.schedules == [(str(pid), APPLY_AT)]
+    assert (response.json()["clr_id"], response.json()["immediate"], response.json()["apply_at"]) == (
+        "CLR::1",
+        False,
+        None,
+    )
+    [(name, (_, answer), _)] = runner.gap_service.calls
+    assert (name, answer.answered_by) == ("answer_gap", user_id(harness))
 
 
-async def test_an_immediate_answer_schedules_no_apply(harness):
+async def test_an_immediate_answer_says_when_it_was_applied(harness):
     runner, pid = await gap_project(harness)
     runner.gap_service.immediate = True
 
     response = await harness.client.post(url(pid, "/gaps/GAP::A/answer"), json=ANSWER, headers=bearer())
 
     assert response.status_code == 200 and response.json()["immediate"] is True
-    assert runner.schedules == []
+    assert datetime.fromisoformat(response.json()["apply_at"]) == NOW
+    assert [name for name, *_ in runner.gap_service.calls] == ["answer_gap"]
 
 
-async def test_apply_now_applies_as_the_member_and_clears_the_due_apply(harness):
+async def test_resolve_gaps_applies_the_staged_answers_as_the_member(harness):
     runner, pid = await gap_project(harness)
 
     response = await harness.client.post(url(pid, "/gaps/apply"), headers=bearer())
 
     assert response.status_code == 200
     assert response.json()["gap_ids"] == ["GAP::A"]
-    [(_, _, kwargs)] = runner.gap_service.calls
-    assert kwargs == {"by": user_id(harness)}
-    assert runner.applies == [str(pid)]
+    [(name, (project_id,), kwargs)] = runner.gap_service.calls
+    assert (name, project_id, kwargs) == ("apply_now", str(pid), {"by": user_id(harness)})
 
 
 async def test_apply_now_with_nothing_pending_gets_409(harness):
@@ -536,8 +534,6 @@ async def test_apply_now_with_nothing_pending_gets_409(harness):
     response = await harness.client.post(url(pid, "/gaps/apply"), headers=bearer())
 
     assert response.status_code == 409 and response.json()["error"]["code"] == "gap_wrong_state"
-    # The due apply is cleared before the apply runs (nothing was pending, so nothing is lost).
-    assert runner.applies == [str(pid)]
 
 
 @pytest.mark.parametrize(("created", "sites"), [(True, 1), (False, 0)])
@@ -621,7 +617,6 @@ async def test_a_refused_write_maps_to_its_error(harness, route, refusal):
     assert response.status_code == status
     assert response.json()["error"]["code"] == code
     assert (response.json()["error"].get("details") or {}) == details
-    assert runner.schedules == []
 
 
 async def test_a_stale_answer_gets_409_gap_stale(harness):
@@ -631,7 +626,6 @@ async def test_a_stale_answer_gets_409_gap_stale(harness):
     response = await harness.client.post(url(pid, "/gaps/GAP::A/answer"), json=ANSWER, headers=bearer())
 
     assert response.status_code == 409 and response.json()["error"]["code"] == "gap_stale"
-    assert runner.schedules == []
 
 
 async def test_a_refused_raise_or_noise_rule_gets_400_answer_invalid(harness):

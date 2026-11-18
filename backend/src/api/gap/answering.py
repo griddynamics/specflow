@@ -1,6 +1,6 @@
 """What the web and the agent answer routes share (docs/graph/gap/api.md "Web routes", docs/mcp-server/apps.md
-"Terminal dialogs"): the API errors of the gap service's refusals, and the record of an answer with its scheduled
-apply. Logs carry ids and codes only (NFR-GSEC-02); the routes log their own events."""
+"Terminal dialogs"): the API errors of the gap service's refusals, and the record of an answer (staged until "Resolve
+gaps"). Logs carry ids and codes only (NFR-GSEC-02); the routes log their own events."""
 
 from __future__ import annotations
 
@@ -33,11 +33,8 @@ def answer_invalid(error: AnswerInvalidError) -> ApiError:
 
 
 async def record_answer(runner: GapRunnerReads, project_id: str, answer: AnswerInput) -> AnswerResult:
-    """``GapService.answer_gap``; unless the answer applies at once, the apply waits for the project's quiet period.
-    The service's refusals pass through for the route to map."""
+    """``GapService.answer_gap``: the answer is staged until "Resolve gaps" (``apply_now``), or applied at once for a
+    development gap that blocks its story. The service's refusals pass through for the route to map."""
 
     service = await runner.service()
-    result = await service.answer_gap(project_id, answer)
-    if not result.immediate:
-        runner.schedule_apply(project_id, result.apply_at)
-    return result
+    return await service.answer_gap(project_id, answer)

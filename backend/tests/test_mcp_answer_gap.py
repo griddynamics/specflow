@@ -24,7 +24,7 @@ from starlette.applications import Starlette
 
 from gap_agent_support import ALPHA, QUESTION
 from mcp_gap_support import WEB, Served, serve_mcp_gaps
-from mcp_server.registry import NOT_SHOWN, RECORDED
+from mcp_server.registry import NOT_SHOWN, STAGED
 from mcp_support import ALICE, MCP_HOST, MCP_URL, call, sdk_session
 from specflow_api_agent_support import FOREIGN
 
@@ -115,7 +115,7 @@ async def test_the_dialog_holds_the_question_and_a_box_per_option_and_records_th
     ]
     outcome = result.structured_content
     assert not result.is_error and outcome is not None
-    assert (outcome["answered"], outcome["action"], outcome["note"]) == (True, "accept", RECORDED)
+    assert (outcome["answered"], outcome["action"], outcome["note"]) == (True, "accept", STAGED)
     assert outcome["choice"] == f"A) {options[0].label}" and outcome["web_url"].endswith(f"gaps?gap={gap_id}")
     gap = await served.gaps.gaps.get_gap(ALPHA, gap_id)
     assert gap.status == "answered" and gap.clarification is not None

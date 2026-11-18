@@ -25,7 +25,7 @@ answer does not hold, a follow-up gap opens and points back to it, so the histor
 | `answered`, `applying` | `open` | Person, `revert_clarification` of the pending answer | The clarification becomes `reverted`, its amendments are reverted, the gap's route becomes `ask` (an AI answer goes to a person); an update build is requested when its amendments were already active |
 | `answered` | `answered` | Person, answers again before it is applied | The new pending clarification replaces the old one, which is deleted with its amendments (answers.md "Changing an answer") |
 | `resolved` | `resolved` | Person, answers again after it is applied | A new pending clarification `REPLACES` the applied one, which becomes `superseded` when the answers are applied |
-| `answered` | `applying` | Apply (quiet period ends, `apply_now`, or an immediate development answer) | Amendments become active, the clarifications document holds the answer from the next corpus read, `BuildRequests.request_update_build` is called |
+| `answered` | `applying` | Apply ("Resolve gaps", `apply_now`, or an immediate development answer) | Amendments become active, the clarifications document holds the answer from the next corpus read, `BuildRequests.request_update_build` is called |
 | `applying` | `resolved` | Close check, fixed | Clarification `applied`, `GROUNDED_IN` set; resolution `answered` or `ai_answered`; held tasks released |
 | `applying` | `resolved` | Close check, not fixed | Resolution `follow_up`; a new open gap `FOLLOWS_UP` it with reason `not_fixed` |
 | `resolved` | `resolved` | Reconcile, conflict or orphaned (read by the next run's close step) | The clarification becomes `conflict` or `orphaned`; a follow-up gap opens with fixed options ([reconcile.md](reconcile.md)) |
@@ -238,7 +238,7 @@ with origin `development`.
    `pointer` clarification that cites the answering lines. No build runs; the held tasks are released at once
    and the brief shows the answering lines.
 5. **Answer.** Otherwise the gap tops the inbox. When a person answers a development gap that holds tasks,
-   the answer is applied immediately (`request_update_build(..., immediate=True)`), with no quiet period.
+   the answer is applied immediately (`request_update_build(..., immediate=True)`), without waiting for "Resolve gaps".
 6. **Release.** When the close check resolves the gap, the held tasks return to `pending`. The agent claims
    again and reads a brief built from the updated spec.
 7. **Not spec.** If the investigation returns `not_spec` (a library bug, a failing test, a tooling issue),

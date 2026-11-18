@@ -235,13 +235,15 @@ export interface AnswerInput {
   updatedAt: string;
 }
 
+/** What an answer returns: a staged answer waits for "Resolve gaps" (`applyAt` null); a development gap that holds a coding agent's task
+ * is applied at once (`immediate`, `applyAt` the time). */
 export interface AnswerResult {
   gapId: string;
   clrId: string;
   replaced: string | null;
   placement: ClarificationPlacement;
   amendments: string[];
-  applyAt: string;
+  applyAt: string | null;
   immediate: boolean;
 }
 

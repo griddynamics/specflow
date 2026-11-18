@@ -1,7 +1,10 @@
-// FR-GWEB-04: the option cards' "Recommended" mark and the gap question card, rendered on the server. OptionCards and QuestionBlock
-// without `recommended` render exactly as before (no mark); the card shows the chips, the question with the recommended option, why, the
-// ABOUT and IMPACTS nodes, the quotes and the reach. Without a card control (read-only use) it has no answering control; with one, an open
-// gap has the options as a radio group with "Other", the recommended option preselected for a major gap, Submit and "Not a gap".
+// FR-GWEB-04: the option cards' "Recommended" mark, the gap question card and "Resolve gaps", rendered on the server. OptionCards and
+// QuestionBlock without `recommended` render exactly as before (no mark); the card shows the chips, the question with the recommended
+// option, why, the ABOUT and IMPACTS nodes, the quotes and the reach. Without a card control (read-only use) it has no answering control;
+// with one, an open gap has the options as a radio group with "Other", the recommended option preselected for a major gap, "Stage
+// answer" (or "Answer and resolve" for a gap a coding agent waits on) and "Not a gap"; a staged gap "Change answer" and "Unstage"; a gap
+// whose rebuild runs is read-only with "Resolving…". The "Resolve gaps" button names the staged count, is off or busy with its reason,
+// and its confirmation lists each staged gap's answer and who staged it.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { createElement } from "react";
@@ -18,6 +21,9 @@ async function load() {
     GapCard: (await import("../../components/gaps/GapCard")).GapCard,
     AssigneeMenu: (await import("../../components/gaps/AssigneeMenu")).AssigneeMenu,
     DecisionRow: (await import("../../components/ui/DecisionRow")).DecisionRow,
+    ResolveButton: (await import("../../components/gaps/ResolveGaps")).ResolveButton,
+    ResolveDialog: (await import("../../components/gaps/ResolveGaps")).ResolveDialog,
+    resolveView: (await import("../../components/gaps/gaps-logic")).resolveView,
   };
 }
 before(async () => {
@@ -94,9 +100,9 @@ test("FR-GWEB-04: the question card shows chips, the question with one recommend
   assert.equal((view.match(/role="radio"[^>]*disabled/g) ?? []).length, 3);
 });
 
-test("FR-GWEB-04: the read-only card has no answering control: no Submit, Other, Not a gap, Revert or comment", () => {
+test("FR-GWEB-04: the read-only card has no answering control: no Stage answer, Other, Not a gap, Unstage, Revert or comment", () => {
   const view = renderToStaticMarkup(createElement(M.GapCard, { gap: gap(), onClose: () => undefined }));
-  for (const word of ["Submit", "Other", "Not a gap", "Revert", "Add comment", "Mark as not spec", "Apply"]) {
+  for (const word of ["Stage answer", "Other", "Not a gap", "Unstage", "Revert", "Add comment", "Mark as not spec", "Resolve gaps"]) {
     assert.doesNotMatch(view, new RegExp(`>${word}<`), word);
   }
   assert.doesNotMatch(view, /<textarea/);
@@ -121,8 +127,9 @@ test("FR-GWEB-04: a gap without options says they are being prepared; an answere
   });
   const view = renderToStaticMarkup(createElement(M.GapCard, { gap: answered, onClose: () => undefined }));
   assert.match(view, /aria-checked="true"[^>]*>[\s\S]*?Cancel only before shipping/);
-  assert.match(view, /Answered by dana/);
-  assert.match(view, />Answered</);
+  assert.match(view, />Staged answer</);
+  assert.match(view, /Staged by a person · waits for Resolve gaps/);
+  assert.match(view, /data-testid="gap-status"><span class="gdg-tag gdg-tag--info"[^>]*>.*?Staged</);
 });
 
 const never = () => Promise.reject(new Error("not in this test"));
@@ -156,16 +163,66 @@ const control = {
   onDismissed: () => undefined,
 };
 
-test("FR-GWEB-04: with a control, an open major gap has radio options with A recommended and preselected, Other, Submit and Not a gap", () => {
+test("FR-GWEB-04: with a control, an open major gap has radio options with A recommended and preselected, Other, Stage answer and Not a gap", () => {
   const view = renderToStaticMarkup(createElement(M.GapCard, { gap: gap(), onClose: () => undefined, control }));
   assert.match(view, /role="radiogroup"/);
   assert.equal((view.match(/role="radio"/g) ?? []).length, 4); // three options and Other
   assert.equal((view.match(/role="radio"[^>]*disabled/g) ?? []).length, 0);
   assert.match(view, /role="radio" aria-checked="true"[^>]*>[\s\S]*?Refund in full and cancel/);
   assert.match(view, /Other: answer in your own words/);
-  assert.match(view, /data-testid="gap-submit"/);
+  assert.match(view, /data-testid="gap-submit"[^>]*>Stage answer</);
   assert.match(view, /data-testid="gap-dismiss"/);
   assert.match(view, /data-testid="gap-preview-button"/);
+  assert.doesNotMatch(view, /data-testid="gap-at-once"/);
+  assert.doesNotMatch(view, /data-testid="gap-withdraw"/);
+});
+
+test("FR-GWEB-04: an open development gap that holds a coding agent's task is answered and resolved at once, and says so", () => {
+  const view = renderToStaticMarkup(
+    createElement(M.GapCard, { gap: gap({ origin: "development", blocking: true }), onClose: () => undefined, control }),
+  );
+  assert.match(view, /data-testid="gap-submit"[^>]*>Answer and resolve</);
+  const line = /<p class="gap-text body-sm" id="([^"]+)" data-testid="gap-at-once">([^<]+)</.exec(view);
+  assert.ok(line, "the line under the answer");
+  assert.match(line[2], /applies at once because a coding agent waits on it/);
+  assert.match(view, new RegExp(`aria-describedby="${line[1]}" data-testid="gap-submit"[^>]*>Answer and resolve<`));
+});
+
+const pending = {
+  clrId: "CLR::1",
+  mode: "option" as const,
+  status: "pending" as const,
+  optionLabel: "Cancel only before shipping",
+  text: null,
+  answeredBy: "u-1",
+  answeredAt: "",
+};
+
+test("FR-GWEB-04: a staged gap shows its staged answer and who staged it, Change answer and Unstage, and no Not a gap", () => {
+  const view = renderToStaticMarkup(
+    createElement(M.GapCard, { gap: gap({ status: "answered", clarification: pending }), onClose: () => undefined, control }),
+  );
+  assert.match(view, /Staged by Dana · waits for Resolve gaps/);
+  assert.match(view, /data-testid="gap-submit"[^>]*>Change answer</);
+  assert.match(view, /data-testid="gap-withdraw"[^>]*>Unstage</);
+  assert.doesNotMatch(view, /data-testid="gap-dismiss"/);
+  assert.doesNotMatch(view, /data-testid="gap-resolving"/);
+});
+
+test("FR-GWEB-04: a gap whose rebuild runs is Staged with Resolving… (a spinner and the word) and read-only", () => {
+  const view = renderToStaticMarkup(
+    createElement(M.GapCard, { gap: gap({ status: "applying", clarification: pending }), onClose: () => undefined, control }),
+  );
+  assert.match(view, /data-testid="gap-status"><span class="gdg-tag gdg-tag--info"[^>]*>.*?Staged</);
+  assert.match(
+    view,
+    /data-testid="gap-resolving"><span class="gdg-tag gdg-tag--pending"[^>]*><span class="gdg-tag__spin"[^>]*><\/span>Resolving…</,
+  );
+  assert.match(view, /Staged by Dana · being resolved/);
+  for (const id of ["gap-submit", "gap-withdraw", "gap-dismiss", "gap-answer-form"]) {
+    assert.doesNotMatch(view, new RegExp(`data-testid="${id}"`), id);
+  }
+  assert.equal((view.match(/role="radio"[^>]*disabled/g) ?? []).length, 3);
 });
 
 test("FR-GWEB-04: a minor gap preselects nothing; a resolved gap is read-only and offers Withdraw answer for its applied answer", () => {
@@ -199,7 +256,9 @@ test("FR-GWEB-04: a minor gap preselects nothing; a resolved gap is read-only an
   });
   const view = renderToStaticMarkup(createElement(M.GapCard, { gap: resolved, onClose: () => undefined, control }));
   assert.doesNotMatch(view, /data-testid="gap-submit"/);
-  assert.match(view, /data-testid="gap-withdraw"/);
+  assert.doesNotMatch(view, /data-testid="gap-dismiss"/);
+  assert.match(view, /data-testid="gap-withdraw"[^>]*>Withdraw answer</);
+  assert.match(view, /data-testid="gap-status"><span class="gdg-tag gdg-tag--success"[^>]*>.*?Resolved</);
   assert.match(view, /applied by build gb-9/);
   assert.match(view, /Checked against a new source revision: found in the source file/);
   assert.match(view, /href="\/projects\/p1\/gaps\?gap=GAP%3A%3A2"/);
@@ -242,4 +301,89 @@ test("FR-GWEB-06: a resolved gap's row names its assignee without a menu", () =>
   );
   assert.doesNotMatch(view, /aria-haspopup/);
   assert.match(view, />Dana</);
+});
+
+test("FR-GWEB-04: an inbox row of a gap whose rebuild runs carries the Resolving… tag beside its title", () => {
+  const badge = createElement("span", { "data-testid": "gap-row-resolving" }, "Resolving…");
+  const view = renderToStaticMarkup(
+    createElement(M.DecisionRow, { title: "Cancelling a paid order", domain: "Missing", severity: "high", badge }),
+  );
+  assert.match(
+    view,
+    /<span class="gdg-drow__line"><b>Cancelling a paid order<\/b><span data-testid="gap-row-resolving">Resolving…<\/span><\/span>/,
+  );
+  const utils = renderToStaticMarkup(
+    createElement(M.DecisionRow, { title: "Cancelling a paid order", domain: "Missing", severity: "high" }),
+  );
+  assert.doesNotMatch(utils, /gdg-drow__line/);
+});
+
+const resolveButton = (staged: number, resolving: boolean) =>
+  renderToStaticMarkup(createElement(M.ResolveButton, { view: M.resolveView(staged, resolving), onOpen: () => undefined }));
+
+test("FR-GWEB-04: Resolve gaps names the staged count and is the primary button when answers are staged", () => {
+  const view = resolveButton(3, false);
+  assert.match(view, /class="gdg-btn gdg-btn--primary gaps-resolve"/);
+  assert.match(view, /data-state="ready"[^>]*>Resolve 3 gaps</);
+  assert.doesNotMatch(view, /aria-disabled/);
+});
+
+test("FR-GWEB-04: with nothing staged Resolve gaps is aria-disabled with its reason as tooltip and description", () => {
+  const view = resolveButton(0, false);
+  assert.match(view, /aria-disabled="true"/);
+  assert.match(view, /data-tip="Stage an answer first\."/);
+  const hint = /aria-describedby="([^"]+)"/.exec(view);
+  assert.ok(hint);
+  assert.match(view, new RegExp(`id="${hint[1]}" class="shell-sr" data-testid="gaps-resolve-hint">Stage an answer first\\.<`));
+  assert.match(view, /data-state="off"[^>]*>Resolve gaps</);
+});
+
+test("FR-GWEB-04: while a rebuild runs Resolve gaps is busy: aria-disabled, a spinner and Resolving…", () => {
+  const view = resolveButton(2, true);
+  assert.match(view, /aria-disabled="true"/);
+  assert.match(view, /gaps-resolve--busy/);
+  assert.match(view, /<span class="gdg-spinner gaps-resolve__spin" aria-hidden="true"><\/span>Resolving…/);
+});
+
+test("FR-GWEB-04: the Resolve gaps confirmation lists each staged gap, its answer and who staged it, says it resolves everyone's, and counts the rest", () => {
+  const staged = [
+    gap({ id: "GAP::1", status: "answered", clarification: pending }),
+    gap({
+      id: "GAP::2",
+      title: "Prices are shown in euro",
+      status: "answered",
+      clarification: { ...pending, clrId: "CLR::2", mode: "ai", optionLabel: null, text: "All in euro.", answeredBy: "ai" },
+    }),
+    gap({
+      id: "GAP::3",
+      title: "Return window",
+      status: "answered",
+      clarification: { ...pending, mode: "own", optionLabel: null, text: "30 days", answeredBy: "u-2" },
+    }),
+  ];
+  const dialog = (rows: Gap[]) =>
+    renderToStaticMarkup(
+      createElement(M.ResolveDialog, {
+        gaps: control.gaps,
+        projectId: "p1",
+        staged: rows,
+        names: { "u-1": "Dana", "u-2": "lee@example.com" },
+        onClose: () => undefined,
+        onResolved: () => undefined,
+      }),
+    );
+  const view = dialog(staged);
+  assert.match(view, />Resolve 3 gaps\?</);
+  assert.match(view, /One rebuild applies every staged answer in this project, not only yours\./);
+  const items = view.split('data-testid="gaps-resolve-item"').slice(1);
+  assert.equal(items.length, 3);
+  assert.match(items[0], /Cancelling a paid order is not specified<\/b>.*Cancel only before shipping · Staged by Dana/);
+  assert.match(items[1], /Prices are shown in euro<\/b>.*Own answer · Staged by AI/);
+  assert.match(items[2], /Return window<\/b>.*Own answer · Staged by lee@example\.com/);
+  assert.match(view, /data-testid="gaps-resolve-confirm"[^>]*>Resolve 3 gaps</);
+  assert.doesNotMatch(view, /gaps-resolve-more/);
+  const many = Array.from({ length: 53 }, (_, i) => gap({ id: `GAP::${String(i)}`, status: "answered", clarification: pending }));
+  const utils = dialog(many);
+  assert.equal(utils.split('data-testid="gaps-resolve-item"').length - 1, 50);
+  assert.match(utils, /data-testid="gaps-resolve-more">and 3 more</);
 });

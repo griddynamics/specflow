@@ -26,7 +26,7 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Final, TypedDict, Unpack, get_args
 
 from pydantic import ValidationError
@@ -795,7 +795,7 @@ class GapService:
         if immediate:
             try:
                 await self._apply(project_id, by=answer.answered_by, immediate=True)
-            except GraphError as error:  # the answer is recorded: it waits for the quiet period instead
+            except GraphError as error:  # the answer is recorded: it stays staged for "Resolve gaps"
                 log_event(
                     logger, WARNING, "graph.gap.answer.apply_failed", project_id=project_id, error_code=error.code
                 )
@@ -806,14 +806,14 @@ class GapService:
             replaced=str(pending[-1]["clr_id"]) if pending else None,
             placement=placement,
             amendments=tuple(row.amendment_id for row in rows),
-            apply_at=now if immediate else now + timedelta(seconds=self.quiet_seconds()),
+            apply_at=now if immediate else None,
             immediate=immediate,
         )
 
     async def pending_answers(self, project_id: str) -> PendingAnswers:
-        """The project's answers a restart may have left behind: the latest answer still waiting for its quiet period,
-        the earliest apply still waiting for its update build, and the pending amendment rows whose clarification is
-        gone (an answer that replaced it committed, then the deletion of its rows failed): those rows are deleted."""
+        """The project's answers a restart may have left behind: the earliest apply still waiting for its update
+        build, and the pending amendment rows whose clarification is gone (an answer that replaced it committed, then
+        the deletion of its rows failed): those rows are deleted. Staged answers wait for "Resolve gaps"."""
 
         project_id = validate_project_id(project_id)
         async with self._locks[project_id]:
@@ -821,7 +821,6 @@ class GapService:
                 self._executor, project_id, self._ontology, statuses=("answered", "applying", "resolved")
             )
             pending = [props for gap in gaps for props in gap.clarifications if props.get("status") == PENDING]
-            waiting = [_stored_instant(props.get("answered_at")) for props in pending if not props.get(APPLY_MARK)]
             marked = [_stored_instant(props.get(APPLY_MARK)) for props in pending if props.get(APPLY_MARK)]
             known = {str(props["clr_id"]) for props in pending}
             orphans = [
@@ -833,20 +832,15 @@ class GapService:
                 await retried(self.amendments.delete, project_id, orphans)
                 log_event(logger, INFO, "graph.gap.answers.orphans_deleted", project_id=project_id, rows=len(orphans))
         return PendingAnswers(
-            answered_at=max((at for at in waiting if at is not None), default=None),
             apply_requested_at=min((at for at in marked if at is not None), default=None),
             orphans=len(orphans),
         )
 
-    def quiet_seconds(self) -> int:
-        """The quiet period after the last answer of a project before its answers are applied."""
-
-        return self._settings.effective_limits(self.rules.limits).apply_quiet_seconds
-
     async def apply_now(self, project_id: str, *, by: str, immediate: bool = False) -> ApplyResult:
-        """Apply the project's pending answers in one update build (FR-GANS-08): their amendments become ``active``,
-        the gaps ``answered`` move to ``applying``, a resolved gap's applied clarification that a pending one replaces
-        becomes ``superseded`` (its amendments ``reverted``), then ``BuildRequests.request_update_build``.
+        """Apply the project's staged answers in one update build ("Resolve gaps", FR-GANS-08): their amendments
+        become ``active``, the gaps ``answered`` move to ``applying``, a resolved gap's applied clarification that a
+        pending one replaces becomes ``superseded`` (its amendments ``reverted``), then
+        ``BuildRequests.request_update_build``.
         ``GapStateError`` when nothing is pending; ``ConfigurationError`` without a ``BuildRequests`` port."""
 
         project_id = validate_project_id(project_id)

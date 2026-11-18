@@ -1,6 +1,6 @@
 """Tier 1: the API's gap wiring: the in-process gap runner (``api.gap.runner``) and the plan view adapter.
 
-The runner (with its site runs and the apply timer) is checked on a stub ``run_gap``, a stub gateway, a memory run
+The runner (with its site runs and its recovery) is checked on a stub ``run_gap``, a stub gateway, a memory run
 store and a real file build store under ``tmp_path``. No graph store, no database, no model.
 """
 
@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from api.gap import runner as gap_runner
 from api.gap.plan_view import PlanReaderView
 from api.gap.runner import RunnerClosedError
 from api.plan.state import NoGraphBuildError
@@ -30,10 +29,9 @@ from gap_host_support import (
     store_build,
 )
 from graph.build.models import ChangedNode, ChangeReport, DedupRefusal, QuarantinedEdge, Settlement
-from graph.core import ConfigurationError, load_ontology
+from graph.core import ConfigurationError
 from graph.core.reader import GraphNode
-from graph.gap import ApplyResult, GapRunResult, GapSettings, GapStateError, PendingAnswers, TaskRef
-from graph.gap.rules import load_gap_rules
+from graph.gap import ApplyResult, GapRunResult, GapSettings, PendingAnswers, TaskRef
 from graph.gap.run_store import GapRunRecord, MemoryGapRunStore
 from logger_harness import events, fields
 
@@ -469,25 +467,17 @@ async def test_the_service_is_built_once_from_the_runner_resources(tmp_path):
     assert gateway.closed  # the gap_edits gateway closes with the runner
 
 
-# Site runs and applying answers ----------------------------------------------------------------------------------
+# Site runs and staged answers ------------------------------------------------------------------------------------
 
 
 class ApplyService:
-    """A ``GapService`` with ``apply_now``, ``pending_answers`` and ``quiet_seconds``: records each apply and its time,
-    raises ``fail`` when set (``fails`` times; every time when None); ``pending`` is what ``pending_answers`` finds."""
+    """A ``GapService`` with ``apply_now`` and ``pending_answers``: records each apply; ``pending`` is what
+    ``pending_answers`` finds."""
 
-    def __init__(
-        self, fail: Exception | None = None, *, fails: int | None = None, pending: PendingAnswers | None = None
-    ) -> None:
+    def __init__(self, *, pending: PendingAnswers | None = None) -> None:
         self.calls: list[tuple[str, str]] = []
-        self.times: list[datetime] = []
-        self.fail = fail
-        self.fails = fails
         self.pending = pending or PendingAnswers()
         self.recovered: list[str] = []
-
-    def quiet_seconds(self) -> int:
-        return 120
 
     async def pending_answers(self, project_id: str) -> PendingAnswers:
         self.recovered.append(project_id)
@@ -495,20 +485,7 @@ class ApplyService:
 
     async def apply_now(self, project_id: str, *, by: str) -> ApplyResult:
         self.calls.append((project_id, by))
-        self.times.append(datetime.now(UTC))
-        if self.fail is not None and (self.fails is None or self.fails > 0):
-            if self.fails is not None:
-                self.fails -= 1
-            raise self.fail
         return ApplyResult(gap_ids=("GAP::A",), build="started")
-
-
-async def applier_done(runner) -> None:
-    await asyncio.wait_for(runner._projects[PROJECT].applier, 5)
-
-
-def later(seconds: float) -> datetime:
-    return datetime.now(UTC) + timedelta(seconds=seconds)
 
 
 async def test_a_raised_gap_queues_a_site_run_at_the_head_on_the_build_of_the_last_gap_run_when_it_starts(tmp_path):
@@ -554,103 +531,21 @@ async def test_a_closed_runner_refuses_a_site_run(tmp_path):
         await runner.start_site(PROJECT, "GAP::NEW")
 
 
-async def test_a_due_apply_applies_the_pending_answers_once(tmp_path, caplog):
-    service = ApplyService()
-    runner = make_gap_runner(tmp_path, service=service)
-
-    with caplog.at_level("INFO"):
-        runner.schedule_apply(PROJECT, datetime.now(UTC) - timedelta(seconds=1))
-        await applier_done(runner)
-
-    assert service.calls == [(PROJECT, "gap-apply")]
-    [applied] = events(caplog, "api.gap.applied")
-    assert (fields(applied)["gaps"], fields(applied)["build"]) == (1, "started")
-    await runner.aclose()
-
-
-async def test_a_later_answer_moves_the_apply_and_it_runs_once(tmp_path):
-    service = ApplyService()
-    runner = make_gap_runner(tmp_path, service=service)
-    first, second = later(0.05), later(0.2)
-
-    runner.schedule_apply(PROJECT, first)
-    runner.schedule_apply(PROJECT, second)
-    runner.schedule_apply(PROJECT, first)  # an earlier time never brings it forward
-    await applier_done(runner)
-
-    assert service.calls == [(PROJECT, "gap-apply")]
-    assert service.times[0] >= second
-    await runner.aclose()
-
-
-async def test_apply_now_cancels_the_due_apply(tmp_path):
-    service = ApplyService()
-    runner = make_gap_runner(tmp_path, service=service)
-
-    runner.schedule_apply(PROJECT, later(0.05))
-    runner.applied(PROJECT)
-    await applier_done(runner)
-
-    assert service.calls == []
-    await runner.aclose()
-
-
-async def test_an_apply_with_nothing_pending_is_logged_as_skipped(tmp_path, caplog):
-    service = ApplyService(fail=GapStateError(status="none", allowed=("answered",)))
-    runner = make_gap_runner(tmp_path, service=service)
-
-    with caplog.at_level("INFO"):
-        runner.schedule_apply(PROJECT, datetime.now(UTC))
-        await applier_done(runner)
-
-    assert service.calls == [(PROJECT, "gap-apply")]
-    [skipped] = events(caplog, "api.gap.apply_skipped")
-    assert fields(skipped)["error_code"] == "gap_wrong_state"
-    assert events(caplog, "api.gap.apply_failed") == []
-    await runner.aclose()
-
-
-async def test_a_run_with_ai_answers_schedules_their_apply_after_the_quiet_period(tmp_path):
+async def test_a_run_with_ai_answers_leaves_them_staged_for_resolve_gaps(tmp_path):
     await store_build(tmp_path, "build-1", minutes=0)
     run = StubGapRun()
     run.counts = {"gaps_new": 2, "ai_answered": 2}
-    rules = load_gap_rules(ontology=load_ontology())
-    runner = make_gap_runner(
-        tmp_path, run, rules=rules, gap=GapSettings(apply_quiet_seconds=300), service=ApplyService()
-    )
-    before = datetime.now(UTC)
-
-    await runner.start_full(PROJECT)
-    await drained(runner)
-
-    due = runner._projects[PROJECT].apply_at
-    assert due is not None and before + timedelta(seconds=299) <= due <= datetime.now(UTC) + timedelta(seconds=300)
-    await runner.aclose()
-
-
-async def test_a_run_without_ai_answers_schedules_no_apply(tmp_path):
-    await store_build(tmp_path, "build-1", minutes=0)
-    runner = make_gap_runner(tmp_path)
-
-    await runner.start_full(PROJECT)
-    await drained(runner)
-
-    assert runner._projects[PROJECT].apply_at is None
-    await runner.aclose()
-
-
-async def test_closing_cancels_a_pending_apply(tmp_path):
     service = ApplyService()
-    runner = make_gap_runner(tmp_path, service=service)
-    runner.schedule_apply(PROJECT, later(60))
-    applier = runner._projects[PROJECT].applier
+    runner = make_gap_runner(tmp_path, run, service=service)
+    builds = BuildPort()
+    runner.use_builds(builds)
 
-    await asyncio.wait_for(runner.aclose(), 5)
-    runner.schedule_apply(PROJECT, datetime.now(UTC))  # a closed runner schedules nothing
+    await runner.start_full(PROJECT)
+    await drained(runner)
 
-    assert applier is not None and applier.cancelled()
-    assert runner._projects[PROJECT].applier is applier
-    assert service.calls == []
+    assert (await runner.status(PROJECT)).counts["ai_answered"] == 2
+    assert service.calls == [] and builds.requests == []
+    await runner.aclose()
 
 
 class BuildPort:
@@ -669,29 +564,19 @@ class BuildPort:
         return "started"
 
 
-async def test_recovery_applies_answers_whose_quiet_period_passed_during_a_restart(tmp_path, caplog):
-    service = ApplyService(pending=PendingAnswers(answered_at=datetime.now(UTC) - timedelta(minutes=10)))
+async def test_recovery_applies_no_staged_answer_and_reports_the_deleted_orphans(tmp_path, caplog):
+    service = ApplyService(pending=PendingAnswers(orphans=2))
     runner = make_gap_runner(tmp_path, service=service)
+    builds = BuildPort()
+    runner.use_builds(builds)
 
     with caplog.at_level("INFO"):
         runner.start_recovery()
         await asyncio.wait_for(runner._recovery, 5)
-        await applier_done(runner)
 
-    assert service.recovered == [PROJECT] and service.calls == [(PROJECT, "gap-apply")]
+    assert service.recovered == [PROJECT] and service.calls == [] and builds.requests == []
     [recovered] = events(caplog, "api.gap.recovered")
-    assert fields(recovered)["build"] is None
-    await runner.aclose()
-
-
-async def test_recovery_keeps_the_rest_of_a_quiet_period(tmp_path):
-    answered = datetime.now(UTC) - timedelta(seconds=20)
-    service = ApplyService(pending=PendingAnswers(answered_at=answered))
-    runner = make_gap_runner(tmp_path, service=service)
-
-    await runner.recover(PROJECT)
-
-    assert runner._projects[PROJECT].apply_at == answered + timedelta(seconds=120) and service.calls == []
+    assert (fields(recovered)["build"], fields(recovered)["gap_run"], fields(recovered)["orphans"]) == (None, False, 2)
     await runner.aclose()
 
 
@@ -752,22 +637,6 @@ async def test_recovery_does_nothing_when_the_apply_build_had_its_gap_run(tmp_pa
     await runner.recover(PROJECT)
 
     assert builds.requests == [] and run.modes == []
-    await runner.aclose()
-
-
-async def test_a_failed_apply_is_looked_at_again(tmp_path, monkeypatch, caplog):
-    monkeypatch.setattr(gap_runner, "RECOVERY_RETRY_SECONDS", 0.0)
-    service = ApplyService(fail=ConnectionError("blip"), fails=1)
-    runner = make_gap_runner(tmp_path, service=service)
-    service.pending = PendingAnswers(answered_at=datetime.now(UTC) - timedelta(minutes=10))
-
-    with caplog.at_level("INFO"):
-        runner.schedule_apply(PROJECT, datetime.now(UTC))
-        await applier_done(runner)
-
-    assert service.recovered == [PROJECT]
-    assert service.calls == [(PROJECT, "gap-apply"), (PROJECT, "gap-apply")]
-    assert len(events(caplog, "api.gap.apply_failed")) == 1 and len(events(caplog, "api.gap.applied")) == 1
     await runner.aclose()
 
 

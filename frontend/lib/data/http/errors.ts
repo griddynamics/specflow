@@ -31,7 +31,7 @@ const BY_CODE: Record<string, DataErrorCode> = {
   gap_run_not_found: "not_found",
   noise_rule_not_found: "not_found", // the rule was removed meanwhile
   gap_stale: "conflict", // 409: the gap changed since it was read (the card offers Reload)
-  gap_wrong_state: "conflict", // 409: `details.status` is the gap's state now (or nothing waits for "Apply now")
+  gap_wrong_state: "conflict", // 409: `details.status` is the gap's state now (or nothing is staged for "Resolve gaps")
   answer_invalid: "validation", // 400: `details.field` and `details.reason` say what to fix
   invalid_cursor: "validation",
   invalid_response: "invalid_response",

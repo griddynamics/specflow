@@ -31,7 +31,6 @@ from graph_probes import requires_live_graph
 from graph_support import GraphProject
 from settings import DatabaseSettings
 from specflow_live import requires_live
-from test_api_gap_answers_live import SignalledBuilds
 from test_api_gap_runner_live import _no_schema, _project
 
 pytest_plugins = ["graph_support"]
@@ -64,7 +63,7 @@ async def test_a_changed_upload_suspends_the_answer_on_live_stores(
         graph_project.project_ids.append(project_id)
         await write_gap_corpus_graph(graph_project, project_id)
         await store_build(tmp_path, "build-1", minutes=0, project_id=project_id)
-        builds: MemoryBuildRequests = SignalledBuilds()
+        builds = MemoryBuildRequests()
         runner = GapRunner(
             SETTINGS.model_copy(update={"state_dir": str(tmp_path)}),
             GapSettings(),

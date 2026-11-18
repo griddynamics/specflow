@@ -220,12 +220,12 @@ async def test_an_answer_from_the_dialog_is_recorded_as_the_callers_with_via_eli
     record = response.json()
     gap = await cards.gaps.get_gap(ALPHA, gap_id)
     assert response.status_code == 200 and record["gap_id"] == gap_id and record["immediate"] is False
+    assert record["apply_at"] is None  # staged: nothing applies it until someone presses "Resolve gaps"
     assert gap.status == "answered" and gap.clarification is not None
     assert (gap.clarification.clr_id, gap.clarification.mode) == (record["clr_id"], "option")
     assert gap.clarification.answered_by == cards.rig.alice_id
     answered = [event for event in gap.history.events if event.event == "answered"] if gap.history else []
     assert [event.detail["via"] for event in answered] == ["elicitation"]
-    assert [project for project, _ in cards.runner.applies] == [ALPHA]  # the apply waits for the quiet period
 
 
 async def test_an_own_answer_from_the_dialog_goes_to_the_clarifications_document_as_written(cards: GapRig) -> None:
@@ -268,7 +268,7 @@ async def test_an_answer_to_a_gap_that_changed_since_the_dialog_is_stale(cards: 
     assert (stale.status_code, stale.json()["error"]["code"]) == (409, "gap_stale")
     assert (unknown.status_code, unknown.json()["error"]["code"]) == (404, "gap_not_found")
     assert (foreign.status_code, foreign.json()["error"]["code"]) == (404, "project_not_found")
-    assert cards.runner.applies == []
+    assert (await cards.gaps.get_gap(ALPHA, gap_id)).status == "open"
 
 
 # --- browse_gaps: the rows of the web Gaps screen, with its filters ----------------------------------------------
@@ -295,6 +295,7 @@ async def test_browse_gaps_lists_the_gaps_people_answer_that_are_not_resolved_as
         "severity": whole.severity,
         "kind": "open_question",
         "status": "open",
+        "resolving": False,
         "assignee": None,
     }
     ranks = [("blocker", "major", "minor").index(row["severity"]) for row in listed]
@@ -304,7 +305,7 @@ async def test_browse_gaps_lists_the_gaps_people_answer_that_are_not_resolved_as
 async def test_browse_gaps_filters_by_status_kind_and_severity(cards: GapRig) -> None:
     gap_id = cards.question_gap()
     resolve(cards, gap_id)
-    every = await rows(cards, status=["open", "answered", "applying", "resolved"])
+    every = await rows(cards, status=["open", "staged", "resolved"])
     live = [row for row in every if row["status"] != "resolved"]
 
     default = await rows(cards)
@@ -318,6 +319,19 @@ async def test_browse_gaps_filters_by_status_kind_and_severity(cards: GapRig) ->
     assert [row for row in live if row["kind"] in ("open_question", "assumption")] == questions
     assert major and [row for row in live if row["severity"] == "major"] == major
     assert default == live
+
+
+async def test_browse_gaps_shows_an_answered_gap_as_staged_until_resolve_gaps(cards: GapRig) -> None:
+    gap_id = cards.question_gap()
+    await cards.rig.post(ANSWER, await chosen(cards, gap_id, option_rank=1), project_id=ALPHA)
+
+    staged = await rows(cards, status=["staged"])
+    still_open = await rows(cards, status=["open"])
+    default = await rows(cards)
+
+    assert [(row["gap_id"], row["status"], row["resolving"]) for row in staged] == [(gap_id, "staged", False)]
+    assert gap_id not in {row["gap_id"] for row in still_open}
+    assert gap_id in {row["gap_id"] for row in default}
 
 
 async def test_browse_gaps_keeps_my_gaps_the_unassigned_ones_or_a_members_by_name(cards: GapRig) -> None:
@@ -423,7 +437,7 @@ async def test_open_gap_reads_an_answered_gap_with_its_answer_and_its_history_in
 
     detail = (await cards.get(DETAIL, project_id=ALPHA, gap_id=gap_id)).json()
 
-    assert (detail["status"], detail["answerable"]) == ("answered", False)
+    assert (detail["status"], detail["resolving"], detail["answerable"]) == ("staged", False, False)
     answer = detail["answer"]
     assert (answer["mode"], answer["answer"], answer["status"]) == ("own", text, "pending")
     assert answer["answered_by"] == "you"
@@ -432,7 +446,7 @@ async def test_open_gap_reads_an_answered_gap_with_its_answer_and_its_history_in
         ("Answered", "you"),
     ]
     card = detail["card"]
-    assert "**Status:** answered · **Assigned to:** you" in card
+    assert "**Status:** staged · **Assigned to:** you" in card
     assert f"**Answer:** {text} (by you, " in card and "; waiting to be applied)" in card
     assert "- **Other**" not in card and "Assigned to you (you)" in card
 

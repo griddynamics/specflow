@@ -27,6 +27,7 @@ from typing import Annotated, Final
 from fastapi import APIRouter, Query
 
 from agent_contracts import (
+    GAP_STAGES,
     AnswerGapBody,
     AssignedFilter,
     BrowseGapsQuery,
@@ -157,7 +158,7 @@ async def browse_gaps(
     try:
         page = await service.list_gaps(
             graph_id,
-            status=args.status,
+            status=None if args.status is None else [status for name in args.status for status in GAP_STAGES[name]],
             kind=args.kind,
             severity=args.severity,
             route=[ASK],
