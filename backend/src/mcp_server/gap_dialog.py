@@ -3,9 +3,13 @@ flat form a client shows on the server's request, and the check of what the pers
 
 Claude Code shows the first three lines of the message and folds the rest, so the first lines are the question, why
 it matters and a pointer to the card in the chat; the folded part repeats the details for clients that show it all.
-One yes/no field per option (every option on screen, no right arrow key), the recommended one ticked for a ``major``
-gap only, and one field for the person's own answer. Gap text is data: it is shown, never interpreted. Pydantic only:
-the SDK registration lives in ``registry.py``. Nothing here logs.
+A gap has one answer, so the form asks for one choice. The choice is a "several choices" field (a titled
+multi-select) limited to one item: Claude Code shows a single titled choice collapsed (its list opens only with the
+right arrow key, which people did not find), and the list field is meant to show the options A to D and "Other" on
+screen. The recommended option is preset for a ``major`` gap only; a text field takes the person's own answer. More
+than one ticked item is refused with a note. A gap with several answers at once does not exist yet (later.md
+"Several choices per gap"). Gap text is data: it is shown, never
+interpreted. Pydantic only: the SDK registration lives in ``registry.py``. Nothing here logs.
 
 The SDK takes the person's answer only for the dialog exactly as it was shown (its digest), and the server builds the
 dialog again on every round. The last line names the gap's version (``updated_at``), so any change of the gap between
@@ -19,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, JsonValue, create_model
 
 from agent_contracts import OWN_TEXT_MAX, GapCard, GapCardOption
 
@@ -31,14 +35,18 @@ def _one_line(text: str) -> str:
     return " ".join(text.split())
 
 
-def option_field(option: GapCardOption) -> str:
-    return f"option_{option.code.lower()}"
+ANSWER_FIELD: Final = "answer"
+OWN_FIELD: Final = "own_text"
+OTHER: Final = "other"
 
 
-def preselected(card: GapCard, option: GapCardOption) -> bool:
-    """The recommended option starts ticked for a major gap only, as on the web card."""
+def preset(card: GapCard) -> list[str] | None:
+    """The recommended option starts chosen for a major gap only, as on the web card."""
 
-    return card.severity == "major" and option.recommended
+    if card.severity != "major":
+        return None
+    recommended = next((option.code for option in card.options if option.recommended), None)
+    return None if recommended is None else [recommended]
 
 
 def message(card: GapCard) -> str:
@@ -57,27 +65,43 @@ def message(card: GapCard) -> str:
 
 
 def form(card: GapCard) -> type[BaseModel]:
-    """One yes/no field per option and the own answer; only the own answer when the options are being prepared."""
+    """One list of the options and "Other" with at most one item, and the own answer; only the own answer when the
+    options are being prepared."""
 
-    fields: dict[str, Any] = {
-        option_field(option): (
-            bool,
-            Field(default=preselected(card, option), title=option.title, description=option.detail or None),
+    if not card.options:
+        own = Field(
+            default=None,
+            title="Your answer",
+            description="The options are being prepared; write your own answer.",
+            json_schema_extra={"maxLength": OWN_TEXT_MAX},
         )
-        for option in card.options
+        own_only: dict[str, Any] = {OWN_FIELD: (str | None, own)}
+        model: type[BaseModel] = create_model("GapAnswer", **own_only)
+        return model
+    choices: list[JsonValue] = [{"const": option.code, "title": option.title} for option in card.options]
+    choices.append({"const": OTHER, "title": "Other: my own answer, written below"})
+    fields: dict[str, Any] = {
+        ANSWER_FIELD: (
+            list[str] | None,
+            Field(
+                default=preset(card),
+                title="Your answer (pick one)",
+                description="Pick one option. The details of each option are in the chat above.",
+                json_schema_extra={"items": {"anyOf": choices}, "maxItems": 1},
+            ),
+        ),
+        OWN_FIELD: (
+            str | None,
+            Field(
+                default=None,
+                title="Your own answer (with Other)",
+                description="Pick Other above, then write your answer here.",
+                json_schema_extra={"maxLength": OWN_TEXT_MAX},
+            ),
+        ),
     }
-    if card.options:
-        codes = f"{card.options[0].code}-{card.options[-1].code}"
-        title = f"Or your own answer (untick {codes})"
-        description = "Your own answer replaces the options; leave it empty to send the ticked option."
-    else:
-        title, description = "Your answer", "The options are being prepared; write your own answer."
-    fields["own_text"] = (
-        str | None,
-        Field(default=None, title=title, description=description, json_schema_extra={"maxLength": OWN_TEXT_MAX}),
-    )
-    model: type[BaseModel] = create_model("GapAnswer", **fields)
-    return model
+    choice_model: type[BaseModel] = create_model("GapAnswer", **fields)
+    return choice_model
 
 
 @dataclass(frozen=True)
@@ -95,18 +119,32 @@ class Checked:
         return OWN_ANSWER
 
 
-def checked(card: GapCard, sent: BaseModel) -> Checked:
-    """Exactly one ticked option, or no ticked option and an own answer, is an answer."""
+def _own(card: GapCard, own: str) -> Checked:
+    """Other, or no choice: the own answer, or what is missing."""
 
-    values = sent.model_dump()
-    own = (values.get("own_text") or "").strip()
-    ticked = [option for option in card.options if values.get(option_field(option))]
-    if own and ticked:
-        return Checked(problem="Both an option and an own answer were given: untick the options or clear the text.")
-    if len(own) > OWN_TEXT_MAX:
-        return Checked(problem=f"The own answer has {len(own)} characters; shorten it to at most {OWN_TEXT_MAX}.")
     if own:
         return Checked(own_text=own)
-    if len(ticked) != 1:
-        return Checked(problem="Tick exactly one option, or write an own answer.")
-    return Checked(option=ticked[0])
+    if not card.options:
+        return Checked(problem="Write your own answer: the options are being prepared.")
+    return Checked(problem="Pick one option, or pick Other and write your own answer.")
+
+
+def checked(card: GapCard, sent: BaseModel) -> Checked:
+    """One option, or Other (or no choice) with an own answer, is an answer; anything else says what to change."""
+
+    values = sent.model_dump()
+    own = (values.get(OWN_FIELD) or "").strip()
+    picked = values.get(ANSWER_FIELD) or []
+    if len(picked) > 1:
+        return Checked(problem="Pick only one option.")
+    choice = picked[0] if picked else None
+    if len(own) > OWN_TEXT_MAX:
+        return Checked(problem=f"The own answer has {len(own)} characters; shorten it to at most {OWN_TEXT_MAX}.")
+    if choice is None or choice == OTHER:
+        return _own(card, own)
+    option = next((option for option in card.options if option.code == choice), None)
+    if option is None:
+        return Checked(problem="Pick one of the options shown, or Other.")
+    if own:
+        return Checked(problem=f"You picked {option.code} and wrote an own answer: pick Other to send your text.")
+    return Checked(option=option)

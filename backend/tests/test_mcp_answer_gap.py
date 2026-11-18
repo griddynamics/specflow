@@ -105,7 +105,7 @@ def accept(**content: Any) -> ElicitResult:
     return ElicitResult(action="accept", content=content)
 
 
-async def test_the_dialog_holds_the_question_and_one_line_per_option_and_records_the_ticked_one(served) -> None:
+async def test_the_dialog_holds_the_question_and_a_list_of_the_options_and_records_the_one_picked(served) -> None:
     gap_id = served.gaps.question_gap()
     whole = await served.gaps.gaps.get_gap(ALPHA, gap_id)
     options = sorted(whole.options, key=lambda option: option.rank)
@@ -113,14 +113,16 @@ async def test_the_dialog_holds_the_question_and_one_line_per_option_and_records
     async with modern(served.app) as session:
         asked = await ask(session, gap_id)
         fields = asked.schema["properties"]
-        result = await reply(session, gap_id, asked, accept(option_a=True, option_b=False))
+        result = await reply(session, gap_id, asked, accept(answer=["A"]))
 
     assert asked.message.splitlines()[0] == QUESTION
     assert asked.message.splitlines()[2] == "The options' details and the quoted lines are in the chat above."
-    assert list(fields) == [*(f"option_{chr(97 + index)}" for index in range(len(options))), "own_text"]
-    ticked = [name for name, field in fields.items() if field.get("default") is True]
+    assert list(fields) == ["answer", "own_text"]
+    codes = [choice["const"] for choice in fields["answer"]["items"]["anyOf"]]
+    assert codes == [*(chr(65 + index) for index in range(len(options))), "other"]
+    assert (fields["answer"]["type"], fields["answer"]["maxItems"]) == ("array", 1)
     recommended = next(index for index, option in enumerate(options) if option.recommended)
-    assert ticked == ([f"option_{chr(97 + recommended)}"] if whole.severity == "major" else [])
+    assert fields["answer"].get("default") == ([chr(65 + recommended)] if whole.severity == "major" else None)
     outcome = result.structured_content
     assert not result.is_error and outcome is not None
     assert (outcome["answered"], outcome["action"], outcome["note"]) == (True, "accept", RECORDED)
@@ -132,14 +134,13 @@ async def test_the_dialog_holds_the_question_and_one_line_per_option_and_records
     assert [event.detail["via"] for event in gap.history.events if event.event == "answered"] == ["elicitation"]
 
 
-async def test_an_own_answer_with_every_option_unticked_is_recorded_as_written(served) -> None:
+async def test_other_with_an_own_answer_is_recorded_as_written(served) -> None:
     gap_id = served.gaps.question_gap()
     text = "Yes, until the parcel leaves the warehouse."
 
     async with modern(served.app) as session:
         asked = await ask(session, gap_id)
-        unticked = {name: False for name in asked.schema["properties"] if name.startswith("option_")}
-        result = await reply(session, gap_id, asked, accept(**unticked, own_text=text))
+        result = await reply(session, gap_id, asked, accept(answer=["other"], own_text=text))
 
     outcome = result.structured_content
     gap = await served.gaps.gaps.get_gap(ALPHA, gap_id)
@@ -169,11 +170,12 @@ async def test_a_declined_or_cancelled_dialog_records_nothing_and_gives_the_web_
 @pytest.mark.parametrize(
     ("content", "problem"),
     [
-        ({"option_a": True, "option_b": True}, "Tick exactly one option"),
-        ({"option_a": False, "option_b": False}, "Tick exactly one option"),
-        ({"option_a": True, "own_text": "Mine."}, "untick the options or clear the text"),
+        ({"answer": None}, "Pick one option, or pick Other"),  # the preset cleared (Backspace)
+        ({"answer": ["other"]}, "Pick one option, or pick Other"),
+        ({"answer": ["A", "B"]}, "Pick only one option"),
+        ({"answer": ["A"], "own_text": "Mine."}, "pick Other to send your text"),
     ],
-    ids=["two options", "nothing", "option and text"],
+    ids=["nothing", "other without text", "two options", "option and text"],
 )
 async def test_anything_but_one_answer_records_nothing_and_says_what_to_change(served, content, problem) -> None:
     gap_id = served.gaps.question_gap()
@@ -229,7 +231,7 @@ async def test_a_gap_that_changed_between_the_rounds_is_asked_again(served, chan
         again = await session.call_tool(
             "answer_gap",
             {"project_id": ALPHA, "gap_id": gap_id},
-            input_responses={asked.key: accept(option_a=True, option_b=False)},
+            input_responses={asked.key: accept(answer=["A"])},
             request_state=asked.state,
             allow_input_required=True,
         )
@@ -245,7 +247,7 @@ async def test_only_an_open_gap_of_a_project_of_yours_opens_a_dialog(served) -> 
 
     async with modern(served.app) as session:
         asked = await ask(session, gap_id)
-        await reply(session, gap_id, asked, accept(option_a=True, option_b=False))
+        await reply(session, gap_id, asked, accept(answer=["A"]))
         answered = await call(session, "answer_gap", project_id=ALPHA, gap_id=gap_id)
         unknown = await call(session, "answer_gap", project_id=ALPHA, gap_id="GAP::000000000000")
         foreign = await call(session, "answer_gap", project_id=FOREIGN, gap_id=gap_id)
@@ -273,3 +275,19 @@ async def test_list_open_gaps_lists_only_the_callers_gaps_when_asked(served) -> 
     items = mine.structured_content["items"]
     assert [item["gap_id"] for item in items] == [gap_id]
     assert items[0]["assignee"]["you"] is True and "**Assigned to:** you" in items[0]["card"]
+
+
+async def test_accepting_the_preset_choice_of_a_major_gap_records_its_recommended_option(served) -> None:
+    gap_id = served.gaps.question_gap()
+    whole = await served.gaps.gaps.get_gap(ALPHA, gap_id)
+    options = sorted(whole.options, key=lambda option: option.rank)
+    index, recommended = next((i, option) for i, option in enumerate(options) if option.recommended)
+    assert whole.severity == "major"
+
+    async with modern(served.app) as session:
+        asked = await ask(session, gap_id)
+        result = await reply(session, gap_id, asked, accept())  # Accept without a change
+
+    outcome = result.structured_content
+    assert outcome is not None and outcome["answered"] is True
+    assert outcome["choice"] == f"{chr(65 + index)}) {recommended.label}"

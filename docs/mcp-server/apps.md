@@ -39,7 +39,7 @@ draft: the terminal dialog of D6 is built (`list_open_gaps`, `answer_gap` and th
 | D3 | Upload and attachments are out of scope for now |
 | D4 | An answer comes only from a click in the view, through app-only tools. The model may suggest an answer and never sends one. Dismissing stays in the web app |
 | D5 | Next step: the spike ("Delivery"). If the Code tab does not render views, the next target is chosen with the spike's evidence |
-| D6 | In a terminal, a person answers a gap in an elicitation form that the server asks for ("Terminal dialogs"). The answer goes from the client to the server, never through the model. Claude first shows the gap's full card in the chat, because the dialog shows only three lines of text. Confirmed after two trials; Claude's own question wizard was offered and not chosen |
+| D6 | In a terminal, a person answers a gap in an elicitation form that the server asks for ("Terminal dialogs"). The answer goes from the client to the server, never through the model. Claude first shows the gap's full card in the chat, because the dialog shows only three lines of text, and opens the dialog right under it without asking; the person answers or cancels. Confirmed after two trials; Claude's own question wizard was offered and not chosen |
 | D7 | Engineers install nothing beyond today's MCP server setup: no Claude Code plugin, no hooks. Server instructions, tool descriptions and the prompt `answer_gaps` lead Claude |
 
 ## MCP Apps in short
@@ -148,29 +148,34 @@ and "The answer_gaps prompt".
 | Step | What happens |
 |---|---|
 | 0 | The model reads the gap with `list_open_gaps` and shows its card in the chat: title, question, why, each option with its detail, the quoted lines, the web link. The card is ready text from the server; nothing in it is folded |
-| 1 | The model calls `answer_gap(project_id, gap_id)` |
+| 1 | Right after the card, without asking the person first, the model calls `answer_gap(project_id, gap_id)`; a person who does not want to answer cancels the dialog |
 | 2 | On protocol 2026-07-28 the server answers with `input_required`: one form-mode elicitation request and a sealed `requestState`. No session and no event stream are needed |
 | 3 | Claude Code shows the form: a dialog in the terminal, a card in the Desktop Code tab and at claude.ai/code |
 | 4 | Claude Code calls `answer_gap` again with the person's answers and the `requestState` |
 | 5 | The server reads the card again; the SDK takes the answer only for the dialog as shown. The answer is checked as on the web card (`updated_at` included) and recorded as the token's user, with `via` `elicitation` |
 
-The form is flat (the specification allows only primitive fields). It never needs the right arrow key: every option
-is on screen.
+The form is flat (the specification allows only primitive fields). A gap has one answer, so the form asks for one
+choice: a titled "several choices" list limited to one item, with the options and "Other", and a text field for an own
+answer.
 
 | Part | Content |
 |---|---|
 | Message, first three lines | The question; why it matters; "The options' details and the quoted lines are in the chat above" |
 | Message, folded | Each option with its detail, the quoted lines with their source, and last the gap id, severity, kind, title and version (`updated_at`): a gap changed since the person saw it is asked again |
-| One yes/no field per option | Titled with the option's short label, `(recommended)` on one, the detail as the field's description; the recommended one is ticked for `major` |
-| `own_text` | "Or your own answer (untick A-C)": 1 to 4,000 characters |
+| `answer`, a list with at most one item | "Your answer (pick one)": an array field (`maxItems` 1) of the options titled with their short labels, `(recommended)` on one, then "Other: my own answer, written below"; the recommended option is preset for `major` only, so no other field shows as set; two items are refused with a note |
+| `own_text` | "Your own answer (with Other)": up to 4,000 characters, checked by the server |
 
-Exactly one ticked option, or no ticked option and an own answer, is an answer; anything else returns a note that
-says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer goes to
+One option, or Other (or no choice) with an own answer, is an answer; two items, an option together with own text, or
+nothing, return a note that says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer goes to
 the clarifications document as written. A confirm round with the edits of `preview_edits` is deferred
 ([later.md](later.md) "Own answers with edits"): the preview is a model call, so its text would change between the
-dialog's two calls and the SDK would ask again. Declining or cancelling records nothing. A single titled choice
-(`select`) was the first layout; its options open only with the right arrow key, which the first person who tried it
-did not find, so the built dialog has one line per option (Q10).
+dialog's two calls and the SDK would ask again. Declining or cancelling records nothing. Layouts tried (Q10): a single titled
+choice, whose list opens only with the right arrow key (the first person who tried it did not find it); then one
+yes/no line per option, which reads as several independent questions (Claude Code marks every field with a value with
+"✔", and the defaults gave every line a value). The built dialog uses a "several choices" list limited to one item
+(variant V5 of the variants page), so the options can show without the right arrow key; how Claude Code 2.1.327 draws
+it is checked in the next trial.
+Several choices per gap are an exception for later ([later.md](later.md) "Several choices per gap").
 
 Protocol and transport, as the SDK's client showed against the stateless `mcp` role:
 
@@ -299,7 +304,7 @@ Deferred: the `assigned` argument of `list_open_gaps` (D2), upload (D3).
 |---|---|---|
 | Q8 | The target if the Code tab does not render views | Chosen with the spike's evidence |
 | Q9 | Does `submit_gap_answer` require the answer ticket? | The spike checks whether the model sees the result's `_meta` |
-| Q10 | Which dialog layout do people understand without help: one yes/no line per option, or the single choice? | Answered: one line per option ("Terminal dialogs"); the built dialog uses it |
+| Q10 | Which dialog layout do people understand without help: one yes/no line per option, or the single choice? | Chosen: a "several choices" list limited to one item ("Terminal dialogs"); the yes/no lines read as separate questions and the single choice hides its list. The next trial in Claude Code confirms it |
 
 ## Deferred designs
 
