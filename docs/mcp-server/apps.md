@@ -11,7 +11,8 @@ Engineers answer the gaps of the gap module ([../graph/gap/answers.md](../graph/
 agent (Claude first). The agent shows an interactive view instead of only text from read and write tools. This
 document holds the research (state of November 2026), the decisions taken so far and the open questions. It is a
 draft: the terminal dialog of D6 is built (`list_open_gaps`, `answer_gap` and the prompt `answer_gaps`,
-[tools.md](tools.md)); the view is not.
+[tools.md](tools.md)), and so are `browse_gaps` and `open_gap` as text tools (the list and the card of the web Gaps
+screen, "Tools"); the view is not.
 
 ## Summary
 
@@ -72,7 +73,7 @@ draft: the terminal dialog of D6 is built (`list_open_gaps`, `answer_gap` and th
 |---|---|
 | Answer contract | `answer_gap(AnswerInput)`: exactly one of `option_rank` (2 to 4 options, one Recommended, preselected for `major`) and `own_text` (1 to 4,000 characters); optional `edits` from `preview_edits`; `placement` `amend` or `document`; `updated_at` is required (`409 gap_stale`) ([../graph/gap/answers.md](../graph/gap/answers.md)) |
 | Card | Chips, title, question, why, `ABOUT` and `IMPACTS` nodes, quoted lines with document, section and lines, options with an edits preview, Other, placement ([../graph/gap/answers.md](../graph/gap/answers.md) "The question card") |
-| MCP gap tools | `list_gaps` reads, `add_finding` raises a development gap, `list_open_gaps` lists the gaps that wait for a person as cards, `answer_gap` lets the person answer one in a dialog (D6). AC12: only people answer, resolve or dismiss gaps ([tools.md](tools.md), [access-control.md](access-control.md)) |
+| MCP gap tools | `list_gaps` reads, `add_finding` raises a development gap, `list_open_gaps` lists the gaps that wait for a person as cards, `browse_gaps` lists them as the web Gaps screen does and `open_gap` reads one whole, `answer_gap` lets the person answer one in a dialog (D6). AC12: only people answer, resolve or dismiss gaps ([tools.md](tools.md), [access-control.md](access-control.md)) |
 | MCP server | `MCPServer` of `mcp` 2.3.0, stateless HTTP with JSON responses (no event stream), a 1 MiB request limit, a thin proxy to the API's agent routes with the caller's token, one tool registry, no resources ([architecture.md](architecture.md)) |
 | Identity | OAuth through the organization's identity provider. The user is the token's subject. No tool takes a user argument (AC9) |
 | OAuth client | One public client, `specflow-mcp`, with loopback redirects on port 8765 only ([auth.md](auth.md)) |
@@ -107,8 +108,8 @@ the web gap card (`/projects/{pid}/gaps?gap=<id>`).
 
 | Tool | Visibility | Screen | Agent route | Purpose |
 |---|---|---|---|---|
-| `browse_gaps` | model, app | Browse | `GET /agent/gaps`, extended | Open gaps of route `ask`; filters: status, severity, kind, origin, story; paging |
-| `open_gap` | model, app | Answer | `GET /agent/gaps/{gap_id}` | Opens the card of one gap, for example from a brief or `list_gaps` |
+| `browse_gaps` | model (app with the view) | Browse | `GET /agent/gap-inbox` | Built as a text tool: the gaps of route `ask`, by default not resolved, with the web screen's filters (status, kind, severity, assigned or a member, story) and paging, as rows that Claude shows as a table |
+| `open_gap` | model (app with the view) | Answer | `GET /agent/gap-detail` | Built as a text tool: one gap whole, in any status, as the web card shows it (nodes, quotes, options with their edits, the answer, history, reach, assignee) with a ready card |
 | `get_gap` | app | none | `GET /agent/gaps/{gap_id}` | The card data with `updated_at` |
 | `preview_gap_edits` | app | none | `POST /agent/gaps/{gap_id}/edits_preview` | Own text to edits (a diff) |
 | `submit_gap_answer` | app | none | `POST /agent/gaps/{gap_id}/answer` | `option_rank` or `own_text`, `edits`, `placement`, `updated_at` |
@@ -272,7 +273,7 @@ would need a tunnel or a public endpoint and a second OAuth client (Security).
 | Phase | Content | Done when |
 |---|---|---|
 | P0 spike, 2 to 3 days | A hello-world view on our server. Check: the Desktop Code tab, Desktop chat and claude.ai; our sign-in on each; the identity of a call from the view; whether the model sees the result's `_meta`; Apps with the stateless server; the MCP settings that the Code tab reads | A support table with evidence |
-| P1 browse | `browse_gaps`, `open_gap`, `get_gap`, the Browse and Answer screens; answers through `web_url` | The list and the card show in the target host; the CLI gets the text |
+| P1 browse | Built as text tools: `browse_gaps`, `open_gap`. Next: `get_gap`, the Browse and Answer screens; answers through `web_url` | The list and the card show in the target host; the CLI gets the text |
 | P2 answer | Options, Other with preview, placement, reload, `suggest_gap_answer`, "Ask Claude"; AC12 changed in [access-control.md](access-control.md) | An answer from the view moves the gap to `answered` with `via` `mcp_app` |
 | P3 terminal form | Built: `list_open_gaps`, `answer_gap` with the `input_required` round trip, the prompt `answer_gaps`. Deferred: the confirm round for own answers, the shared `requestState` key ([later.md](later.md)) | An answer from the form in the Claude Code CLI moves the gap to `answered` with `via` `elicitation` |
 

@@ -1,8 +1,8 @@
 """The contract gate of the MCP tooling tools (MCP-TOOLING D29): ``list_areas``, ``list_stories``, ``preview_story``,
 ``claim_story``, ``release_story``, ``get_story_brief``, ``trace``, ``get_node``, ``search_spec``, ``similar``,
-``get_evidence``, ``path``, ``expand_brief``, ``list_gaps``, ``list_open_gaps``, ``add_finding``, ``report_task`` and
-``complete_story``, and the open gaps the briefs show (scenario ``gaps``), frozen as golden files NEXT TO the split's
-(whose files stay as the split froze them, ``tools/list`` aside).
+``get_evidence``, ``path``, ``expand_brief``, ``list_gaps``, ``browse_gaps``, ``open_gap``, ``list_open_gaps``,
+``add_finding``, ``report_task`` and ``complete_story``, and the open gaps the briefs show (scenario ``gaps``), frozen
+as golden files NEXT TO the split's (whose files stay as the split froze them, ``tools/list`` aside).
 
 Read the way a client reads them, over JSON-RPC and HTTP against the in-process MCP app, whose API is the real app over
 the shop graph (``mcp_golden_tooling_seam``): one success result per tool and shape (structured content and text
@@ -131,6 +131,12 @@ GAP_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
         {"project_id": ALPHA, "spec_ids": ["REQ::FR::PLACE_ORDER", "QST::CANCEL_PAID_ORDER"], "limit": 1},
     ),
     "list_open_gaps_first_page": ("list_open_gaps", {"project_id": ALPHA, "limit": 2}),
+    "browse_gaps_first_page": ("browse_gaps", {"project_id": ALPHA, "limit": 3}),
+    "browse_gaps_unassigned_questions": (
+        "browse_gaps",
+        {"project_id": ALPHA, "kind": ["open_question"], "assigned": "unassigned"},
+    ),
+    "open_gap_question": ("open_gap", {"project_id": ALPHA, "gap_id": "GAP::BDC6ECC57F46"}),
     # This client speaks an older protocol: no dialog on a stateless server, the web link instead.
     "answer_gap_without_a_dialog": ("answer_gap", {"project_id": ALPHA, "gap_id": "GAP::4D5B5E912AC8"}),
     "get_story_brief_with_a_gap": ("get_story_brief", {"project_id": ALPHA, "story_id": GAP_STORY}),

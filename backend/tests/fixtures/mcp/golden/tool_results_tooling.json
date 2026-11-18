@@ -163,6 +163,68 @@
       "web_url": "https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8"
     }
   },
+  "browse_gaps_first_page": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"gap_id\":\"GAP::2ACAD8855B21\",\"title\":\"Missing in the spec: ENT::REFUND\",\"severity\":\"major\",\"kind\":\"missing\",\"status\":\"open\",\"assignee\":null},{\"gap_id\":\"GAP::4D5B5E912AC8\",\"title\":\"Unconfirmed assumption in the spec: REQ::CON::CUSTOMER_HAS_EMAIL\",\"severity\":\"major\",\"kind\":\"assumption\",\"status\":\"open\",\"assignee\":null},{\"gap_id\":\"GAP::57B77104E7F4\",\"title\":\"Contradiction in the spec: REQ::BR::HOLD_ORDERS_OVER_500_EUR, REQ::BR::REVIEW_ORDERS_OVER_1000_EUR\",\"severity\":\"major\",\"kind\":\"contradiction\",\"status\":\"open\",\"assignee\":null}],\"next_cursor\":\"WzEsIDAsIC0xNzk0OTkyNDAwMDAwMDAwLCAiR0FQOjo1N0I3NzEwNEU3RjQiXQ\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "assignee": null,
+          "gap_id": "GAP::2ACAD8855B21",
+          "kind": "missing",
+          "severity": "major",
+          "status": "open",
+          "title": "Missing in the spec: ENT::REFUND"
+        },
+        {
+          "assignee": null,
+          "gap_id": "GAP::4D5B5E912AC8",
+          "kind": "assumption",
+          "severity": "major",
+          "status": "open",
+          "title": "Unconfirmed assumption in the spec: REQ::CON::CUSTOMER_HAS_EMAIL"
+        },
+        {
+          "assignee": null,
+          "gap_id": "GAP::57B77104E7F4",
+          "kind": "contradiction",
+          "severity": "major",
+          "status": "open",
+          "title": "Contradiction in the spec: REQ::BR::HOLD_ORDERS_OVER_500_EUR, REQ::BR::REVIEW_ORDERS_OVER_1000_EUR"
+        }
+      ],
+      "next_cursor": "WzEsIDAsIC0xNzk0OTkyNDAwMDAwMDAwLCAiR0FQOjo1N0I3NzEwNEU3RjQiXQ",
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "browse_gaps_unassigned_questions": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"gap_id\":\"GAP::BDC6ECC57F46\",\"title\":\"Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\",\"severity\":\"major\",\"kind\":\"open_question\",\"status\":\"open\",\"assignee\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "assignee": null,
+          "gap_id": "GAP::BDC6ECC57F46",
+          "kind": "open_question",
+          "severity": "major",
+          "status": "open",
+          "title": "Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER"
+        }
+      ],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
   "claim_story": {
     "content": [
       {
@@ -2236,6 +2298,105 @@
       "project_id": "00000000-0000-4000-8000-000000000001",
       "total_count": 3,
       "view": "open"
+    }
+  },
+  "open_gap_question": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"gap_id\":\"GAP::BDC6ECC57F46\",\"title\":\"Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\",\"severity\":\"major\",\"kind\":\"open_question\",\"origin\":\"analysis\",\"status\":\"open\",\"blocking\":false,\"question\":\"Can a customer cancel a paid order?\",\"why\":\"Found by the detectors OQ-STATED (1 seeds).\",\"about\":[{\"spec_id\":\"QST::CANCEL_PAID_ORDER\",\"type\":\"OpenQuestion\",\"name\":\"Can a customer cancel a paid order?\"},{\"spec_id\":\"REQ::FR::PLACE_ORDER\",\"type\":\"FunctionalRequirement\",\"name\":\"Customer can place an order from the cart\"}],\"impacts\":[],\"quotes\":[{\"source\":\"orders-spec.md, \\\"Place order\\\", line 9\",\"text\":\"Can a customer cancel a paid order?\"}],\"options\":[{\"code\":\"A\",\"rank\":1,\"title\":\"A) State it in the section (recommended)\",\"label\":\"State it in the section\",\"detail\":\"\",\"recommended\":true,\"placement\":\"amend\",\"edits\":[{\"placement\":\"amend\",\"where\":\"the line \\\"Can a customer cancel a paid order?\\\"\",\"operation\":\"insert_after\",\"text\":\"The spec states the answer here.\"}]},{\"code\":\"B\",\"rank\":2,\"title\":\"B) Clarifications document\",\"label\":\"Clarifications document\",\"detail\":\"\",\"recommended\":false,\"placement\":\"document\",\"edits\":[{\"placement\":\"document\",\"where\":\"the clarifications document, under \\\"QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\\\"\",\"operation\":\"append_section\",\"text\":\"The spec settles this for QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER.\"}]}],\"answer\":null,\"history\":[{\"at\":\"2026-11-18T09:00:00Z\",\"event\":\"created\",\"text\":\"Gap found\",\"by\":\"SpecFlow\"},{\"at\":\"2026-11-18T09:00:00Z\",\"event\":\"routed\",\"text\":\"Routed to people\",\"by\":\"SpecFlow\"}],\"follow_ups\":[],\"reach_stories\":[],\"reach_tasks\":[],\"assignee\":null,\"answerable\":true,\"updated_at\":\"2026-11-18T09:00:00Z\",\"web_url\":\"https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::BDC6ECC57F46\",\"card\":\"**Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER** (major open question, found by analysis, `GAP::BDC6ECC57F46`)\\n\\n**Status:** open · **Assigned to:** nobody\\n\\n**Question:** Can a customer cancel a paid order?\\n\\n**Why it matters:** Found by the detectors OQ-STATED (1 seeds).\\n\\n**About:** `QST::CANCEL_PAID_ORDER` Can a customer cancel a paid order? (OpenQuestion); `REQ::FR::PLACE_ORDER` Customer can place an order from the cart (FunctionalRequirement)\\n\\n**Quoted lines:**\\n> orders-spec.md, \\\"Place order\\\", line 9: \\\"Can a customer cancel a paid order?\\\"\\n\\n**Options:**\\n- **A) State it in the section (recommended)**\\n  - Changes the line \\\"Can a customer cancel a paid order?\\\": add after it \\\"The spec states the answer here.\\\"\\n- **B) Clarifications document**\\n  - Changes the clarifications document, under \\\"QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\\\": add \\\"The spec settles this for QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER.\\\"\\n- **Other**: your own answer\\n\\n**History:**\\n- 2026-11-18 09:00 UTC: Gap found (SpecFlow)\\n- 2026-11-18 09:00 UTC: Routed to people (SpecFlow)\\n\\nWeb card: https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::BDC6ECC57F46\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "about": [
+        {
+          "name": "Can a customer cancel a paid order?",
+          "spec_id": "QST::CANCEL_PAID_ORDER",
+          "type": "OpenQuestion"
+        },
+        {
+          "name": "Customer can place an order from the cart",
+          "spec_id": "REQ::FR::PLACE_ORDER",
+          "type": "FunctionalRequirement"
+        }
+      ],
+      "answer": null,
+      "answerable": true,
+      "assignee": null,
+      "blocking": false,
+      "card": "**Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER** (major open question, found by analysis, `GAP::BDC6ECC57F46`)\n\n**Status:** open · **Assigned to:** nobody\n\n**Question:** Can a customer cancel a paid order?\n\n**Why it matters:** Found by the detectors OQ-STATED (1 seeds).\n\n**About:** `QST::CANCEL_PAID_ORDER` Can a customer cancel a paid order? (OpenQuestion); `REQ::FR::PLACE_ORDER` Customer can place an order from the cart (FunctionalRequirement)\n\n**Quoted lines:**\n> orders-spec.md, \"Place order\", line 9: \"Can a customer cancel a paid order?\"\n\n**Options:**\n- **A) State it in the section (recommended)**\n  - Changes the line \"Can a customer cancel a paid order?\": add after it \"The spec states the answer here.\"\n- **B) Clarifications document**\n  - Changes the clarifications document, under \"QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\": add \"The spec settles this for QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER.\"\n- **Other**: your own answer\n\n**History:**\n- 2026-11-18 09:00 UTC: Gap found (SpecFlow)\n- 2026-11-18 09:00 UTC: Routed to people (SpecFlow)\n\nWeb card: https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::BDC6ECC57F46",
+      "follow_ups": [],
+      "gap_id": "GAP::BDC6ECC57F46",
+      "history": [
+        {
+          "at": "2026-11-18T09:00:00Z",
+          "by": "SpecFlow",
+          "event": "created",
+          "text": "Gap found"
+        },
+        {
+          "at": "2026-11-18T09:00:00Z",
+          "by": "SpecFlow",
+          "event": "routed",
+          "text": "Routed to people"
+        }
+      ],
+      "impacts": [],
+      "kind": "open_question",
+      "options": [
+        {
+          "code": "A",
+          "detail": "",
+          "edits": [
+            {
+              "operation": "insert_after",
+              "placement": "amend",
+              "text": "The spec states the answer here.",
+              "where": "the line \"Can a customer cancel a paid order?\""
+            }
+          ],
+          "label": "State it in the section",
+          "placement": "amend",
+          "rank": 1,
+          "recommended": true,
+          "title": "A) State it in the section (recommended)"
+        },
+        {
+          "code": "B",
+          "detail": "",
+          "edits": [
+            {
+              "operation": "append_section",
+              "placement": "document",
+              "text": "The spec settles this for QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER.",
+              "where": "the clarifications document, under \"QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\""
+            }
+          ],
+          "label": "Clarifications document",
+          "placement": "document",
+          "rank": 2,
+          "recommended": false,
+          "title": "B) Clarifications document"
+        }
+      ],
+      "origin": "analysis",
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "question": "Can a customer cancel a paid order?",
+      "quotes": [
+        {
+          "source": "orders-spec.md, \"Place order\", line 9",
+          "text": "Can a customer cancel a paid order?"
+        }
+      ],
+      "reach_stories": [],
+      "reach_tasks": [],
+      "severity": "major",
+      "status": "open",
+      "title": "Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER",
+      "updated_at": "2026-11-18T09:00:00Z",
+      "web_url": "https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::BDC6ECC57F46",
+      "why": "Found by the detectors OQ-STATED (1 seeds)."
     }
   },
   "path_affects": {

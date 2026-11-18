@@ -15,38 +15,24 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 import httpx2
 import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, ElicitResult
 from starlette.applications import Starlette
 
-from gap_agent_support import ALPHA, QUESTION, GapRig, serve_gaps
-from mcp_server.registry import NOT_SHOWN, RECORDED, install
-from mcp_support import ALICE, MCP_HOST, MCP_URL, build_app, call, mcp_env, sdk_session
-from specflow_api_agent_support import FOREIGN, agent_env
-
-WEB = "https://app.example.test"
-
-
-@dataclasses.dataclass
-class Served:
-    gaps: GapRig
-    app: Starlette
+from gap_agent_support import ALPHA, QUESTION
+from mcp_gap_support import WEB, Served, serve_mcp_gaps
+from mcp_server.registry import NOT_SHOWN, RECORDED
+from mcp_support import ALICE, MCP_HOST, MCP_URL, call, sdk_session
+from specflow_api_agent_support import FOREIGN
 
 
 @pytest.fixture
 async def served(monkeypatch, valid_env) -> AsyncIterator[Served]:
-    async with serve_gaps(monkeypatch, agent_env(valid_env, PUBLIC_URL=WEB)) as gaps:
-        transport = httpx.ASGITransport(app=gaps.rig.app, raise_app_exceptions=False)
-
-        def tools(server: MCPServer) -> None:
-            install(server, resource_url=MCP_URL)
-
-        yield Served(gaps, build_app(mcp_env(valid_env), transport=transport, tools=tools))
+    async with serve_mcp_gaps(monkeypatch, valid_env) as served:
+        yield served
 
 
 async def _no_standalone_request(*_: Any) -> ElicitResult:

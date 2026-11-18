@@ -12,6 +12,10 @@ empty. ``list_open_gaps`` lists what the web inbox's default view lists (open, r
 each gap whole for its card (``api.gap.cards``); the card links to the web app at ``PUBLIC_URL``. Nothing here writes;
 logs carry no question or answer text (NFR-GSEC-02).
 
+``browse_gaps`` (``GET /agent/gap-inbox``) lists what the web Gaps screen lists (route ``ask``, held back or not) with
+its filters, as rows that name each assignee; ``open_gap`` (``GET /agent/gap-detail``) reads one gap whole, in any
+status, as its web card shows it (``api.gap.cards.gap_detail``).
+
 ``answer_gap`` writes only what the person sent from the dialog that the client showed on the MCP server's request,
 never the agent's text (decision D6): the answer is recorded as the token's user with ``via`` ``elicitation``, with the
 web card's checks and apply (``api.gap.answering``), and audited as ``api.agent.written``.
@@ -27,11 +31,14 @@ from fastapi import APIRouter, Query
 from agent_contracts import (
     AnswerGapBody,
     AssignedFilter,
+    BrowseGapsQuery,
     GapAnswerRecord,
     GapCard,
     GapCardQuery,
+    GapDetail,
     GapItem,
     GapList,
+    GapRowList,
     ListGapsQuery,
     ListOpenGapsQuery,
     OpenGapList,
@@ -39,12 +46,13 @@ from agent_contracts import (
 from api.agent_reads import agent_reads
 from api.agent_views import holders_of
 from api.deps import AgentProjectDep, AgentUserDep, RuntimeDep
-from api.errors import invalid_arguments, invalid_cursor
+from api.errors import ApiError, invalid_arguments, invalid_cursor
 from api.gap.answering import answer_invalid, gap_not_found, gap_stale, gap_wrong_state, record_answer
-from api.gap.cards import gap_card, open_item
+from api.gap.cards import detail_user_ids, gap_card, gap_detail, gap_row, open_item
 from api.routers.agent import AgentRoute, cursor_within_limit
 from api.runtime import Runtime
 from api.write_support import plan_read, written
+from db import members
 from graph.gap import (
     AnswerInput,
     AnswerInvalidError,
@@ -58,6 +66,11 @@ from graph.gap.assignment import NO_ASSIGNEE
 router = APIRouter(prefix="/agent", tags=["agent"], route_class=AgentRoute)
 
 CURSOR: Final = "cursor"
+ASK: Final = "ask"  # the route of the gaps people answer: the web inbox lists only these
+
+
+def _refused(error: AnswerInvalidError) -> ApiError:
+    return invalid_cursor() if error.field == CURSOR else invalid_arguments(error.field)
 
 
 def gap_item(gap: GapView) -> GapItem:
@@ -101,7 +114,7 @@ async def list_gaps(project: AgentProjectDep, runtime: RuntimeDep, args: Annotat
     try:
         page = await service.list_gaps(graph_id, about=about, status=args.status, cursor=args.cursor, limit=args.limit)
     except AnswerInvalidError as error:
-        raise (invalid_cursor() if error.field == CURSOR else invalid_arguments(error.field)) from None
+        raise _refused(error) from None
     return GapList(project_id=graph_id, items=[gap_item(gap) for gap in page.gaps], next_cursor=page.next)
 
 
@@ -136,7 +149,7 @@ async def list_open_gaps(
             limit=args.limit,
         )
     except AnswerInvalidError as error:
-        raise (invalid_cursor() if error.field == CURSOR else invalid_arguments(error.field)) from None
+        raise _refused(error) from None
     base = public_url(runtime)
     holders = await holders_of(runtime, project.id, user.id, [gap.assigned_to for gap in page.gaps])
     items = []
@@ -155,6 +168,87 @@ def _assigned_to(assigned: AssignedFilter | None, caller: uuid.UUID) -> str | No
     if assigned is None:
         return None
     return str(caller) if assigned == "me" else NO_ASSIGNEE
+
+
+@router.get("/gap-inbox", response_model=GapRowList)
+async def browse_gaps(
+    project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, args: Annotated[BrowseGapsQuery, Query()]
+) -> GapRowList:
+    """The gaps of the web Gaps screen (route ``ask``, held back or not) with its filters, by default the ones not
+    resolved; blockers first, then reach, then newest; one page of rows, each naming its assignee. ``assigned`` keeps
+    the caller's gaps or the unassigned ones; ``assignee`` the gaps of the one member with that name (unknown, shared
+    or given with ``assigned``: ``invalid_arguments``); ``story_id`` as for ``list_gaps``."""
+
+    if args.cursor is not None:
+        cursor_within_limit(args.cursor)
+    if args.assigned is not None and args.assignee is not None:
+        raise invalid_arguments("assignee")
+    graph_id = str(project.id)
+    if args.assignee is None:
+        assigned_to = _assigned_to(args.assigned, user.id)
+    else:
+        assigned_to = await _member_named(runtime, project.id, user.id, args.assignee)
+    about = None
+    if args.story_id is not None:
+        plan = (await agent_reads(runtime)).plan
+        story_id = args.story_id
+        about = list(await plan_read(lambda: plan.story_nodes(graph_id, story_id)))
+    if runtime.gaps is None or about == []:
+        return GapRowList(project_id=graph_id, items=[], next_cursor=None)
+    service = await runtime.gaps.service()
+    try:
+        page = await service.list_gaps(
+            graph_id,
+            status=args.status,
+            kind=args.kind,
+            severity=args.severity,
+            route=[ASK],
+            about=about,
+            assigned_to=assigned_to,
+            cursor=args.cursor,
+            limit=args.limit,
+        )
+    except AnswerInvalidError as error:
+        raise _refused(error) from None
+    holders = await holders_of(runtime, project.id, user.id, [gap.assigned_to for gap in page.gaps])
+    rows = [gap_row(gap, holders.of(gap.assigned_to)) for gap in page.gaps]
+    return GapRowList(project_id=graph_id, items=rows, next_cursor=page.next)
+
+
+def _folded(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+async def _member_named(runtime: Runtime, project_id: uuid.UUID, caller: uuid.UUID, name: str) -> str:
+    """The user id of the one member of the project named ``name``, ignoring case and spacing, as the rows name them
+    (a display name that is an address is no name, ``db.members.shown_name``); else ``invalid_arguments``."""
+
+    wanted = _folded(name)
+    async with runtime.transaction() as session:
+        listing = await members.list_members(session, project_id, caller)
+    found = [row.user_id for row in listing.members if row.name is not None and _folded(row.name) == wanted]
+    if len(found) != 1:
+        raise invalid_arguments("assignee")
+    return str(found[0])
+
+
+@router.get("/gap-detail", response_model=GapDetail)
+async def open_gap(
+    project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, args: Annotated[GapCardQuery, Query()]
+) -> GapDetail:
+    """One gap whole, in any status, as its web card shows it, with the members it names: ``gap_not_found`` for a gap
+    the project does not have (none while gap runs are not configured). An alias the gap keeps finds it too."""
+
+    graph_id = str(project.id)
+    if runtime.gaps is None:
+        raise gap_not_found()
+    service = await runtime.gaps.service()
+    try:
+        gap = await service.get_gap(graph_id, args.gap_id)
+    except GapNotFoundError:
+        raise gap_not_found() from None
+    holders = await holders_of(runtime, project.id, user.id, detail_user_ids(gap))
+    return gap_detail(gap, graph_id, public_url(runtime), holders)
 
 
 OPEN: Final = "open"

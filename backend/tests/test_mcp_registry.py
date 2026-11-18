@@ -93,6 +93,8 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
         "path",
         "expand_brief",
         "list_gaps",
+        "browse_gaps",
+        "open_gap",
         "list_open_gaps",
         "answer_gap",
         "add_finding",
@@ -101,7 +103,7 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
     ]
     for tool in TOOLS:
         assert ("project_id" in tool.arguments.model_fields) == tool.project_scoped, tool.name
-    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 24)]
+    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 26)]
 
 
 async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_which_owns_the_membership(valid_env):
@@ -141,6 +143,7 @@ async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_w
         "report_task": {"task_id": "TASK::X", "claim_token": "t", "progress": "done"},
         "complete_story": {"story_id": "STORY::X", "claim_token": "t", "merge_commit": "a" * 40},
         "answer_gap": {"gap_id": "GAP::X"},
+        "open_gap": {"gap_id": "GAP::X"},
     }
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
@@ -191,6 +194,7 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
     assert sorted(t.name for t in listed) == [
         "add_finding",
         "answer_gap",
+        "browse_gaps",
         "claim_story",
         "complete_story",
         "expand_brief",
@@ -207,6 +211,7 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         "list_projects",
         "list_stories",
         "list_tasks",
+        "open_gap",
         "path",
         "preview_story",
         "release_story",
@@ -238,6 +243,8 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         ("path", descriptions.PATH_TOOL_DESCRIPTION),
         ("expand_brief", descriptions.EXPAND_DESCRIPTION),
         ("list_gaps", descriptions.LIST_GAPS_DESCRIPTION),
+        ("browse_gaps", descriptions.BROWSE_GAPS_DESCRIPTION),
+        ("open_gap", descriptions.OPEN_GAP_DESCRIPTION),
         ("list_open_gaps", descriptions.LIST_OPEN_GAPS_DESCRIPTION),
         ("answer_gap", descriptions.ANSWER_GAP_DESCRIPTION),
         ("list_areas", descriptions.AREAS_DESCRIPTION),
@@ -280,6 +287,7 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
         "report_task",
         "complete_story",
         "answer_gap",
+        "open_gap",
     }
     paged = {name: schema for name, schema in schemas.items() if name not in spec_tools}
     assert set(paged) == {
@@ -290,6 +298,7 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
         "get_task_path",
         "list_stories",
         "list_gaps",
+        "browse_gaps",
         "list_open_gaps",
     }
     cards = {**limit, "maximum": 25, "default": 10, "description": "Gaps per page, 1 to 25."}  # one gap read per card

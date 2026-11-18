@@ -261,6 +261,7 @@ async def test_install_registers_the_tools_and_the_prompt() -> None:
     assert names == [
         "add_finding",
         "answer_gap",
+        "browse_gaps",
         "claim_story",
         "complete_story",
         "expand_brief",
@@ -277,6 +278,7 @@ async def test_install_registers_the_tools_and_the_prompt() -> None:
         "list_projects",
         "list_stories",
         "list_tasks",
+        "open_gap",
         "path",
         "preview_story",
         "release_story",

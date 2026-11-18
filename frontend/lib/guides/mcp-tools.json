@@ -133,6 +133,16 @@
       "summary": "Lists the open gaps in the spec about a story or spec nodes: question, severity, status and answer."
     },
     {
+      "name": "browse_gaps",
+      "read_only": true,
+      "summary": "Lists a project's gaps as table rows, filtered as on the web Gaps screen: status, kind, severity, assignee, story."
+    },
+    {
+      "name": "open_gap",
+      "read_only": true,
+      "summary": "Shows one gap whole, as its web card does: question, quotes, options, answer, history and reach."
+    },
+    {
       "name": "list_open_gaps",
       "read_only": true,
       "summary": "Lists the gaps that wait for a person's answer, each as a ready card with its web link."
