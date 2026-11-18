@@ -342,15 +342,46 @@ async def test_a_failing_step_is_marked_failed_and_resumes() -> None:
     assert len(world.investigator.sites) == calls and result.counts["gaps_new"]["total"] == 1
 
 
-async def test_a_new_run_with_a_given_id_and_progress_callbacks() -> None:
-    world = await mini_world(interfaces(1))
+class ReportWatcher(CountingInvestigator):
+    """Records the run's last progress report each time a site's investigation starts."""
+
+    def __init__(self, seen: list[tuple[str, int, int]]) -> None:
+        super().__init__()
+        self.seen = seen
+        self.at_start: list[tuple[str, int, int]] = []
+
+    async def investigate(self, pack: SitePack, reads: SiteReads, budget: SiteBudget) -> InvestigationResult:
+        self.at_start.append(self.seen[-1])
+        return await super().investigate(pack, reads, budget)
+
+
+async def test_a_new_run_with_a_given_id_reports_the_sites_of_investigate_and_check() -> None:
+    world = await mini_world(interfaces(3))
+    seen: list[tuple[str, int, int]] = []
+    world.investigator = watcher = ReportWatcher(seen)
+
+    result = await run_gap(world.context(run_id="gaprun-given", on_progress=lambda *report: seen.append(report)))
+
+    sites = result.counts["sites"]["investigated"]
+    assert result.run_id == "gaprun-given" and sites == 3
+    assert seen == [("investigate", done, sites) for done in range(sites + 1)] + [
+        ("check", done, sites) for done in range(sites + 1)
+    ]
+    # While a site is investigated, the sites before it are reported done ("site N of M" on the Gaps screen).
+    assert watcher.at_start == [("investigate", done, sites) for done in range(sites)]
+
+
+async def test_a_resumed_run_reports_the_sites_of_its_unfinished_steps_only() -> None:
+    world = await mini_world(interfaces(2))
+    world.store = StopAfter("investigate")
+    with pytest.raises(InfrastructureUnavailableError):
+        await run_gap(world.context(), mode="full")
+    (record,) = world.store.records.values()
     seen: list[tuple[str, int, int]] = []
 
-    result = await run_gap(world.context(run_id="gaprun-given", on_progress=lambda *step: seen.append(step)))
+    await run_gap(world.context(run_id=record.run_id, on_progress=lambda *report: seen.append(report)))
 
-    assert result.run_id == "gaprun-given"
-    assert [step for step, _, _ in seen] == list(RUN_STEPS)
-    assert seen[-1] == ("record", len(RUN_STEPS), len(RUN_STEPS))
+    assert seen == [("check", 0, 2), ("check", 1, 2), ("check", 2, 2)]
 
 
 async def test_a_finished_run_without_its_result_is_a_configuration_error() -> None:

@@ -462,6 +462,8 @@ class InvestigateRun:
     reader: Any
     gaps: Sequence[StoredGap] = ()
     plan: PlanView | None = None
+    on_progress: Callable[[int, int], None] | None = None
+    """Told the sites done and the total: once before the first site, then after each site."""
 
 
 async def investigate_sites(
@@ -472,7 +474,9 @@ async def investigate_sites(
 
     budget = site_budget(run.limits)
     found: dict[str, Investigated] = {}
-    for site in sites:
+    if run.on_progress is not None:
+        run.on_progress(0, len(sites))
+    for done, site in enumerate(sites, start=1):
         reads = GraphSiteReads(run.reader, run.project_id, run_id=run.run_id)
         try:
             pack = await build_pack(
@@ -505,6 +509,8 @@ async def investigate_sites(
         found[site.site_id] = Investigated(
             result, tuple(sorted(reads.shown_spec_ids)), tuple(sorted(reads.shown_fragment_ids))
         )
+        if run.on_progress is not None:
+            run.on_progress(done, len(sites))
     log_event(
         logger,
         INFO,

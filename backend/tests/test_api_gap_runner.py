@@ -7,7 +7,9 @@ store and a real file build store under ``tmp_path``. No graph store, no databas
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -281,6 +283,48 @@ async def test_an_unfinished_run_is_resumed_first_with_its_own_mode_and_build(tm
     assert run.modes == ["full", "update"]
     assert [report.build_id for report in run.contexts[1].changes] == ["build-2"]
     assert (await runs.get_run(PROJECT, "run-old")).finished
+
+
+class QuietNextRun(StubGapRun):
+    """The resumed run reports its items (``close``: 2 of 5); the run after it reports none, sets ``waiting`` and waits
+    for ``release``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiting = asyncio.Event()
+
+    async def _run(self, ctx: Any, mode: str) -> GapRunResult:
+        if ctx.run_id is None:  # the requested run, after the resumed one
+            self.release.clear()
+            ctx = replace(ctx, on_progress=lambda *_: self.waiting.set())
+        return await super()._run(ctx, mode)
+
+
+async def test_the_item_counts_of_a_resumed_run_are_not_shown_for_the_run_after_it(tmp_path):
+    await store_build(tmp_path, "build-1", minutes=0)
+    await store_build(tmp_path, "build-2", minutes=5, report=REPORT)
+    runs = MemoryGapRunStore()
+    await runs.create_run(
+        GapRunRecord(
+            project_id=PROJECT,
+            run_id="run-old",
+            mode="full",
+            build_id="build-1",
+            started_at=datetime(2026, 11, 1, tzinfo=UTC),
+            progress={"scope": "done", "close": "running"},
+        )
+    )
+    run = QuietNextRun()
+    runner = make_gap_runner(tmp_path, run, runs=runs)
+
+    await runner.after_build(PROJECT, "build-2")
+    await asyncio.wait_for(run.waiting.wait(), 5)
+    state = await runner.status(PROJECT)
+    run.release.set()
+    await drained(runner)
+
+    assert (state.status, state.build_id, state.step) == ("running", "build-2", "close")
+    assert (state.step_items_done, state.step_items_total) == (None, None)
 
 
 async def test_resuming_the_run_of_the_same_build_runs_once(tmp_path):
