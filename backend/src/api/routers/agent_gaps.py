@@ -19,12 +19,14 @@ web card's checks and apply (``api.gap.answering``), and audited as ``api.agent.
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Query
 
 from agent_contracts import (
     AnswerGapBody,
+    AssignedFilter,
     GapAnswerRecord,
     GapCard,
     GapCardQuery,
@@ -35,6 +37,7 @@ from agent_contracts import (
     OpenGapList,
 )
 from api.agent_reads import agent_reads
+from api.agent_views import holders_of
 from api.deps import AgentProjectDep, AgentUserDep, RuntimeDep
 from api.errors import invalid_arguments, invalid_cursor
 from api.gap.answering import answer_invalid, gap_not_found, gap_stale, gap_wrong_state, record_answer
@@ -50,6 +53,7 @@ from graph.gap import (
     GapView,
     StaleGapError,
 )
+from graph.gap.assignment import NO_ASSIGNEE
 
 router = APIRouter(prefix="/agent", tags=["agent"], route_class=AgentRoute)
 
@@ -109,10 +113,11 @@ def public_url(runtime: Runtime) -> str | None:
 
 @router.get("/open-gaps", response_model=OpenGapList)
 async def list_open_gaps(
-    project: AgentProjectDep, runtime: RuntimeDep, args: Annotated[ListOpenGapsQuery, Query()]
+    project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, args: Annotated[ListOpenGapsQuery, Query()]
 ) -> OpenGapList:
-    """The gaps that wait for a person's answer, blockers first, then newest first, one page of cards. A gap dismissed
-    between the page and its read is left out."""
+    """The gaps that wait for a person's answer, blockers first, then newest first, one page of cards, each naming its
+    assignee; ``assigned`` keeps the caller's gaps (``me``) or those nobody is assigned to (``unassigned``). A gap
+    dismissed between the page and its read is left out."""
 
     if args.cursor is not None:
         cursor_within_limit(args.cursor)
@@ -122,19 +127,34 @@ async def list_open_gaps(
     service = await runtime.gaps.service()
     try:
         page = await service.list_gaps(
-            graph_id, status=["open"], route=["ask"], held_back=False, cursor=args.cursor, limit=args.limit
+            graph_id,
+            status=["open"],
+            route=["ask"],
+            held_back=False,
+            assigned_to=_assigned_to(args.assigned, user.id),
+            cursor=args.cursor,
+            limit=args.limit,
         )
     except AnswerInvalidError as error:
         raise (invalid_cursor() if error.field == CURSOR else invalid_arguments(error.field)) from None
     base = public_url(runtime)
+    holders = await holders_of(runtime, project.id, user.id, [gap.assigned_to for gap in page.gaps])
     items = []
     for gap in page.gaps:
         try:
             whole = await service.get_gap(graph_id, gap.gap_id)
         except GapNotFoundError:
             continue
-        items.append(open_item(gap_card(whole, graph_id, base)))
+        items.append(open_item(gap_card(whole, graph_id, base, holders.of(whole.assigned_to))))
     return OpenGapList(project_id=graph_id, items=items, next_cursor=page.next)
+
+
+def _assigned_to(assigned: AssignedFilter | None, caller: uuid.UUID) -> str | None:
+    """The ``assigned_to`` filter of ``list_gaps``: the caller's user id for ``me``, nobody for ``unassigned``."""
+
+    if assigned is None:
+        return None
+    return str(caller) if assigned == "me" else NO_ASSIGNEE
 
 
 OPEN: Final = "open"
@@ -142,7 +162,7 @@ OPEN: Final = "open"
 
 @router.get("/gap-card", response_model=GapCard)
 async def get_gap_card(
-    project: AgentProjectDep, runtime: RuntimeDep, args: Annotated[GapCardQuery, Query()]
+    project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, args: Annotated[GapCardQuery, Query()]
 ) -> GapCard:
     """The card of one gap that waits for a person's answer, with its parts for the dialog of ``answer_gap``:
     ``gap_not_found`` for a gap the project does not have (none while gap runs are not configured),
@@ -158,7 +178,8 @@ async def get_gap_card(
         raise gap_not_found() from None
     if gap.status != OPEN:
         raise gap_wrong_state(GapStateError(status=gap.status, allowed=(OPEN,), gap_id=gap.gap_id))
-    return gap_card(gap, graph_id, public_url(runtime))
+    holders = await holders_of(runtime, project.id, user.id, [gap.assigned_to])
+    return gap_card(gap, graph_id, public_url(runtime), holders.of(gap.assigned_to))
 
 
 @router.post("/gap-answer", response_model=GapAnswerRecord)

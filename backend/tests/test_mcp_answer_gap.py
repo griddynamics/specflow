@@ -257,3 +257,19 @@ async def test_only_an_open_gap_of_a_project_of_yours_opens_a_dialog(served) -> 
         "gap_not_found",
         "project_not_found",
     ]
+
+
+async def test_list_open_gaps_lists_only_the_callers_gaps_when_asked(served) -> None:
+    """The flow that starts a dialog on "my gaps": ``assigned`` ``me`` reaches the API as the token's user."""
+
+    gap_id = served.gaps.question_gap()
+    alice = served.gaps.rig.alice_id
+    await served.gaps.gaps.assign_gap(ALPHA, gap_id, alice, by=alice)
+
+    async with sdk_session(served.app, ALICE) as session:
+        mine = await call(session, "list_open_gaps", project_id=ALPHA, assigned="me")
+
+    assert mine.structured_content is not None and not mine.is_error
+    items = mine.structured_content["items"]
+    assert [item["gap_id"] for item in items] == [gap_id]
+    assert items[0]["assignee"]["you"] is True and "**Assigned to:** you" in items[0]["card"]

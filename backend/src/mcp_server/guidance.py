@@ -206,7 +206,8 @@ _ANSWER_GAPS_STEP_2_WITH_ARGUMENT: Final = (
     "gap. If no open gap has it, say so and stop.\n"
 )
 _ANSWER_GAPS_STEP_2_WITHOUT_ARGUMENT: Final = (
-    "2. Call list_open_gaps and show a short numbered list: title and severity, blockers first.\n"
+    '2. Call list_open_gaps (with assigned "me" when the user wants only the gaps assigned to them) and show a '
+    "short numbered list: title, severity and who it is assigned to, blockers first.\n"
 )
 _ANSWER_GAPS_TAIL: Final = (
     "3. For each gap, in that order: show its card exactly as given, then call answer_gap with its gap_id so that the "

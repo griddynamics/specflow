@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Final
 from urllib.parse import quote
 
-from agent_contracts import GapCard, GapCardOption, GapCardQuote, OpenGapItem
+from agent_contracts import GapCard, GapCardOption, GapCardQuote, Holder, OpenGapItem
 from graph.gap import GapView, OptionRow, WitnessView
 
 ORIGINS: Final = {
@@ -20,6 +20,7 @@ ORIGINS: Final = {
 }
 OWN_ANSWER: Final = "- **Other**: your own answer"
 NO_OPTIONS: Final = "**Options:** being prepared; you can give your own answer now."
+NOBODY: Final = "nobody"
 
 
 def web_url(public_url: str | None, project_id: str, gap_id: str) -> str | None:
@@ -66,13 +67,25 @@ def _option(index: int, option: OptionRow) -> GapCardOption:
     )
 
 
+def assignee_text(assignee: Holder | None) -> str:
+    """Who the gap is assigned to, in words: "you", the member's name, "a member" (a name that is an address), or
+    "nobody"."""
+
+    if assignee is None:
+        return NOBODY
+    if assignee.you:
+        return "you"
+    return _one_line(assignee.name) if assignee.name else "a member"
+
+
 def card_text(card: GapCard) -> str:
-    """The card as the chat shows it, nothing folded: title and chips, question, why, the options with their details,
-    the quoted lines and the web link."""
+    """The card as the chat shows it, nothing folded: title and chips, the assignee, question, why, the options with
+    their details, the quoted lines and the web link."""
 
     origin = ORIGINS.get(card.origin, card.origin)
     parts = [
         f"**{_one_line(card.title)}** ({card.severity} {card.kind.replace('_', ' ')}, {origin}, `{card.gap_id}`)",
+        f"**Assigned to:** {assignee_text(card.assignee)}",
         f"**Question:** {_one_line(card.question)}",
     ]
     if card.why.strip():
@@ -92,8 +105,9 @@ def card_text(card: GapCard) -> str:
     return "\n\n".join(parts)
 
 
-def gap_card(gap: GapView, project_id: str, public_url: str | None) -> GapCard:
-    """The card of a gap read whole (``GapService.get_gap``: options, quoted lines with their documents)."""
+def gap_card(gap: GapView, project_id: str, public_url: str | None, assignee: Holder | None = None) -> GapCard:
+    """The card of a gap read whole (``GapService.get_gap``: options, quoted lines with their documents); ``assignee``
+    is the member the gap is assigned to, as the caller sees them."""
 
     options = [_option(index, option) for index, option in enumerate(sorted(gap.options, key=lambda row: row.rank))]
     card = GapCard(
@@ -108,6 +122,7 @@ def gap_card(gap: GapView, project_id: str, public_url: str | None) -> GapCard:
         options=options,
         updated_at=gap.updated_at,
         web_url=web_url(public_url, project_id, gap.gap_id),
+        assignee=assignee,
         card="",
     )
     return card.model_copy(update={"card": card_text(card)})
@@ -121,6 +136,7 @@ def open_item(card: GapCard) -> OpenGapItem:
         severity=card.severity,
         kind=card.kind,
         title=card.title,
+        assignee=card.assignee,
         card=card.card,
         web_url=card.web_url,
     )

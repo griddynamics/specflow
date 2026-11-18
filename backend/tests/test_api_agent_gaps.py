@@ -295,3 +295,31 @@ async def test_an_answer_to_a_gap_that_changed_since_the_dialog_is_stale(cards: 
     assert (unknown.status_code, unknown.json()["error"]["code"]) == (404, "gap_not_found")
     assert (foreign.status_code, foreign.json()["error"]["code"]) == (404, "project_not_found")
     assert cards.runner.applies == []
+
+
+async def test_list_open_gaps_keeps_the_callers_gaps_or_the_unassigned_ones_and_names_the_assignee(
+    cards: GapRig,
+) -> None:
+    gap_id = cards.question_gap()
+    await cards.gaps.assign_gap(ALPHA, gap_id, cards.rig.alice_id, by=cards.rig.alice_id)
+
+    mine = (await cards.get(OPEN, project_id=ALPHA, assigned="me", limit=25)).json()["items"]
+    unassigned = (await cards.get(OPEN, project_id=ALPHA, assigned="unassigned", limit=25)).json()["items"]
+    every = (await cards.get(OPEN, project_id=ALPHA, limit=25)).json()["items"]
+    card = (await cards.get(GAP_CARD_ROUTE, project_id=ALPHA, gap_id=gap_id)).json()
+
+    assert [item["gap_id"] for item in mine] == [gap_id]
+    assert mine[0]["assignee"] == {"name": "Alice", "you": True, "agent_label": None}
+    assert "**Assigned to:** you" in mine[0]["card"]
+    assert gap_id not in {item["gap_id"] for item in unassigned}
+    assert len(unassigned) == len(every) - 1 and all(item["assignee"] is None for item in unassigned)
+    assert all("**Assigned to:** nobody" in item["card"] for item in unassigned)
+    assert card["assignee"]["you"] is True
+
+
+async def test_list_open_gaps_takes_only_me_or_unassigned(cards: GapRig) -> None:
+    """Schema-bound like every agent route's arguments (422); the tool's input schema makes it unreachable."""
+
+    response = await cards.get(OPEN, project_id=ALPHA, assigned="bob")
+
+    assert (response.status_code, response.json()["error"]["code"]) == (422, "validation_failed")
