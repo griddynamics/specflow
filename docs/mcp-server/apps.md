@@ -147,18 +147,22 @@ answer the gaps"), and the server instructions and the tool descriptions lead Cl
 | 4 | Claude Code calls `answer_gap` again with the person's answers and the `requestState` |
 | 5 | The server checks the answer as `submit_gap_answer` does (`updated_at` included) and records it as the token's user, with `via` `elicitation` |
 
-The form is flat (the specification allows only primitive fields):
+The form is flat (the specification allows only primitive fields). It never needs the right arrow key: every option
+is on screen.
 
-| Field | Content |
+| Part | Content |
 |---|---|
-| Message | First line the question, second line why it matters; then each option with its detail, the quoted lines with their source, and last the gap id, severity, kind and title |
-| `choice` | A titled single choice: the options A to D by their short label, `(recommended)` on one, and "Other"; preset to the recommended option for `major` |
-| `own_text` | Text of 1 to 4,000 characters, required only for "Other" |
-| `placement` | "Amend the source section" or "Clarifications document", preset from the option's edits |
+| Message, first three lines | The question; a line that names every option (`A) 14 days · B) 30 days (recommended) · ... · or your own answer`); why it matters |
+| Message, folded | Each option with its detail, the quoted lines with their source, and last the gap id, severity, kind and title |
+| One yes/no field per option | Titled with the option's short label, `(recommended)` on one; the recommended one is ticked for `major` |
+| `own_text` | "Or write your own answer (untick the options above)": 1 to 4,000 characters |
 
-The form cannot show a diff. An own answer takes a second round: the server previews the edits (`preview_edits`) and
-asks to confirm them in a second form, whose message holds the diff; when the preview fails, the text goes to the
-clarifications document as written. Declining or cancelling records nothing.
+Exactly one ticked option, or no ticked option and an own answer, is an answer; anything else returns a message that
+says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer takes
+a second round in which the server previews the edits (`preview_edits`) and asks to confirm them, the diff in the
+message; when the preview fails, the text goes to the clarifications document as written. Declining or cancelling
+records nothing. A single titled choice (`select`) was the first layout; its options open only with the right arrow
+key, which the first person who tried it did not find. The demo keeps it for comparison (Q10).
 
 Protocol and transport, as the demo shows with the SDK's client:
 
@@ -175,9 +179,10 @@ replicas need one shared key (a new setting).
 Verified with the demo in Claude Code 2.1.327 (the CLI): the `input_required` result of an ordinary tool call opens
 the dialog "MCP server ... requests your input" ("Fulfilling input required by 'tools/call' (round 1)"), with
 the titled choice preset to the recommended option, the text field and the placement; Accept and Decline reach the
-server. The dialog shows the first two lines of the message and folds the rest ("+N more lines", opened with the
-right arrow key), and it cuts a long option title to the terminal's width. So the question and why it matters
-are the first two lines, an option title is its short label, and the options' details come next in the message.
+server. The dialog shows the first lines of the message and folds the rest ("+N more lines", opened with the right
+arrow key); it shows only the chosen value of a titled choice (the list opens with the right arrow key) and cuts a long
+option title to the terminal's width. Hence the layout above: the question and every option in the first lines, one
+line per option, short titles.
 
 Claude's question wizard (its `AskUserQuestion` tool) was weighed and is not an answer path:
 
@@ -193,11 +198,16 @@ The wizard may later help a person pick which gaps to work on; no answer passes 
 ### Demo
 
 `backend/examples/mcp_gap_dialogs_demo.py` serves one sample gap, with no sign-in and no storage: `list_open_gaps`,
-`answer_gap` (the dialog), the prompt `answer_gaps` and, for comparison, the prompt `answer_gap_wizard`. From
-`backend/`:
+`answer_gap` (the dialog) and the prompt `answer_gaps`. From `backend/`, with the layout above:
 
 ```bash
 uv run --extra mcp python examples/mcp_gap_dialogs_demo.py
+```
+
+or with the single choice, for comparison:
+
+```bash
+uv run --extra mcp python examples/mcp_gap_dialogs_demo.py --layout select
 ```
 
 ```bash
@@ -205,8 +215,8 @@ claude mcp add --transport http gap-demo http://localhost:8011/mcp
 ```
 
 Then, in an interactive Claude Code session, ask in your own words ("Which spec questions are open?"), or run
-`/mcp__gap-demo__answer_gaps`; `/mcp__gap-demo__answer_gap_wizard` shows the wizard. The result of `answer_gap` names the
-path the client took. Remove the server afterwards with `claude mcp remove gap-demo`.
+`/mcp__gap-demo__answer_gaps`. The result of `answer_gap` names the path the client took. Remove the server afterwards
+with `claude mcp remove gap-demo`.
 
 `client_supports_apps(ctx)` reads the client capabilities of the session. Our server is stateless, so a
 `tools/call` request may carry none. The tools do not branch on it: they always return the full text and the UI
@@ -294,6 +304,7 @@ Deferred: assignment (D2), upload (D3).
 |---|---|---|
 | Q8 | The target if the Code tab does not render views | Chosen with the spike's evidence |
 | Q9 | Does `submit_gap_answer` require the answer ticket? | The spike checks whether the model sees the result's `_meta` |
+| Q10 | Which dialog layout do people understand without help: one yes/no line per option, or the single choice? | One line per option ("Terminal dialogs"), until the next trial says otherwise |
 
 ## Deferred designs
 

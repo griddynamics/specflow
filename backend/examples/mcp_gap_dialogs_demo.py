@@ -1,19 +1,24 @@
 """A local demo of how a gap question can look in Claude Code (docs/mcp-server/apps.md "Terminal dialogs").
 
-No sign-in, no database and no graph store: one sample gap lives in memory, and nothing is stored. The demo shows
-two ways to answer it:
+No sign-in, no database and no graph store: one sample gap lives in memory, and nothing is stored. The tool
+`answer_gap` asks the user in a dialog that Claude Code shows (decision D6): the answer goes from the client to the
+server, never through the model. On protocol 2026-07-28 the SDK answers the first call with `input_required` and the
+client calls again with the answers (stateless, as the `mcp` role runs); on 2025-11-25 and older it sends
+`elicitation/create` during the call.
 
-1. The answer dialog (decision D6). The tool `answer_gap` asks the user through the client, not through the
-   model. On protocol 2026-07-28 the SDK answers the first call with `input_required` and the client calls again with
-   the answers (stateless, as the `mcp` role runs); on 2025-11-25 and older it sends `elicitation/create` during the
-   call. The model never sees the dialog and cannot write the answer.
-2. Claude's question wizard, for comparison. The prompt `answer_gap_wizard` asks Claude to read the gap with
-   `list_open_gaps`, to ask with its own question tool and to pass the choice to `record_wizard_answer`. Here the
-   answer goes through the model.
+Two layouts of the dialog, chosen when the server starts:
+
+- `list` (default): one yes/no line per option, the recommended one ticked, and a line for your own answer. Every
+  option is on screen; nothing has to be opened.
+- `select`: one field "Pick an answer" whose options open with the right arrow key, and a line for your own answer.
+
+Both start the message with the question, a line that names every option, and why it matters. Claude Code shows the
+first lines of the message and folds the rest (the options' details, the quoted lines and the ids).
 
 Run from backend/ (needs the `mcp` extra; serves stateless HTTP with JSON responses, as the `mcp` role does):
 
-    uv run --extra mcp python examples/mcp_gap_dialogs_demo.py   # http://localhost:8011/mcp
+    uv run --extra mcp python examples/mcp_gap_dialogs_demo.py                  # layout list
+    uv run --extra mcp python examples/mcp_gap_dialogs_demo.py --layout select  # layout select
     claude mcp add --transport http gap-demo http://localhost:8011/mcp
 
 or over stdio, without a second terminal (the client starts the server):
@@ -23,22 +28,16 @@ or over stdio, without a second terminal (the client starts the server):
 
 Then, in an interactive Claude Code session (the CLI or the Desktop Code tab), ask in your own words, for example
 "Which spec questions are open?" or "Let me answer the open gaps"; Claude lists them and calls `answer_gap`, and the
-dialog opens. The slash commands do the same without wording:
-
-    /mcp__gap-demo__answer_gaps                          -> list the open gaps and answer them one by one
-    /mcp__gap-demo__answer_gap_wizard                    -> the question wizard, for comparison
-
-The dialog shows the first two lines of its message (the question and why it matters); the rest opens with the right
-arrow key. The result of `answer_gap` names the path the client took (`input_required` round trip or
-`elicitation/create`). A non-interactive session (`claude -p`) cancels the dialog. Remove the server afterwards:
-`claude mcp remove gap-demo`.
+dialog opens. The slash command `/mcp__gap-demo__answer_gaps` does the same without wording. The result of
+`answer_gap` names the path the client took (`input_required` round trip or `elicitation/create`). A non-interactive
+session (`claude -p`) cancels the dialog. Remove the server afterwards: `claude mcp remove gap-demo`.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 
 from mcp.server.elicitation import AcceptedElicitation, ElicitationResult
 from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
@@ -53,7 +52,8 @@ PORT: Final = 8011
 MRTR_PROTOCOL: Final = "2026-07-28"
 OWN: Final = "other"
 OWN_TEXT_MAX: Final = 4000
-PLACEMENTS: Final = {"amend": "Amend the source section", "document": "Clarifications document"}
+PLACEMENTS: Final = {"amend": "amends the source section", "document": "goes to the clarifications document"}
+Layout = Literal["list", "select"]
 
 
 @dataclass(frozen=True)
@@ -110,58 +110,70 @@ GAP: Final = SampleGap(
 )
 
 
-def recommended_mark(option: Option) -> str:
-    return " (recommended)" if option.code == GAP.recommended else ""
-
-
 def option_title(option: Option) -> str:
-    """Short, so the dialog does not cut it: the detail is in the message."""
+    """Short, so the dialog never cuts it: the detail is in the message."""
 
-    return f"{option.code}. {option.label}{recommended_mark(option)}"
+    recommended = " (recommended)" if option.code == GAP.recommended else ""
+    return f"{option.code}) {option.label}{recommended}"
 
 
 def dialog_message(gap: SampleGap) -> str:
-    """The text above the fields. Claude Code shows its first two lines and folds the rest, so the question and why it
-    matters come first; the options' details, the quoted lines and the ids follow."""
+    """The text above the fields. Claude Code shows the first lines and folds the rest, so the question, the choices
+    and why it matters come first; the options' details, the quoted lines and the ids follow."""
 
-    options = "\n".join(
-        f"{option.code}. {option.label}{recommended_mark(option)}: {option.detail}" for option in gap.options
-    )
+    choices = " · ".join(option_title(option) for option in gap.options)
+    details = "\n".join(f"{option_title(option)}: {option.detail}" for option in gap.options)
     quotes = "\n".join(f"  {quote}" for quote in gap.quotes)
     return (
-        f"{gap.question}\n{gap.why}\n\n{options}\n\nQuoted lines:\n{quotes}\n\n"
-        f"{gap.gap_id} | {gap.severity} | {gap.kind} | {gap.title}"
+        f"{gap.question}\n{choices} · or your own answer\nWhy: {gap.why}\n\n"
+        f"{details}\n\nQuoted lines:\n{quotes}\n\n{gap.gap_id} | {gap.severity} | {gap.kind} | {gap.title}"
     )
 
 
-def form_model(gap: SampleGap) -> type[BaseModel]:
-    """The dialog's fields as a flat model: a titled choice (A to D, Other), the own text and the placement."""
+def option_field(option: Option) -> str:
+    return f"option_{option.code.lower()}"
 
-    recommended = next(option for option in gap.options if option.code == gap.recommended)
-    choices: list[JsonValue] = [{"const": option.code, "title": option_title(option)} for option in gap.options]
-    choices.append({"const": OWN, "title": "Other: I write my own answer"})
-    placements: list[JsonValue] = [{"const": key, "title": title} for key, title in PLACEMENTS.items()]
+
+def list_form(gap: SampleGap) -> type[BaseModel]:
+    """Layout `list`: one yes/no field per option, the recommended one ticked, and the own answer."""
+
     fields: dict[str, Any] = {
-        "choice": (str, Field(default=gap.recommended, title="Your answer", json_schema_extra={"oneOf": choices})),
-        "own_text": (
-            str | None,
-            Field(default=None, title="Your own answer (with Other)", max_length=OWN_TEXT_MAX),
-        ),
-        "placement": (
-            str,
-            Field(
-                default=recommended.placement, title="Where the answer goes", json_schema_extra={"oneOf": placements}
-            ),
-        ),
+        option_field(option): (bool, Field(default=option.code == gap.recommended, title=option_title(option)))
+        for option in gap.options
     }
-    model: type[BaseModel] = create_model("GapAnswerForm", **fields)
+    fields["own_text"] = (
+        str | None,
+        Field(default=None, title="Or write your own answer (untick the options above)", max_length=OWN_TEXT_MAX),
+    )
+    model: type[BaseModel] = create_model("GapAnswerList", **fields)
     return model
 
 
-GapAnswerForm: Final = form_model(GAP)
+def select_form(gap: SampleGap) -> type[BaseModel]:
+    """Layout `select`: one titled choice (the options and Other) and the own answer."""
+
+    choices: list[JsonValue] = [{"const": option.code, "title": option_title(option)} for option in gap.options]
+    choices.append({"const": OWN, "title": "Other: I write my own answer"})
+    codes = ", ".join(option.code for option in gap.options)
+    fields: dict[str, Any] = {
+        "choice": (
+            str,
+            Field(
+                default=gap.recommended,
+                title=f"Pick an answer (→ shows {codes} and Other)",
+                json_schema_extra={"oneOf": choices},
+            ),
+        ),
+        "own_text": (str | None, Field(default=None, title="Your own answer (with Other)", max_length=OWN_TEXT_MAX)),
+    }
+    model: type[BaseModel] = create_model("GapAnswerSelect", **fields)
+    return model
+
+
+FORMS: Final[dict[str, type[BaseModel]]] = {"list": list_form(GAP), "select": select_form(GAP)}
 # How the demo serves, set by build_server: the resolver below must be a module-level function, because the SDK
 # evaluates the tool's annotations (``from __future__ import annotations``) in this module's namespace.
-SERVING: Final[dict[str, bool]] = {"stateless": True}
+SERVING: Final[dict[str, Any]] = {"stateless": True, "layout": "list"}
 
 
 def ask_for_answer(ctx: Context, gap_id: str) -> Elicit[BaseModel]:
@@ -175,7 +187,7 @@ def ask_for_answer(ctx: Context, gap_id: str) -> Elicit[BaseModel]:
             f"This client speaks MCP protocol {version}. A stateless server can show the dialog only on "
             f"{MRTR_PROTOCOL} (Claude Code's v2 MCP runtime); run the demo with --stdio, or update Claude Code."
         )
-    return Elicit(dialog_message(GAP), GapAnswerForm)
+    return Elicit(dialog_message(GAP), FORMS[SERVING["layout"]])
 
 
 def path_taken(ctx: Context) -> str:
@@ -185,25 +197,37 @@ def path_taken(ctx: Context) -> str:
     return f"elicitation/create during the call (protocol {version})"
 
 
+def option_answer(option: Option) -> dict[str, str]:
+    label = f"{option.code}) {option.label}"
+    where = PLACEMENTS[option.placement]
+    return {"mode": "option", "option": label, "placement": option.placement, "summary": f"{label}; it {where}"}
+
+
+def own_answer(text: str) -> dict[str, str]:
+    where = PLACEMENTS["document"]
+    return {"mode": "own", "own_text": text, "placement": "document", "summary": f"Your own answer; it {where}"}
+
+
 def checked_answer(form: BaseModel) -> dict[str, str]:
-    """The submitted dialog as an answer, or a ToolError naming the field (as the real `answer_gap` would)."""
+    """The submitted dialog as an answer, or a ToolError that says what to change (as the real tool would)."""
 
     values = form.model_dump()
-    codes = {option.code: option for option in GAP.options}
-    if values["placement"] not in PLACEMENTS:
-        raise ToolError("placement: choose amend or document")
-    if values["choice"] == OWN:
-        text = (values.get("own_text") or "").strip()
-        if not text:
-            raise ToolError("own_text: write your answer when you choose Other")
-        where = PLACEMENTS[values["placement"]].lower()
-        return {"mode": "own", "own_text": text, "placement": values["placement"], "summary": f"Own answer; {where}"}
-    if values["choice"] not in codes:
-        raise ToolError(f"choice: one of {', '.join(codes)} or {OWN}")
-    chosen = codes[values["choice"]]
-    where = PLACEMENTS[values["placement"]].lower()
-    label = f"{chosen.code}. {chosen.label}"
-    return {"mode": "option", "option": label, "placement": values["placement"], "summary": f"{label}; {where}"}
+    own = (values.get("own_text") or "").strip()
+    if "choice" in values:  # layout select
+        if values["choice"] == OWN:
+            if not own:
+                raise ToolError("You picked Other: write your own answer, or pick one of the options.")
+            return own_answer(own)
+        picked = [option for option in GAP.options if option.code == values["choice"]]
+    else:  # layout list
+        picked = [option for option in GAP.options if values.get(option_field(option))]
+        if own and picked:
+            raise ToolError("Untick the options to send your own answer, or clear your own answer.")
+        if own:
+            return own_answer(own)
+    if len(picked) != 1:
+        raise ToolError("Tick exactly one option, or write your own answer.")
+    return option_answer(picked[0])
 
 
 def gap_card() -> dict[str, Any]:
@@ -231,10 +255,11 @@ def gap_card() -> dict[str, Any]:
     }
 
 
-def build_server(*, stateless: bool) -> MCPServer:
+def build_server(*, stateless: bool, layout: Layout) -> MCPServer:
     """The demo server; ``stateless`` is True when it serves stateless HTTP (no session to send a request on)."""
 
     SERVING["stateless"] = stateless
+    SERVING["layout"] = layout
     server = MCPServer(
         "gap-demo",
         instructions=(
@@ -274,21 +299,6 @@ def build_server(*, stateless: bool) -> MCPServer:
             return {"gap_id": gap_id, "answered": False, "action": answer.action, "path": path}
         return {"gap_id": gap_id, "answered": True, "stored": False, "path": path, **checked_answer(answer.data)}
 
-    @server.tool(
-        description=(
-            "Only for the answer_gap_wizard comparison prompt; do not use it otherwise. Reports the choice the user "
-            "made in your question wizard (option code A to D, or own_text). Nothing is stored."
-        )
-    )
-    def record_wizard_answer(choice: str, own_text: str | None = None, gap_id: str = GAP.gap_id) -> dict[str, Any]:
-        return {
-            "gap_id": gap_id,
-            "choice": choice,
-            "own_text": own_text,
-            "stored": False,
-            "note": "This answer passed through the model. The planned design takes answers from the dialog (D6).",
-        }
-
     @server.prompt(description="Answer the open SpecFlow gaps one by one, each in a dialog.")
     def answer_gaps() -> str:
         return (
@@ -297,29 +307,19 @@ def build_server(*, stateless: bool) -> MCPServer:
             "each, tell me in one line what was recorded."
         )
 
-    @server.prompt(description="Answer the sample gap with Claude's question wizard (for comparison with the dialog).")
-    def answer_gap_wizard() -> str:
-        return (
-            "Call list_open_gaps. Then ask me the first gap with your AskUserQuestion tool, one question: header "
-            "'major gap', question = the gap's question followed by its why, one option per gap option in the given "
-            "order, label = '<code>. <label>' with ' (Recommended)' on the recommended one, description = the "
-            "detail, preview = the option's edit as a diff block. I can pick Other to write my own answer. Do not "
-            "choose for me. Then call record_wizard_answer with my choice (the option code) or my own text, and "
-            "show me its result."
-        )
-
     return server
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Gap question dialogs demo (MCP server, nothing stored)")
+    parser = argparse.ArgumentParser(description="Gap answer dialog demo (MCP server, nothing stored)")
     parser.add_argument("--stdio", action="store_true", help="serve over stdio instead of http://localhost:8011/mcp")
+    parser.add_argument("--layout", choices=("list", "select"), default="list", help="the dialog's layout")
     args = parser.parse_args()
-    server = build_server(stateless=not args.stdio)
+    server = build_server(stateless=not args.stdio, layout=args.layout)
     if args.stdio:
         server.run("stdio")
         return
-    log_event(logger, INFO, "demo.started", url=f"http://localhost:{PORT}/mcp")
+    log_event(logger, INFO, "demo.started", url=f"http://localhost:{PORT}/mcp", layout=args.layout)
     server.run("streamable-http", host="127.0.0.1", port=PORT, json_response=True, stateless_http=True)
 
 
