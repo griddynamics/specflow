@@ -83,8 +83,11 @@ def create_mcp_app(
 
     auth, mcp = settings.auth, settings.mcp
     resource_url = mcp.resource_url  # the one value of the PRM, the instructions and the prompt
-    # never auth= or token_verifier=: the guard owns 401 and 403
-    server = MCPServer("SpecFlow", instructions=guidance.server_instructions(resource_url))
+    # never auth= or token_verifier=: the guard owns 401 and 403.
+    # subscriptions=False: no `subscriptions/listen` (protocol 2026-07-28), so a client that would hold its stream for
+    # a whole session (Claude Code does) gets "Method not found" and holds nothing that keeps a SIGTERM waiting.
+    # The tools never change, so the stream would carry no event (architecture.md, Transport).
+    server = MCPServer("SpecFlow", instructions=guidance.server_instructions(resource_url), subscriptions=False)
     (tools or partial(install, resource_url=resource_url))(server)
     server.streamable_http_app(  # called only to create the session manager; its Starlette is unused
         json_response=True,

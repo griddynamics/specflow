@@ -272,3 +272,19 @@ Template:
   and runs graph builds and plan runs in process, so moving the migration to a job and the builds to workers would let
   it scale; the internal hops (web app to API, MCP to API) are plain HTTP inside the cluster, to be encrypted once for
   both at the platform level; a NetworkPolicy that lets only the frontend and mcp pods reach the API comes with the release values, not from the chart
+
+### Prompt shutdown: no listen streams, a graceful-shutdown bound
+
+- Date and commits: 2026-11-18, the commit that adds this entry
+- Summary: `mcp` 2.3 serves `subscriptions/listen` (protocol 2026-07-28) by default, and Claude Code's v2 MCP runtime
+  holds that stream for its whole session, so each session kept a SIGTERM waiting until the pod was killed. The role
+  now builds `MCPServer(subscriptions=False)`: listen gets "Method not found" and `listChanged` is false (the tools are
+  fixed). uvicorn also gets `timeout_graceful_shutdown` of 5 s as a backstop for any other request that stays open.
+- How it was checked: new tests failed before the change and pass after it: the real `specflow mcp` process with a
+  client holding listen did not stop within 10 s of SIGTERM, and a request with a body that never arrives held it the
+  same way; in process, listen was not refused. With only the backstop, the listen test still fails (the stream is
+  held). `make check` and `make validate` from the repository root.
+- Requirements proven: FR-MCP-OPS-01 still holds (exit 0 with `mcp.shutdown.completed`)
+- Design sections updated in place: [architecture.md](architecture.md) (package layout, transport, operations, what
+  would invalidate this design), [testing.md](testing.md#tiers), [later.md](later.md) (change feed)
+- Follow-ups: none

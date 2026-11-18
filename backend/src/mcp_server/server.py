@@ -17,6 +17,10 @@ from settings import McpRoleSettings
 
 HOST = str(IPv4Address(0))  # 0.0.0.0, every interface of the container
 STARTUP_FAILED = 3
+# After SIGTERM, requests still open get this long before uvicorn cancels them and the lifespan stops. Below
+# Docker's default 10 s stop grace and the chart's 30 s; a tool call answers in well under a second (architecture.md,
+# Operations).
+GRACEFUL_SHUTDOWN_SECONDS = 5
 
 
 class _GracefulServer(uvicorn.Server):
@@ -52,6 +56,7 @@ def run(settings: McpRoleSettings) -> int:
         log_config=None,
         access_log=False,
         server_header=False,
+        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
     )
     server = _GracefulServer(config)
     server.run()

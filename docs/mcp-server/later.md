@@ -13,7 +13,7 @@ tags: [mcp]
 | Claim leases | A claim lasts until it is completed or released. Leases, heartbeats and expiry come only if forgotten claims become a burden; today a lead frees them in the web app (stale claims, forced release) |
 | Merge from CI | A CI step reports the merge of a story's pull request instead of the agent's `complete_story` |
 | Story size | Measure story size against pull request size on a real plan before the planner changes how it cuts stories |
-| Change feed | Tell an agent when the spec or the plan changes under its claim, instead of `spec_changed` at completion |
+| Change feed | Tell an agent when the spec or the plan changes under its claim, instead of `spec_changed` at completion. If it uses MCP notifications, it needs `subscriptions/listen`, which the role does not serve today ([architecture.md](architecture.md#transport), Notifications) |
 | Review state | A review step between the merge and `completed` |
 | Agent-added tasks | Agents propose tasks or edit `done_when`; today they record findings and people change the spec |
 | MCP Apps tables | The people tools' rows as an MCP Apps view, for clients that render one (the text block is plain JSON) |

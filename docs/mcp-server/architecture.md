@@ -114,7 +114,7 @@ boundaries are not.
 
 | Module | Holds |
 |---|---|
-| `mcp_server/server.py` | `run(settings)`: uvicorn on `0.0.0.0:$MCP_PORT`, central logger only; like `api/server.py`, except that SIGTERM ends with exit 0 after `mcp.shutdown.completed`; a failed startup exits 3 |
+| `mcp_server/server.py` | `run(settings)`: uvicorn on `0.0.0.0:$MCP_PORT`, central logger only; like `api/server.py`, except that SIGTERM ends with exit 0 after `mcp.shutdown.completed` and open requests get at most 5 s ([Operations](#operations), Shutdown); a failed startup exits 3 |
 | `mcp_server/app.py` | `create_mcp_app(settings, ...)`: routes, guard, lifespan (one `ApiClient`) |
 | `mcp_server/http.py` | The JSON error envelope, the probe bodies, the invariant check (`required`, `McpInvariantError`) and the per-request id middleware |
 | `mcp_server/auth.py` | Guard and PRM |
@@ -334,6 +334,7 @@ layer, the agent routes included, for inline Cypher. For that, the `[python] exc
 | Transport | Streamable HTTP, path `/mcp` | the current remote MCP transport; Claude Code's `--transport http` |
 | Sessions | stateless (`stateless_http`) | any replica answers any request; no session affinity; no session store |
 | Responses | JSON (`json_response`), no streaming | every version 1 tool answers at once; nothing is sent to the client during a call (no progress, no elicitation), and proxies need no streaming settings |
+| Notifications | none: `subscriptions/listen` (protocol 2026-07-28) is not served (`MCPServer(subscriptions=False)`); a listen request gets the JSON-RPC error `-32601` "Method not found" (HTTP 404 on the 2026-07-28 wire), and the capabilities say `listChanged: false` | the tools and prompts are fixed, so a listen stream would carry no event. A client that opens it holds the `POST` for its whole session (Claude Code's v2 MCP runtime does), and each held stream kept a SIGTERM waiting until the orchestrator killed the pod; refused, the client goes on without notifications |
 | Request body | at most 1 MiB (SDK `max_request_body_size`) | tool arguments are tiny |
 | Host header | must be in the allowlist: the `host[:port]` of `MCP_RESOURCE_URL` exactly as clients send it in `Host` (for example `localhost:8002` locally), plus `MCP_ALLOWED_HOSTS` (SDK transport security, exact match) | DNS-rebinding protection |
 | Origin header | refused unless in `MCP_ALLOWED_ORIGINS` (empty by default) | no browser clients |
@@ -448,6 +449,7 @@ which user read which project and when. There is no audit table; the log pipelin
 | IdP signing-key rotation | the new `kid` triggers one throttled JWKS refetch | none |
 | Bad ontology or plan rules | the affected agent routes answer `internal_error` and log one event; the API keeps running | fix the ontology or the rules |
 | Replica crash | stateless: the next request goes to another replica | none |
+| Shutdown (SIGTERM) | uvicorn stops accepting connections, closes idle ones and gives open requests at most 5 s (`GRACEFUL_SHUTDOWN_SECONDS` in `mcp_server/server.py`, uvicorn's `timeout_graceful_shutdown`); then it cancels them with the error line "timeout graceful shutdown exceeded", the lifespan logs `mcp.shutdown.completed` and the process exits 0. The bound stays under Docker's default 10 s stop grace and the chart's 30 s `terminationGracePeriodSeconds`. Nothing in normal use reaches it: a tool call answers in well under a second and listen is not served ([Transport](#transport), Notifications) | a cancelled tool call fails at the client; a repeat goes to another replica, and writes are idempotent by state (AD10), so it is safe |
 
 Accepted: MCP availability is the API's availability (the API start needs Temporal), and agent reads share the one
 API replica with the web app. One extra internal hop per call is budgeted: the p95 of a tool call stays within 50 ms
@@ -473,6 +475,9 @@ of the p95 before the split ([testing.md](testing.md#stack-gate)).
 ## What would invalidate this design
 
 - A need for server-initiated messages (progress, elicitation, sampling): revisit AD3.
+- A need for change notifications (the change feed of [later.md](later.md)): serve `subscriptions/listen` with a
+  subscription bus shared by the replicas, and end the open streams on SIGTERM, or each one waits out the 5 s bound
+  ([Operations](#operations), Shutdown).
 - Agent load or availability needs that the one API replica cannot meet: scale the API, or revisit AD8.
 - An IdP that cannot put the MCP audience into an access token: the OAuth proxy of [later.md](later.md).
 - Agents that ignore the server instructions: move to the header binding of [later.md](later.md) (AD7).

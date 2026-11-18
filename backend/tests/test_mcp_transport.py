@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import anyio
 import httpx
+import httpx2
 import pytest
+from mcp import Client, MCPError
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver import MCPServer
+from mcp.types import METHOD_NOT_FOUND
+from mcp.types.version import MODERN_PROTOCOL_VERSIONS
 
 from logger.logger import INFO, get_logger, log_event
 from mcp_support import (
     JSON_HEADERS,
     MCP_HOST,
+    MCP_URL,
     ONE_MIB,
     build_app,
     mcp_env,
@@ -151,6 +158,28 @@ async def test_only_post_is_served_on_mcp(transport_app, token, method):
     assert response.headers["allow"] == "POST"
     if method != "HEAD":
         assert response.json()["error"]["code"] == "method_not_allowed"
+
+
+async def test_subscriptions_listen_is_refused_and_no_list_change_is_advertised(transport_app, token):
+    """Protocol 2026-07-28 ``subscriptions/listen`` would hold a POST open for the client's whole session and keep
+    uvicorn from stopping; the tools never change, so it is not served (Transport, Notifications)."""
+
+    http = httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=transport_app),
+        base_url=f"http://{MCP_HOST}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    async with transport_app.router.lifespan_context(transport_app), http:
+        async with Client(streamable_http_client(MCP_URL, http_client=http)) as client:
+            with anyio.fail_after(5), pytest.raises(MCPError) as refused:  # a held stream would hit the timeout
+                async with client.listen(tools_list_changed=True):
+                    pass
+            protocol, tools = client.protocol_version, client.server_capabilities.tools
+
+    assert refused.value.code == METHOD_NOT_FOUND
+    assert protocol in MODERN_PROTOCOL_VERSIONS  # the client negotiated the revision that has listen
+    assert tools is not None
+    assert not tools.list_changed
 
 
 async def test_the_guard_answers_before_the_method_check(transport_app):
