@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from pydantic import BaseModel
-from sqlalchemy import literal, select
+from sqlalchemy import delete, literal, select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -29,11 +29,11 @@ from db import gap as gap_repo
 from db import repositories as repo
 from db.agent_scope import agent_scope, build_agent_session_factory, dispose_agent_session_factory
 from db.base import Base
-from db.models import GapEvent, GapNoiseRule, GapNote, GapRun, GapSeed, GapSite
+from db.models import GapEvent, GapNoiseRule, GapNote, GapRun, GapSeed, GapSite, ProjectMember
 from db.session import build_engine, build_session_factory, transaction
-from gap_records_contract import CASES, Backend, Case, option, run
+from gap_records_contract import CASES, NOW, Backend, Case, option, run
 from graph.core.errors import ConformanceError
-from graph.gap.models import EventRow, NoiseRuleRow, NoteRow, RunRow, SeedRow, SiteRow
+from graph.gap.models import AssignmentRow, EventRow, NoiseRuleRow, NoteRow, RunRow, SeedRow, SiteRow
 from settings import DatabaseSettings
 from specflow_db_live_support import AgentRole, query_column
 from specflow_live import requires_live
@@ -42,6 +42,7 @@ pytestmark = requires_live("POSTGRES")
 
 GAP_TABLES = (
     "corpus_amendment",
+    "gap_assignment",
     "gap_event",
     "gap_noise_rule",
     "gap_note",
@@ -67,6 +68,7 @@ class World:
     factory: async_sessionmaker[AsyncSession]
     project_a: str
     project_b: str
+    member: str
 
     def transaction(self) -> Any:
         return transaction(self.factory)
@@ -81,7 +83,7 @@ async def world(migrated_database: DatabaseSettings) -> AsyncIterator[World]:
             user = await repo.upsert_user(session, Principal("gap", "gap@example.com", "Gap"))
             a = await repo.create_project(session, user.id, "A")
             b = await repo.create_project(session, user.id, "B")
-        yield World(factory, str(a.id), str(b.id))
+        yield World(factory, str(a.id), str(b.id), str(user.id))
     finally:
         await engine.dispose()
 
@@ -129,6 +131,7 @@ async def test_fr_gown_02_the_postgres_adapters_keep_the_relational_port_contrac
         PostgresProbe(world),
         world.project_a,
         world.project_b,
+        world.member,
     )
     await case(backend)
 
@@ -192,3 +195,26 @@ async def test_rows_need_a_known_project(world: World) -> None:
         await records.start_run(str(uuid.uuid4()), run())
     with pytest.raises(ConformanceError, match="gap_project_id_invalid"):
         await records.options("not-a-uuid", "GAP::1")
+
+
+async def test_an_assignment_needs_a_member_and_goes_with_the_membership(world: World) -> None:
+    """The port takes any member's id; the database refuses a user who is not a member of the project, refuses a user
+    id that is not a uuid before any statement, and deletes the row when the membership goes."""
+
+    records = PostgresGapRecords(world.transaction)
+    row = AssignmentRow(gap_id="GAP::A1B2C3D4E5F6", user_id=world.member, assigned_by="ann", assigned_at=NOW)
+    await records.assign(world.project_a, row)
+
+    with pytest.raises(IntegrityError, match="fk_gap_assignment_project_id_project_members"):
+        await records.assign(world.project_a, row.model_copy(update={"user_id": str(uuid.uuid4())}))
+    with pytest.raises(ConformanceError, match="gap_assignee_invalid"):
+        await records.assign(world.project_a, row.model_copy(update={"user_id": "ann"}))
+    async with world.transaction() as session:
+        await session.execute(
+            delete(ProjectMember).where(
+                ProjectMember.project_id == uuid.UUID(world.project_a),
+                ProjectMember.user_id == uuid.UUID(world.member),
+            )
+        )
+
+    assert await records.assignments(world.project_a) == {}

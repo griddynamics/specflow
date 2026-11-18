@@ -47,6 +47,17 @@
   align-items: center;
   gap: var(--space-xs) var(--space-sm);
 }
+/* The card's "Assigned to": the select, and a failed assignment in words. */
+.gap-assignee {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.gap-assignee__msg {
+  margin: 0;
+  color: var(--ink-2);
+}
 .gap-sec {
   display: grid;
   gap: var(--space-xs);
@@ -266,72 +277,35 @@
   color: var(--ink-2);
 }
 
-/* "Answered by AI" rows and the documents of the Documents tab: rows like the noise report's. */
+/* "Answered by AI" rows: rows like the noise report's. */
 .ai-answers,
-.gap-docs,
 .noise-tab {
   display: grid;
   gap: var(--space-md);
   align-content: start;
 }
-.ai-row,
-.doc-row {
+.ai-row {
   display: grid;
   gap: var(--space-xs);
   padding: var(--space-sm) var(--space-md);
 }
-.ai-row + .ai-row,
-.doc-row + .doc-row {
+.ai-row + .ai-row {
   border-top: 1px solid var(--hairline);
 }
-.ai-row__head,
-.doc-row__head {
+.ai-row__head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-xs) var(--space-sm);
 }
-.ai-row__title,
-.doc-row__title {
+.ai-row__title {
   margin: 0;
 } /* with class headline */
 .ai-row__q,
-.ai-row__meta,
-.doc-row__path,
-.doc-row__quiet {
+.ai-row__meta {
   margin: 0;
   color: var(--ink-2);
 }
-.doc-row__name {
-  flex: 1;
-  min-width: 12rem;
-}
-.doc-row__banner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin: 0;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
-  background: var(--warning-tint);
-  color: var(--ink);
-}
-.doc-row__answers {
-  display: grid;
-  gap: var(--space-2xs);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.doc-answer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2xs) var(--space-sm);
-}
-.doc-answer__status {
-  color: var(--ink-2);
-}
-
 /* The noise rules under the report, and the form that adds one. */
 .noise-rules {
   gap: var(--space-sm);

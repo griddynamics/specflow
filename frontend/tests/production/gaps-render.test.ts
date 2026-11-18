@@ -51,6 +51,7 @@ const gap = (over: Partial<Gap> = {}): Gap => ({
   ],
   clarification: null,
   reach: { stories: ["STORY::CHECKOUT"], tasks: ["TASK::REFUND"] },
+  assignedTo: null,
   ...over,
 });
 
@@ -129,10 +130,10 @@ const control = {
     get: never,
     noise: never,
     check: never,
-    documents: never,
     previewEdits: never,
     answer: never,
     dismiss: never,
+    assign: never,
     raise: never,
     applyNow: never,
     aiAnswers: never,
@@ -140,10 +141,12 @@ const control = {
     noiseRules: never,
     addNoiseRule: never,
     removeNoiseRule: never,
-    answerDocuments: never,
-    exportUrl: () => "",
   },
   projectId: "p1",
+  members: [
+    { userId: "u-1", name: "Dana", email: "dana@example.com", role: "owner" as const, joinedAt: "", isYou: true },
+    { userId: "u-2", name: null, email: "lee@example.com", role: "collaborator" as const, joinedAt: "", isYou: false },
+  ],
   href: (id: string) => `/projects/p1/gaps?gap=${encodeURIComponent(id)}`,
   onOpenGap: () => undefined,
   onReload: () => Promise.resolve(),
@@ -199,4 +202,20 @@ test("FR-GWEB-04: a minor gap preselects nothing; a resolved gap is read-only an
   assert.match(view, /Checked against a new source revision: found in the source file/);
   assert.match(view, /href="\/projects\/p1\/gaps\?gap=GAP%3A%3A2"/);
   assert.doesNotMatch(view, /\{&quot;outcome/);
+});
+
+test("FR-GWEB-06: an open gap offers Assigned to with Unassigned and the members, named from the members list", () => {
+  const view = renderToStaticMarkup(createElement(M.GapCard, { gap: gap({ assignedTo: "u-2" }), onClose: () => undefined, control }));
+  assert.match(view, /data-testid="select-Assigned to"/);
+  assert.match(view, /lee@example\.com/);
+});
+
+test("FR-GWEB-06: a resolved gap names its assignee without a control; a read-only card shows no assignee control", () => {
+  const view = renderToStaticMarkup(
+    createElement(M.GapCard, { gap: gap({ status: "resolved", assignedTo: "u-1" }), onClose: () => undefined, control }),
+  );
+  assert.doesNotMatch(view, /data-testid="select-Assigned to"/);
+  assert.match(view, /Assigned to Dana/);
+  const utils = renderToStaticMarkup(createElement(M.GapCard, { gap: gap(), onClose: () => undefined }));
+  assert.doesNotMatch(utils, /data-testid="gap-assignee"/);
 });

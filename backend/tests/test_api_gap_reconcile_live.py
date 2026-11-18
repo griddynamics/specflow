@@ -1,11 +1,11 @@
 """Live: reconcile through the API's gap runner on the live graph store and a migrated scratch database
-(docs/graph/gap/reconcile.md; FR-GREC-01, FR-GREC-05, FR-GREC-07, FR-GCOR-05).
+(docs/graph/gap/reconcile.md; FR-GREC-01, FR-GREC-05, FR-GREC-07).
 
 A returned build queues the gap run (seed investigator); option A of the cancel-paid-order gap is answered and applied
 (the amendment ``active`` in PostgreSQL). The corpus reader's call ``corpus_answers`` then meets a re-upload of
 orders-spec.md whose rule changed: the previous text comes from the graph store's fragments, the same-meaning judge
 (a scripted ``gap_judge`` answer) finds a different meaning, the amendment becomes ``suspended`` in PostgreSQL with a
-``reconciled`` event on the gap, and the build reads the upload (GD3). A dry run (the export) stores nothing. Needs
+``reconciled`` event on the gap, and the build reads the upload (GD3). A dry run stores nothing. Needs
 ``SPECFLOW_TEST_POSTGRES=1`` and a live graph store (``SPECFLOW_TEST_GRAPH_STORE``).
 """
 

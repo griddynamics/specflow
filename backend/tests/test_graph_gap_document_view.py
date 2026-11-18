@@ -1,6 +1,5 @@
-"""The reads behind the interactive Gaps screen and the document view (docs/graph/gap/answers.md "The question card";
-reconcile.md "Download with answers"; FR-GWEB-04, FR-GWEB-05): the inbox order by reach, the witness lines with their
-document and section, and the answers each document holds that its source file does not yet.
+"""The reads behind the interactive Gaps screen (docs/graph/gap/answers.md "The question card"; FR-GWEB-04): the inbox
+order by reach and the witness lines with their document and section.
 
 The corpus world is one full gap run with the recorded loop (``gap_answer_support``).
 """
@@ -8,10 +7,9 @@ The corpus world is one full gap run with the recorded loop (``gap_answer_suppor
 from __future__ import annotations
 
 from gap_acceptance_support import Planted
-from gap_answer_support import MEMBER, answer_world, service_of
+from gap_answer_support import answer_world, service_of
 from gap_port_fakes import MemoryPlanView
-from graph.gap.corpus import clarifications_lineage
-from graph.gap.models import AnswerInput, TaskRef
+from graph.gap.models import TaskRef
 
 ORDERS_LINEAGE = "upload:orders-spec"
 
@@ -48,29 +46,3 @@ async def test_fr_gweb_04_a_gap_names_the_document_and_section_of_each_witness_l
     assert line.heading_path and line.heading_path[-1] == "Place order"
     assert {item.document_id for item in listed.witness} == {ORDERS_LINEAGE}
     assert all(item.heading_path == () and item.document_title is None for item in listed.witness)
-
-
-async def test_fr_gweb_05_document_answers_list_applied_amendments_and_the_clarifications_document() -> None:
-    rig = await answer_world()
-    cancel, review = await rig.cancel_gap(), await rig.review_gap()
-    amended = await rig.service.answer_gap(
-        rig.project_id, AnswerInput(gap_id=cancel.gap_id, option_rank=1, answered_by=MEMBER)
-    )
-    placed = await rig.service.answer_gap(
-        rig.project_id,
-        AnswerInput(gap_id=review.gap_id, own_text="500 EUR everywhere.", placement="document", answered_by=MEMBER),
-    )
-
-    pending = await rig.service.document_answers(rig.project_id)
-    await rig.service.apply_now(rig.project_id, by=MEMBER)
-    applied = await rig.service.document_answers(rig.project_id)
-
-    assert pending.lineages == () and pending.clarifications == ()  # nothing sent to a build yet
-    assert applied.clarifications_lineage == clarifications_lineage(rig.project_id)
-    (orders,) = applied.lineages
-    assert orders.lineage == ORDERS_LINEAGE
-    (answer,) = orders.answers
-    assert (answer.clr_id, answer.gap_id, answer.title) == (amended.clr_id, cancel.gap_id, cancel.title)
-    assert (answer.status, answer.amendments) == ("active", len(amended.amendments))
-    (section,) = applied.clarifications
-    assert (section.clr_id, section.gap_id, section.status) == (placed.clr_id, review.gap_id, "pending")

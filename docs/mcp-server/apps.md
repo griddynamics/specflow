@@ -34,7 +34,7 @@ draft: no tool, route or rule in it is built.
 | # | Decision |
 |---|---|
 | D1 | Target: the view in the Claude Desktop Code tab, if the spike shows that it renders there. The Claude Code CLI gets the form of D6, and the text with a link to the web gap card where no form can show |
-| D2 | Assignment of gaps (unassigned, mine) is out of scope for now. The browser lists the open gaps with filters |
+| D2 | Assignment is explicit: one assignee per gap, a member of the project, set by any member on the web gap card ([../graph/gap/answers.md](../graph/gap/answers.md) "Who answers"). The MCP side reads it: `list_open_gaps` gets `assigned` ("Deferred designs"). No assignment tools |
 | D3 | Upload and attachments are out of scope for now |
 | D4 | An answer comes only from a click in the view, through app-only tools. The model may suggest an answer and never sends one. Dismissing stays in the web app |
 | D5 | Next step: the spike ("Delivery"). If the Code tab does not render views, the next target is chosen with the spike's evidence |
@@ -284,7 +284,7 @@ would need a tunnel or a public endpoint and a second OAuth client (Security).
 | P2 answer | Options, Other with preview, placement, reload, `suggest_gap_answer`, "Ask Claude"; AC12 changed in [access-control.md](access-control.md) | An answer from the view moves the gap to `answered` with `via` `mcp_app` |
 | P3 terminal form | `answer_gap` with the `input_required` round trip, the confirm round for own answers, the shared `requestState` key | An answer from the form in the Claude Code CLI moves the gap to `answered` with `via` `elicitation` |
 
-Deferred: assignment (D2), upload (D3).
+Deferred: the `assigned` argument of `list_open_gaps` (D2), upload (D3).
 
 ## Changes by area
 
@@ -317,8 +317,12 @@ Deferred: assignment (D2), upload (D3).
 ## Deferred designs
 
 Assignment (D2). Three ways were weighed: derived (gaps about the stories I hold, and gaps I raised), explicit (a
-`gap_assignment` table with `take_gap` and `release_gap` that work like `claim_story`), or both. Its precondition, a
-project with more than one member, exists since the project collaborators.
+`gap_assignment` table), or both. Explicit was chosen and is built on the web: a `gap_assignment` row per gap,
+`PUT /gaps/{gap_id}/assignee`, and `GET /gaps?assigned_to=me|none|<user id>` over `GapService.list_gaps(assigned_to=)`.
+Next, for the agent: `list_open_gaps` gets the argument `assigned` (`all`, the default; `mine`; `unassigned`), sent to
+`GET /agent/open-gaps` as `assigned_to` (`me` or `none`). The route takes the agent's user (`AgentUserDep`), turns
+`me` into its user id and passes `assigned_to` to `list_gaps`; each card gets an "Assigned to" line. Tools that
+assign (`take_gap`, `release_gap`) stay out of scope.
 
 Upload (D3). Three meanings were weighed: the file becomes spec source through the existing corpus upload, the
 view reads a text file into Other, or the file is an attachment for people only. Three transports were weighed:

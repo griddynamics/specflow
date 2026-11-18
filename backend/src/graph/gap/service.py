@@ -2,11 +2,10 @@
 service"; lifecycle.md "Plan link").
 
 The reads (``list_gaps``, ``get_gap``, ``open_counts``, ``findings``) and the writes of a person (``preview_edits``,
-``answer_gap``, ``apply_now``, ``dismiss_gap``, ``raise_gap``, the noise-rule calls; answers.md). Every read binds and
-filters the project id
-(FR-GOWN-02); spec ids asked for resolve through aliases (the core alias read), so a merged or rekeyed node's old id
-still finds its gaps. Reach is computed at read time (trace from the ``ABOUT`` and ``IMPACTS`` nodes along
-``affects`` to depth 2, and the plan's tasks and stories of all of them), never stored.
+``answer_gap``, ``apply_now``, ``dismiss_gap``, ``raise_gap``, ``assign_gap``, the noise-rule calls; answers.md). Every
+read binds and filters the project id (FR-GOWN-02); spec ids asked for resolve through aliases (the core alias read),
+so a merged or rekeyed node's old id still finds its gaps. Reach is computed at read time (trace from the ``ABOUT``
+and ``IMPACTS`` nodes along ``affects`` to depth 2, and the plan's tasks and stories of all of them), never stored.
 
 ``open_counts`` and ``findings`` satisfy the plan's ``FindingsReads`` structurally: the plan imports neither
 ``graph.gap`` nor this module.
@@ -56,7 +55,7 @@ from graph.gap.answers import (
     text_ok,
     write_clarification,
 )
-from graph.gap.corpus import clarifications_lineage, document_clarifications
+from graph.gap.assignment import ASSIGNED, NO_ASSIGNEE, UNASSIGNED, follow_assignments
 from graph.gap.errors import AnswerInvalidError, GapNotFoundError, GapStateError, StaleGapError
 from graph.gap.follow_ups import (
     APPLIED_ROWS,
@@ -87,9 +86,8 @@ from graph.gap.models import (
     AnswerInput,
     AnswerResult,
     ApplyResult,
+    AssignmentRow,
     ClarificationView,
-    DocumentAnswer,
-    DocumentAnswers,
     Edit,
     EditPreview,
     EventRow,
@@ -99,7 +97,6 @@ from graph.gap.models import (
     GapPage,
     GapView,
     HoldResult,
-    LineageAnswers,
     NewGap,
     NodeRef,
     NoiseRuleRow,
@@ -287,6 +284,7 @@ def gap_view(
     options: Sequence[OptionRow] = (),
     history: GapHistory | None = None,
     reach: Reach | None = None,
+    assigned_to: str | None = None,
 ) -> GapView:
     """A stored gap as reads return it."""
 
@@ -314,6 +312,7 @@ def gap_view(
         created_at=_instant(props["created_at"]),
         updated_at=_instant(props.get("updated_at") or props["created_at"]),
         resolved_at=None if resolved is None else _instant(resolved),
+        assigned_to=assigned_to,
         about=tuple(_node_ref(link) for link in gap.about),
         impacts=tuple(_node_ref(link) for link in gap.impacts),
         witness=tuple(
@@ -366,6 +365,7 @@ class GapFilters(TypedDict, total=False):
     story_id: str | None
     document: str | None
     held_back: bool | None
+    assigned_to: str | None
 
 
 @dataclass
@@ -417,7 +417,8 @@ class GapService:
         ``ABOUT`` a node the story's tasks implement (an empty page without a plan); ``document`` (a document id)
         the gaps citing a fragment of it or ``ABOUT`` a node with evidence in it; ``held_back`` ``False`` is the inbox's
         default view (the new questions of the latest run beyond its limit are left out, FR-GRTE-06), ``True`` only
-        those, None both. ``AnswerInvalidError`` names a bad filter value, ``limit`` (1 to 200) or ``cursor``."""
+        those, None both; ``assigned_to`` a user id keeps the gaps assigned to that member, ``"none"`` those nobody is
+        assigned to. ``AnswerInvalidError`` names a bad filter value, ``limit`` (1 to 200) or ``cursor``."""
 
         project_id = validate_project_id(project_id)
         if not PAGE_LIMITS[0] <= limit <= PAGE_LIMITS[1]:
@@ -429,7 +430,9 @@ class GapService:
         origins = _filter(filters.get("origin"), "origin", get_args(GapOrigin))
         routes = _filter(filters.get("route"), "route", get_args(GapRoute))
         about, story_id, document = filters.get("about"), filters.get("story_id"), filters.get("document")
-        held = filters.get("held_back")
+        held, assigned = filters.get("held_back"), filters.get("assigned_to")
+        assignees = {gap_id: row.user_id for gap_id, row in (await self._records.assignments(project_id)).items()}
+        wanted_assignee = None if assigned == NO_ASSIGNEE else assigned
         gaps = [
             gap
             for gap in await read_gaps(self._executor, project_id, self._ontology, statuses=sorted(statuses))
@@ -439,6 +442,7 @@ class GapService:
             and (routes is None or gap.props.get("route") in routes)
             and (document is None or document in gap.documents)
             and (held is None or _held_back(gap) == held)
+            and (assigned is None or assignees.get(gap.gap_id) == wanted_assignee)
         ]
         if about is not None:
             wanted = await self._current(project_id, about)
@@ -452,7 +456,7 @@ class GapService:
         ]
         page = ordered[:limit]
         return GapPage(
-            gaps=tuple(gap_view(gap) for gap in page),
+            gaps=tuple(gap_view(gap, assigned_to=assignees.get(gap.gap_id)) for gap in page),
             next=encode_cursor(keys[page[-1].gap_id]) if len(ordered) > limit else None,
         )
 
@@ -480,13 +484,49 @@ class GapService:
         gap = await self._by_id_or_alias(project_id, gap_id)
         options = await self._records.options(project_id, gap.gap_id)
         events = await self._records.events(project_id, gap.gap_id)
+        assignee = (await self._records.assignments(project_id)).get(gap.gap_id)
         view = gap_view(
             gap,
             options=options,
             history=GapHistory(events=tuple(events), follow_ups=gap.follow_ups),
             reach=await self.reach(project_id, gap),
+            assigned_to=None if assignee is None else assignee.user_id,
         )
         return view.model_copy(update={"witness": await self._located(project_id, view.witness)})
+
+    async def assign_gap(self, project_id: str, gap_id: str, user_id: str | None, *, by: str) -> GapView:
+        """Assign the gap to a member (``user_id``), or clear it (None): one member per gap, any member assigns, and
+        the host checks that ``user_id`` is a member (answers.md "Who answers"). Event ``assigned`` (``user_id``,
+        ``previous``) or ``unassigned`` (``previous``), with ``by`` as actor; no change and no event when the gap
+        already has that assignee. Returns the gap as ``get_gap`` does. ``GapNotFoundError``; ``GapStateError`` for a
+        resolved gap."""
+
+        project_id = validate_project_id(project_id)
+        gap = await self._by_id_or_alias(project_id, gap_id)
+        if gap.status not in OPEN_STATUSES:
+            raise GapStateError(status=gap.status, allowed=OPEN_STATUSES, gap_id=gap_id)
+        current = (await self._records.assignments(project_id)).get(gap.gap_id)
+        previous = None if current is None else current.user_id
+        if previous != user_id:
+            now = self._clock()
+            if user_id is None:
+                await self._records.unassign(project_id, gap.gap_id)
+                event = EventRow(gap_id=gap.gap_id, at=now, actor=by, event=UNASSIGNED, detail={"previous": previous})
+            else:
+                row = AssignmentRow(gap_id=gap.gap_id, user_id=user_id, assigned_by=by, assigned_at=now)
+                await self._records.assign(project_id, row)
+                detail = {"user_id": user_id, "previous": previous}
+                event = EventRow(gap_id=gap.gap_id, at=now, actor=by, event=ASSIGNED, detail=detail)
+            await retried(self._records.log, project_id, [event])
+            log_event(
+                logger,
+                INFO,
+                "graph.gap.assigned",
+                project_id=project_id,
+                gap_id=gap.gap_id,
+                assigned=user_id is not None,
+            )
+        return await self.get_gap(project_id, gap.gap_id)
 
     async def _by_id_or_alias(self, project_id: str, gap_id: str) -> StoredGap:
         """The gap of ``gap_id``, else the gap that keeps ``gap_id`` among its ``aliases`` (lifecycle.md "Migration of
@@ -619,44 +659,6 @@ class GapService:
                 )
         found.sort(key=lambda item: (-_millis(item.clarification.answered_at), item.clarification.clr_id))
         return AiAnswerList(answers=tuple(found[:limit]))
-
-    async def document_answers(self, project_id: str) -> DocumentAnswers:
-        """The answers each document's build text holds that its source file does not (reconcile.md "Download with
-        answers", FR-GWEB-05): per lineage the clarifications of its ``active`` and ``undecided`` amendments (one entry
-        per clarification, with its gap and the number of its amendments there), and the sections of the generated
-        clarifications document (``applied`` ones, and ``pending`` ones sent to a build). Lineages in path-free id
-        order; answers by gap title, then clarification id."""
-
-        project_id = validate_project_id(project_id)
-        gaps = await read_gaps(
-            self._executor, project_id, self._ontology, statuses=("answered", "applying", "resolved")
-        )
-        owners = {str(props.get("clr_id")): gap for gap in gaps for props in gap.clarifications}
-        lineages: list[LineageAnswers] = []
-        for lineage in sorted(await self.amendments.pending_lineages(project_id)):
-            rows = await self.amendments.for_lineage(project_id, lineage, statuses=sorted(IN_CORPUS_ROWS))
-            by_clr: dict[str, list[str]] = defaultdict(list)
-            for row in rows:
-                by_clr[row.clr_id].append(row.status)
-            answers = [
-                _document_answer(
-                    clr, owners.get(clr), "undecided" if "undecided" in statuses else "active", len(statuses)
-                )
-                for clr, statuses in by_clr.items()
-            ]
-            if answers:
-                lineages.append(LineageAnswers(lineage=lineage, answers=_sorted_answers(answers)))
-        sections = [
-            _document_answer(
-                entry.clr_id, owners.get(entry.clr_id), _clarification_status(owners.get(entry.clr_id), entry.clr_id), 0
-            )
-            for entry in await document_clarifications(self._executor, project_id, self._ontology)
-        ]
-        return DocumentAnswers(
-            lineages=tuple(lineages),
-            clarifications_lineage=clarifications_lineage(project_id),
-            clarifications=_sorted_answers(sections),
-        )
 
     async def preview_edits(
         self,
@@ -997,19 +999,17 @@ class GapService:
             restore = await self._revertible(project_id, olds, SET_ASIDE_ROWS)  # its applied rows still hold
             await self.amendments.set_status(project_id, [key for ids in restore.values() for key in ids], "reverted")
         await self._records.put_options(project_id, gap.gap_id, ())
-        await retried(
-            self._records.log,
-            project_id,
-            [
-                EventRow(
-                    gap_id=gap.gap_id,
-                    at=now,
-                    actor=by,
-                    event="dismissed",
-                    detail={"reason": row.reason, "signatures": len(signatures)},
-                )
-            ],
-        )
+        dismissed = [
+            EventRow(
+                gap_id=gap.gap_id,
+                at=now,
+                actor=by,
+                event="dismissed",
+                detail={"reason": row.reason, "signatures": len(signatures)},
+            )
+        ]
+        await retried(self._records.log, project_id, dismissed)
+        await follow_assignments(self._records, project_id, dismissed)
         log_event(logger, INFO, "graph.gap.dismissed", project_id=project_id, gap_id=gap.gap_id, released=len(released))
         return released
 
@@ -1108,6 +1108,7 @@ class GapService:
                 )
             )
         await retried(self._records.log, project_id, events)
+        await follow_assignments(self._records, project_id, events)
         log_event(
             logger,
             INFO,
@@ -1604,22 +1605,6 @@ class GapService:
         stories = await self._plan.stories_for(project_id, ids) if ids else {}
         nodes = {spec_id for spec_id, found in stories.items() if story_id in found}
         return [gap for gap in gaps if nodes & set(gap.about_ids)]
-
-
-def _document_answer(clr: str, gap: StoredGap | None, status: str, amendments: int) -> DocumentAnswer:
-    title = "" if gap is None else str(gap.props.get("title") or gap.props.get("question") or "")
-    return DocumentAnswer(
-        clr_id=clr, gap_id=None if gap is None else gap.gap_id, title=title, status=status, amendments=amendments
-    )
-
-
-def _clarification_status(gap: StoredGap | None, clr: str) -> str:
-    props = next((item for item in (() if gap is None else gap.clarifications) if item.get("clr_id") == clr), {})
-    return str(props.get("status") or PENDING)
-
-
-def _sorted_answers(answers: Sequence[DocumentAnswer]) -> tuple[DocumentAnswer, ...]:
-    return tuple(sorted(answers, key=lambda item: (item.title, item.clr_id)))
 
 
 def suppressed_signatures(gap: StoredGap) -> list[str]:

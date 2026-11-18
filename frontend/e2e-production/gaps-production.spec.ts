@@ -1,14 +1,13 @@
 // FR-GWEB-04 (read part), FR-GRTE-06: the Gaps screen on the PRODUCTION routes against the stub API through the real BFF, with shop-corpus
 // gaps seeded through the stub's control port (no paid model call): the inbox (held_back=false) and "More found in this run" (held_back=true),
-// the filters going to the server, the question card with its recommended option preselected, quotes and ABOUT/IMPACTS chips, the noise
+// the filters going to the server (the Assigned filter and column, FR-GWEB-06), the question card with its recommended option preselected, quotes and ABOUT/IMPACTS chips, the noise
 // report tab, the gap check status line and the "not available" state of `503 gap_unavailable`. Opening the screen and a card only reads (GETs); the writes are in
 // gaps-write-production.spec.ts.
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { CANCEL_TITLE, CORPUS, NOISE_RUN, PAYMENT_PROVIDER_FINDING, PAYMENT_PROVIDER_TITLE, shopGaps } from "./gaps-fixtures";
+import { CANCEL_TITLE, NOISE_RUN, PAYMENT_PROVIDER_FINDING, PAYMENT_PROVIDER_TITLE, shopGaps } from "./gaps-fixtures";
 import {
   allowConsoleErrors,
-  bff,
   buildGraphAndPlan,
   calls,
   createViaNew,
@@ -25,6 +24,7 @@ import {
 
 const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
 
+const ROUNDING_TITLE = "Order totals are rounded differently"; // assigned to the caller in the shop gaps
 const screen = (page: Page) => page.getByTestId("screen-gaps");
 const inboxRows = (page: Page) => page.getByRole("list", { name: "Gaps" }).getByRole("listitem");
 const row = (page: Page, title: string) => inboxRows(page).filter({ hasText: title });
@@ -41,17 +41,15 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await stubTiming(STUB_TIMING);
   });
 
-  /** A Ready project (one processed document) with the shop gaps seeded; returns its id and the document's. */
+  /** A Ready project (one processed document) with the shop gaps seeded; returns its id. */
   async function shopProject(page: Page, opts: { plan?: boolean } = {}) {
     await login(page);
     const pid = await createViaNew(page, unique("Shop gaps"));
     await pickLocalPdf(page, "orders.pdf");
     await expectUploadReady(page);
-    const docs = (await bff(page, "GET", `/projects/${pid}/documents`)).json as { items: { id: string }[] };
-    const documentId = docs.items[0].id;
     if (opts.plan === true) await buildGraphAndPlan(page, pid);
-    await seedGaps(pid, { gaps: shopGaps(documentId), run: NOISE_RUN, corpus: CORPUS });
-    return { pid, documentId };
+    await seedGaps(pid, { gaps: shopGaps(), run: NOISE_RUN });
+    return { pid };
   }
 
   test("FR-GWEB-04, FR-GRTE-06: the inbox lists the asked gaps (held_back=false), coding-agent gaps that hold tasks first; the held-back question is under 'More found in this run'", async ({
@@ -64,11 +62,12 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     await expect(screen(page)).toBeVisible();
     await expect(inboxRows(page)).toHaveCount(4);
     await expect(inboxRows(page).nth(0)).toContainText("Which payment provider takes the payment?");
-    await expect(inboxRows(page).nth(1)).toContainText("Order totals are rounded differently");
+    await expect(inboxRows(page).nth(1)).toContainText(ROUNDING_TITLE);
     await expect(row(page, CANCEL_TITLE)).toContainText("Missing");
     await expect(row(page, CANCEL_TITLE)).toContainText("Major");
-    await expect(row(page, CANCEL_TITLE)).toContainText("Found by analysis");
-    await expect(row(page, "Order totals are rounded differently")).toContainText("Blocker");
+    await expect(row(page, CANCEL_TITLE)).toContainText("Unassigned");
+    await expect(row(page, ROUNDING_TITLE)).toContainText("Blocker");
+    await expect(row(page, ROUNDING_TITLE)).toContainText("dev"); // assigned to the caller
     await expect(inboxRows(page).filter({ hasText: "Prices are shown in euro" })).toHaveCount(0); // routed to AI: not a question for people
     await expect(inboxRows(page).filter({ hasText: "Guest checkout is assumed" })).toHaveCount(0); // held back until the next run
     await expect(page.getByTestId("gap-count")).toHaveText("4 gaps");
@@ -85,39 +84,41 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     expect(made.filter((r) => r.method !== "GET")).toEqual([]);
     await expect(page.getByTestId("gaps-apply-now")).toBeVisible();
     await expect(page.getByTestId("gaps-raise")).toBeVisible();
-    for (const tab of ["inbox", "ai", "noise", "documents"]) await expect(page.getByTestId(`gaps-tab-${tab}`)).toBeVisible();
+    for (const tab of ["inbox", "ai", "noise"]) await expect(page.getByTestId(`gaps-tab-${tab}`)).toBeVisible();
+    await expect(page.getByTestId("gaps-tab-documents")).toHaveCount(0);
   });
 
-  test("FR-GWEB-04: the filters (status, kind, severity, origin, story, document) go to the server and narrow the inbox", async ({
+  test("FR-GWEB-04, FR-GWEB-06: the filters (status, kind, severity, story, assigned) go to the server and narrow the inbox", async ({
     page,
     requests,
   }) => {
-    const { pid, documentId } = await shopProject(page, { plan: true });
+    const { pid } = await shopProject(page, { plan: true });
     await page.goto(`/projects/${pid}/gaps`);
     await expect(inboxRows(page)).toHaveCount(4);
     const filters = page.getByTestId("gap-filters");
-    for (const name of ["Status", "Kind", "Severity", "Origin", "Story", "Document"])
+    for (const name of ["Status", "Kind", "Severity", "Story", "Assigned"])
       await expect(filters.getByText(name, { exact: true })).toBeVisible();
+    for (const name of ["Origin", "Document"]) await expect(filters.getByText(name, { exact: true })).toHaveCount(0);
 
     await pick(page, "Kind", "Contradiction");
     await expect(inboxRows(page)).toHaveCount(1);
-    await expect(inboxRows(page)).toContainText("Order totals are rounded differently");
+    await expect(inboxRows(page)).toContainText(ROUNDING_TITLE);
     await pick(page, "Kind", "All");
     await pick(page, "Severity", "Minor");
     await expect(inboxRows(page)).toHaveCount(1);
     await expect(inboxRows(page)).toContainText('"Next day" delivery has no cut-off time');
     await pick(page, "Severity", "All");
-    await pick(page, "Origin", "Coding agent");
+    await pick(page, "Assigned", "Mine");
     await expect(inboxRows(page)).toHaveCount(1);
-    await expect(inboxRows(page)).toContainText("Which payment provider takes the payment?");
-    await pick(page, "Origin", "All");
+    await expect(inboxRows(page)).toContainText(ROUNDING_TITLE);
+    await pick(page, "Assigned", "Unassigned");
+    await expect(inboxRows(page)).toHaveCount(3);
+    await expect(inboxRows(page).filter({ hasText: ROUNDING_TITLE })).toHaveCount(0);
+    await pick(page, "Assigned", "All");
     await pick(page, "Story", "Checkout");
     await expect(inboxRows(page)).toHaveCount(1);
     await expect(inboxRows(page)).toContainText(CANCEL_TITLE);
     await pick(page, "Story", "All");
-    await pick(page, "Document", "orders.pdf");
-    await expect(inboxRows(page)).toHaveCount(1);
-    await pick(page, "Document", "All");
     await pick(page, "Status", "Resolved");
     await expect(inboxRows(page)).toHaveCount(1);
     await expect(inboxRows(page)).toContainText("The return window is not stated");
@@ -130,9 +131,9 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     const base = `/api/backend/projects/${pid}/gaps?`;
     expect(paths).toContain(`${base}kind=contradiction&route=ask&held_back=false`);
     expect(paths).toContain(`${base}severity=minor&route=ask&held_back=false`);
-    expect(paths).toContain(`${base}origin=development&route=ask&held_back=false`);
+    expect(paths).toContain(`${base}route=ask&assigned_to=me&held_back=false`);
+    expect(paths).toContain(`${base}route=ask&assigned_to=none&held_back=false`);
     expect(paths).toContain(`${base}route=ask&story_id=STORY%3A%3ACHECKOUT&held_back=false`);
-    expect(paths).toContain(`${base}route=ask&document=${documentId}&held_back=false`);
     expect(paths).toContain(`${base}status=resolved&route=ask&held_back=false`);
   });
 

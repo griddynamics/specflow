@@ -116,8 +116,7 @@ the owner uploads a new version, reconcile checks every amendment against it:
 | Says something else in that place | Conflict: the build reads the upload, and a follow-up gap asks whether to keep it, restore the answer, or write a new one |
 | No longer has the section | Lost: a follow-up gap asks where the answer should go |
 
-"Download with answers" gives owners the text the build reads, so they can adopt answers into their files
-and let the amendments retire.
+When owners copy answers into their files, reconcile finds them and the amendments retire.
 
 ## Gaps found while coding
 

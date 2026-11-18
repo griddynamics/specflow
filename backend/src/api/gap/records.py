@@ -17,9 +17,10 @@ fakes (``tests/gap_port_fakes.py``) and proven by ``tests/gap_records_contract.p
   gap's events by ``at``, then id.
 - ``put_seeds``/``put_sites`` refuse a row of another run (``ConformanceError("gap_rows_of_another_run")``); a site
   stored again for its run takes the new values. ``put_notes`` files every note under the given run.
-- ``verdict``, ``relevance``, ``suppress``, ``put_noise_rule`` and amendments ``put`` are keyed upserts;
-  ``unsuppress``, ``delete_noise_rule`` (True when the rule existed) and amendments ``delete`` remove only the
-  project's rows.
+- ``verdict``, ``relevance``, ``suppress``, ``put_noise_rule``, ``assign`` and amendments ``put`` are keyed upserts;
+  ``unsuppress``, ``delete_noise_rule`` (True when the rule existed), ``unassign`` and amendments ``delete`` remove
+  only the project's rows. ``assignments`` maps each assigned gap of the project to its row; an assignee that is not
+  a uuid is refused (``gap_assignee_invalid``), and the database refuses one that is not a member of the project.
 - ``Amendments.set_status`` changes only the project's amendments among the ids (others are ignored) and moves
   ``updated_at``; ``for_lineage``/``for_clarification`` return rows by ``created_at`` then id.
 
@@ -41,6 +42,7 @@ from db import gap as repo
 from graph.core.errors import ConformanceError
 from graph.gap.models import (
     AmendmentRow,
+    AssignmentRow,
     EventRow,
     NoiseRuleRow,
     NoteRow,
@@ -62,6 +64,7 @@ ROWS_OF_ANOTHER_RUN: Final = "gap_rows_of_another_run"
 OPTIONS_INVALID: Final = "gap_options_invalid"
 AMENDMENT_STATUS_UNKNOWN: Final = "gap_amendment_status_unknown"
 PROJECT_ID_INVALID: Final = "gap_project_id_invalid"
+ASSIGNEE_INVALID: Final = "gap_assignee_invalid"
 AMENDMENT_STATUSES: Final = frozenset(get_args(AmendmentStatus))
 
 Transaction = Callable[[], AbstractAsyncContextManager[AsyncSession]]
@@ -74,6 +77,15 @@ def _project(project_id: str) -> uuid.UUID:
         return uuid.UUID(project_id)
     except ValueError:
         raise ConformanceError(PROJECT_ID_INVALID) from None
+
+
+def _user(user_id: str) -> uuid.UUID:
+    """An assignee is a user of the application database, keyed by uuid."""
+
+    try:
+        return uuid.UUID(user_id)
+    except ValueError:
+        raise ConformanceError(ASSIGNEE_INVALID) from None
 
 
 def _check_options(gap_id: str, rows: Sequence[OptionRow]) -> None:
@@ -221,6 +233,20 @@ class PostgresGapRecords:
         async with self._transaction() as session:
             rows = await repo.events(session, _project(project_id), gap_id)
         return tuple(_row(EventRow, row) for row in rows)
+
+    async def assignments(self, project_id: str) -> Mapping[str, AssignmentRow]:
+        async with self._transaction() as session:
+            rows = await repo.assignments(session, _project(project_id))
+        return {row["gap_id"]: _row(AssignmentRow, {**row, "user_id": str(row["user_id"])}) for row in rows}
+
+    async def assign(self, project_id: str, row: AssignmentRow) -> None:
+        values = _values(row) | {"user_id": _user(row.user_id)}
+        async with self._transaction() as session:
+            await repo.upsert_assignment(session, _project(project_id), values)
+
+    async def unassign(self, project_id: str, gap_id: str) -> None:
+        async with self._transaction() as session:
+            await repo.delete_assignment(session, _project(project_id), gap_id)
 
 
 class PostgresAmendments:

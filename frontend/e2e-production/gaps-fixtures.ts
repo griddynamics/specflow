@@ -1,5 +1,5 @@
-// FR-GWEB-04, FR-GWEB-05: the shop-corpus gaps the Gaps specs seed into the stub API (rows as `GapView` answers them, plus the stub-only
-// `stories` and `documents` filter lists), the latest gap run with its noise report, and the corpus documents of the Documents tab.
+// FR-GWEB-04, FR-GWEB-06: the shop-corpus gaps the Gaps specs seed into the stub API (rows as `GapView` answers them, plus the stub-only
+// `stories` filter list) and the latest gap run with its noise report.
 export const REQUIREMENT = "Requirement";
 export const CANCEL_TITLE = "Cancelling a paid order is not specified";
 export const PAYMENT_PROVIDER_TITLE = "Which payment provider takes the payment?";
@@ -30,25 +30,10 @@ export const option = (gapId: string, rank: number, label: string, detail: strin
   created_run: "run-7",
 });
 
-/** The corpus lineage of the orders specification, and its document as the Documents tab lists it. */
+/** The stub's caller (`ME` of tests/support/stub-members.mjs), the owner of every project a spec creates. */
+export const ME_ID = "11111111-1111-4111-8111-111111111111";
+/** The corpus lineage of the orders specification. */
 export const ORDERS_LINEAGE = "doc:ORDERS";
-export const ORDERS_DOC_ID = "4b1d0c1e-0000-4000-8000-0000000000a1";
-export const CORPUS = [
-  {
-    document_id: ORDERS_DOC_ID,
-    lineage: ORDERS_LINEAGE,
-    path: "Local files/orders-spec.md",
-    title: "Orders service specification",
-    markdown: "# Orders service specification\n\n## Cancel an order\n\nA customer may cancel an order before it ships.\n",
-  },
-  {
-    document_id: "4b1d0c1e-0000-4000-8000-0000000000a2",
-    lineage: "doc:PAYMENTS",
-    path: "Local files/payments-spec.md",
-    title: "Payments specification",
-    markdown: "# Payments specification\n\nPayment is captured when the order is placed.\n",
-  },
-];
 const ORDERS_WITNESS = {
   fragment_id: "FRAG::orders::4",
   quote: "A customer may cancel an order before it ships.",
@@ -93,7 +78,7 @@ export const gap = (id: string, over: Record<string, unknown>) => ({
  *  contradiction, a person's minor gap, a coding agent's blocking question (a migrated finding: its old FND id resolves to it), a gap AI
  *  answered (resolved, its answer in the clarifications document; not in the inbox), a resolved gap whose own answer amends the orders
  *  specification, and one question the run held back (FR-GRTE-06). */
-export function shopGaps(documentId: string) {
+export function shopGaps() {
   return [
     gap("GAP::CANCEL_PAID", {
       title: CANCEL_TITLE,
@@ -112,13 +97,13 @@ export function shopGaps(documentId: string) {
       ],
       reach: { stories: ["STORY::CHECKOUT"], tasks: ["TASK::PAY", "TASK::ORDER_API"] },
       stories: ["STORY::CHECKOUT"],
-      documents: [documentId],
     }),
     gap("GAP::TOTAL_ROUNDING", {
       kind: "contradiction",
       severity: "blocker",
       title: "Order totals are rounded differently",
       question: "Are order totals rounded per line or on the total?",
+      assigned_to: ME_ID,
       created_at: "2026-11-09T10:00:00Z",
       about: [node("REQ::FR::ORDER_TOTAL", REQUIREMENT, "Order total")],
     }),
@@ -161,14 +146,6 @@ export function shopGaps(documentId: string) {
         applied_build_id: "gb-1",
         basis: [{ fragment_id: "FRAG::payments::5", quote: "All amounts are charged in EUR." }],
         confidence: 0.87,
-        edits: [
-          {
-            placement: "document",
-            target: { heading: "Prices are shown in euro" },
-            operation: "append_section",
-            text: "All prices are shown in euro.",
-          },
-        ],
       },
     }),
     gap("GAP::RETURN_WINDOW", {
@@ -190,14 +167,6 @@ export function shopGaps(documentId: string) {
         applied_build_id: "gb-1",
         basis: [],
         confidence: null,
-        edits: [
-          {
-            placement: "amend",
-            target: { fragment_id: "FRAG::orders::4", anchor_quote: "A customer may cancel an order before it ships." },
-            operation: "insert_after",
-            text: "Goods may be returned within 30 days.",
-          },
-        ],
       },
       history: {
         events: [

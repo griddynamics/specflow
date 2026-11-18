@@ -1,5 +1,5 @@
 """Tier 1: the gap routes (``api.routers.gaps``): the read routes, the full run, the run status, the noise report and
-the writes (raise, edits preview, answer, dismiss, apply now, noise rules).
+the writes (raise, edits preview, answer, dismiss, assign, apply now, noise rules).
 
 The runner is a fake on ``Runtime.gaps`` and its ``GapService`` a fake too; handlers never touch the graph store.
 """
@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 
 from api.gap.state import GapRunState
-from api.graph_build.corpus import CorpusAnswersRead
 from api.plan.state import NoGraphBuildError
 from db.sources import GraphCorpusRow
 from graph.gap import (
@@ -22,15 +21,12 @@ from graph.gap import (
     AnswerInvalidError,
     AnswerResult,
     ApplyResult,
-    DocumentAnswer,
-    DocumentAnswers,
     EditPreview,
     GapNotFoundError,
     GapPage,
     GapRunResult,
     GapStateError,
     GapView,
-    LineageAnswers,
     NewGap,
     NoiseReport,
     NoiseRuleRow,
@@ -39,8 +35,6 @@ from graph.gap import (
     RevertResult,
     StaleGapError,
 )
-from graph.gap.corpus import DocumentClarification, clarifications_lineage
-from graph.gap.models import AmendmentRow
 from logger_harness import events, fields
 from specflow_api_support import bearer
 
@@ -134,11 +128,9 @@ class FakeService:
         self._call("remove_noise_rule", project_id, *args)
         return self.removed
 
-    async def document_answers(self, project_id: str) -> DocumentAnswers:
-        self._call("document_answers", project_id)
-        return self.answers or DocumentAnswers(clarifications_lineage=clarifications_lineage(project_id))
-
-    answers: DocumentAnswers | None = None
+    async def assign_gap(self, project_id: str, gap_id: str, user_id: str | None, **kwargs: Any) -> GapView:
+        self._call("assign_gap", project_id, gap_id, user_id, **kwargs)
+        return VIEW.model_copy(update={"assigned_to": user_id})
 
     async def ai_answers(self, project_id: str, **kwargs: Any) -> AiAnswerList:
         self._call("ai_answers", project_id, **kwargs)
@@ -214,7 +206,6 @@ async def gap_project(harness) -> tuple[FakeGapRunner, uuid.UUID]:
 
 READ_ROUTES = (
     ("GET", "/gaps"),
-    ("GET", "/gaps/documents"),
     ("GET", "/gaps/GAP::A"),
     ("POST", "/gap/runs"),
     ("GET", "/gap/runs/latest"),
@@ -226,7 +217,8 @@ async def test_the_list_passes_every_filter_and_answers_the_page(harness):
     runner, pid = await gap_project(harness)
     query = (
         "?status=open&status=answered&kind=missing&severity=blocker&origin=analysis&route=ask"
-        "&about=REQ-1&about=REQ-2&story_id=STORY::A&document=doc:1&held_back=false&cursor=c1&limit=20"
+        "&about=REQ-1&about=REQ-2&story_id=STORY::A&document=doc:1&held_back=false&assigned_to=none&cursor=c1"
+        "&limit=20"
     )
 
     response = await harness.client.get(url(pid, f"/gaps{query}"), headers=bearer())
@@ -246,9 +238,23 @@ async def test_the_list_passes_every_filter_and_answers_the_page(harness):
         "story_id": "STORY::A",
         "document": "doc:1",
         "held_back": False,
+        "assigned_to": "none",
         "cursor": "c1",
         "limit": 20,
     }
+
+
+async def test_the_assignee_filter_takes_me_as_the_caller_and_a_user_id_as_written(harness):
+    runner, pid = await gap_project(harness)
+    other = "AAAAAAAA-2222-4333-8444-555555555555"
+
+    mine = await harness.client.get(url(pid, "/gaps?assigned_to=me"), headers=bearer())
+    theirs = await harness.client.get(url(pid, f"/gaps?assigned_to={other}"), headers=bearer())
+
+    assert mine.status_code == theirs.status_code == 200
+    [(_, _, mine_filters), (_, _, their_filters)] = runner.gap_service.calls
+    assert mine_filters["assigned_to"] == user_id(harness)
+    assert their_filters["assigned_to"] == other.lower()
 
 
 async def test_the_document_filter_takes_a_documents_id_as_its_corpus_lineage(harness, monkeypatch):
@@ -297,7 +303,9 @@ async def test_the_list_defaults_to_no_filter(harness):
     assert all(value is None for name, value in filters.items() if name != "limit")
 
 
-@pytest.mark.parametrize("query", ["?status=closed", "?severity=huge", "?limit=0", "?limit=201", "?story_id="])
+@pytest.mark.parametrize(
+    "query", ["?status=closed", "?severity=huge", "?limit=0", "?limit=201", "?story_id=", "?assigned_to=bob"]
+)
 async def test_a_bad_filter_gets_422_and_reads_nothing(harness, query):
     runner, pid = await gap_project(harness)
 
@@ -414,6 +422,7 @@ WRITE_ROUTES = (
     ("POST", "/gaps/GAP::A/edits_preview", {"option_rank": 1}, 200, "preview_edits"),
     ("POST", "/gaps/GAP::A/answer", ANSWER, 200, "answer_gap"),
     ("POST", "/gaps/GAP::A/dismiss", {"reason": "not a gap"}, 204, "dismiss_gap"),
+    ("PUT", "/gaps/GAP::A/assignee", {"user_id": None}, 200, "assign_gap"),
     ("POST", "/gaps/apply", None, 200, "apply_now"),
     ("GET", "/gaps/noise_rules", None, 200, "noise_rules"),
     ("POST", "/gaps/noise_rules", {"scope": "section", "value": "Status", "reason": "tracking"}, 201, "add_noise_rule"),
@@ -698,162 +707,61 @@ async def test_the_noise_rules_route_is_not_read_as_a_gap_id(harness):
     assert [name for name, _, _ in runner.gap_service.calls] == ["noise_rules"]
 
 
-EXPORTED_TEXT = "# Spec\n\n## Rules\nCan it be cancelled?\n"
+# Assignment ------------------------------------------------------------------------------------------------------
 
 
-def _corpus_row(document_id: uuid.UUID) -> GraphCorpusRow:
-    return GraphCorpusRow(
-        document_id=document_id,
-        origin="upload",
-        content_hash="b" * 64,
-        original_filename="specé.md",
-        created_at=NOW,
-        source_id=None,
-        holder_name=None,
-        drive_connection_id=None,
-        drive_external_id=None,
-        drive_source_name=None,
-        markdown=EXPORTED_TEXT,
-        parser=None,
-    )
-
-
-class AnswersRunner(FakeGapRunner):
-    """A gap runner that also hands the corpus its answers (``CorpusAnswers``)."""
-
-    def __init__(self, document_id: uuid.UUID) -> None:
-        super().__init__()
-        self.document_id = document_id
-
-    async def corpus_answers(self, project_id: str, revisions: Any = (), *, dry_run: bool = False) -> Any:
-        assert project_id and len(revisions) == 1 and dry_run  # an export reconciles as a dry run
-        row = AmendmentRow(
-            amendment_id="AMD::1",
-            clr_id="CLR::1",
-            lineage=f"doc:{self.document_id}",
-            heading_path=("Spec", "Rules"),
-            anchor_text="Can it be cancelled?",
-            anchor_hash="0" * 64,
-            operation="replace",
-            text="It can be cancelled.\n\n> Clarified by GAP::A",
-            status="active",
-            created_at=NOW,
-            updated_at=NOW,
-        )
-        return CorpusAnswersRead(amendments={row.lineage: (row,)})
-
-
-async def test_a_document_downloads_with_its_answers(harness, monkeypatch):
-    pid = await project(harness)
-    document = uuid.UUID(int=21)
-    harness.runtime.gaps = AnswersRunner(document)
-
-    async def listed(_session, project_id):
-        assert project_id == pid
-        return [_corpus_row(document)]
-
-    async def own(_session, _project_id, document_id):
-        return [_corpus_row(document)] if document_id == document else []
-
-    monkeypatch.setattr("api.routers.gaps.sources_repo.list_graph_corpus", listed)
-    monkeypatch.setattr("api.routers.gaps.sources_repo.graph_corpus_document", own)
-
-    answered = await harness.client.get(url(pid, f"/documents/{document}/export?answers=1"), headers=bearer())
-    plain = await harness.client.get(url(pid, f"/documents/{document}/export"), headers=bearer())
-    missing = await harness.client.get(url(pid, f"/documents/{uuid.UUID(int=22)}/export?answers=1"), headers=bearer())
-    stranger = await harness.client.get(url(pid, f"/documents/{document}/export"), headers=bearer("bob@example.com"))
-
-    assert answered.status_code == 200 and answered.headers["content-type"].startswith("text/markdown")
-    assert answered.text == "# Spec\n\n## Rules\nIt can be cancelled.\n\n> Clarified by GAP::A\n"
-    assert answered.headers["content-disposition"] == 'attachment; filename="spec_.md"'
-    assert plain.status_code == 200 and plain.text == EXPORTED_TEXT
-    assert missing.status_code == 404 and missing.json()["error"]["code"] == "document_not_found"
-    assert stranger.status_code == 404 and stranger.json()["error"]["code"] == "project_not_found"
-
-
-async def test_a_document_downloads_without_answers_when_gaps_are_off(harness, monkeypatch):
-    pid = await project(harness)
-    document = uuid.UUID(int=23)
-    harness.runtime.gaps = None
-
-    async def listed(_session, _project_id):
-        return [_corpus_row(document)]
-
-    async def own(_session, _project_id, _document_id):
-        return [_corpus_row(document)]
-
-    monkeypatch.setattr("api.routers.gaps.sources_repo.list_graph_corpus", listed)
-    monkeypatch.setattr("api.routers.gaps.sources_repo.graph_corpus_document", own)
-
-    response = await harness.client.get(url(pid, f"/documents/{document}/export?answers=1"), headers=bearer())
-
-    assert response.status_code == 200 and response.text == EXPORTED_TEXT
-
-
-async def test_fr_gweb_05_the_document_view_lists_each_documents_answers_and_the_clarifications_document(
-    harness, monkeypatch
-):
+async def test_a_member_assigns_a_gap_to_another_member_and_clears_it(harness, caplog):
     runner, pid = await gap_project(harness)
-    amended, plain = uuid.UUID(int=31), uuid.UUID(int=32)
-    generated = clarifications_lineage(str(pid))
-    answer = DocumentAnswer(clr_id="CLR::1", gap_id="GAP::A", title="No provider", status="active", amendments=2)
-    section = DocumentAnswer(clr_id="CLR::2", gap_id="GAP::B", title="Limits", status="applied")
-    runner.gap_service.answers = DocumentAnswers(
-        lineages=(LineageAnswers(lineage=f"doc:{amended}", answers=(answer,)),),
-        clarifications_lineage=generated,
-        clarifications=(section,),
-    )
+    assert (await harness.client.get("/api/v1/projects", headers=bearer("bob@example.com"))).status_code == 200
+    bob = harness.repo.users["user:bob@example.com"].id
+    harness.repo.members.add((pid, bob))
 
-    async def listed(_session, project_id):
-        assert project_id == pid
-        return [_corpus_row(amended), _corpus_row(plain)]
-
-    monkeypatch.setattr("api.routers.gaps.sources_repo.list_graph_corpus", listed)
-
-    response = await harness.client.get(url(pid, "/gaps/documents"), headers=bearer())
-
-    assert response.status_code == 200, response.text
-    documents = response.json()["documents"]
-    by_id = {item["document_id"]: item for item in documents}
-    assert documents[-1]["document_id"] == generated.removeprefix("doc:") and documents[-1]["generated"] is True
-    assert set(by_id) == {str(amended), str(plain), generated.removeprefix("doc:")}
-    assert by_id[str(amended)]["answers"] == [answer.model_dump(mode="json")] and not by_id[str(amended)]["generated"]
-    assert by_id[str(amended)]["lineage"] == f"doc:{amended}"
-    assert by_id[str(plain)]["answers"] == []
-    assert documents[-1]["path"] == "Specflow/Clarifications.md" and documents[-1]["title"] == "Clarifications"
-    assert documents[-1]["answers"] == [section.model_dump(mode="json")]
-    assert [name for name, _, _ in runner.gap_service.calls] == ["document_answers"]
-
-
-class ClarificationsRunner(FakeGapRunner):
-    """A gap runner whose corpus answers hold one clarifications-document section."""
-
-    async def corpus_answers(self, project_id: str, revisions: Any = (), *, dry_run: bool = False) -> Any:
-        assert project_id and revisions == () and dry_run
-        entry = DocumentClarification(
-            gap_id="GAP::B",
-            clr_id="CLR::2",
-            title="Review limit",
-            question="Which limit holds?",
-            text="500 EUR everywhere.",
-            answered_at="2026-11-05T09:00:00+00:00",
+    with caplog.at_level("INFO"):
+        assigned = await harness.client.put(
+            url(pid, "/gaps/GAP::A/assignee"), json={"user_id": str(bob)}, headers=bearer()
         )
-        return CorpusAnswersRead(clarifications=(entry,))
+        cleared = await harness.client.put(
+            url(pid, "/gaps/GAP::A/assignee"), json={"user_id": None}, headers=bearer("bob@example.com")
+        )
+
+    assert assigned.status_code == 200 and assigned.json()["assigned_to"] == str(bob)
+    assert cleared.status_code == 200 and cleared.json()["assigned_to"] is None
+    assert [(args, kwargs) for _, args, kwargs in runner.gap_service.calls] == [
+        ((str(pid), "GAP::A", str(bob)), {"by": user_id(harness)}),
+        ((str(pid), "GAP::A", None), {"by": str(bob)}),
+    ]
+    logged = events(caplog, "api.gap.assigned")
+    assert [fields(record)["assigned"] for record in logged] == [True, False]
 
 
-async def test_fr_gweb_05_the_clarifications_document_downloads_as_generated(harness):
-    pid = await project(harness)
-    generated = uuid.UUID(clarifications_lineage(str(pid)).removeprefix("doc:"))
+async def test_assigning_to_someone_who_is_not_a_member_gets_400_and_changes_nothing(harness):
+    runner, pid = await gap_project(harness)
+    assert (await harness.client.get("/api/v1/projects", headers=bearer("bob@example.com"))).status_code == 200
+    stranger = harness.repo.users["user:bob@example.com"].id
 
-    harness.runtime.gaps = None
-    off = await harness.client.get(url(pid, f"/documents/{generated}/export?answers=1"), headers=bearer())
-    harness.runtime.gaps = ClarificationsRunner()
-    response = await harness.client.get(url(pid, f"/documents/{generated}/export?answers=1"), headers=bearer())
-    stranger = await harness.client.get(url(pid, f"/documents/{generated}/export"), headers=bearer("bob@example.com"))
+    response = await harness.client.put(
+        url(pid, "/gaps/GAP::A/assignee"), json={"user_id": str(stranger)}, headers=bearer()
+    )
+    malformed = await harness.client.put(url(pid, "/gaps/GAP::A/assignee"), json={"user_id": "bob"}, headers=bearer())
+    missing = await harness.client.put(url(pid, "/gaps/GAP::A/assignee"), json={}, headers=bearer())
 
-    assert off.status_code == 404 and off.json()["error"]["code"] == "document_not_found"
-    assert response.status_code == 200 and response.headers["content-type"].startswith("text/markdown")
-    assert response.headers["content-disposition"] == 'attachment; filename="Clarifications.md"'
-    assert response.text.startswith("# Clarifications\n\n## Review limit (GAP::B)\n\n500 EUR everywhere.")
-    assert "Answers: Which limit holds?" in response.text
-    assert stranger.status_code == 404 and stranger.json()["error"]["code"] == "project_not_found"
+    assert response.status_code == 400 and response.json()["error"]["code"] == "assignee_not_member"
+    assert malformed.status_code == missing.status_code == 422
+    assert runner.gap_service.calls == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    [
+        (GapNotFoundError(gap_id="GAP::A"), 404, "gap_not_found"),
+        (GapStateError(status="resolved", allowed=("open", "answered", "applying")), 409, "gap_wrong_state"),
+    ],
+    ids=["not-found", "resolved"],
+)
+async def test_a_refused_assignment_maps_to_its_error(harness, error, status, code):
+    runner, pid = await gap_project(harness)
+    runner.gap_service.fail["assign_gap"] = error
+
+    response = await harness.client.put(url(pid, "/gaps/GAP::A/assignee"), json={"user_id": None}, headers=bearer())
+
+    assert response.status_code == status and response.json()["error"]["code"] == code

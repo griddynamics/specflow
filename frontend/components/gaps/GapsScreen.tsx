@@ -1,17 +1,20 @@
 "use client";
-// FR-GWEB-04, FR-GWEB-05 (docs/graph/gap/api.md "User interface"; answers.md "The question card", "Applying answers", "Review list",
-// "Raising a gap by hand"): the Gaps screen, built from the decision components (DecisionList, DecisionRow, SeverityBadge, OptionCards with
-// the "Recommended" mark) over the real gaps port.
+// FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "User interface"; answers.md "The question card", "Applying answers", "Review list",
+// "Raising a gap by hand", "Who answers"): the Gaps screen, built from the decision components (DecisionList, DecisionRow, SeverityBadge,
+// OptionCards with the "Recommended" mark) over the real gaps port.
 //  - Gate (as Plan): `useReadyGate`; not Ready or a failed read -> `NotReadyState` "No gaps yet" + "Open Mission Control"; data and `?gap=`
 //    load only once the gate is open.
-//  - Header row: the Inbox / Answered by AI / Noise report / Documents tabs; on the inbox the filters (status, kind, severity, origin, story,
-//    document) join it. The filters go to the server (`list_gaps`, which orders by severity, reach, then newest): the inbox asks for route
+//  - Header row: the Inbox / Answered by AI / Noise report tabs; on the inbox the filters (status, kind, severity, story, assigned) join
+//    it. The table's last column is the assignee (avatar and name, or "Unassigned"); the Assigned filter offers All (the default), Mine,
+//    Unassigned and each member (the members port). The filters go to the server (`list_gaps`, which orders by severity, reach, then
+//    newest): the inbox asks for route
 //    `ask` and `held_back=false` (its default view); the questions a run held back until the next run (FR-GRTE-06) are read with
 //    `held_back=true` and listed under "More found in this run", collapsed. Above the list: "Apply now" (applies the answers waiting for the
 //    quiet period; `409 gap_wrong_state` means none waits) and "Raise a gap" (a dialog; the new gap's card opens).
-//  - `?gap=<id>` opens the question card (GapCard, answerable here), also when the filters hide the row; closing removes the parameter
-//    (history.replaceState). After an answer, a withdrawal or a dismissal the lists read again without a loading state.
-//  - "Answered by AI" (AiAnswers), the noise report with its rules (NoiseReport) and "Documents" (FR-GWEB-05, DocumentsTab) are tabs.
+//  - `?gap=<id>` opens the question card (GapCard, answerable and assignable here), also when the filters hide the row; closing removes the
+//    parameter (history.replaceState). After an answer, an assignment, a withdrawal or a dismissal the lists read again without a loading
+//    state.
+//  - "Answered by AI" (AiAnswers) and the noise report with its rules (NoiseReport) are tabs.
 //  - Above every tab: the gap check status line (GapCheckStatus): whether the build or the gap run after it runs now, with the step and
 //    progress, or when the last check finished and what it found; when a run ends the lists read again.
 //  - `503 gap_unavailable` (gap runs not configured) shows "Gaps are not available", never an error page.
@@ -30,10 +33,10 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { PageTitle } from "@/components/ui/TopBar";
 import { usePorts, useRoutes } from "@/lib/data/provider";
 import { isDataError } from "@/lib/domain/errors";
-import type { Gap, GapDocument, GapsPort } from "@/lib/domain/gaps";
+import type { Gap, GapsPort } from "@/lib/domain/gaps";
+import type { Member } from "@/lib/domain/members";
 import { parseGapsQuery } from "@/lib/routes";
 import { AiAnswers } from "./AiAnswers";
-import { DocumentsTab } from "./DocumentsTab";
 import { GapCheckStatus } from "./GapCheckStatus";
 import { GapCard, type CardControl } from "./GapCard";
 import { RaiseGapDialog } from "./GapDialogs";
@@ -44,12 +47,12 @@ import {
   DEFAULT_GAP_FILTERS,
   KIND_LABEL,
   KIND_OPTIONS,
-  ORIGIN_LABEL,
-  ORIGIN_OPTIONS,
   SEVERITY_LABEL,
   SEVERITY_LEVEL,
   SEVERITY_OPTIONS,
   STATUS_OPTIONS,
+  assignedOptions,
+  assigneeText,
   countText,
   failureOf,
   failureText,
@@ -63,13 +66,18 @@ import {
 import "@/components/shell/ready-gate.css";
 import "./gaps.css";
 
-type View = "inbox" | "ai" | "noise" | "documents";
+type View = "inbox" | "ai" | "noise";
 const VIEWS: { value: View; label: string }[] = [
   { value: "inbox", label: "Inbox" },
   { value: "ai", label: "Answered by AI" },
   { value: "noise", label: "Noise report" },
-  { value: "documents", label: "Documents" },
 ];
+
+/** A Story filter value: the story id and its title. */
+interface Story {
+  id: string;
+  name: string;
+}
 
 /** `key={projectId}`: another project starts with a fresh gate, filters and card. */
 export function GapsScreen({ projectId }: Readonly<{ projectId: string }>) {
@@ -87,8 +95,8 @@ function GapsSkeleton() {
 
 /** The data layer of the screen: the ports it reads and the route builder. */
 function useGapsDeps() {
-  const { gaps, plan } = usePorts();
-  return { gaps, plan, routes: useRoutes() };
+  const { gaps, plan, members } = usePorts();
+  return { gaps, plan, members, routes: useRoutes() };
 }
 
 function Gaps({ projectId }: Readonly<{ projectId: string }>) {
@@ -163,11 +171,12 @@ function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, held
   return { list, more };
 }
 
-/** The Story (from the plan) and Document filters' values; a failed read leaves that filter out. */
+/** The Story filter's values (from the plan) and the project's members (the Assigned filter, the column and the card's assignee); a
+ * failed read leaves the Story filter out, or names no member (the filter keeps All, Mine and Unassigned). */
 function useFilterSources(projectId: string) {
-  const { gaps, plan } = useGapsDeps();
-  const [stories, setStories] = useState<GapDocument[]>([]);
-  const [documents, setDocuments] = useState<GapDocument[]>([]);
+  const { plan, members } = useGapsDeps();
+  const [stories, setStories] = useState<Story[]>([]);
+  const [people, setPeople] = useState<Member[]>([]);
   useEffect(() => {
     let alive = true;
     plan.state(projectId).then(
@@ -176,9 +185,9 @@ function useFilterSources(projectId: string) {
       },
       () => undefined,
     );
-    gaps.documents(projectId).then(
-      (docs) => {
-        if (alive) setDocuments(docs);
+    members.list(projectId).then(
+      (state) => {
+        if (alive) setPeople(state.members);
       },
       () => undefined,
     );
@@ -186,8 +195,8 @@ function useFilterSources(projectId: string) {
       alive = false;
       plan.leave(projectId); // no plan poll outlives the screen
     };
-  }, [gaps, plan, projectId]);
-  return { stories, documents };
+  }, [plan, members, projectId]);
+  return { stories, people };
 }
 
 /** The gap `?gap=` names, once loaded; an unknown id opens nothing and drops the parameter. `reload` reads it again. The id may be an
@@ -220,9 +229,14 @@ function useOpenGap(projectId: string, openId: string | null): { card: Gap | nul
 
 // ---- view ----
 
-function GapRows({ gaps, label, onOpen }: Readonly<{ gaps: Gap[]; label: string; onOpen: (id: string) => void }>) {
+function GapRows({
+  gaps,
+  people,
+  label,
+  onOpen,
+}: Readonly<{ gaps: Gap[]; people: Member[]; label: string; onOpen: (id: string) => void }>) {
   return (
-    <DecisionList label={label} columns={["Gap", "Kind", "Severity", "Origin"]}>
+    <DecisionList label={label} columns={["Gap", "Kind", "Severity", "Assigned"]}>
       {gaps.map((g) => (
         <DecisionRow
           key={g.id}
@@ -232,7 +246,7 @@ function GapRows({ gaps, label, onOpen }: Readonly<{ gaps: Gap[]; label: string;
           severity={SEVERITY_LEVEL[g.severity]}
           severityLabel={SEVERITY_LABEL[g.severity]}
           status={g.status === "open" ? "open" : "answered"}
-          who={<span>{ORIGIN_LABEL[g.origin]}</span>}
+          assignee={g.assignedTo === null ? undefined : assigneeText(g.assignedTo, people)}
           onClick={() => {
             onOpen(g.id);
           }}
@@ -256,12 +270,12 @@ function ShowMore({ next, onMore }: Readonly<{ next: string | null; onMore: () =
 function Filters({
   filters,
   stories,
-  documents,
+  people,
   onChange,
 }: Readonly<{
   filters: GapFilters;
-  stories: GapDocument[];
-  documents: GapDocument[];
+  stories: Story[];
+  people: Member[];
   onChange: (patch: Partial<GapFilters>) => void;
 }>) {
   const select = (key: keyof GapFilters, label: string, options: { value: string; label: string }[]) => (
@@ -279,9 +293,8 @@ function Filters({
       {select("status", "Status", STATUS_OPTIONS)}
       {select("kind", "Kind", KIND_OPTIONS)}
       {select("severity", "Severity", SEVERITY_OPTIONS)}
-      {select("origin", "Origin", ORIGIN_OPTIONS)}
       {stories.length === 0 ? null : select("story", "Story", withAll(stories))}
-      {documents.length === 0 ? null : select("document", "Document", withAll(documents))}
+      {select("assigned", "Assigned", assignedOptions(people))}
     </div>
   );
 }
@@ -289,10 +302,11 @@ function Filters({
 /** "More found in this run" (FR-GRTE-06): the questions the run held back from the default view, collapsed until asked for. */
 function HeldBack({
   gaps,
+  people,
   next,
   onMore,
   onOpen,
-}: Readonly<{ gaps: Gap[]; next: string | null; onMore: () => void; onOpen: (id: string) => void }>) {
+}: Readonly<{ gaps: Gap[]; people: Member[]; next: string | null; onMore: () => void; onOpen: (id: string) => void }>) {
   const [open, setOpen] = useState(false);
   if (gaps.length === 0) return null;
   return (
@@ -313,7 +327,7 @@ function HeldBack({
       <p className="gaps-count body-sm">These questions are shown with the next gap run.</p>
       {open ? (
         <>
-          <GapRows gaps={gaps} label="More found in this run" onOpen={onOpen} />
+          <GapRows gaps={gaps} people={people} label="More found in this run" onOpen={onOpen} />
           <ShowMore next={next} onMore={onMore} />
         </>
       ) : null}
@@ -364,12 +378,14 @@ const isDataErrorCode = (e: unknown, apiCode: string): boolean => isDataError(e)
 function Inbox({
   inbox,
   held,
+  people,
   filtered,
   onOpen,
   onRetry,
 }: Readonly<{
   inbox: ReturnType<typeof useGapList>;
   held: ReturnType<typeof useGapList>;
+  people: Member[];
   filtered: boolean;
   onOpen: (id: string) => void;
   onRetry: () => void;
@@ -386,12 +402,12 @@ function Inbox({
   }
   const shown = inboxOrder(list.gaps);
   let rows: ReactNode;
-  if (shown.length > 0) rows = <GapRows gaps={shown} label="Gaps" onOpen={onOpen} />;
+  if (shown.length > 0) rows = <GapRows gaps={shown} people={people} label="Gaps" onOpen={onOpen} />;
   else if (filtered) {
     rows = (
       <div data-testid="gaps-empty">
         <EmptyState title="No gaps match these filters" icon="funnel-simple">
-          Try another status, kind or severity.
+          Try another status, kind, severity or assignee.
         </EmptyState>
       </div>
     );
@@ -411,7 +427,9 @@ function Inbox({
       <p className="gaps-count body-sm" role="status" data-testid="gap-count">
         {shown.length === 0 ? "" : countText(shown.length, list.next !== null)}
       </p>
-      {held.list.phase === "ready" ? <HeldBack gaps={held.list.gaps} next={held.list.next} onMore={held.more} onOpen={onOpen} /> : null}
+      {held.list.phase === "ready" ? (
+        <HeldBack gaps={held.list.gaps} people={people} next={held.list.next} onMore={held.more} onOpen={onOpen} />
+      ) : null}
     </>
   );
 }
@@ -426,7 +444,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   const [raising, setRaising] = useState(false);
   const inbox = useGapList(gaps, projectId, filters, false, tries, version);
   const held = useGapList(gaps, projectId, filters, true, tries, version);
-  const { stories, documents } = useFilterSources(projectId);
+  const { stories, people } = useFilterSources(projectId);
   const { card, reload } = useOpenGap(projectId, openId);
   const filtered = useMemo(() => JSON.stringify(filters) !== JSON.stringify(DEFAULT_GAP_FILTERS), [filters]);
 
@@ -447,6 +465,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
     () => ({
       gaps,
       projectId,
+      members: people,
       href,
       onOpenGap: open,
       onReload: reload,
@@ -456,7 +475,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
         changed();
       },
     }),
-    [gaps, projectId, href, open, reload, changed, close],
+    [gaps, projectId, people, href, open, reload, changed, close],
   );
 
   let content: ReactNode;
@@ -473,6 +492,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
         <Inbox
           inbox={inbox}
           held={held}
+          people={people}
           filtered={filtered}
           onOpen={open}
           onRetry={() => {
@@ -483,10 +503,8 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
     );
   } else if (view === "ai") {
     content = <AiAnswers gaps={gaps} projectId={projectId} href={href} onOpenGap={open} onChanged={changed} />;
-  } else if (view === "noise") {
-    content = <NoiseReport gaps={gaps} projectId={projectId} />;
   } else {
-    content = <DocumentsTab gaps={gaps} projectId={projectId} href={href} onOpenGap={open} version={version} />;
+    content = <NoiseReport gaps={gaps} projectId={projectId} />;
   }
 
   return (
@@ -508,7 +526,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
             <Filters
               filters={filters}
               stories={stories}
-              documents={documents}
+              people={people}
               onChange={(patch) => {
                 setFilters((f) => ({ ...f, ...patch }));
               }}

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import uuid
 from pathlib import Path
 from typing import Final
 
@@ -59,32 +58,24 @@ async def test_fr_gweb_01_host_run_gap_runs_process_at_time(harness, tmp_path) -
 async def test_fr_gweb_02_web_routes_serve_members_only(harness, monkeypatch) -> None:
     """Route tests: each route answers for a member and refuses a non-member.
 
-    Every route of ``api.routers.gaps`` is one of the route tables of ``test_api_gap_routes`` (or the document
-    export); a member's call reaches the gap service (any answer but ``project_not_found``), a non-member's answers
-    ``404 project_not_found`` and calls nothing.
+    Every route of ``api.routers.gaps`` is one of the route tables of ``test_api_gap_routes``; a member's call
+    reaches the gap service (any answer but ``project_not_found``), a non-member's answers ``404 project_not_found``
+    and calls nothing.
     """
-
-    async def no_corpus(*_: object) -> list[object]:
-        return []
 
     async def no_document(*_: object) -> None:
         return None
 
-    # the document routes read the corpus rows from the database (an empty corpus here)
-    monkeypatch.setattr("api.routers.gaps.sources_repo.list_graph_corpus", no_corpus)
+    # the document filter reads the corpus rows from the database (an empty corpus here)
     monkeypatch.setattr("api.routers.gaps.sources_repo.graph_corpus_document", no_document)
 
     templates = {(method, route.path) for route in gaps_router.routes for method in getattr(route, "methods", ())}
     covered = {(method, _template(tail)) for method, tail in READ_ROUTES} | {
         (method, _template(tail)) for method, tail, *_ in WRITE_ROUTES
     }
-    export = ("GET", "/projects/{pid}/documents/{document_id}/export")
-    assert {(method, path.removeprefix("/projects/{pid}")) for method, path in templates} - {
-        (export[0], export[1].removeprefix("/projects/{pid}"))
-    } == covered
+    assert {(method, path.removeprefix("/projects/{pid}")) for method, path in templates} == covered
     calls = [(method, tail, None) for method, tail in READ_ROUTES]
     calls += [(method, tail, body) for method, tail, body, *_ in WRITE_ROUTES]
-    calls.append(("GET", f"/documents/{uuid.uuid4()}/export?answers=1", None))
     for method, tail, body in calls:
         runner, pid = await gap_project(harness)
         stranger = await harness.client.request(method, url(pid, tail), json=body, headers=bearer("bob@example.com"))
@@ -156,15 +147,15 @@ def test_fr_gweb_04_gaps_screen_show_inbox_filters_question_card() -> None:
     assert any("noise report" in title for title in titles)
 
 
-def test_fr_gweb_05_document_view_counts_answers_and_offers_download() -> None:
-    """End-to-end test: an amended document shows the count and the download.
+def test_fr_gweb_06_the_gaps_screen_assigns_and_filters_by_assignee() -> None:
+    """End-to-end test: a member assigns a gap to a member on the card, and the Assigned filter and column show it.
 
-    The browser test of ``make e2e-production`` (``gaps-write-production.spec.ts``, Documents tab); here: it exists
-    under the production config.
+    The browser test of ``make e2e-production`` (``gaps-write-production.spec.ts``); here: it exists under the
+    production config.
     """
 
-    titles = _e2e_titles("FR-GWEB-05")
-    assert any("Documents tab" in title and "downloads the document with its answers" in title for title in titles)
+    titles = _e2e_titles("FR-GWEB-06")
+    assert any("assigns" in title and "Assigned" in title for title in titles)
 
 
 def _e2e_titles(unit_id: str) -> list[str]:

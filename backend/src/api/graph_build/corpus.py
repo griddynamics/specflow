@@ -18,11 +18,10 @@
   then every amendment the answers name is applied to its newest text (``graph.gap.corpus.apply_amendments``) and
   its ``revision_id`` becomes the effective revision id; the stored document is never changed (FR-GCOR-01,
   FR-GCOR-02). An amendment whose anchor line the newest text lacks is left out and logged
-  (``api.graph_build.amendment_unanchored``, ids only). ``effective_document`` is the export of one lineage
-  ("Download with answers", FR-GCOR-05). The generated clarifications document (title "Clarifications", path
-  ``Specflow/Clarifications.md``, lineage ``graph.gap.corpus.clarifications_lineage``, revision id the hash of its
-  text) is added whenever a clarification of placement ``document`` is applied or sent to a build (FR-GCOR-03,
-  FR-GANS-06).
+  (``api.graph_build.amendment_unanchored``, ids only). The generated clarifications document (title
+  "Clarifications", path ``Specflow/Clarifications.md``, lineage ``graph.gap.corpus.clarifications_lineage``,
+  revision id the hash of its text) is added whenever a clarification of placement ``document`` is applied or sent
+  to a build (FR-GCOR-03, FR-GANS-06).
 
 Only reconcile records (amendment rows, events), and not in a dry run. Logs carry ids and counts only: names and
 text stay in the database.
@@ -228,19 +227,3 @@ class PostgresCorpusSource:
             return revisions
         answers = await self._answers.corpus_answers(project_id, revisions, dry_run=dry_run)
         return with_answers(project_id, revisions, answers)
-
-
-async def effective_document(
-    rows: Sequence[GraphCorpusRow], lineage: str, answers: CorpusAnswers | None, project_id: str
-) -> CorpusRevision | None:
-    """The newest revision of ``lineage`` in the project's corpus rows with its answers applied, as a build reads it
-    ("Download with answers", docs/graph/gap/reconcile.md; FR-GCOR-05); None when the lineage is not in the corpus.
-    The snapshot is reconciled as a dry run: nothing is stored and no judge is asked, so an undecided answer reads as
-    the build read it, and an upload no build has read yet shows the answers that still hold on it."""
-
-    revisions = corpus_revisions(rows)
-    revision = next((item for item in revisions if item.lineage_id == lineage), None)
-    if revision is None or answers is None:
-        return revision
-    read = await answers.corpus_answers(project_id, revisions, dry_run=True)
-    return with_answers(project_id, [revision], CorpusAnswersRead(amendments=read.amendments))[0]

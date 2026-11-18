@@ -1,9 +1,9 @@
-// FR-GWEB-04, FR-GWEB-05 (docs/graph/gap/api.md "Web routes", "Models"): the production `GapsPort`. Reads: `GET /projects/{pid}/gaps` (the
+// FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "Web routes", "Models"): the production `GapsPort`. Reads: `GET /projects/{pid}/gaps` (the
 // filters as query parameters, a list filter repeating its parameter; the inbox sends `held_back=false` and "More found in this run"
-// `held_back=true`, FR-GRTE-06; the Plan screens send none), `GET .../gaps/{gap_id}`, `GET .../gap/runs/latest` (the noise report of the
-// latest finished run, and with `GET .../graph_build` the gap check status line), `GET .../documents` (the Document filter), `GET .../gaps/ai_answers`, `GET .../gaps/noise_rules` and
-// `GET .../gaps/documents` (the documents with the answers not in their source file yet). Writes: `POST .../gaps/{gap_id}/edits_preview`,
-// `.../answer`, `.../dismiss`, `POST .../gaps` (raise), `POST .../gaps/apply`, `POST .../gaps/clarifications/{clr_id}/revert`,
+// `held_back=true`, FR-GRTE-06, and `assigned_to` for the Assigned filter; the Plan screens send none), `GET .../gaps/{gap_id}`,
+// `GET .../gap/runs/latest` (the noise report of the latest finished run, and with `GET .../graph_build` the gap check status line),
+// `GET .../gaps/ai_answers` and `GET .../gaps/noise_rules`. Writes: `POST .../gaps/{gap_id}/edits_preview`, `.../answer`, `.../dismiss`,
+// `PUT .../gaps/{gap_id}/assignee`, `POST .../gaps` (raise), `POST .../gaps/apply`, `POST .../gaps/clarifications/{clr_id}/revert`,
 // `POST .../gaps/noise_rules` and `DELETE .../gaps/noise_rules/{rule_id}`. Bodies are parsed strictly: any other shape is
 // `invalid_response`. Failures are `DataError`s with the API code and, for `400 answer_invalid` and `409 gap_wrong_state`, the `field`,
 // `reason` and gap `state` of the envelope's details; `503 gap_unavailable` rejects as `unavailable` (the screen's "not available" state).
@@ -11,16 +11,14 @@ import {
   addNoiseRule,
   answerGap,
   applyGapAnswers,
+  assignGap,
   dismissGap,
-  documentExportUrl,
   getAiAnswers,
   getGap,
-  getGapDocuments,
   getGaps,
   getGraphBuild,
   getLatestGapRun,
   getNoiseRules,
-  listDocuments,
   previewGapEdits,
   raiseGap,
   removeNoiseRule,
@@ -34,21 +32,17 @@ import {
   GAP_ROUTES,
   GAP_SEVERITIES,
   GAP_STATUSES,
-  DOCUMENT_ANSWER_STATUSES,
   NOISE_SCOPES,
   type AiAnswer,
-  type AnswerDocument,
   type AnswerInput,
   type AnswerResult,
   type ApplyResult,
   type BasisQuote,
-  type DocumentAnswer,
   type EditPlacement,
   type EditPreview,
   type Gap,
   type GapAnswerChoice,
   type GapClarification,
-  type GapDocument,
   type GapEdit,
   type GapEvent,
   type GapFollowUp,
@@ -203,6 +197,7 @@ export function toGap(v: unknown): Gap {
   expectShape(v.blocking === undefined || typeof v.blocking === "boolean");
   expectShape(v.held_back === undefined || typeof v.held_back === "boolean");
   expectShape(v.updated_at === undefined || isString(v.updated_at));
+  expectShape(v.assigned_to === undefined || v.assigned_to === null || isString(v.assigned_to));
   // A card never shows more than one recommendation (answers.md "The question card"): the first recommended option keeps the mark.
   const options = listOf(v.options, toOption).toSorted((a, b) => a.rank - b.rank);
   const first = options.findIndex((o) => o.recommended);
@@ -227,6 +222,7 @@ export function toGap(v: unknown): Gap {
     clarification: toClarification(v.clarification),
     reach: toReach(v.reach),
     history: toHistory(v.history),
+    assignedTo: isString(v.assigned_to) ? v.assigned_to : null,
   };
 }
 
@@ -309,7 +305,7 @@ export function gapQueryString(q: GapQuery): string {
   many("origin", q.origin);
   many("route", q.route);
   if (q.storyId !== undefined) params.set("story_id", q.storyId);
-  if (q.document !== undefined) params.set("document", q.document);
+  if (q.assignedTo !== undefined) params.set("assigned_to", q.assignedTo);
   if (q.heldBack !== undefined) params.set("held_back", q.heldBack ? "true" : "false");
   if (q.cursor !== undefined) params.set("cursor", q.cursor);
   if (q.limit !== undefined) params.set("limit", String(q.limit));
@@ -428,30 +424,6 @@ function toNoiseRule(v: unknown): NoiseRule {
   };
 }
 
-function toDocumentAnswer(v: unknown): DocumentAnswer {
-  expectShape(isRecord(v) && isString(v.clr_id) && isString(v.status));
-  return {
-    clrId: v.clr_id,
-    gapId: textOrNull(v.gap_id),
-    title: textOr(v.title, ""),
-    status: oneOf(DOCUMENT_ANSWER_STATUSES, v.status),
-    amendments: count(v.amendments),
-  };
-}
-
-/** One row of `GET .../gaps/documents`. */
-export function toAnswerDocument(v: unknown): AnswerDocument {
-  expectShape(isRecord(v) && isString(v.document_id) && isString(v.lineage) && isString(v.path));
-  return {
-    documentId: v.document_id,
-    lineage: v.lineage,
-    path: v.path,
-    title: textOr(v.title, ""),
-    generated: flag(v.generated),
-    answers: listOf(v.answers, toDocumentAnswer),
-  };
-}
-
 export function createHttpGaps(): GapsPort {
   return {
     async list(projectId, query) {
@@ -476,16 +448,6 @@ export function createHttpGaps(): GapsPort {
       ]);
       return checked(() => toGapCheck(run, build));
     },
-    async documents(projectId) {
-      const body = await guard(() => listDocuments(projectId));
-      return checked((): GapDocument[] => {
-        expectShape(isRecord(body) && Array.isArray(body.items));
-        return body.items.map((d: unknown) => {
-          expectShape(isRecord(d) && isString(d.id) && isString(d.original_filename));
-          return { id: d.id, name: d.original_filename };
-        });
-      });
-    },
     async previewEdits(projectId, gapId, choice, placement) {
       const body = await guard(() => previewGapEdits(projectId, gapId, choiceWire(choice, placement)));
       return checked(() => toPreview(body));
@@ -496,6 +458,10 @@ export function createHttpGaps(): GapsPort {
     },
     async dismiss(projectId, gapId, reason) {
       await guard(() => dismissGap(projectId, gapId, reason));
+    },
+    async assign(projectId, gapId, userId) {
+      const body = await guard(() => assignGap(projectId, gapId, userId));
+      return checked(() => toGap(body));
     },
     async raise(projectId, input) {
       const wire: Record<string, unknown> = { question: input.question, kind: input.kind, about: input.about };
@@ -538,13 +504,5 @@ export function createHttpGaps(): GapsPort {
     async removeNoiseRule(projectId, ruleId) {
       await guard(() => removeNoiseRule(projectId, ruleId));
     },
-    async answerDocuments(projectId) {
-      const body = await guard(() => getGapDocuments(projectId));
-      return checked(() => {
-        expectShape(isRecord(body) && Array.isArray(body.documents));
-        return body.documents.map(toAnswerDocument);
-      });
-    },
-    exportUrl: documentExportUrl,
   };
 }

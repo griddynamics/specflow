@@ -302,6 +302,16 @@ class NoteRow(GapModel):
     text: str
 
 
+class AssignmentRow(GapModel):
+    """``gap_assignment``: the member who resolves a gap (one per gap); ``user_id`` and ``assigned_by`` are user ids
+    (``assigned_by`` is the run's actor when a follow-up takes its gap's assignee)."""
+
+    gap_id: str
+    user_id: str
+    assigned_by: str
+    assigned_at: AwareDatetime
+
+
 class EventRow(GapModel):
     """``gap_event``: every transition, quote and reconcile outcome."""
 
@@ -571,6 +581,8 @@ class GapView(GapModel):
     created_at: AwareDatetime
     updated_at: AwareDatetime
     resolved_at: AwareDatetime | None = None
+    assigned_to: str | None = None
+    """The member who resolves the gap (a user id), set by ``list_gaps`` and ``get_gap``."""
     about: tuple[NodeRef, ...] = ()
     impacts: tuple[NodeRef, ...] = ()
     witness: tuple[WitnessView, ...] = ()
@@ -754,34 +766,6 @@ class EditPreview(GapModel):
     sections: tuple[SectionPreview, ...]
     drafted: bool = False
     fallback: str | None = None
-
-
-class DocumentAnswer(GapModel):
-    """One answer a document holds that its source file does not (reconcile.md "Download with answers"): the
-    clarification, its gap and the gap's title, the status of its rows (an amendment's ``active`` or ``undecided``; for
-    the clarifications document the clarification's ``applied`` or ``pending``) and how many amendments it has there."""
-
-    clr_id: str
-    gap_id: str | None = None
-    title: str = ""
-    status: str
-    amendments: int = 0
-
-
-class LineageAnswers(GapModel):
-    """The answers of one corpus lineage that are not in its source file yet."""
-
-    lineage: str
-    answers: tuple[DocumentAnswer, ...] = ()
-
-
-class DocumentAnswers(GapModel):
-    """What ``GapService.document_answers`` returns: per lineage the answers its build text holds beyond the source
-    file, and the sections of the generated clarifications document (``clarifications_lineage``)."""
-
-    lineages: tuple[LineageAnswers, ...] = ()
-    clarifications_lineage: str
-    clarifications: tuple[DocumentAnswer, ...] = ()
 
 
 class RaisedGap(GapModel):

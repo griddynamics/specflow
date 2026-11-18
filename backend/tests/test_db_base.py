@@ -62,6 +62,7 @@ def test_the_base_metadata_holds_exactly_the_app_tables() -> None:
         "gap_suppression",
         "gap_note",
         "gap_event",
+        "gap_assignment",
     }
 
 

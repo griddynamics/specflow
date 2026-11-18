@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from graph.gap import GapRunResult
-from graph.gap.models import DocumentAnswer, Edit, NoiseRuleRow, Quote
+from graph.gap.models import Edit, NoiseRuleRow, Quote
 from graph.gap.names import EditPlacement, GapKind, GapOrigin, GapRoute, GapSeverity, GapStatus, NoiseScope
 
 MAX_ID: Final = 200
@@ -23,6 +24,7 @@ MAX_QUESTION: Final = 1000
 MAX_ABOUT: Final = 20
 MAX_QUOTES: Final = 6
 MAX_EDITS: Final = 12
+ASSIGNEE_PATTERN: Final = r"^(me|none|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})$"
 
 
 class GapListQuery(BaseModel):
@@ -37,6 +39,8 @@ class GapListQuery(BaseModel):
     story_id: str | None = Field(default=None, min_length=1, max_length=MAX_ID)
     document: str | None = Field(default=None, min_length=1, max_length=MAX_ID)
     held_back: bool | None = None
+    assigned_to: str | None = Field(default=None, pattern=ASSIGNEE_PATTERN)
+    """``me`` (the caller), ``none`` (nobody) or a member's user id."""
     cursor: str | None = Field(default=None, min_length=1, max_length=MAX_CURSOR)
     limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT)
 
@@ -101,6 +105,12 @@ class GapDismissBody(_Body):
     reason: str = Field(min_length=1, max_length=MAX_REASON)
 
 
+class GapAssignBody(_Body):
+    """``PUT .../gaps/{gap_id}/assignee``: the member who resolves the gap, or null to clear it."""
+
+    user_id: uuid.UUID | None
+
+
 class GapRevertBody(_Body):
     """``POST .../gaps/clarifications/{clr_id}/revert``: why the answer is withdrawn (kept in the event log)."""
 
@@ -135,23 +145,3 @@ class NoiseRuleList(BaseModel):
     """The project's noise rules, oldest first."""
 
     rules: list[NoiseRuleRow]
-
-
-class AnswerDocument(BaseModel):
-    """One document of the document view (reconcile.md "Download with answers"): the id the export route takes, its
-    corpus lineage, path and title, whether Specflow generated it (the clarifications document), and the answers its
-    build text holds that the source file does not yet."""
-
-    document_id: str
-    lineage: str
-    path: str
-    title: str
-    generated: bool = False
-    answers: list[DocumentAnswer]
-
-
-class AnswerDocumentList(BaseModel):
-    """``GET .../gaps/documents``: every corpus document in path order, then the clarifications document when it has
-    a section."""
-
-    documents: list[AnswerDocument]

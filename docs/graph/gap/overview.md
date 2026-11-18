@@ -63,7 +63,7 @@ coding agent reports is a gap with origin `development` ([lifecycle.md](lifecycl
 2. Changing the build or the plan ontology. `graph.gap` owns only the types of its own file
    ([ontology.md](ontology.md)).
 3. Writing to the customer's sources (Drive files or uploaded originals). Specflow keeps amendments beside
-   them and offers a download with the answers applied ([reconcile.md](reconcile.md) "Download with answers").
+   them, and owners copy answers into their files ([reconcile.md](reconcile.md) "Answers moved into the sources").
 4. Fixing extraction quality. The relevance filter and the noise report describe noise; they do not change
    what the build extracts.
 5. Running coding agents, scheduling builds, HTTP endpoints, the MCP server or the user interface. These are

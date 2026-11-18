@@ -131,7 +131,6 @@ slice of agent findings.
 | FR-GCOR-02 | The effective revision id shall be the hash of the source revision id with the applied amendments, so that the build sees a change only when the text it reads changes. | Given an unchanged document and unchanged amendments, then two corpus reads give the same effective revision id. |
 | FR-GCOR-03 | The clarifications document shall be generated from the applied and pending clarifications of placement `document` on every corpus read, with origin `todo_answer`. | Given one reverted and one applied clarification, then the document holds only the applied one's section. |
 | FR-GCOR-04 | After an apply build, only the amended fragments shall be re-extracted. | Given one amended section, then the build's change report touches only that fragment's nodes and the plan re-plans only the planning parts that hold them. |
-| FR-GCOR-05 | "Download with answers" shall export the effective text of one document. | Given an amended document, then the export equals the text the build read. |
 
 ## Reconcile ([reconcile.md](reconcile.md))
 
@@ -184,10 +183,10 @@ slice of agent findings.
 | ID | Requirement | Acceptance |
 |---|---|---|
 | FR-GWEB-01 | The host shall run gap runs in process, one at a time per project, with a polled status. | Given two builds in quick succession, then gap runs do not overlap for the project and the status route reports each. |
-| FR-GWEB-02 | The web routes of [api.md](api.md) "Web routes" shall list, read, answer, preview, dismiss, revert, raise and apply gaps, start a full run, read runs and noise reports, manage noise rules and export a document with answers, each for project members only. | Route tests: each route answers for a member and refuses a non-member. |
+| FR-GWEB-02 | The web routes of [api.md](api.md) "Web routes" shall list, read, answer, preview, dismiss, revert, raise and apply gaps, start a full run, read runs and noise reports, manage noise rules and assign gaps, each for project members only. | Route tests: each route answers for a member and refuses a non-member. |
 | FR-GWEB-03 | The MCP tool `list_gaps` shall list open gaps for a story or nodes, and briefs shall include open gaps with severity. | Given an open gap on a story, then `list_gaps` returns it and the story brief lists it. |
 | FR-GWEB-04 | The Gaps screen shall show the inbox with filters, the question card with one option marked recommended and an own-answer field, the AI-answered review list with revert, and the noise report. | End-to-end test on the built frontend with the shop corpus fixture. |
-| FR-GWEB-05 | A document view shall show how many answers are not in its source file yet and offer "Download with answers". | End-to-end test: an amended document shows the count and the download. |
+| FR-GWEB-06 | A project member shall assign a gap that is not resolved to one member of the project, or clear its assignee, and the Gaps screen shall show the assignee in a column and filter the inbox by assignee (mine, unassigned, one member). | End-to-end test: a member assigns a gap to a member on the card, and the Assigned filter and column show it. |
 
 ## Non-functional
 

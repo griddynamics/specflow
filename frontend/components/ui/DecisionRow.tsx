@@ -1,6 +1,6 @@
 // FE-DEC-01, FE-DS-02 (R5): port of `DecisionRow` in bundle.js. One row, a single button: title and subtitle, domain Tag,
-// SeverityBadge, assignee avatar and name ("Unassigned" when none), caret. FR-GWEB-04: the Gaps inbox passes `who` (the gap's origin) for the
-// last cell and `severityLabel` (Blocker, Major, Minor); without them the row renders as before.
+// SeverityBadge, assignee avatar and name ("Unassigned" when none), caret. FR-GWEB-04, FR-GWEB-06: the Gaps inbox passes the gap's
+// `assignee` and `severityLabel` (Blocker, Major, Minor); `who` replaces the last cell where a screen needs other content.
 import type { ReactNode } from "react";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";

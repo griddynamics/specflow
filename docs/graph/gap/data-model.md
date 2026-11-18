@@ -23,6 +23,7 @@ documents the corpus reader already reads from there.
 | Runs, seeds, sites, verdict cache, section relevance cache | Relational | Operational data nobody traverses |
 | Suppressions and noise rules | Relational | Checked by detectors by key |
 | Gap event log | Relational | Audit of every transition, including gaps that left the graph |
+| Who resolves a gap (its assignee) | Relational | Only the inbox and the agent's list read it; assigning does not change the gap, so an answer form that is open does not go stale |
 | The applied answer as spec content | Graph, through the build | Ordinary spec text, extracted into ordinary spec nodes with evidence |
 
 ## Graph model
@@ -148,13 +149,15 @@ The tables belong to the host; `graph.gap` reaches them through the ports `GapRe
 | `gap_noise_rule` | `rule_id`, `scope` (`document`, `section`, `pattern`), `value`, `reason`, `created_by`, `created_at` | Sections or patterns a person marked "not spec" |
 | `gap_suppression` | `signature`, `gap_id`, `question`, `reason`, `dismissed_by`, `dismissed_at` | A dismissed signature stays quiet until it changes; one dismissal writes one row for the gap's signature and one for each of its `seed_signatures` |
 | `gap_note` | `run_id`, `detector`, `spec_ids` (JSON), `text` | Info findings: nothing to decide; also a coding agent's `note` finding (`run_id` null, detector `development`), a development gap a run closed as not spec (its question as text) and a migrated first-slice note |
-| `gap_event` | `gap_id`, `clr_id`, `at`, `actor`, `event`, `detail` (JSON) | Every transition, quote and reconcile outcome (event `reconciled`, actor `reconcile`) |
+| `gap_event` | `gap_id`, `clr_id`, `at`, `actor`, `event`, `detail` (JSON) | Every transition, quote and reconcile outcome (event `reconciled`, actor `reconcile`), and every change of assignee (`assigned`, `unassigned`) |
+| `gap_assignment` | `gap_id`, `user_id`, `assigned_by`, `assigned_at` | The member who resolves a gap: at most one row per gap ([answers.md](answers.md) "Who answers"); deleted when the gap is dismissed or obsolete, and with the membership when the member leaves or is removed |
 
 Keys (each starts with `project_id`, the project's id in the application database, a foreign key to
 `projects`): `gap_option` (`gap_id`, `rank`), with a unique index keeping one `recommended` row per gap and `rank`
 1 to 4; `corpus_amendment` (`amendment_id`); `gap_run` (`run_id`); `gap_site` (`run_id`, `site_id`); `gap_verdict`
 (`input_hash`); `gap_section_relevance` (`lineage`, `heading_path`, `text_hash`); `gap_noise_rule` (`rule_id`);
-`gap_suppression` (`signature`). `gap_seed`, `gap_note` and `gap_event` are append-only and keyed by a generated
+`gap_suppression` (`signature`); `gap_assignment` (`gap_id`), with a foreign key (`project_id`, `user_id`) to
+`project_members` that deletes the row with the membership. `gap_seed`, `gap_note` and `gap_event` are append-only and keyed by a generated
 `id`. JSON columns are `jsonb`; enumerated columns are text with a check. Every table has the row-level security
 policy `agent_project_scope` and no grant to the agent role: only the application role reads and writes them.
 

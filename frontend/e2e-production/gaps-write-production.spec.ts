@@ -1,14 +1,13 @@
-// FR-GWEB-04, FR-GWEB-05: the interactive Gaps screen on the PRODUCTION routes against the stub API through the real BFF, with the shop-corpus
+// FR-GWEB-04, FR-GWEB-06: the interactive Gaps screen on the PRODUCTION routes against the stub API through the real BFF, with the shop-corpus
 // gaps seeded through the stub's control port (no paid model call). The question card answers (keyboard radios, the recommended option
 // preselected for a major gap, an own answer with its edits preview and a placement switch, Submit with the gap's updated_at, a stale
 // answer and Reload, refusals in words), "Not a gap" with a reason (and the "not spec" section rule), "Apply now", the "Answered by AI"
-// review list with Revert and the follow-up link, the history, "Raise a gap", the noise rules ("Mark as not spec", add, remove), the
-// Documents tab ("N answers are not in the source file yet" and "Download with answers") and the Plan's links to the gap cards.
+// review list with Revert and the follow-up link, the history, "Raise a gap", the noise rules ("Mark as not spec", add, remove), assigning
+// a gap to a member on its card (the Assigned column and filter) and the Plan's links to the gap cards.
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import type { Page, Request } from "@playwright/test";
 import { colourViolations, tabWalk } from "./audits";
-import { CANCEL_TITLE, CORPUS, gap, node, NOISE_RUN, ORDERS_DOC_ID, shopGaps } from "./gaps-fixtures";
+import { CANCEL_TITLE, gap, node, NOISE_RUN, shopGaps } from "./gaps-fixtures";
 import {
   allowConsoleErrors,
   bff,
@@ -36,16 +35,20 @@ const CHECKED = "aria-checked";
 const SUBMIT = "gap-submit";
 const OWN = "Refund the payment in full, then cancel the order.";
 
-/** A Ready project (one processed document) with the shop gaps, the noise run and the corpus seeded; returns its id. */
+/** A Ready project (one processed document) with the shop gaps and the noise run seeded; returns its id. */
 async function shopProject(page: Page, opts: { plan?: boolean } = {}): Promise<string> {
   await login(page);
   const pid = await createViaNew(page, unique("Shop gaps"));
   await pickLocalPdf(page, "orders.pdf");
   await expectUploadReady(page);
-  const docs = (await bff(page, "GET", `/projects/${pid}/documents`)).json as { items: { id: string }[] };
   if (opts.plan === true) await buildGraphAndPlan(page, pid);
-  await seedGaps(pid, { gaps: shopGaps(docs.items[0].id), run: NOISE_RUN, corpus: CORPUS });
+  await seedGaps(pid, { gaps: shopGaps(), run: NOISE_RUN });
   return pid;
+}
+
+async function pick(page: Page, scope: Page | ReturnType<Page["getByRole"]>, select: string, choice: string) {
+  await scope.getByTestId(`select-${select}`).getByRole("button").click();
+  await page.getByRole("menu", { name: select }).getByRole("menuitemradio", { name: choice, exact: true }).click();
 }
 
 const body = (r: Request): Record<string, unknown> => JSON.parse(r.postData() ?? "{}") as Record<string, unknown>;
@@ -319,46 +322,40 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await expect(notes.getByTestId("noise-mark-not-spec")).toBeVisible();
   });
 
-  test("FR-GWEB-05: the Documents tab shows how many answers are not in the source file yet, links them to their cards and downloads the document with its answers", async ({
+  test("FR-GWEB-06: a member assigns a gap to another member on its card; the history, the Assigned column and the Assigned filter show it", async ({
     page,
   }) => {
     const pid = await shopProject(page);
-    // A second answer amends the orders specification: answered, applied and settled by the build.
-    const read = (await bff(page, "GET", `/projects/${pid}${CANCEL}`)).json as { updated_at: string };
-    expect((await bff(page, "POST", `/projects/${pid}${CANCEL}/answer`, { option_rank: 1, updated_at: read.updated_at })).status).toBe(200);
-    expect((await bff(page, "POST", `/projects/${pid}/gaps/apply`)).status).toBe(200);
-    await settleGaps(pid);
+    const added = await bff(page, "POST", `/projects/${pid}/members`, { email: "bob.brown@example.test" });
+    expect(added.status).toBe(201);
+    const bob = (added.json as { member: { user_id: string } }).member.user_id;
 
-    await page.goto(`/projects/${pid}/gaps`);
-    await page.getByTestId("gaps-tab-documents").click();
-    const docs = page.getByTestId("gap-document");
-    await expect(docs).toHaveCount(3); // two corpus documents and the generated clarifications document
-    const orders = docs.filter({ hasText: "Orders service specification" });
-    await expect(orders.getByTestId("gap-document-count")).toHaveText("2 answers are not in the source file yet");
-    await expect(orders.getByTestId("gap-document-answer-link")).toHaveText([CANCEL_TITLE, RETURN_TITLE]);
-    const payments = docs.filter({ hasText: "Payments specification" });
-    await expect(payments.getByTestId("gap-document-count")).toHaveText("All answers are in the source file");
-    const generated = docs.filter({ hasText: "Generated by Specflow" });
-    await expect(generated).toContainText("Specflow/Clarifications.md");
-    await expect(generated.getByTestId("gap-document-answer-link")).toHaveText("Prices are shown in euro");
+    await page.goto(cardLink(pid, CANCEL_ID));
+    const c = card(page, CANCEL_TITLE);
+    await expect(c.getByTestId("select-Assigned to")).toContainText("Unassigned");
+    const assigned = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith(`/api/backend/projects/${pid}${CANCEL}/assignee`));
+    await pick(page, c, "Assigned to", "Bob Brown");
+    expect(body(await assigned)).toEqual({ user_id: bob });
+    await expect(c.getByTestId("select-Assigned to")).toContainText("Bob Brown");
+    await c.getByTestId("gap-history-toggle").click();
+    await expect(c.getByTestId("gap-history-event").filter({ hasText: "Assigned to Bob Brown" })).toContainText("dev");
+    await c.getByRole("button", { name: "Close" }).last().click();
 
-    const link = orders.getByTestId("gap-document-download");
-    await expect(link).toHaveAttribute("href", `/api/backend/projects/${pid}/documents/${ORDERS_DOC_ID}/export?answers=1`);
-    const downloading = page.waitForEvent("download");
-    await link.click();
-    const download = await downloading;
-    expect(download.suggestedFilename()).toBe("orders-spec.md");
-    const text = await readFile(await download.path(), "utf8");
-    expect(text).toContain("A customer may cancel an order before it ships.");
-    expect(text).toContain("Goods may be returned within 30 days.\n> Clarified by GAP::RETURN_WINDOW");
-    expect(text).toContain("The payment is refunded and the order is cancelled.\n> Clarified by GAP::CANCEL_PAID");
-    const res = await page.request.get(`/api/backend/projects/${pid}/documents/${ORDERS_DOC_ID}/export?answers=1`);
-    expect(res.status()).toBe(200);
-    expect(res.headers()["content-disposition"]).toBe('attachment; filename="orders-spec.md"');
-    expect(res.headers()["content-type"]).toContain("text/markdown");
+    await expect(inboxRows(page).filter({ hasText: CANCEL_TITLE })).toContainText("Bob Brown");
+    await pick(page, page, "Assigned", "Bob Brown");
+    await expect(inboxRows(page)).toHaveCount(1);
+    await expect(inboxRows(page)).toContainText(CANCEL_TITLE);
+    await pick(page, page, "Assigned", "Unassigned");
+    await expect(inboxRows(page).filter({ hasText: CANCEL_TITLE })).toHaveCount(0);
+    await pick(page, page, "Assigned", "All");
 
-    await orders.getByTestId("gap-document-answer-link").filter({ hasText: RETURN_TITLE }).click();
-    await expect(card(page, RETURN_TITLE)).toBeVisible();
+    await inboxRows(page).filter({ hasText: CANCEL_TITLE }).getByRole("button").click();
+    const cleared = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith(`${CANCEL}/assignee`));
+    await pick(page, c, "Assigned to", "Unassigned");
+    expect(body(await cleared)).toEqual({ user_id: null });
+    await expect(c.getByTestId("select-Assigned to")).toContainText("Unassigned");
+    await c.getByRole("button", { name: "Close" }).last().click();
+    await expect(inboxRows(page).filter({ hasText: CANCEL_TITLE })).toContainText("Unassigned");
   });
 
   test("FR-GWEB-04: the Plan's stories and tasks show their open gaps and link each to its card", async ({ page }) => {
@@ -436,21 +433,6 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
       await expect.poll(async () => (await colourViolations(page)).bad, { message: "colours that are not a token value" }).toEqual([]);
       const stops = await tabWalk(page);
       expect(stops.length).toBeGreaterThanOrEqual(5);
-      expect(stops.filter((s) => s.ring === "none").map((s) => `${s.id} "${s.label}"`)).toEqual([]);
-      expect(stops.filter((s) => !s.visible).map((s) => `${s.id} "${s.label}"`)).toEqual([]);
-    });
-
-    test(`FR-GWEB-05, FE-DS-01.AC2, FE-DOD-05.AC1 [documents tab, ${theme}]: token colours only and every Tab stop shows the 2px focus ring`, async ({
-      page,
-    }) => {
-      await setTheme(page, theme);
-      const pid = await shopProject(page);
-      await page.goto(`/projects/${pid}/gaps`);
-      await page.getByTestId("gaps-tab-documents").click();
-      await expect(page.getByTestId("gap-document")).toHaveCount(3);
-      await page.mouse.move(0, 0);
-      await expect.poll(async () => (await colourViolations(page)).bad, { message: "colours that are not a token value" }).toEqual([]);
-      const stops = await tabWalk(page);
       expect(stops.filter((s) => s.ring === "none").map((s) => `${s.id} "${s.label}"`)).toEqual([]);
       expect(stops.filter((s) => !s.visible).map((s) => `${s.id} "${s.label}"`)).toEqual([]);
     });

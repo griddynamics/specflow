@@ -3,7 +3,8 @@
 Written against the protocols only, so it runs on the in-memory fakes (``gap_port_fakes``, offline) and on the
 PostgreSQL adapters (``api.gap.records``, live). A ``Backend`` bundles the two ports, two project ids and a ``Probe``
 that reads back what the write-only calls stored (runs, seeds, sites, notes, events) and stores noise rules
-directly (the port's ``put_noise_rule`` has its own case). Every case shows the two-project isolation of its calls
+directly (the port's ``put_noise_rule`` has its own case), and ``member``, a user id that is a member of both projects
+(the database keys an assignment to the membership). Every case shows the two-project isolation of its calls
 (FR-GOWN-02); none of the rows is a graph node (FR-GOWN-04).
 
 A test module parametrizes over ``CASES``: ``await case(backend)``.
@@ -21,6 +22,7 @@ import pytest
 from graph.core.errors import ConformanceError
 from graph.gap.models import (
     AmendmentRow,
+    AssignmentRow,
     Edit,
     EditTarget,
     EventRow,
@@ -64,6 +66,7 @@ class Backend:
     probe: Probe
     a: str
     b: str
+    member: str = "0b5e7a1c-0000-4000-8000-0000000000b1"
 
 
 Case = Callable[[Backend], Awaitable[None]]
@@ -487,6 +490,24 @@ async def amendments_are_deleted_only_in_their_project(backend: Backend) -> None
     assert [row.amendment_id for row in await amendments.for_clarification(b, "CLR::1")] == ["AMD::1"]
 
 
+async def assignments_are_one_row_per_gap_and_per_project(backend: Backend) -> None:
+    records, a, b, member = backend.records, backend.a, backend.b, backend.member
+    first = AssignmentRow(gap_id="GAP::A1B2C3D4E5F6", user_id=member, assigned_by="ann", assigned_at=NOW)
+    other = first.model_copy(update={"gap_id": "GAP::0000000000B2"})
+
+    await records.assign(a, first)
+    await records.assign(a, first.model_copy(update={"assigned_by": "bob", "assigned_at": LATER}))
+    await records.assign(a, other)
+    await records.assign(b, first)
+    await records.unassign(a, other.gap_id)
+    await records.unassign(a, "GAP::404")
+
+    assert await records.assignments(a) == {
+        first.gap_id: first.model_copy(update={"assigned_by": "bob", "assigned_at": LATER})
+    }
+    assert await records.assignments(b) == {first.gap_id: first}
+
+
 CASES: Final[tuple[Case, ...]] = (
     options_are_replaced_and_read_by_rank,
     invalid_option_sets_are_refused,
@@ -503,4 +524,5 @@ CASES: Final[tuple[Case, ...]] = (
     noise_rules_are_put_and_deleted_per_project,
     suppressions_are_removed_per_project,
     amendments_are_deleted_only_in_their_project,
+    assignments_are_one_row_per_gap_and_per_project,
 )

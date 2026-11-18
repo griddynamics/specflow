@@ -54,11 +54,9 @@ class SignalledBuilds(MemoryBuildRequests):
         return found
 
 
-async def _check_document_view(service: Any, project_id: str, gap_id: str, lineage: str, clr: str) -> None:
-    """FR-GWEB-05: the applied answer counts in its document; FR-GWEB-04: the witness lines name their section."""
+async def _check_witness_lines(service: Any, project_id: str, gap_id: str) -> None:
+    """FR-GWEB-04: the witness lines name their document and section."""
 
-    held = await service.document_answers(project_id)
-    assert [(item.lineage, [answer.clr_id for answer in item.answers]) for item in held.lineages] == [(lineage, [clr])]
     located = await service.get_gap(project_id, gap_id)
     assert all(line.document_id and line.heading_path for line in located.witness)
 
@@ -120,7 +118,7 @@ async def test_answer_apply_dismiss_and_raise_on_live_stores(
             assert builds.requests == [(project_id, "gap_answers", False)]
             assert (await service.get_gap(project_id, gap.gap_id)).status == "applying"
             assert [row.status for row in await amendments.for_clarification(project_id, result.clr_id)] == ["active"]
-            await _check_document_view(service, project_id, gap.gap_id, rows[0].lineage, result.clr_id)
+            await _check_witness_lines(service, project_id, gap.gap_id)
 
             other = await service.list_gaps(project_id, about=[Planted.VAGUE_REQUIREMENT])
             dismissed = other.gaps[0]

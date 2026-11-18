@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
-import { createMembersModel, StubError as MembersError } from "./stub-members.mjs";
+import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
 const LEEWAY_SECONDS = 60; // as backend/src/auth/claims.py
 const DEFAULT_CLIENT_ID = "specflow-web";
@@ -432,31 +432,28 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
-  // Gaps (FR-GWEB-04, FR-GWEB-05): per project, seeded through the control port (`seedGaps`: full `GapView` rows plus stub-only `stories`
-  // and `documents` id lists for the story and document filters and `old_ids`, the old `FND::` ids of a migrated finding that `GET
-  // /gaps/{id}` resolves to the gap, as the API does; an `ABOUT` / `IMPACTS` node may carry `aliases`, its other spec ids), the latest `GapRunStatus`, the noise rules and the `corpus` documents of
-  // the Documents tab: `{document_id, lineage, path, title, markdown}`). Reads: `GET /gaps` filters as `list_gaps` does (status default
-  // open, answered, applying; kind, severity, origin, route repeat; story_id; document; held_back when sent; limit), sorts by severity, reach
-  // (tasks), then newest, and drops options, history and reach from the items; `cursor` is an offset. Writes, in memory, with the API's
+  // Gaps (FR-GWEB-04, FR-GWEB-06): per project, seeded through the control port (`seedGaps`: full `GapView` rows plus a stub-only
+  // `stories` id list for the story filter and `old_ids`, the old `FND::` ids of a migrated finding that `GET /gaps/{id}` resolves to the
+  // gap, as the API does; an `ABOUT` / `IMPACTS` node may carry `aliases`, its other spec ids), the latest `GapRunStatus` and the noise
+  // rules. Reads: `GET /gaps` filters as `list_gaps` does (status default open, answered, applying; kind, severity, origin, route repeat;
+  // story_id; assigned_to `me`, `none` or a user id; held_back when sent; limit), sorts by severity, reach (tasks), then newest, and drops
+  // options, history and reach from the items; `cursor` is an offset. Every gap has `assigned_to` (null unless seeded or assigned). Writes, in memory, with the API's
   // checks and codes: `edits_preview` (edits made from the option or the own text: `amend` after the first witness line, or a
   // clarifications-document section; own text containing "FALLBACK" falls back to the document), `answer` (409 gap_stale unless
   // `updated_at` is the gap's; the gap moves to answered with a pending clarification and a new `updated_at`), `dismiss` (204), raise
   // (`POST /gaps`, 201), `apply` (answered -> applying; 409 gap_wrong_state when nothing waits), `ai_answers`, revert (an applied answer of a
-  // resolved gap opens a follow-up gap, linked both ways in `history.follow_ups`; a pending one sends the gap back open), the noise rules,
-  // `GET /gaps/documents` (each corpus document with its applied amendments, then the generated clarifications document) and
-  // `GET /documents/{id}/export` (Markdown with the answers and their marker lines, as an attachment). `settleGaps` (control) settles the
+  // resolved gap opens a follow-up gap, linked both ways in `history.follow_ups`; a pending one sends the gap back open), the noise rules
+  // and `PUT /gaps/{id}/assignee` (a member of the project or null; 400 assignee_not_member, 409 gap_wrong_state for a resolved gap; an
+  // `assigned` or `unassigned` event by the caller). `settleGaps` (control) settles the
   // applying gaps: resolved, clarification applied. `state.gapFail` (an API code) makes every gap route answer 503 with it. An unseeded
   // project has no gaps and an idle run.
-  const gapSets = new Map(); // pid -> {gaps, run, rules, corpus, edits: Map<clr_id, Edit[]>, reverted: AiAnswer[], seq}
+  const gapSets = new Map(); // pid -> {gaps, run, rules, reverted: AiAnswer[], seq}
   const gapsOf = (pid) =>
-    gapSets.get(pid) ??
-    gapSets
-      .set(pid, { gaps: [], run: { status: "idle", result: null }, rules: [], corpus: [], edits: new Map(), reverted: [], seq: 0 })
-      .get(pid);
+    gapSets.get(pid) ?? gapSets.set(pid, { gaps: [], run: { status: "idle", result: null }, rules: [], reverted: [], seq: 0 }).get(pid);
   const SEVERITY_RANK = { blocker: 0, major: 1, minor: 2 };
-  const STUB_FIELDS = new Set(["stories", "documents", "old_ids"]);
+  const STUB_FIELDS = new Set(["stories", "old_ids"]);
   const publicGap = (g, full) => {
-    const view = Object.fromEntries(Object.entries(g).filter(([k]) => !STUB_FIELDS.has(k)));
+    const view = { assigned_to: null, ...Object.fromEntries(Object.entries(g).filter(([k]) => !STUB_FIELDS.has(k))) };
     return full ? { history: { events: [], follow_ups: [] }, ...view } : { ...view, options: [], history: null, reach: null };
   };
   let clock = Date.now();
@@ -526,73 +523,14 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     const placement = g.kind === "contradiction" ? "amend" : (body.placement ?? undefined);
     return { draft: draftEdits(g, text, placement, fallback), option, text };
   }
-  const lineageOfFragment = (set, fragmentId) => {
-    for (const g of set.gaps) for (const w of g.witness ?? []) if (w.fragment_id === fragmentId && w.document_id) return w.document_id;
-    return null;
-  };
-  /** The applied answers of each corpus document (its amendments) and of the generated clarifications document. */
-  function answerDocuments(set) {
-    const live = set.gaps.filter((g) => g.clarification && ["applied", "pending"].includes(g.clarification.status));
-    const amendmentsOf = (g) => (set.edits.get(g.clarification.clr_id) ?? []).filter((e) => e.placement === "amend");
-    const rows = set.corpus.map((d) => ({
-      document_id: d.document_id,
-      lineage: d.lineage,
-      path: d.path,
-      title: d.title,
-      generated: false,
-      answers: live
-        .filter((g) => g.clarification.status === "applied")
-        .map((g) => ({ g, edits: amendmentsOf(g).filter((e) => lineageOfFragment(set, e.target.fragment_id) === d.lineage) }))
-        .filter(({ edits }) => edits.length > 0)
-        .map(({ g, edits }) => ({
-          clr_id: g.clarification.clr_id,
-          gap_id: g.gap_id,
-          title: g.title,
-          status: "active",
-          amendments: edits.length,
-        })),
-    }));
-    const doc = live.filter((g) => (set.edits.get(g.clarification.clr_id) ?? []).some((e) => e.placement === "document"));
-    if (doc.length > 0) {
-      rows.push({
-        document_id: "00000000-0000-4000-8000-00000000c1a1",
-        lineage: "specflow:clarifications",
-        path: "Specflow/Clarifications.md",
-        title: "Clarifications",
-        generated: true,
-        answers: doc.map((g) => ({
-          clr_id: g.clarification.clr_id,
-          gap_id: g.gap_id,
-          title: g.title,
-          status: g.clarification.status,
-          amendments: 0,
-        })),
-      });
-    }
-    return rows;
-  }
-  /** "Download with answers": the effective Markdown of a corpus document or of the generated document; null when unknown. */
-  function exportDocument(pid, did) {
-    const set = gapSets.get(pid);
-    if (!set) return null;
-    const row = answerDocuments(set).find((d) => d.document_id === did);
-    if (!row) return null;
-    const textOf = (clr) => (set.edits.get(clr) ?? []).map((e) => e.text).join("\n");
-    if (row.generated) {
-      const sections = row.answers.map((a) => `## ${a.gap_id} ${a.title}\n\n${textOf(a.clr_id)}\n`);
-      return { name: "Clarifications.md", markdown: `# Clarifications\n\n${sections.join("\n")}` };
-    }
-    const source = set.corpus.find((d) => d.document_id === did);
-    const added = row.answers.map((a) => `${textOf(a.clr_id)}\n> Clarified by ${a.gap_id}\n`);
-    return { name: source.path.split("/").at(-1), markdown: [source.markdown ?? `# ${source.title}\n`, ...added].join("\n") };
-  }
   function listGaps(set, q) {
     const many = (name, fallback) => (q.getAll(name).length ? q.getAll(name) : fallback);
     const statuses = many("status", ["open", "answered", "applying"]);
     const keep = (name, value) => many(name, null) === null || many(name, null).includes(value);
     const held = q.get("held_back");
     const story = q.get("story_id");
-    const document = q.get("document");
+    const assigned = q.get("assigned_to");
+    const assignee = assigned === "me" ? ME.id : assigned;
     const reach = (g) => (g.reach?.tasks ?? []).length;
     return set.gaps
       .filter(
@@ -604,7 +542,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           keep("route", g.route) &&
           (held === null || String(Boolean(g.held_back)) === held) &&
           (!story || (g.stories ?? []).includes(story)) &&
-          (!document || (g.documents ?? []).includes(document)),
+          (assigned === null || (assigned === "none" ? !g.assigned_to : g.assigned_to === assignee)),
       )
       .sort(
         (x, y) =>
@@ -813,7 +751,6 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       basis: [],
       confidence: null,
     };
-    set.edits.set(clrId, edits);
     g.updated_at = tick();
     event(g, "answered", { mode: g.clarification.mode }, clrId);
     return json(res, 200, {
@@ -825,6 +762,24 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       apply_at: new Date(Date.now() + 120_000).toISOString(),
       immediate: false,
     });
+  }
+  /** `PUT /gaps/{gap_id}/assignee` (see the header). */
+  async function assignGap({ req, res, set, pid, did, action }) {
+    const body = await readJsonBody(req);
+    if (!did || action !== "assignee") return err(res, 405, "method_not_allowed");
+    const g = set.gaps.find((x) => x.gap_id === decodeURIComponent(did));
+    if (!g) return err(res, 404, "gap_not_found");
+    const userId = body?.user_id;
+    if (body === null || !("user_id" in body) || (userId !== null && typeof userId !== "string")) return err(res, 422, "validation_failed");
+    if (g.status === "resolved") return wrongState(res, g.status, ["open", "answered", "applying"]);
+    if (userId !== null && !people.list(pid).members.some((m) => m.user_id === userId)) return err(res, 400, "assignee_not_member");
+    const previous = g.assigned_to ?? null;
+    if (previous !== userId) {
+      g.assigned_to = userId;
+      if (userId === null) event(g, "unassigned", { previous }, null, ME.id);
+      else event(g, "assigned", { user_id: userId, previous }, null, ME.id);
+    }
+    return json(res, 200, publicGap(g, true));
   }
   async function gapRoute({ req, res, url, pid, b, did, action }) {
     const rest = url.pathname.split("/").filter(Boolean)[7];
@@ -842,6 +797,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       return err(res, 404, "gap_run_not_found");
     }
     if (req.method === "POST") return gapWrite({ req, res, set, did, action, rest });
+    if (req.method === "PUT") return assignGap({ req, res, set, pid, did, action });
     for await (const c of req) void c;
     if (req.method === "DELETE") {
       if (did !== "noise_rules" || !action) return err(res, 405, "method_not_allowed");
@@ -854,7 +810,6 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (req.method !== "GET") return err(res, 405, "method_not_allowed");
     if (did === "noise_rules") return json(res, 200, { rules: set.rules });
     if (did === "ai_answers") return json(res, 200, { answers: aiAnswers(set).slice(0, Number(url.searchParams.get("limit") ?? 50)) });
-    if (did === "documents") return json(res, 200, { documents: answerDocuments(set) });
     if (did) {
       const id = decodeURIComponent(did);
       const g = set.gaps.find((x) => x.gap_id === id || (x.old_ids ?? []).includes(id));
@@ -1206,16 +1161,6 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       return json(res, 201, { document: publicDoc(r.doc) });
     }
 
-    if (action === "export" && req.method === "GET") {
-      for await (const c of req) void c;
-      const out = exportDocument(pid, did);
-      if (!out) return err(res, 404, "document_not_found");
-      res.writeHead(200, {
-        "content-type": "text/markdown; charset=utf-8",
-        "content-disposition": `attachment; filename="${out.name}"`,
-      });
-      return res.end(out.markdown);
-    }
     const d = docs.get(did);
     if (!d || d.pid !== pid) {
       for await (const c of req) void c;
@@ -1273,14 +1218,6 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       if (seed.gaps) mine.gaps = seed.gaps;
       if (seed.run) mine.run = seed.run;
       if (seed.rules) mine.rules = seed.rules;
-      if (seed.corpus) mine.corpus = seed.corpus;
-      // A seeded clarification's edits (`edits` beside it, stub-only) say where its text went; the Documents tab counts them.
-      for (const g of mine.gaps) {
-        if (g.clarification?.edits) {
-          mine.edits.set(g.clarification.clr_id, g.clarification.edits);
-          delete g.clarification.edits;
-        }
-      }
     },
     settleGaps,
     setTiming: (t) => Object.assign(state, t),

@@ -32,8 +32,10 @@ from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
-from alembic import context, op
+from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from db.migration_helpers import agent_role, set_lock_timeout
 
 # revision identifiers, used by Alembic.
 revision: str = "0003_gap_module"
@@ -87,35 +89,15 @@ def read_migration_sql(name: str) -> str:
 
 
 def _agent_role() -> str:
-    """The agent role, quoted. Online, fail before any change unless it exists and row-level security applies to it."""
+    """The agent role, quoted; online, it must exist and row-level security must apply to it."""
 
-    name = context.config.attributes.get("agent_user")
-    if not name:
-        raise RuntimeError("DATABASE_AGENT_USER is not resolved; run through migrations/env.py")
-    if context.is_offline_mode():
-        op.get_context().impl.static_output("-- agent role existence check skipped (offline)")
-    else:
-        found = op.get_bind().execute(sa.text(read_migration_sql(AGENT_ROLE)), {"role_name": name}).one_or_none()
-        if found is None:
-            raise RuntimeError(
-                f"The agent role named by DATABASE_AGENT_USER ({name!r}) does not exist; "
-                "backend/postgres-init/10-specflow-roles.sh creates it on first start."
-            )
-        if found.bypasses_rls:
-            raise RuntimeError(
-                f"The agent role named by DATABASE_AGENT_USER ({name!r}) has SUPERUSER or BYPASSRLS, so row-level "
-                "security would not apply; it must be NOSUPERUSER NOBYPASSRLS."
-            )
-    return op.get_context().dialect.identifier_preparer.quote_identifier(str(name))
+    return agent_role(read_migration_sql(AGENT_ROLE))
 
 
 def _set_lock_timeout() -> None:
-    """First online statement: give up on a lock after 10 s (offline output has no session to set it on)."""
+    """First online statement: give up on a lock after 10 s."""
 
-    if context.is_offline_mode():
-        op.get_context().impl.static_output("-- lock_timeout skipped (offline)")
-        return
-    op.execute(read_migration_sql(LOCK_TIMEOUT))
+    set_lock_timeout(read_migration_sql(LOCK_TIMEOUT))
 
 
 def _one_of(column: str, values: Sequence[str]) -> str:

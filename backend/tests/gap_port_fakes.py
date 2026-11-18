@@ -18,6 +18,7 @@ from typing import Any, get_args
 from graph.core.errors import ConformanceError, GraphError
 from graph.gap.models import (
     AmendmentRow,
+    AssignmentRow,
     Edit,
     EditTarget,
     EventRow,
@@ -69,6 +70,7 @@ class MemoryGapRecords:
         self.suppressions: dict[str, dict[str, SuppressionRow]] = defaultdict(dict)
         self.notes: dict[str, list[NoteRow]] = defaultdict(list)
         self.event_rows: dict[str, list[EventRow]] = defaultdict(list)
+        self.assignment_rows: dict[str, dict[str, AssignmentRow]] = defaultdict(dict)
 
     async def options(self, project_id: str, gap_id: str) -> Sequence[OptionRow]:
         return self.option_rows[project_id].get(gap_id, ())
@@ -157,6 +159,15 @@ class MemoryGapRecords:
     async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]:
         found = (row for row in self.event_rows[project_id] if row.gap_id == gap_id)
         return tuple(sorted(found, key=lambda row: row.at))
+
+    async def assignments(self, project_id: str) -> Mapping[str, AssignmentRow]:
+        return dict(self.assignment_rows[project_id])
+
+    async def assign(self, project_id: str, row: AssignmentRow) -> None:
+        self.assignment_rows[project_id][row.gap_id] = row
+
+    async def unassign(self, project_id: str, gap_id: str) -> None:
+        self.assignment_rows[project_id].pop(gap_id, None)
 
 
 class MemoryAmendments:

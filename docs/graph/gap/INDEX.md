@@ -32,7 +32,7 @@ of [../INDEX.md](../INDEX.md) apply.
 # answers.md: severity, routing and gates, the question card, clarifications, edits, placement, applying, AI answers, revert
 - [answers.md](answers.md)
 
-# reconcile.md: amendments against new source revisions: applied again, re-anchored, adopted, conflict, orphaned; download with answers
+# reconcile.md: amendments against new source revisions: applied again, re-anchored, adopted, conflict, orphaned; answers moved into the sources
 - [reconcile.md](reconcile.md)
 
 # lifecycle.md: gap and clarification transitions, close check, rekeys, follow-ups, dismissals, the plan link, development gaps, migration

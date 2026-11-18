@@ -4,8 +4,8 @@ The host fills them: ``GapRecords`` and ``Amendments`` with its relational store
 plan service, ``BuildRequests`` with the build runner's queue and ``PlanView`` with the plan reader. ``Investigator``
 is filled by graph.gap's structured loop or by a host adapter; ``SiteReads`` is the read menu graph.gap binds to a
 project and a run. Options, amendments, runs, seeds, sites, verdicts, section relevance, noise rules, suppressions,
-notes and events are stored only through ``GapRecords`` and ``Amendments``, never as graph nodes (FR-GOWN-04). Every
-call takes the project id first, and every implementation filters on it (FR-GOWN-02).
+notes, events and assignments are stored only through ``GapRecords`` and ``Amendments``, never as graph nodes
+(FR-GOWN-04). Every call takes the project id first, and every implementation filters on it (FR-GOWN-02).
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from graph.gap.models import (
     AmendmentRow,
+    AssignmentRow,
     EventRow,
     HoldResult,
     InvestigationResult,
@@ -85,6 +86,12 @@ class GapRecords(Protocol):
     async def log(self, project_id: str, events: Sequence[EventRow]) -> None: ...
 
     async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]: ...
+
+    async def assignments(self, project_id: str) -> Mapping[str, AssignmentRow]: ...
+
+    async def assign(self, project_id: str, row: AssignmentRow) -> None: ...
+
+    async def unassign(self, project_id: str, gap_id: str) -> None: ...
 
 
 @runtime_checkable

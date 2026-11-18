@@ -171,65 +171,6 @@
         "title": "AiAnswerList",
         "type": "object"
       },
-      "AnswerDocument": {
-        "description": "One document of the document view (reconcile.md \"Download with answers\"): the id the export route takes, its\ncorpus lineage, path and title, whether Specflow generated it (the clarifications document), and the answers its\nbuild text holds that the source file does not yet.",
-        "properties": {
-          "answers": {
-            "items": {
-              "$ref": "#/components/schemas/DocumentAnswer"
-            },
-            "title": "Answers",
-            "type": "array"
-          },
-          "document_id": {
-            "title": "Document Id",
-            "type": "string"
-          },
-          "generated": {
-            "default": false,
-            "title": "Generated",
-            "type": "boolean"
-          },
-          "lineage": {
-            "title": "Lineage",
-            "type": "string"
-          },
-          "path": {
-            "title": "Path",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "document_id",
-          "lineage",
-          "path",
-          "title",
-          "answers"
-        ],
-        "title": "AnswerDocument",
-        "type": "object"
-      },
-      "AnswerDocumentList": {
-        "description": "``GET .../gaps/documents``: every corpus document in path order, then the clarifications document when it has\na section.",
-        "properties": {
-          "documents": {
-            "items": {
-              "$ref": "#/components/schemas/AnswerDocument"
-            },
-            "title": "Documents",
-            "type": "array"
-          }
-        },
-        "required": [
-          "documents"
-        ],
-        "title": "AnswerDocumentList",
-        "type": "object"
-      },
       "AnswerResult": {
         "additionalProperties": false,
         "description": "What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and when the\nanswers of the project are applied (``immediate``: at once, for a development gap that blocks its story).",
@@ -1455,47 +1396,6 @@
           "already_in_project"
         ],
         "title": "CountsOut",
-        "type": "object"
-      },
-      "DocumentAnswer": {
-        "additionalProperties": false,
-        "description": "One answer a document holds that its source file does not (reconcile.md \"Download with answers\"): the\nclarification, its gap and the gap's title, the status of its rows (an amendment's ``active`` or ``undecided``; for\nthe clarifications document the clarification's ``applied`` or ``pending``) and how many amendments it has there.",
-        "properties": {
-          "amendments": {
-            "default": 0,
-            "title": "Amendments",
-            "type": "integer"
-          },
-          "clr_id": {
-            "title": "Clr Id",
-            "type": "string"
-          },
-          "gap_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gap Id"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "title": {
-            "default": "",
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "clr_id",
-          "status"
-        ],
-        "title": "DocumentAnswer",
         "type": "object"
       },
       "DocumentDetailOut": {
@@ -2997,6 +2897,29 @@
         "title": "GapAnswerBody",
         "type": "object"
       },
+      "GapAssignBody": {
+        "additionalProperties": false,
+        "description": "``PUT .../gaps/{gap_id}/assignee``: the member who resolves the gap, or null to clear it.",
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "GapAssignBody",
+        "type": "object"
+      },
       "GapDismissBody": {
         "additionalProperties": false,
         "description": "``POST .../gaps/{gap_id}/dismiss``: why the gap is not one (\"not a gap\", \"not spec\", \"duplicate\", \"won't\ndecide now\" or free text).",
@@ -3542,6 +3465,17 @@
             },
             "title": "Aliases",
             "type": "array"
+          },
+          "assigned_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To"
           },
           "blocking": {
             "default": false,
@@ -11666,66 +11600,6 @@
         ]
       }
     },
-    "/api/v1/projects/{pid}/documents/{document_id}/export": {
-      "get": {
-        "description": "\"Download with answers\" (docs/graph/gap/reconcile.md, FR-GCOR-05): the newest text of the document's corpus\nlineage, with ``answers=1`` its active answers applied (marker lines included), as the last build read it; a\ndocument outside the corpus answers ``404 document_not_found``. Without the gap module there are no answers to\napply, so the text is the source's.",
-        "operationId": "export_document_api_v1_projects__pid__documents__document_id__export_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "document_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Document Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "answers",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Answers",
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/markdown": {}
-            },
-            "description": "The document's text (Markdown)."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Export Document",
-        "tags": [
-          "gaps"
-        ]
-      }
-    },
     "/api/v1/projects/{pid}/findings": {
       "get": {
         "description": "The development gaps of the project as findings, in the gaps' order; ``node`` keeps those about one spec node\n(aliases resolve).",
@@ -12106,7 +11980,7 @@
     },
     "/api/v1/projects/{pid}/gaps": {
       "get": {
-        "description": "The project's gaps: open, answered and applying ones unless ``status`` says otherwise; blockers first, then\nnewest first. ``about`` keeps gaps about the spec ids (aliases resolve), ``story_id`` those about the nodes the\nstory's tasks implement, ``document`` those citing or about the document lineage. ``held_back=false`` is the\ninbox's default view: it leaves out the new questions a run held back beyond its limit until the next run.",
+        "description": "The project's gaps: open, answered and applying ones unless ``status`` says otherwise; blockers first, then\nnewest first. ``about`` keeps gaps about the spec ids (aliases resolve), ``story_id`` those about the nodes the\nstory's tasks implement, ``document`` those citing or about the document lineage. ``held_back=false`` is the\ninbox's default view: it leaves out the new questions a run held back beyond its limit until the next run.\n``assigned_to`` keeps the gaps of one assignee: ``me`` (the caller), ``none`` (nobody) or a member's user id.",
         "operationId": "list_gaps_api_v1_projects__pid__gaps_get",
         "parameters": [
           {
@@ -12317,6 +12191,23 @@
                 }
               ],
               "title": "Held Back"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assigned_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(me|none|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assigned To"
             }
           },
           {
@@ -12595,50 +12486,6 @@
         ]
       }
     },
-    "/api/v1/projects/{pid}/gaps/documents": {
-      "get": {
-        "description": "The document view (reconcile.md \"Download with answers\", FR-GWEB-05): every document of the project's corpus\nwith the answers its build text holds that its source file does not yet (\"N answers are not in the source file\nyet\"), and the generated clarifications document (\"Generated by Specflow\") while it has a section. Each\n``document_id`` downloads through ``GET .../documents/{document_id}/export?answers=1``.",
-        "operationId": "list_answer_documents_api_v1_projects__pid__gaps_documents_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnswerDocumentList"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Answer Documents",
-        "tags": [
-          "gaps"
-        ]
-      }
-    },
     "/api/v1/projects/{pid}/gaps/noise_rules": {
       "get": {
         "description": "The sections, documents and patterns a member marked \"not spec\"; the relevance filter treats them as tracking.",
@@ -12897,6 +12744,71 @@
           }
         },
         "summary": "Answer Gap",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/{gap_id}/assignee": {
+      "put": {
+        "description": "Assign the gap to a member of the project, or clear it (``user_id`` null): one member per gap, and any member\nassigns (answers.md \"Who answers\"). Answers the gap as ``GET .../gaps/{gap_id}`` does; ``400 assignee_not_member``\nwhen ``user_id`` is not a member, ``409 gap_wrong_state`` for a resolved gap.",
+        "operationId": "assign_gap_api_v1_projects__pid__gaps__gap_id__assignee_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "gap_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Gap Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapAssignBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assign Gap",
         "tags": [
           "gaps"
         ]

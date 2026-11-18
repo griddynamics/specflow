@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
     CorpusAmendment,
+    GapAssignment,
     GapEvent,
     GapNoiseRule,
     GapNote,
@@ -232,6 +233,26 @@ async def upsert_suppression(session: AsyncSession, project_id: uuid.UUID, row: 
 async def delete_suppression(session: AsyncSession, project_id: uuid.UUID, signature: str) -> None:
     await session.execute(
         delete(GapSuppression).where(GapSuppression.project_id == project_id, GapSuppression.signature == signature)
+    )
+
+
+# gap_assignment
+
+
+async def assignments(session: AsyncSession, project_id: uuid.UUID) -> Sequence[RowMapping]:
+    statement = select(GapAssignment.__table__).where(GapAssignment.project_id == project_id)
+    return (await session.execute(statement)).mappings().all()
+
+
+async def upsert_assignment(session: AsyncSession, project_id: uuid.UUID, row: Values) -> None:
+    statement = pg_insert(GapAssignment).values(_scoped(project_id, [row]))
+    keys = ("project_id", "gap_id")
+    await session.execute(statement.on_conflict_do_update(index_elements=keys, set_=_set_excluded(statement, keys)))
+
+
+async def delete_assignment(session: AsyncSession, project_id: uuid.UUID, gap_id: str) -> None:
+    await session.execute(
+        delete(GapAssignment).where(GapAssignment.project_id == project_id, GapAssignment.gap_id == gap_id)
     )
 
 

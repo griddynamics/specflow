@@ -24,6 +24,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     PrimaryKeyConstraint,
@@ -599,3 +600,25 @@ class GapEvent(Base):
     actor: Mapped[str] = mapped_column(Text, nullable=False)
     event: Mapped[str] = mapped_column(Text, nullable=False)
     detail: Mapped[Any] = _json()
+
+
+class GapAssignment(Base):
+    """The member who resolves a gap (migration ``0004_gap_assignment``): one row per gap. The key to the member row
+    deletes it with the membership, so a member who leaves or is removed holds no gaps."""
+
+    __tablename__ = "gap_assignment"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "gap_id"),
+        ForeignKeyConstraint(
+            ["project_id", "user_id"],
+            ["project_members.project_id", "project_members.user_id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_gap_assignment_user_id", "project_id", "user_id"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    gap_id: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    assigned_by: Mapped[str] = mapped_column(Text, nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

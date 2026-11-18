@@ -1,6 +1,6 @@
 // Gaps Ready gate on the PRODUCTION routes, against the stub API through the real BFF (FE-DEC-02.AC5, FE-BP-03.AC8, FE-DS-08.AC2, FR-GWEB-04; D19, D20).
 // No paid model call (R11). Before the gate opens the screen sends no `/api/backend` request beyond the gate's; once it is open the Gaps screen reads
-// only the gap routes (the inbox with `held_back=false`, the held-back questions with `held_back=true`), the documents and the plan for its filters,
+// only the gap routes (the inbox with `held_back=false`, the held-back questions with `held_back=true`), the members and the plan for its filters,
 // all GETs. The "at most one sources GET" bound holds for the production build (no StrictMode double effect).
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
@@ -112,7 +112,7 @@ test("FE-DEC-02.AC5 (P3): when the sources status read fails (503) the Gaps gate
 
 // P4: AC5, AC8, AC12
 test(
-  "FE-DEC-01.AC1, FE-BP-03.AC8, FE-DS-08.AC3, FR-GWEB-04 (P4): a Ready project shows no gate and no scene but 'No open gaps'; the screen reads only the gap routes (held_back=false and true, the latest gap run), the build state, the documents and the plan, all GETs",
+  "FE-DEC-01.AC1, FE-BP-03.AC8, FE-DS-08.AC3, FR-GWEB-04 (P4): a Ready project shows no gate and no scene but 'No open gaps'; the screen reads only the gap routes (held_back=false and true, the latest gap run), the build state, the members and the plan, all GETs",
   { tag: "@production" },
   async ({ page, requests }) => {
     await login(page);
@@ -130,7 +130,7 @@ test(
     await expect(gapRows(page)).toHaveCount(0);
     await expect(page.getByTestId("gap-count")).toHaveText("");
     await expect(page.getByTestId("gaps-held-back")).toHaveCount(0);
-    const gapReads = new RegExp(`^/api/backend/projects/${pid}/(?:gaps|documents|plan|gap/runs/latest|graph_build)$`);
+    const gapReads = new RegExp(`^/api/backend/projects/${pid}/(?:gaps|members|plan|gap/runs/latest|graph_build)$`);
     const allowed = allowedGateCalls(pid);
     await expectGateNetwork(page, requests, from, pid, (r) => allowed(r) || (r.method === "GET" && gapReads.test(r.path)));
     const made = calls(requests.slice(from)).map((r) => r.path + r.search);

@@ -1,8 +1,8 @@
-// FR-GWEB-04, FR-GWEB-05 (docs/graph/gap/api.md "User interface", answers.md "The question card", "Answering", "Placement rules",
-// "Review list", "Dismissing"; detection.md "Relevance filter"; reconcile.md "Download with answers"): pure helpers of the Gaps screen and
-// the Plan's gap links. No React, no fetch: the words of kinds, severities, origins, noise sections, placements, history events and
-// failures, the filters' options and the `list_gaps` query they make, the inbox order, the section noise-rule value, and which open gaps
-// belong to a plan task or story.
+// FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "User interface", answers.md "The question card", "Answering", "Placement rules",
+// "Review list", "Dismissing", "Who answers"; detection.md "Relevance filter"): pure helpers of the Gaps screen and the Plan's gap links.
+// No React, no fetch: the words of kinds, severities, origins, assignees, noise sections, placements, history events and failures, the
+// filters' options and the `list_gaps` query they make, the inbox order, the section noise-rule value, and which open gaps belong to a
+// plan task or story.
 import type { SeverityLevel } from "@/components/ui/SeverityBadge";
 import { isDataError } from "@/lib/domain/errors";
 import {
@@ -11,7 +11,6 @@ import {
   type ClarificationStatus,
   type EditPlacement,
   type GapEvent,
-  GAP_ORIGINS,
   GAP_SEVERITIES,
   type Gap,
   type GapCheck,
@@ -24,6 +23,7 @@ import {
   type GapStatus,
   type NoiseSection,
 } from "@/lib/domain/gaps";
+import type { Member } from "@/lib/domain/members";
 
 export const KIND_LABEL: Record<GapKind, string> = {
   missing: "Missing",
@@ -53,19 +53,21 @@ export interface GapFilters {
   status: "active" | GapStatus | "all";
   kind: GapKind | "all";
   severity: GapSeverity | "all";
-  origin: GapOrigin | "all";
   story: string; // a story id, or "all"
-  document: string; // a document id, or "all"
+  assigned: string; // "me", "none", a member's user id, or "all"
 }
 
 export const DEFAULT_GAP_FILTERS: GapFilters = {
   status: "active",
   kind: "all",
   severity: "all",
-  origin: "all",
   story: "all",
-  document: "all",
+  assigned: "all",
 };
+
+/** The `assigned_to` values of the Assigned filter besides a member's user id: the caller, and nobody. */
+export const ASSIGNED_TO_ME = "me";
+export const ASSIGNED_TO_NOBODY = "none";
 
 type Options = { value: string; label: string }[];
 const ALL = { value: "all", label: "All" };
@@ -80,12 +82,37 @@ export const STATUS_OPTIONS: Options = [
 ];
 export const KIND_OPTIONS: Options = [ALL, ...Object.entries(KIND_LABEL).map(([value, label]) => ({ value, label }))];
 export const SEVERITY_OPTIONS: Options = [ALL, ...Object.entries(SEVERITY_LABEL).map(([value, label]) => ({ value, label }))];
-export const ORIGIN_OPTIONS: Options = [
-  ALL,
-  { value: "analysis", label: "Analysis" },
-  { value: "development", label: "Coding agent" },
-  { value: "person", label: "Person" },
-];
+
+/** A member as the Gaps screen names them: the display name, else the email. */
+export const memberName = (m: Member): string => m.name ?? m.email;
+
+/** A member as a choice: the name, the caller marked "(you)". */
+const memberChoice = (m: Member) => ({ value: m.userId, label: m.isYou ? `${memberName(m)} (you)` : memberName(m) });
+
+/** The assignee of a gap in words: the member's name, "Unassigned", or "A former member" for an id the members list does not hold. */
+export function assigneeText(userId: string | null, members: readonly Member[]): string {
+  if (userId === null) return "Unassigned";
+  const m = members.find((x) => x.userId === userId);
+  return m === undefined ? "A former member" : memberName(m);
+}
+
+/** The Assigned filter: All, Mine, Unassigned, then each member (the caller marked "(you)", as on the card). */
+export function assignedOptions(members: readonly Member[]): Options {
+  return [ALL, { value: ASSIGNED_TO_ME, label: "Mine" }, { value: ASSIGNED_TO_NOBODY, label: "Unassigned" }, ...members.map(memberChoice)];
+}
+
+/** The card's "Assigned to" choices: Unassigned, then each member (the caller marked "(you)"); a current assignee the list does not
+ * hold stays a choice, so the control still shows it. */
+export function assigneeChoices(members: readonly Member[], current: string | null): Options {
+  const choices = [{ value: ASSIGNED_TO_NOBODY, label: "Unassigned" }, ...members.map(memberChoice)];
+  if (current !== null && !members.some((m) => m.userId === current)) choices.push({ value: current, label: "A former member" });
+  return choices;
+}
+
+/** The names of the members by user id, for the history's words. */
+export function memberNames(members: readonly Member[]): Readonly<Record<string, string>> {
+  return Object.fromEntries(members.map((m) => [m.userId, memberName(m)]));
+}
 
 /** "All" first, then the given items in their order. */
 export function withAll(items: { id: string; name: string }[]): Options {
@@ -99,9 +126,8 @@ export function patchOf(key: keyof GapFilters, v: string): Partial<GapFilters> {
   if (key === "status") return { status: STATUS_VALUES.find((x) => x === v) ?? "active" };
   if (key === "kind") return { kind: GAP_KINDS.find((x) => x === v) ?? "all" };
   if (key === "severity") return { severity: GAP_SEVERITIES.find((x) => x === v) ?? "all" };
-  if (key === "origin") return { origin: GAP_ORIGINS.find((x) => x === v) ?? "all" };
   const value = v === "" ? "all" : v;
-  return key === "story" ? { story: value } : { document: value };
+  return key === "story" ? { story: value } : { assigned: value };
 }
 
 /**
@@ -114,9 +140,8 @@ export function gapQuery(f: GapFilters, heldBack: boolean): GapQuery {
   else if (f.status !== "active") q.status = [f.status];
   if (f.kind !== "all") q.kind = [f.kind];
   if (f.severity !== "all") q.severity = [f.severity];
-  if (f.origin !== "all") q.origin = [f.origin];
   if (f.story !== "all") q.storyId = f.story;
-  if (f.document !== "all") q.document = f.document;
+  if (f.assigned !== "all") q.assignedTo = f.assigned;
   return q;
 }
 
@@ -353,21 +378,26 @@ const EVENT_WORDS: Record<string, string> = {
   follow_up: "Follow-up gap opened",
   reopened: "Reopened",
   apply_failed: "Applying failed",
+  assigned: "Assigned",
+  unassigned: "Unassigned",
 };
 const SYSTEM_ACTORS = new Set(["system", "reconcile", "gap_run", "gap-run", "run", "build", "apply", "specflow"]);
 
-/** Who did it, in words: AI, Specflow (a run, the build, reconcile) or a person. */
-export function actorText(actor: string): string {
+/** Who did it, in words: AI, Specflow (a run, the build, reconcile), a member by name (`names`) or a person. */
+export function actorText(actor: string, names: Readonly<Record<string, string>> = {}): string {
   if (actor === "ai") return "AI";
   if (SYSTEM_ACTORS.has(actor) || actor.startsWith("run-") || actor.startsWith("gap")) return "Specflow";
-  return "a person";
+  return names[actor] ?? "a person";
 }
 
-/** One history event in words, never raw JSON: the event, the reconcile outcome, the route, the dismissal reason when present. */
-export function eventText(e: GapEvent): string {
+/** One history event in words, never raw JSON: the event, the reconcile outcome, the route, the dismissal reason and the assignee
+ * (named from `names`) when present. */
+export function eventText(e: GapEvent, names: Readonly<Record<string, string>> = {}): string {
   const base = EVENT_WORDS[e.event] ?? `${e.event.charAt(0).toUpperCase()}${e.event.slice(1).replaceAll("_", " ")}`;
   const d = e.detail;
   const word = (k: string): string | undefined => (typeof d[k] === "string" && d[k] !== "" ? d[k] : undefined);
+  const assignee = word("user_id");
+  if (e.event === "assigned" && assignee !== undefined) return `${base} to ${names[assignee] ?? "a member"}`;
   const outcome = word("outcome");
   if (e.event === "reconciled" && outcome !== undefined) return `${base}: ${OUTCOME_WORDS[outcome] ?? outcome.replaceAll("_", " ")}`;
   const route = word("route");
@@ -394,14 +424,6 @@ export function unionGaps(lists: readonly (readonly Gap[])[]): Gap[] {
 
 /** "1 open gap", "3 open gaps". */
 export const openGapsText = (n: number): string => `${String(n)} open ${n === 1 ? "gap" : "gaps"}`;
-
-// ---- documents ----
-
-/** The FR-GWEB-05 banner: "N answers are not in the source file yet" (nothing for none). */
-export function notInSourceText(n: number): string | null {
-  if (n === 0) return null;
-  return n === 1 ? "1 answer is not in the source file yet" : `${String(n)} answers are not in the source file yet`;
-}
 
 // ---- the gap check status line ----
 

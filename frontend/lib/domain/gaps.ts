@@ -1,6 +1,6 @@
-// FR-GWEB-04, FR-GWEB-05 (docs/graph/gap/api.md "Models", "Gap service", "Web routes", "User interface"; answers.md "The question card",
-// "Answering", "Review list", "Revert", "Dismissing", "Raising a gap by hand"; reconcile.md "Download with answers"): the Gaps screen's
-// types and its port, reads and writes. The http adapter (`lib/data/http/gaps.ts`) maps the API's snake_case bodies
+// FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "Models", "Gap service", "Web routes", "User interface"; answers.md "The question card",
+// "Answering", "Review list", "Revert", "Dismissing", "Raising a gap by hand", "Who answers"): the Gaps screen's types and its port, reads
+// and writes. The http adapter (`lib/data/http/gaps.ts`) maps the API's snake_case bodies
 // (`/projects/{pid}/gaps*`, `/projects/{pid}/gap/runs/latest`) to these types. Types and constants only.
 
 export const GAP_KINDS = ["missing", "ambiguous", "contradiction", "inconsistency", "open_question", "assumption"] as const;
@@ -128,6 +128,8 @@ export interface Gap {
   reach: GapReach | null;
   /** The gap's events and follow-ups (`get` only; null on a list item). */
   history?: GapHistory | null;
+  /** The member who resolves the gap (a user id), null when nobody is assigned. */
+  assignedTo: string | null;
 }
 
 /** The `list_gaps` filters the screen sends; an absent filter is not sent (the server default applies). */
@@ -138,7 +140,8 @@ export interface GapQuery {
   origin?: GapOrigin[];
   route?: GapRoute[];
   storyId?: string;
-  document?: string;
+  /** "me" (the caller), "none" (nobody) or a member's user id. */
+  assignedTo?: string;
   /** false = the inbox's default view, true = only the questions a run held back, undefined = not sent (both). */
   heldBack?: boolean;
   cursor?: string;
@@ -187,12 +190,6 @@ export interface GapCheck {
   updatedGaps: number | null;
   resolvedGaps: number | null;
   errorCode: string | null;
-}
-
-/** A document of the project, for the Document filter. */
-export interface GapDocument {
-  id: string;
-  name: string;
 }
 
 // ---- writes ----
@@ -298,38 +295,17 @@ export interface RaisedGap {
   created: boolean;
 }
 
-/** An answer whose text is not in a document's source file yet (an amendment of it, or a section of the generated document). */
-export const DOCUMENT_ANSWER_STATUSES = ["active", "undecided", "applied", "pending"] as const;
-
-export interface DocumentAnswer {
-  clrId: string;
-  gapId: string | null;
-  title: string;
-  /** An amendment's `active` or `undecided`; for the clarifications document the clarification's `applied` or `pending`. */
-  status: (typeof DOCUMENT_ANSWER_STATUSES)[number];
-  amendments: number;
-}
-
-/** A corpus document (or the generated clarifications document) with the answers not in its source file yet (FR-GWEB-05). */
-export interface AnswerDocument {
-  documentId: string;
-  lineage: string;
-  path: string;
-  title: string;
-  generated: boolean;
-  answers: DocumentAnswer[];
-}
-
 export interface GapsPort {
   list(projectId: string, query: GapQuery): Promise<GapPage>;
   get(projectId: string, gapId: string): Promise<Gap>;
   noise(projectId: string): Promise<GapNoise>;
   /** Whether the gap run (or the build it follows) runs now, and what the latest finished run found. */
   check(projectId: string): Promise<GapCheck>;
-  documents(projectId: string): Promise<GapDocument[]>;
   previewEdits(projectId: string, gapId: string, choice: GapAnswerChoice, placement?: EditPlacement): Promise<EditPreview>;
   answer(projectId: string, gapId: string, input: AnswerInput): Promise<AnswerResult>;
   dismiss(projectId: string, gapId: string, reason: string): Promise<void>;
+  /** Assigns the gap to a member (a user id) or clears it (null); resolves with the gap as `get` reads it. */
+  assign(projectId: string, gapId: string, userId: string | null): Promise<Gap>;
   raise(projectId: string, input: RaiseInput): Promise<RaisedGap>;
   applyNow(projectId: string): Promise<ApplyResult>;
   aiAnswers(projectId: string): Promise<AiAnswer[]>;
@@ -337,8 +313,4 @@ export interface GapsPort {
   noiseRules(projectId: string): Promise<NoiseRule[]>;
   addNoiseRule(projectId: string, rule: { scope: NoiseScope; value: string; reason: string }): Promise<string>;
   removeNoiseRule(projectId: string, ruleId: string): Promise<void>;
-  /** The corpus documents and the generated clarifications document with their answers not in the source yet (FR-GWEB-05). */
-  answerDocuments(projectId: string): Promise<AnswerDocument[]>;
-  /** The "Download with answers" link of a document (a same-origin GET; the Markdown comes as an attachment). */
-  exportUrl(projectId: string, documentId: string): string;
 }

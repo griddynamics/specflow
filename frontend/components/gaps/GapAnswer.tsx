@@ -11,12 +11,15 @@ import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { OTHER_VALUE, OptionCards } from "@/components/ui/OptionCards";
 import type { AnswerResult, EditPlacement, EditPreview, Gap, GapAnswerChoice, GapsPort } from "@/lib/domain/gaps";
+import type { Member } from "@/lib/domain/members";
 import { PLACEMENT_LABEL, failureText, isStale, ownTextProblem, preselectedOption } from "./gaps-logic";
 
 /** What the card needs from the screen to write: the port, the project, and how to re-read the gap and refresh the lists. */
 export interface CardControl {
   gaps: GapsPort;
   projectId: string;
+  /** The project's members: the card's "Assigned to" choices and the names in its history. */
+  members: Member[];
   /** The `?gap=` link of another gap (history, follow-ups). */
   href: (gapId: string) => string;
   /** Opens another gap's card in place. */

@@ -47,6 +47,7 @@ from graph.core.ontology import Ontology
 from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.writer import DOCUMENT, FRAGMENT, NodeRef, OwnedWriter
 from graph.gap.answers import marker
+from graph.gap.assignment import follow_assignments
 from graph.gap.corpus import APPLY_MARK, clarifications_lineage
 from graph.gap.gaps import StoredGap, answer_key, cite_key, clarification_uuid, gap_uuid, link_key, quote_hash
 from graph.gap.identity import gap_id, normalise_quote, sha256_hex
@@ -254,6 +255,7 @@ class Closer:
         await self._stale_cites([gap for gap in self.gaps if gap.gap_id not in gone])
         if self.events:
             await self.run.records.log(self.run.project_id, self.events)
+            await follow_assignments(self.run.records, self.run.project_id, self.events)
         log_event(
             logger,
             INFO,

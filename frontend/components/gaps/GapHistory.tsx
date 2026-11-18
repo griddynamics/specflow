@@ -16,9 +16,16 @@ const FOLLOW_UP_REASON: Record<string, string> = {
 
 export function GapHistory({
   history,
+  names = {},
   href,
   onOpenGap,
-}: Readonly<{ history: History; href: (gapId: string) => string; onOpenGap: (gapId: string) => void }>) {
+}: Readonly<{
+  history: History;
+  /** Member names by user id: the history names the people who acted and the assignees. */
+  names?: Readonly<Record<string, string>>;
+  href: (gapId: string) => string;
+  onOpenGap: (gapId: string) => void;
+}>) {
   const [open, setOpen] = useState(false);
   const listId = useId();
   if (history.events.length + history.followUps.length === 0) return null;
@@ -61,9 +68,9 @@ export function GapHistory({
       <ol id={listId} className="gap-events" hidden={!open} data-testid="gap-history">
         {history.events.map((e, i) => (
           <li key={`${e.at}-${e.event}-${String(i)}`} className="gap-event body-sm" data-testid="gap-history-event" data-event={e.event}>
-            <span className="gap-event__what">{eventText(e)}</span>
+            <span className="gap-event__what">{eventText(e, names)}</span>
             <span className="gap-event__meta">
-              {actorText(e.actor)} · <time dateTime={e.at}>{whenText(e.at)}</time>
+              {actorText(e.actor, names)} · <time dateTime={e.at}>{whenText(e.at)}</time>
             </span>
           </li>
         ))}
