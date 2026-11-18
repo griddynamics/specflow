@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpecFlow spike view</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --ok: #1a7f37; --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --ok: #3fb950; --bad: #f85149;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --ok: #3fb950; --bad: #f85149;
+  }
+  body {
+    margin: 0; padding: 12px 16px; background: var(--bg); color: var(--fg);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  h2 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 500; }
+  p { margin: 0 0 8px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; width: 40%; }
+  td { overflow-wrap: anywhere; }
+  pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.4 ui-monospace, Menlo, monospace; }
+  button {
+    font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: transparent; color: var(--fg); cursor: pointer;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0 0; }
+  .ok { color: var(--ok); }
+  .bad { color: var(--bad); }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>SpecFlow spike: MCP Apps view</h1>
+<p class="muted">A test view: it reads and records nothing in SpecFlow.</p>
+<table><tbody id="facts"></tbody></table>
+<div class="row">
+  <button id="whoami" type="button">Who am I</button>
+  <button id="link" type="button">Open a link</button>
+  <button id="report" type="button">Send the report to Claude</button>
+</div>
+<div class="row">
+  <label>File picker: <input id="file" type="file"></label>
+</div>
+<h2>Messages from the host</h2>
+<pre id="log"></pre>
+<script>
+(() => {
+  "use strict";
+  const PROTOCOL = "2026-01-26";
+  const TICKET_KEY = "dev.specflow/ticket";
+  const facts = new Map();
+  const pending = new Map();
+  const table = document.getElementById("facts");
+  const log = document.getElementById("log");
+  let nextId = 1;
+
+  function setFact(key, value, tone) {
+    facts.set(key, { value: String(value), tone });
+    table.replaceChildren(...[...facts].map(([name, fact]) => {
+      const row = document.createElement("tr");
+      const head = document.createElement("th");
+      const cell = document.createElement("td");
+      head.textContent = name;
+      cell.textContent = fact.value;
+      if (fact.tone) cell.className = fact.tone;
+      row.append(head, cell);
+      return row;
+    }));
+  }
+
+  function note(line) {
+    log.textContent += line + "\n";
+  }
+
+  function send(message) {
+    window.parent.postMessage({ jsonrpc: "2.0", ...message }, "*");
+  }
+
+  function request(method, params) {
+    const id = nextId++;
+    send({ id, method, params });
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      setTimeout(() => {
+        if (pending.delete(id)) reject(new Error("no answer from the host in 15 s"));
+      }, 15000);
+    });
+  }
+
+  function notify(method, params) {
+    send({ method, params });
+  }
+
+  function text(result) {
+    const block = (result && result.content || []).find((item) => item.type === "text");
+    return block ? block.text : "";
+  }
+
+  function applyContext(context) {
+    if (!context) return;
+    if (context.theme) {
+      document.documentElement.dataset.theme = context.theme;
+      setFact("Theme", context.theme);
+    }
+    if (context.displayMode) setFact("Display mode", context.displayMode);
+    if (context.availableDisplayModes) setFact("Display modes", context.availableDisplayModes.join(", "));
+    if (context.platform) setFact("Platform", context.platform);
+    if (context.userAgent) setFact("User agent", context.userAgent);
+    if (context.containerDimensions) setFact("Container", JSON.stringify(context.containerDimensions));
+    if (context.toolInfo && context.toolInfo.tool) setFact("Opened by tool", context.toolInfo.tool.name);
+  }
+
+  function showResult(result) {
+    const meta = result && result._meta || {};
+    const client = result && result.structuredContent || {};
+    setFact("Tool result text", text(result) || "(none)");
+    setFact("Ticket in the result's _meta", meta[TICKET_KEY] || "not received", meta[TICKET_KEY] ? "ok" : "bad");
+    setFact("Server saw Apps support", String(client.apps_supported), client.apps_supported ? "ok" : "bad");
+    if (client.client_name) setFact("Client (as the server saw it)", `${client.client_name} ${client.client_version || ""}`.trim());
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!data || data.jsonrpc !== "2.0") return;
+    if (!("method" in data)) {
+      const waiter = pending.get(data.id);
+      if (!waiter) return;
+      pending.delete(data.id);
+      if (data.error) waiter.reject(new Error(data.error.message || "the host refused"));
+      else waiter.resolve(data.result);
+      return;
+    }
+    note(data.method);
+    if (data.method === "ui/notifications/tool-result") showResult(data.params);
+    else if (data.method === "ui/notifications/tool-input") setFact("Tool input", JSON.stringify((data.params || {}).arguments || {}));
+    else if (data.method === "ui/notifications/host-context-changed") applyContext(data.params);
+    if ("id" in data) send({ id: data.id, result: {} });
+  });
+
+  window.addEventListener("error", (event) => setFact("Script error", event.message, "bad"));
+
+  document.getElementById("whoami").addEventListener("click", async () => {
+    setFact("Who am I", "calling spike_whoami through the host...");
+    try {
+      const result = await request("tools/call", { name: "spike_whoami", arguments: {} });
+      const who = result.structuredContent || {};
+      if (result.isError) setFact("Who am I", "error: " + text(result), "bad");
+      else setFact("Who am I", `${who.name || "(no name)"} <${who.email}>, client ${who.client_id}`, "ok");
+    } catch (error) {
+      setFact("Who am I", error.message, "bad");
+    }
+  });
+
+  document.getElementById("file").addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    setFact("File picker", file ? `opened: ${file.name}, ${file.size} bytes` : "no file chosen", file ? "ok" : "");
+  });
+
+  document.getElementById("link").addEventListener("click", async () => {
+    try {
+      const result = await request("ui/open-link", { url: "https://modelcontextprotocol.io/extensions/apps/overview" });
+      setFact("Open a link", result && result.isError ? "the host refused" : "the host accepted", result && result.isError ? "bad" : "ok");
+    } catch (error) {
+      setFact("Open a link", error.message, "bad");
+    }
+  });
+
+  document.getElementById("report").addEventListener("click", async () => {
+    const hidden = new Set(["Ticket in the result's _meta", "Who am I", "File picker"]);
+    const lines = [...facts].map(([name, fact]) => `- ${name}: ${hidden.has(name) ? (fact.tone === "ok" ? "works" : fact.value) : fact.value}`);
+    try {
+      await request("ui/message", { role: "user", content: [{ type: "text", text: "SpecFlow spike view report:\n" + lines.join("\n") }] });
+      setFact("Send to Claude", "the host accepted", "ok");
+    } catch (error) {
+      setFact("Send to Claude", error.message, "bad");
+    }
+  });
+
+  async function start() {
+    setFact("Handshake", "waiting for the host...");
+    try {
+      const result = await request("ui/initialize", {
+        appInfo: { name: "specflow-spike", version: "0.1.0" },
+        appCapabilities: {},
+        protocolVersion: PROTOCOL,
+      });
+      const host = result.hostInfo || {};
+      setFact("Handshake", "done", "ok");
+      setFact("Host", `${host.name || "?"} ${host.version || ""}`.trim());
+      setFact("Host protocol", result.protocolVersion || "?");
+      setFact("Host capabilities", Object.keys(result.hostCapabilities || {}).join(", ") || "none");
+      applyContext(result.hostContext);
+      notify("ui/notifications/initialized", {});
+      const resize = () => notify("ui/notifications/size-changed", {
+        width: document.documentElement.scrollWidth,
+        height: document.documentElement.scrollHeight,
+      });
+      new ResizeObserver(resize).observe(document.body);
+      resize();
+    } catch (error) {
+      setFact("Handshake", error.message, "bad");
+    }
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>

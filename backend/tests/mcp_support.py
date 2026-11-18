@@ -93,7 +93,7 @@ def build_app(
     env: dict[str, str],
     *,
     transport: httpx.AsyncBaseTransport | None = None,
-    tools: Callable[[MCPServer], None] = install_no_tools,
+    tools: Callable[[MCPServer], None] | None = install_no_tools,
 ) -> Starlette:
     """The MCP app whose API client talks to ``transport`` (default: ``ready_api``, no agent route)."""
 

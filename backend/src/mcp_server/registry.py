@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import inspect
 import json
+import secrets
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from importlib.resources import files
 from typing import Annotated, Any, Final, cast
 
+from mcp.server.apps import Apps, client_supports_apps
 from mcp.server.elicitation import AcceptedElicitation, ElicitationResult
 from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
 from mcp.server.mcpserver.prompts.base import Prompt
@@ -94,6 +97,7 @@ from logger.correlation import current_request_id
 from logger.logger import INFO, get_logger, log_event
 from mcp_server import descriptions, gap_dialog, guidance
 from mcp_server.api_client import ApiResult, request_api_client
+from mcp_server.auth import request_principal
 from mcp_server.errors import McpToolError, error_body, from_api
 from mcp_server.http import McpInvariantError, required
 
@@ -856,3 +860,78 @@ def install(
                 _prompt_function(prompt, resource_url), name=prompt.name, description=prompt.description
             )
         )
+
+
+# --- The MCP Apps spike (docs/mcp-server/apps.md "Delivery", P0) ---------------------------------------------------
+# One test view and two tools that read and record nothing: which hosts render the view, whose identity a call from
+# the view carries, and whether the model sees a result's ``_meta``. Only on the branch of the spike.
+
+SPIKE_VIEW_URI: Final = "ui://specflow/spike"
+SPIKE_TICKET_KEY: Final = "dev.specflow/ticket"
+
+
+def _spike_client(ctx: Context) -> dict[str, Any]:
+    """What the client said about itself: Apps support, its name and version, its extension ids."""
+
+    capabilities = ctx.client_capabilities
+    params = ctx.session.client_params
+    info = params.client_info if params else None
+    return {
+        "apps_supported": client_supports_apps(ctx),
+        "client_name": info.name if info else None,
+        "client_version": info.version if info else None,
+        "client_extensions": sorted(capabilities.extensions or {}) if capabilities else [],
+    }
+
+
+def apps() -> Apps:
+    """The spike's view ``ui://specflow/spike`` with ``spike_open_view`` (the model opens it) and ``spike_whoami``
+    (only the view calls it)."""
+
+    spike = Apps()
+    spike.add_html_resource(
+        SPIKE_VIEW_URI,
+        files("mcp_server").joinpath("views/spike.html").read_text(encoding="utf-8"),
+        name="spike",
+        title="SpecFlow spike view",
+        description="A test view of the MCP Apps spike; it reads and records nothing.",
+    )
+
+    @spike.tool(
+        resource_uri=SPIKE_VIEW_URI,
+        name="spike_open_view",
+        title="Open the SpecFlow spike view",
+        description=(
+            "Open the SpecFlow test view of the MCP Apps spike. Call it only when the user asks to open the spike "
+            "view. It reads and records nothing."
+        ),
+        annotations=READ_ONLY,
+    )
+    async def spike_open_view(ctx: Context) -> CallToolResult:
+        client = _spike_client(ctx)
+        log_event(logger, INFO, "mcp.spike.called", tool="spike_open_view", apps_supported=client["apps_supported"])
+        return CallToolResult(
+            content=[TextContent(type="text", text="The SpecFlow spike view is open; it shows what the host supports")],
+            structured_content=client,
+            meta={SPIKE_TICKET_KEY: secrets.token_hex(4)},
+        )
+
+    @spike.tool(
+        resource_uri=SPIKE_VIEW_URI,
+        visibility=["app"],
+        name="spike_whoami",
+        title="Who am I (spike view only)",
+        description="The signed-in user as the server sees the token. Only the spike view calls it.",
+        annotations=READ_ONLY,
+    )
+    async def spike_whoami(ctx: Context) -> CallToolResult:
+        request = ctx.request_context.request
+        if not isinstance(request, Request):
+            raise McpInvariantError("tools run over HTTP, behind the guard")
+        principal = request_principal(request)
+        client = _spike_client(ctx)
+        log_event(logger, INFO, "mcp.spike.called", tool="spike_whoami", apps_supported=client["apps_supported"])
+        who = {"name": principal.name, "email": principal.email, "client_id": principal.client_id, **client}
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(who))], structured_content=who)
+
+    return spike

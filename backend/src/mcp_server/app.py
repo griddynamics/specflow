@@ -24,7 +24,7 @@ from mcp_server.api_client import ApiTransport, build_api_client, request_api_cl
 from mcp_server.auth import McpGuard, ProtectedResourceMetadata, metadata_endpoint
 from mcp_server.http import McpStarlette, error_response, required
 from mcp_server.readiness import readiness_response
-from mcp_server.registry import install
+from mcp_server.registry import apps, install
 from settings import MCP_PATH, PRM_PATH, McpRoleSettings
 
 # Module-level logger first: the central logger owns the root handler before MCPServer
@@ -85,7 +85,12 @@ def create_mcp_app(
     resource_url = mcp.resource_url  # the one value of the PRM, the instructions and the prompt
     # never auth= or token_verifier=: the guard owns 401 and 403. No `subscriptions/listen` (2026-07-28): the tools
     # never change, and a client that holds the listen stream open (Claude Code does) keeps the role from shutting down.
-    server = MCPServer("SpecFlow", subscriptions=False, instructions=guidance.server_instructions(resource_url))
+    server = MCPServer(
+        "SpecFlow",
+        subscriptions=False,
+        instructions=guidance.server_instructions(resource_url),
+        extensions=[] if tools else [apps()],  # the MCP Apps spike goes with the registry (apps.md "Delivery", P0)
+    )
     (tools or partial(install, resource_url=resource_url))(server)
     server.streamable_http_app(  # called only to create the session manager; its Starlette is unused
         json_response=True,
