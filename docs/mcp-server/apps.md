@@ -203,8 +203,10 @@ The wizard may later help a person pick which gaps to work on; no answer passes 
 
 ### Demo
 
-`backend/examples/mcp_gap_dialogs_demo.py` serves one sample gap, with no sign-in and no storage: `list_open_gaps`,
-`answer_gap` (the dialog) and the prompt `answer_gaps`. From `backend/`, with the layout above:
+`backend/examples/mcp_gap_dialogs_demo.py` serves five sample gaps of an online shop (a blocker, three major gaps, one
+of them reported by a coding agent, and a minor gap; two to four options each), with no sign-in and no storage:
+`list_open_gaps` (blockers first), `answer_gap` (the dialog) and the prompt `answer_gaps`, which goes through the open
+gaps one by one. Answers are kept in memory until the server stops. From `backend/`, with the layout above:
 
 ```bash
 uv run --extra mcp python examples/mcp_gap_dialogs_demo.py
