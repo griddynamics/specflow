@@ -1,5 +1,4 @@
-"""The ``list_gaps`` agent route (``GET /agent/gaps``; docs/mcp-server/tools.md "list_gaps", FR-GWEB-03), the
-``list_open_gaps`` route (``GET /agent/open-gaps``: the gap cards, docs/mcp-server/apps.md "Terminal dialogs"), the two
+"""The ``list_gaps`` agent route (``GET /agent/gaps``; docs/mcp-server/tools.md "list_gaps", FR-GWEB-03), the two
 routes of ``answer_gap`` (``GET /agent/gap-card``, ``POST /agent/gap-answer``), the routes of ``browse_gaps``
 (``GET /agent/gap-inbox``: the rows of the web Gaps screen) and ``open_gap`` (``GET /agent/gap-detail``: one gap whole)
 and the open gaps the agent briefs show, over the shop gap corpus after a gap run (``gap_agent_support``)."""
@@ -15,7 +14,6 @@ from graph.gap.gaps import gap_uuid
 from specflow_api_agent_support import FOREIGN, agent_env
 
 GAPS = AGENT_ROUTES["list_gaps"]
-OPEN = AGENT_ROUTES["list_open_gaps"]
 ANSWER = AGENT_ROUTES["answer_gap"]
 INBOX = AGENT_ROUTES["browse_gaps"]
 DETAIL = AGENT_ROUTES["open_gap"]
@@ -134,17 +132,15 @@ async def test_the_story_preview_shows_the_gap_with_its_severity(gaps: GapRig) -
     assert {item["finding_id"]: item["severity"] for item in preview["findings"]}[gap_id] == "major"
 
 
-# --- list_open_gaps: the cards of the gaps that wait for a person -------------------------------------------------
+# --- the card text: what the chat shows before the dialog -------------------------------------------------------
 
 
-async def test_list_open_gaps_shows_each_open_gap_as_a_card_with_its_web_link(cards: GapRig) -> None:
+async def test_the_card_text_holds_the_question_the_options_the_quotes_and_the_web_link(cards: GapRig) -> None:
     gap_id = cards.question_gap()
     whole = await cards.gaps.get_gap(ALPHA, gap_id)
 
-    body = (await cards.get(OPEN, project_id=ALPHA, limit=25)).json()
-    item = {item["gap_id"]: item for item in body["items"]}[gap_id]
+    item = (await cards.get(GAP_CARD_ROUTE, project_id=ALPHA, gap_id=gap_id)).json()
 
-    assert body["project_id"] == ALPHA and body["next_cursor"] is None
     assert (item["severity"], item["kind"], item["title"]) == (whole.severity, whole.kind, whole.title)
     assert item["web_url"] == f"{WEB}/projects/{ALPHA}/gaps?gap={gap_id}"
     card = item["card"]
@@ -157,47 +153,22 @@ async def test_list_open_gaps_shows_each_open_gap_as_a_card_with_its_web_link(ca
     assert card.endswith(f"Web card: {item['web_url']}")
 
 
-async def test_list_open_gaps_lists_blockers_first_and_pages_with_its_cursor(cards: GapRig) -> None:
-    every = (await cards.get(OPEN, project_id=ALPHA, limit=25)).json()["items"]
-    first = (await cards.get(OPEN, project_id=ALPHA, limit=2)).json()
-    rest = (await cards.get(OPEN, project_id=ALPHA, limit=25, cursor=first["next_cursor"])).json()
+async def test_without_the_web_app_address_the_card_has_no_link(gaps: GapRig) -> None:
+    item = (await gaps.get(GAP_CARD_ROUTE, project_id=ALPHA, gap_id=gaps.question_gap())).json()
 
-    ranks = [("blocker", "major", "minor").index(item["severity"]) for item in every]
-    assert len(every) > 2 and ranks == sorted(ranks)
-    assert [item["gap_id"] for item in (*first["items"], *rest["items"])] == [item["gap_id"] for item in every]
+    assert item["web_url"] is None and "Web card:" not in item["card"]
 
 
-async def test_list_open_gaps_leaves_out_gaps_no_longer_open(cards: GapRig) -> None:
+async def test_the_card_names_its_assignee(cards: GapRig) -> None:
     gap_id = cards.question_gap()
-    resolve(cards, gap_id)
+    before = (await cards.get(GAP_CARD_ROUTE, project_id=ALPHA, gap_id=gap_id)).json()
+    await cards.gaps.assign_gap(ALPHA, gap_id, cards.rig.alice_id, by=cards.rig.alice_id)
 
-    listed = (await cards.get(OPEN, project_id=ALPHA, limit=25)).json()["items"]
+    after = (await cards.get(GAP_CARD_ROUTE, project_id=ALPHA, gap_id=gap_id)).json()
 
-    assert gap_id not in {item["gap_id"] for item in listed}
-
-
-async def test_without_the_web_app_address_the_cards_have_no_link(gaps: GapRig) -> None:
-    listed = (await gaps.get(OPEN, project_id=ALPHA)).json()["items"]
-
-    assert listed and all(item["web_url"] is None and "Web card:" not in item["card"] for item in listed)
-
-
-async def test_list_open_gaps_refuses_a_foreign_project_and_a_bad_cursor(cards: GapRig) -> None:
-    foreign = await cards.get(OPEN, project_id=FOREIGN)
-    bad = await cards.get(OPEN, project_id=ALPHA, cursor="not-a-cursor")
-    long = await cards.get(OPEN, project_id=ALPHA, cursor="x" * 513)
-
-    assert (foreign.status_code, foreign.json()["error"]["code"]) == (404, "project_not_found")
-    assert (bad.status_code, bad.json()["error"]["code"]) == (400, "invalid_cursor")
-    assert (long.status_code, long.json()["error"]["code"]) == (400, "invalid_cursor")
-
-
-async def test_without_a_gap_runner_there_are_no_open_gaps(cards: GapRig) -> None:
-    cards.rig.runtime.gaps = None
-
-    response = await cards.get(OPEN, project_id=ALPHA)
-
-    assert response.status_code == 200 and response.json() == {"project_id": ALPHA, "items": [], "next_cursor": None}
+    assert before["assignee"] is None and "**Assigned to:** nobody" in before["card"]
+    assert after["assignee"] == {"name": "Alice", "you": True, "agent_label": None}
+    assert "**Assigned to:** you" in after["card"]
 
 
 # --- answer_gap's routes: the card of the dialog and the answer the person sent ----------------------------------
@@ -298,34 +269,6 @@ async def test_an_answer_to_a_gap_that_changed_since_the_dialog_is_stale(cards: 
     assert (unknown.status_code, unknown.json()["error"]["code"]) == (404, "gap_not_found")
     assert (foreign.status_code, foreign.json()["error"]["code"]) == (404, "project_not_found")
     assert cards.runner.applies == []
-
-
-async def test_list_open_gaps_keeps_the_callers_gaps_or_the_unassigned_ones_and_names_the_assignee(
-    cards: GapRig,
-) -> None:
-    gap_id = cards.question_gap()
-    await cards.gaps.assign_gap(ALPHA, gap_id, cards.rig.alice_id, by=cards.rig.alice_id)
-
-    mine = (await cards.get(OPEN, project_id=ALPHA, assigned="me", limit=25)).json()["items"]
-    unassigned = (await cards.get(OPEN, project_id=ALPHA, assigned="unassigned", limit=25)).json()["items"]
-    every = (await cards.get(OPEN, project_id=ALPHA, limit=25)).json()["items"]
-    card = (await cards.get(GAP_CARD_ROUTE, project_id=ALPHA, gap_id=gap_id)).json()
-
-    assert [item["gap_id"] for item in mine] == [gap_id]
-    assert mine[0]["assignee"] == {"name": "Alice", "you": True, "agent_label": None}
-    assert "**Assigned to:** you" in mine[0]["card"]
-    assert gap_id not in {item["gap_id"] for item in unassigned}
-    assert len(unassigned) == len(every) - 1 and all(item["assignee"] is None for item in unassigned)
-    assert all("**Assigned to:** nobody" in item["card"] for item in unassigned)
-    assert card["assignee"]["you"] is True
-
-
-async def test_list_open_gaps_takes_only_me_or_unassigned(cards: GapRig) -> None:
-    """Schema-bound like every agent route's arguments (422); the tool's input schema makes it unreachable."""
-
-    response = await cards.get(OPEN, project_id=ALPHA, assigned="bob")
-
-    assert (response.status_code, response.json()["error"]["code"]) == (422, "validation_failed")
 
 
 # --- browse_gaps: the rows of the web Gaps screen, with its filters ----------------------------------------------

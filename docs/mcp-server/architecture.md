@@ -279,7 +279,6 @@ argument is a repeated parameter (`spec_ids=A&spec_ids=B`).
 | `list_gaps` | `/gaps` | `project_id`, `story_id`?, `spec_ids`* 1–20, `status`*, `limit` 1–100 (50), `cursor` | `GapList` | `project_not_found`, `story_not_found`, `no_plan` → 404; `invalid_arguments`, `invalid_cursor` → 400 |
 | `browse_gaps` | `/gap-inbox` | `project_id`, `status`* (open, answered, applying), `kind`*, `severity`*, `assigned` (`me`, `unassigned`)?, `assignee`? 1–200 chars, `story_id`?, `limit` 1–100 (50), `cursor` | `GapRowList` | `project_not_found`, `story_not_found`, `no_plan` → 404; `invalid_arguments`, `invalid_cursor` → 400 |
 | `open_gap` | `/gap-detail` | `project_id`, `gap_id` | `GapDetail` | `project_not_found`, `gap_not_found` → 404 |
-| `list_open_gaps` | `/open-gaps` | `project_id`, `assigned` (`me`, `unassigned`)?, `limit` 1–25 (10), `cursor` | `OpenGapList` | `project_not_found` → 404; `invalid_cursor` → 400 |
 | `answer_gap` (its card, before the dialog) | `/gap-card` | `project_id`, `gap_id` | `GapCard` | `project_not_found`, `gap_not_found` → 404; `gap_wrong_state` (not open) → 409 |
 
 `*` a list parameter. Schema-bound as for the earlier routes (`422` if violated; MCP's input schema makes it

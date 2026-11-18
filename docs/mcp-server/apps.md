@@ -10,7 +10,7 @@ tags: [mcp]
 Engineers answer the gaps of the gap module ([../graph/gap/answers.md](../graph/gap/answers.md)) from their own coding
 agent (Claude first). The agent shows an interactive view instead of only text from read and write tools. This
 document holds the research (state of November 2026), the decisions taken so far and the open questions. It is a
-draft: the terminal dialog of D6 is built (`list_open_gaps`, `answer_gap` and the prompt `answer_gaps`,
+draft: the terminal dialog of D6 is built (`browse_gaps`, `open_gap`, `answer_gap` and the prompt `answer_gaps`,
 [tools.md](tools.md)), and so are `browse_gaps` and `open_gap` as text tools (the list and the card of the web Gaps
 screen, "Tools"); the view is not.
 
@@ -36,7 +36,7 @@ screen, "Tools"); the view is not.
 | # | Decision |
 |---|---|
 | D1 | Target: the view in the Claude Desktop Code tab, if the spike shows that it renders there. The Claude Code CLI gets the form of D6, and the text with a link to the web gap card where no form can show |
-| D2 | Assignment is explicit: one assignee per gap, a member of the project, set by any member on the web gap card ([../graph/gap/answers.md](../graph/gap/answers.md) "Who answers"). The MCP side reads it: `list_open_gaps` gets `assigned` ("Deferred designs"). No assignment tools |
+| D2 | Assignment is explicit: one assignee per gap, a member of the project, set by any member on the web gap card ([../graph/gap/answers.md](../graph/gap/answers.md) "Who answers"). The MCP side reads it: `browse_gaps` filters by `assigned` (`me`, `unassigned`) or `assignee` ("Deferred designs"). No assignment tools |
 | D3 | Upload and attachments are out of scope for now |
 | D4 | An answer comes only from a click in the view, through app-only tools. The model may suggest an answer and never sends one. Dismissing stays in the web app |
 | D5 | Next step: the spike ("Delivery"). If the Code tab does not render views, the next target is chosen with the spike's evidence |
@@ -73,7 +73,7 @@ screen, "Tools"); the view is not.
 |---|---|
 | Answer contract | `answer_gap(AnswerInput)`: exactly one of `option_rank` (2 to 4 options, one Recommended, preselected for `major`) and `own_text` (1 to 4,000 characters); optional `edits` from `preview_edits`; `placement` `amend` or `document`; `updated_at` is required (`409 gap_stale`) ([../graph/gap/answers.md](../graph/gap/answers.md)) |
 | Card | Chips, title, question, why, `ABOUT` and `IMPACTS` nodes, quoted lines with document, section and lines, options with an edits preview, Other, placement ([../graph/gap/answers.md](../graph/gap/answers.md) "The question card") |
-| MCP gap tools | `list_gaps` reads, `add_finding` raises a development gap, `list_open_gaps` lists the gaps that wait for a person as cards, `browse_gaps` lists them as the web Gaps screen does and `open_gap` reads one whole, `answer_gap` lets the person answer one in a dialog (D6). AC12: only people answer, resolve or dismiss gaps ([tools.md](tools.md), [access-control.md](access-control.md)) |
+| MCP gap tools | `list_gaps` reads, `add_finding` raises a development gap, `browse_gaps` lists the gaps as the web Gaps screen does (a table; status, kind, severity and assignee filters) and `open_gap` reads one whole, `answer_gap` lets the person answer one in a dialog (D6). AC12: only people answer, resolve or dismiss gaps ([tools.md](tools.md), [access-control.md](access-control.md)) |
 | MCP server | `MCPServer` of `mcp` 2.3.0, stateless HTTP with JSON responses (no event stream), a 1 MiB request limit, a thin proxy to the API's agent routes with the caller's token, one tool registry, no resources ([architecture.md](architecture.md)) |
 | Identity | OAuth through the organization's identity provider. The user is the token's subject. No tool takes a user argument (AC9) |
 | OAuth client | One public client, `specflow-mcp`, with loopback redirects on port 8765 only ([auth.md](auth.md)) |
@@ -114,7 +114,6 @@ the web gap card (`/projects/{pid}/gaps?gap=<id>`).
 | `preview_gap_edits` | app | none | `POST /agent/gaps/{gap_id}/edits_preview` | Own text to edits (a diff) |
 | `submit_gap_answer` | app | none | `POST /agent/gaps/{gap_id}/answer` | `option_rank` or `own_text`, `edits`, `placement`, `updated_at` |
 | `suggest_gap_answer` | model | Answer | none | The model's draft, shown preselected; it writes nothing |
-| `list_open_gaps` | model | none | `GET /agent/open-gaps` | Built: the gaps that wait for a person, each as a ready card for the chat and `web_url` |
 | `answer_gap` | model | none | `GET /agent/gap-card`, `POST /agent/gap-answer` | Built: takes only the gap id and asks the person in a dialog ("Terminal dialogs", D6) |
 
 `list_gaps` stays as it is for agents that build a story. Not planned: a dismiss tool (D4), assignment tools (D2),
@@ -141,14 +140,14 @@ view sets it with `textContent`, never `innerHTML`.
 Where no view renders (the Claude Code CLI), the person answers in a form that Claude Code shows on the server's
 request (D6). The model calls `answer_gap` with the gap id only; it never sees the form and cannot write the answer.
 People never need to know the word "form": they ask in their own words ("which spec questions are open?", "let me
-answer the gaps"), and the tool descriptions lead Claude to `list_open_gaps` and `answer_gap`; the prompt
+answer the gaps"), and the tool descriptions lead Claude to `browse_gaps`, `open_gap` and `answer_gap`; the prompt
 `answer_gaps` is the slash command for the same. The server instructions carry no gap rule: they are at the client's
-2048-character limit for the longest valid server URL. As built: [tools.md](tools.md) "list_open_gaps", "answer_gap"
+2048-character limit for the longest valid server URL. As built: [tools.md](tools.md) "browse_gaps", "open_gap", "answer_gap"
 and "The answer_gaps prompt".
 
 | Step | What happens |
 |---|---|
-| 0 | The model reads the gap with `list_open_gaps` and shows its card in the chat: title, question, why, each option with its detail, the quoted lines, the web link. The card is ready text from the server; nothing in it is folded |
+| 0 | The model lists the gaps with `browse_gaps` as a table only; when the person picks one, it reads it with `open_gap` and shows its card in the chat: title, question, why, each option with its detail, the quoted lines, the web link. The card is ready text from the server; nothing in it is folded |
 | 1 | Right after the card, without asking the person first, the model calls `answer_gap(project_id, gap_id)`; a person who does not want to answer cancels the dialog |
 | 2 | On protocol 2026-07-28 the server answers with `input_required`: one form-mode elicitation request and a sealed `requestState`. No session and no event stream are needed |
 | 3 | Claude Code shows the form: a dialog in the terminal, a card in the Desktop Code tab and at claude.ai/code |
@@ -276,9 +275,9 @@ would need a tunnel or a public endpoint and a second OAuth client (Security).
 | P0 spike, 2 to 3 days | A hello-world view on our server. Check: the Desktop Code tab, Desktop chat and claude.ai; our sign-in on each; the identity of a call from the view; whether the model sees the result's `_meta`; Apps with the stateless server; the MCP settings that the Code tab reads | A support table with evidence |
 | P1 browse | Built as text tools: `browse_gaps`, `open_gap`. Next: `get_gap`, the Browse and Answer screens; answers through `web_url` | The list and the card show in the target host; the CLI gets the text |
 | P2 answer | Options, Other with preview, placement, reload, `suggest_gap_answer`, "Ask Claude"; AC12 changed in [access-control.md](access-control.md) | An answer from the view moves the gap to `answered` with `via` `mcp_app` |
-| P3 terminal form | Built: `list_open_gaps`, `answer_gap` with the `input_required` round trip, the prompt `answer_gaps`. Deferred: the confirm round for own answers, the shared `requestState` key ([later.md](later.md)) | An answer from the form in the Claude Code CLI moves the gap to `answered` with `via` `elicitation` |
+| P3 terminal form | Built: `browse_gaps` (a table only), `open_gap` (the card), `answer_gap` with the `input_required` round trip, the prompt `answer_gaps`. Deferred: the confirm round for own answers, the shared `requestState` key ([later.md](later.md)) | An answer from the form in the Claude Code CLI moves the gap to `answered` with `via` `elicitation` |
 
-Deferred: the `assigned` argument of `list_open_gaps` (D2), upload (D3).
+Deferred: upload (D3).
 
 ## Changes by area
 
@@ -313,9 +312,9 @@ Deferred: the `assigned` argument of `list_open_gaps` (D2), upload (D3).
 Assignment (D2). Three ways were weighed: derived (gaps about the stories I hold, and gaps I raised), explicit (a
 `gap_assignment` table), or both. Explicit was chosen and is built on the web: a `gap_assignment` row per gap,
 `PUT /gaps/{gap_id}/assignee`, and `GET /gaps?assigned_to=me|none|<user id>` over `GapService.list_gaps(assigned_to=)`.
-Next, for the agent: `list_open_gaps` gets the argument `assigned` (`all`, the default; `mine`; `unassigned`), sent to
-`GET /agent/open-gaps` as `assigned_to` (`me` or `none`). The route takes the agent's user (`AgentUserDep`), turns
-`me` into its user id and passes `assigned_to` to `list_gaps`; each card gets an "Assigned to" line. Tools that
+For the agent, built: `browse_gaps` takes `assigned` (`me` or `unassigned`) or `assignee` (a member's name). The route
+takes the agent's user (`AgentUserDep`), turns `me` into its user id and passes `assigned_to` to `list_gaps`; each
+row and each card names its assignee. Tools that
 assign (`take_gap`, `release_gap`) stay out of scope.
 
 Upload (D3). Three meanings were weighed: the file becomes spec source through the existing corpus upload, the

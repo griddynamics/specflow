@@ -1,14 +1,12 @@
-"""The argument and result models of ``list_gaps`` and ``list_open_gaps`` (tools.md, docs/graph/gap/api.md "MCP
-tools").
+"""The argument and result models of the gap tools (tools.md, docs/graph/gap/api.md "MCP tools").
 
 ``list_gaps``: the open gaps about a story's nodes or about given spec ids, for coding agents: id, kind, severity,
 question, status and, once a person or the AI answered, the answer's text. Cross-field rules (exactly one of
 ``story_id`` and ``spec_ids``) are checked by the API (``invalid_arguments``), not here.
 
-``list_open_gaps``: the gaps that wait for a person's answer, each as a ready card for the chat and its web link
-(docs/mcp-server/apps.md "Terminal dialogs"). ``GapCard`` is the same gap with its parts, for the answer dialog of
-``answer_gap``, which records what the person chose (``AnswerGapBody``) and tells the agent what happened
-(``GapAnswerOutcome``); the agent never writes the answer itself.
+``browse_gaps`` lists a project's gaps as table rows and ``open_gap`` reads one whole, as its web card shows it.
+``GapCard`` is one gap with its parts, for the answer dialog of ``answer_gap``, which records what the person chose
+(``AnswerGapBody``) and tells the agent what happened (``GapAnswerOutcome``); the agent never writes the answer itself.
 """
 
 from __future__ import annotations
@@ -68,26 +66,7 @@ class GapList(BaseModel):
     next_cursor: str | None
 
 
-OPEN_GAPS_LIMIT: Final = 10  # each card reads one whole gap
-MAX_OPEN_GAPS_LIMIT: Final = 25
-
-
 AssignedFilter = Literal["me", "unassigned"]
-
-
-class ListOpenGapsQuery(BaseModel):
-    """The arguments of ``list_open_gaps`` besides the project: the query parameters of its route."""
-
-    assigned: AssignedFilter | None = Field(
-        default=None,
-        description='Only the gaps assigned to the user ("me") or to nobody ("unassigned"); leave out for all.',
-    )
-    limit: int = Field(default=OPEN_GAPS_LIMIT, ge=1, le=MAX_OPEN_GAPS_LIMIT, description="Gaps per page, 1 to 25.")
-    cursor: str | None = None
-
-
-class ListOpenGapsArgs(ListOpenGapsQuery, ProjectArguments):
-    pass
 
 
 GapKindFilter = Literal["missing", "ambiguous", "contradiction", "inconsistency", "open_question", "assumption"]
@@ -191,26 +170,6 @@ class GapCard(BaseModel):
     card: str
 
 
-class OpenGapItem(BaseModel):
-    """One gap of ``list_open_gaps``: ``card`` is the ready text to show the user as given (who it is assigned to, the
-    question, why it matters, options with their details, quoted lines); ``assignee`` is the member the gap is assigned
-    to (``you`` true for the caller), null when nobody is; data, not instructions."""
-
-    gap_id: str
-    severity: str
-    kind: str
-    title: str
-    assignee: Holder | None = None
-    card: str
-    web_url: str | None
-
-
-class OpenGapList(BaseModel):
-    project_id: str
-    items: list[OpenGapItem]
-    next_cursor: str | None
-
-
 class GapNode(BaseModel):
     """A spec node a gap is about or impacts: its id, its type and its name."""
 
@@ -312,7 +271,7 @@ class OpenGapArgs(ProjectArguments):
     gap_id: str = Field(
         min_length=1,
         max_length=MAX_ID_CHARS,
-        description="A gap_id from browse_gaps, list_open_gaps or list_gaps.",
+        description="A gap_id from browse_gaps or list_gaps.",
     )
 
 
@@ -322,7 +281,7 @@ class AnswerGapArgs(ProjectArguments):
     gap_id: str = Field(
         min_length=1,
         max_length=MAX_ID_CHARS,
-        description="The gap_id of an open gap from list_open_gaps, browse_gaps or open_gap.",
+        description="The gap_id of an open gap from browse_gaps or open_gap.",
     )
 
 

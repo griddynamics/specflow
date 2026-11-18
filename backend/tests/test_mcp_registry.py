@@ -95,7 +95,6 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
         "list_gaps",
         "browse_gaps",
         "open_gap",
-        "list_open_gaps",
         "answer_gap",
         "add_finding",
         "report_task",
@@ -103,7 +102,7 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
     ]
     for tool in TOOLS:
         assert ("project_id" in tool.arguments.model_fields) == tool.project_scoped, tool.name
-    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 26)]
+    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 25)]
 
 
 async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_which_owns_the_membership(valid_env):
@@ -207,7 +206,6 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         "list_feature_tasks",
         "list_features",
         "list_gaps",
-        "list_open_gaps",
         "list_projects",
         "list_stories",
         "list_tasks",
@@ -245,7 +243,6 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         ("list_gaps", descriptions.LIST_GAPS_DESCRIPTION),
         ("browse_gaps", descriptions.BROWSE_GAPS_DESCRIPTION),
         ("open_gap", descriptions.OPEN_GAP_DESCRIPTION),
-        ("list_open_gaps", descriptions.LIST_OPEN_GAPS_DESCRIPTION),
         ("answer_gap", descriptions.ANSWER_GAP_DESCRIPTION),
         ("list_areas", descriptions.AREAS_DESCRIPTION),
         ("list_stories", descriptions.STORIES_DESCRIPTION),
@@ -299,13 +296,10 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
         "list_stories",
         "list_gaps",
         "browse_gaps",
-        "list_open_gaps",
     }
-    cards = {**limit, "maximum": 25, "default": 10, "description": "Gaps per page, 1 to 25."}  # one gap read per card
     for name, schema in paged.items():
         properties = schema["properties"]
-        expected = cards if name == "list_open_gaps" else limit
-        assert {k: v for k, v in properties["limit"].items() if k != "title"} == expected, name
+        assert {k: v for k, v in properties["limit"].items() if k != "title"} == limit, name
         assert {t["type"] for t in properties["cursor"]["anyOf"]} == {"string", "null"}, name
         assert "cursor" not in schema.get("required", []) and "limit" not in schema.get("required", []), name
     assert set(schemas["list_projects"]["properties"]) == {"limit", "cursor"}

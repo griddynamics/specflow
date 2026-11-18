@@ -8,7 +8,7 @@ Scenarios: ``ok``, ``no_plan``, ``graph_down``, ``database_down``, ``bug``; and,
 executor so the story calls can write: ``free`` (as it is), ``claimed`` (Checkout held by Ben), ``applying`` (a plan
 persist running), ``held_applying`` (Checkout held by Alice, token 1, and a plan persist running); ``gaps``: the API
 over the shop gap corpus after a gap run and the mini plan of ``gap_agent_support`` (open gaps in briefs,
-``list_gaps``, the rows of ``browse_gaps``, the card of ``open_gap`` and the cards of ``list_open_gaps``, which link
+``list_gaps``, the rows of ``browse_gaps`` and the card of ``open_gap``, which link
 to the web app at ``https://app.example.test``).
 """
 

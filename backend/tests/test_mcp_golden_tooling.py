@@ -1,6 +1,6 @@
 """The contract gate of the MCP tooling tools (MCP-TOOLING D29): ``list_areas``, ``list_stories``, ``preview_story``,
 ``claim_story``, ``release_story``, ``get_story_brief``, ``trace``, ``get_node``, ``search_spec``, ``similar``,
-``get_evidence``, ``path``, ``expand_brief``, ``list_gaps``, ``browse_gaps``, ``open_gap``, ``list_open_gaps``,
+``get_evidence``, ``path``, ``expand_brief``, ``list_gaps``, ``browse_gaps``, ``open_gap``,
 ``add_finding``, ``report_task`` and ``complete_story``, and the open gaps the briefs show (scenario ``gaps``), frozen
 as golden files NEXT TO the split's (whose files stay as the split froze them, ``tools/list`` aside).
 
@@ -130,7 +130,6 @@ GAP_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
         "list_gaps",
         {"project_id": ALPHA, "spec_ids": ["REQ::FR::PLACE_ORDER", "QST::CANCEL_PAID_ORDER"], "limit": 1},
     ),
-    "list_open_gaps_first_page": ("list_open_gaps", {"project_id": ALPHA, "limit": 2}),
     "browse_gaps_first_page": ("browse_gaps", {"project_id": ALPHA, "limit": 3}),
     "browse_gaps_unassigned_questions": (
         "browse_gaps",

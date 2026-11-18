@@ -97,7 +97,7 @@ def _template(tail: str) -> str:
     return re.sub(r"/gap/runs/(?!latest)[^/]+/", "/gap/runs/{run_id}/", tail)
 
 
-async def test_fr_gweb_03_mcp_tool_list_gaps_list_open_gaps(monkeypatch, valid_env) -> None:
+async def test_fr_gweb_03_mcp_tool_list_gaps(monkeypatch, valid_env) -> None:
     """Given an open gap on a story, then `list_gaps` returns it and the story brief lists it.
 
     The open gap about ``REQ::FR::PLACE_ORDER`` (the corpus's stated question) and the story ``STORY::A::API`` whose

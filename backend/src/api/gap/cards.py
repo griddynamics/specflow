@@ -26,7 +26,6 @@ from agent_contracts import (
     GapNode,
     GapRow,
     Holder,
-    OpenGapItem,
 )
 from api.agent_views import Holders
 from graph.gap import ClarificationView, Edit, EventRow, GapView, NodeRef, OptionRow, WitnessView
@@ -145,20 +144,6 @@ def gap_card(gap: GapView, project_id: str, public_url: str | None, assignee: Ho
         card="",
     )
     return card.model_copy(update={"card": card_text(card)})
-
-
-def open_item(card: GapCard) -> OpenGapItem:
-    """A card as ``list_open_gaps`` lists it: the text to show and what identifies the gap."""
-
-    return OpenGapItem(
-        gap_id=card.gap_id,
-        severity=card.severity,
-        kind=card.kind,
-        title=card.title,
-        assignee=card.assignee,
-        card=card.card,
-        web_url=card.web_url,
-    )
 
 
 def gap_row(gap: GapView, assignee: Holder | None) -> GapRow:

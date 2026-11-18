@@ -107,7 +107,7 @@
   "gap_not_found": {
     "content": [
       {
-        "text": "{\"error\":{\"code\":\"gap_not_found\",\"message\":\"The gap is not in the project. Call list_open_gaps for the gaps that wait for an answer.\"}}",
+        "text": "{\"error\":{\"code\":\"gap_not_found\",\"message\":\"The gap is not in the project. Call browse_gaps for the gaps of the project.\"}}",
         "type": "text"
       }
     ],
@@ -115,7 +115,7 @@
     "structuredContent": {
       "error": {
         "code": "gap_not_found",
-        "message": "The gap is not in the project. Call list_open_gaps for the gaps that wait for an answer."
+        "message": "The gap is not in the project. Call browse_gaps for the gaps of the project."
       }
     }
   },

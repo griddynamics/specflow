@@ -143,11 +143,6 @@
       "summary": "Shows one gap whole, as its web card does: question, quotes, options, answer, history and reach."
     },
     {
-      "name": "list_open_gaps",
-      "read_only": true,
-      "summary": "Lists the gaps that wait for a person's answer, each as a ready card with its web link."
-    },
-    {
       "name": "answer_gap",
       "read_only": false,
       "summary": "Lets you answer one open gap in a dialog of your coding agent; the answer is recorded as yours."

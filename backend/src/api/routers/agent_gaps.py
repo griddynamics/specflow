@@ -1,16 +1,14 @@
 """The agent routes of gaps: ``list_gaps`` (``GET /agent/gaps``; tools.md "list_gaps", docs/graph/gap/api.md "MCP
-tools", FR-GWEB-03), ``list_open_gaps`` (``GET /agent/open-gaps``: the gaps that wait for a person's answer, as cards
-for the chat, docs/mcp-server/apps.md "Terminal dialogs") and the two routes of ``answer_gap``: ``GET /agent/gap-card``
-(the card its dialog shows) and ``POST /agent/gap-answer`` (what the person chose in the dialog).
+tools", FR-GWEB-03), ``browse_gaps``, ``open_gap`` and the two routes of ``answer_gap``: ``GET /agent/gap-card`` (the
+card its dialog shows) and ``POST /agent/gap-answer`` (what the person chose in the dialog).
 
 Same ``AgentRoute``, auth and membership-first dependency chain as ``api.routers.agent``. Exactly one of ``story_id``
 and ``spec_ids`` (``invalid_arguments`` otherwise); a story is resolved through the plan to the nodes its tasks
 implement (``no_plan``, ``story_not_found`` as for ``trace``), then ``GapService.list_gaps`` filters by ``about``
 (aliases resolve). Agents see every open gap, also the ones a run held back from the inbox's default view
 (``held_back`` is a people's inbox concern). Without a configured gap runner the project has no gaps: the list is
-empty. ``list_open_gaps`` lists what the web inbox's default view lists (open, route ``ask``, not held back) and reads
-each gap whole for its card (``api.gap.cards``); the card links to the web app at ``PUBLIC_URL``. Nothing here writes;
-logs carry no question or answer text (NFR-GSEC-02).
+empty. A card links to the web app at ``PUBLIC_URL``. Nothing here writes; logs carry no question or answer text
+(NFR-GSEC-02).
 
 ``browse_gaps`` (``GET /agent/gap-inbox``) lists what the web Gaps screen lists (route ``ask``, held back or not) with
 its filters, as rows that name each assignee; ``open_gap`` (``GET /agent/gap-detail``) reads one gap whole, in any
@@ -40,15 +38,13 @@ from agent_contracts import (
     GapList,
     GapRowList,
     ListGapsQuery,
-    ListOpenGapsQuery,
-    OpenGapList,
 )
 from api.agent_reads import agent_reads
 from api.agent_views import holders_of
 from api.deps import AgentProjectDep, AgentUserDep, RuntimeDep
 from api.errors import ApiError, invalid_arguments, invalid_cursor
 from api.gap.answering import answer_invalid, gap_not_found, gap_stale, gap_wrong_state, record_answer
-from api.gap.cards import detail_user_ids, gap_card, gap_detail, gap_row, open_item
+from api.gap.cards import detail_user_ids, gap_card, gap_detail, gap_row
 from api.routers.agent import AgentRoute, cursor_within_limit
 from api.runtime import Runtime
 from api.write_support import plan_read, written
@@ -122,44 +118,6 @@ def public_url(runtime: Runtime) -> str | None:
     """The web app's address the cards link to (``PUBLIC_URL``), None when unset."""
 
     return None if runtime.settings.mcp is None else runtime.settings.mcp.public_url
-
-
-@router.get("/open-gaps", response_model=OpenGapList)
-async def list_open_gaps(
-    project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, args: Annotated[ListOpenGapsQuery, Query()]
-) -> OpenGapList:
-    """The gaps that wait for a person's answer, blockers first, then newest first, one page of cards, each naming its
-    assignee; ``assigned`` keeps the caller's gaps (``me``) or those nobody is assigned to (``unassigned``). A gap
-    dismissed between the page and its read is left out."""
-
-    if args.cursor is not None:
-        cursor_within_limit(args.cursor)
-    graph_id = str(project.id)
-    if runtime.gaps is None:
-        return OpenGapList(project_id=graph_id, items=[], next_cursor=None)
-    service = await runtime.gaps.service()
-    try:
-        page = await service.list_gaps(
-            graph_id,
-            status=["open"],
-            route=["ask"],
-            held_back=False,
-            assigned_to=_assigned_to(args.assigned, user.id),
-            cursor=args.cursor,
-            limit=args.limit,
-        )
-    except AnswerInvalidError as error:
-        raise _refused(error) from None
-    base = public_url(runtime)
-    holders = await holders_of(runtime, project.id, user.id, [gap.assigned_to for gap in page.gaps])
-    items = []
-    for gap in page.gaps:
-        try:
-            whole = await service.get_gap(graph_id, gap.gap_id)
-        except GapNotFoundError:
-            continue
-        items.append(open_item(gap_card(whole, graph_id, base, holders.of(whole.assigned_to))))
-    return OpenGapList(project_id=graph_id, items=items, next_cursor=page.next)
 
 
 def _assigned_to(assigned: AssignedFilter | None, caller: uuid.UUID) -> str | None:

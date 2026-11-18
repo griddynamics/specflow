@@ -63,8 +63,8 @@ MESSAGES: Final[Mapping[ErrorCode, str]] = {
     INVALID_ARGUMENTS: "The arguments do not fit together. Check the tool description and try again.",
     UNKNOWN_RELATION: "A relation is not in the ontology of the project. Leave relations out to use them all.",
     FINDING_LIMIT: "You have too many open findings here. Ask a person to resolve some first.",
-    GAP_NOT_FOUND: "The gap is not in the project. Call list_open_gaps for the gaps that wait for an answer.",
-    GAP_WRONG_STATE: "The gap no longer waits for an answer. Call list_open_gaps for the open gaps.",
+    GAP_NOT_FOUND: "The gap is not in the project. Call browse_gaps for the gaps of the project.",
+    GAP_WRONG_STATE: "The gap no longer waits for an answer. Call browse_gaps with status open for the open gaps.",
     GAP_STALE: "The gap changed while the user answered and nothing was recorded. Show its card and ask again.",
     ANSWER_INVALID: "The answer cannot be recorded from the dialog. The user can answer on the web card of the gap.",
 }
