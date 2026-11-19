@@ -155,9 +155,7 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await applied;
     await expect(page.getByRole("dialog")).toHaveCount(0);
     const toast = page.getByTestId("toast").filter({ hasText: "Resolving 1 gap" });
-    await expect(toast).toContainText(
-      /One rebuild applies the staged answers \(build gb-apply-\d+\)\. The gaps become Resolved when it ends\./,
-    );
+    await expect(toast).toContainText("One rebuild applies the staged answers. The gaps become Resolved when it ends.");
 
     // While the rebuild runs: the button is busy, the row says Resolving… (a spinner and the word) and its card is read-only.
     await expect(resolve).toHaveText(RESOLVING);

@@ -692,8 +692,11 @@ class Recorder:
         )
         instant = run.now() if added or changed or pointer else None
         now = None if instant is None else instant.isoformat(timespec="milliseconds")
-        write, ours = _rewrite(await self._current(known.gap_id), known, now) if run.replay else (True, True)
+        current = await self._current(known.gap_id) if run.replay else None
+        write, ours = _rewrite(current, known, now) if run.replay else (True, True)
         if not ours:
+            if released_since(known, current):
+                self.outcome.releases.append(known.gap_id)
             return 0, False
         clr: str | None = None
         async with self._transaction(write=write) as tx:
@@ -929,6 +932,16 @@ def _rewrite(current: StoredGap | None, known: StoredGap, stamp: str | None) -> 
     if current is not None and stamp is not None and current.props.get("updated_at") == stamp:
         return False, True
     return False, False
+
+
+def released_since(known: StoredGap, current: StoredGap | None) -> bool:
+    """On a replay of a re-check a person changed since: whether the gap's tasks are free now. A blocker (not a
+    development gap that holds its story) that is no longer a blocker, or has resolved, holds no task; releasing is
+    idempotent, so the run releases them as its first attempt would have."""
+
+    if current is None or known.props.get("severity") != BLOCKER or known.props.get("blocking") == YES:
+        return False
+    return current.props.get("severity") != BLOCKER or current.status == RESOLVED
 
 
 def reads_of(existing: Sequence[StoredGap], decision: SiteDecision) -> tuple[StoredGap, ...]:

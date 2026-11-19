@@ -522,7 +522,7 @@ test("FR-GWEB-04: Resolve gaps names the staged count; it is off with a reason w
   assert.equal(resolveView(0, true).state, "busy");
   assert.deepEqual(resolvedToast({ gapIds: ["A", "B"], clrIds: ["C1", "C2"], amendments: [], build: "gb-7" }), {
     title: "Resolving 2 gaps",
-    message: "One rebuild applies the staged answers (build gb-7). The gaps become Resolved when it ends.",
+    message: "One rebuild applies the staged answers. The gaps become Resolved when it ends.",
   });
   assert.equal(resolvedToast({ gapIds: ["A"], clrIds: ["C1"], amendments: [], build: null }).title, "Resolving 1 gap");
   assert.equal(NOTHING_STAGED_TOAST.title, "Nothing to resolve");

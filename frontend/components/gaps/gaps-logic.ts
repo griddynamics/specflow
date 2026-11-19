@@ -418,10 +418,9 @@ export function resolveView(staged: number, resolving: boolean, failed = false):
 
 /** The toast after "Resolve gaps" started the rebuild. */
 export function resolvedToast(r: ApplyResult): { title: string; message: string } {
-  const build = r.build === null ? "" : ` (build ${r.build})`;
   return {
     title: `Resolving ${gapsText(r.gapIds.length)}`,
-    message: `One rebuild applies the staged answers${build}. The gaps become Resolved when it ends.`,
+    message: "One rebuild applies the staged answers. The gaps become Resolved when it ends.",
   };
 }
 

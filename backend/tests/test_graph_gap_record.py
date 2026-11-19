@@ -6,15 +6,25 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from gap_detection_support import PROJECT, MiniGraph
 from gap_port_fakes import MemoryGapRecords
 from gap_support import MemoryGapExecutor
 from graph.core import load_ontology
-from graph.gap.gaps import cite_key, link_key, quote_hash, read_gaps
+from graph.gap.gaps import StoredGap, cite_key, link_key, quote_hash, read_gaps
 from graph.gap.identity import gap_signature, witness_entry
 from graph.gap.models import GapReport, Witness, WitnessRef
 from graph.gap.steps.detect import Seed
-from graph.gap.steps.record import RecordRun, SiteDecision, counted, outcome_counts, record_sites, report_signature
+from graph.gap.steps.record import (
+    RecordRun,
+    SiteDecision,
+    counted,
+    outcome_counts,
+    record_sites,
+    released_since,
+    report_signature,
+)
 from graph.gap.steps.sites import Site
 
 QUESTION = "Can a customer cancel a paid order?"
@@ -282,3 +292,25 @@ def test_a_report_signature_counts_each_graph_fact_of_the_seed_it_names() -> Non
     found = GapReport(verdict="gap", kind="missing", question="?", about=seed.about, witness=(WitnessRef(fact=0),))
 
     assert report_signature(one, found) == seed.signature
+
+
+def stored(severity: str, status: str = "open", **props: str) -> StoredGap:
+    return StoredGap("GAP::R", {"severity": severity, "status": status, **props})
+
+
+@pytest.mark.parametrize(
+    ("known", "current", "released"),
+    [
+        (stored("blocker"), stored("major", "answered"), True),  # refined below blocker, then answered by a person
+        (stored("blocker"), stored("blocker", "resolved"), True),  # resolved since (a pointer, or a person)
+        (stored("blocker"), stored("blocker", "answered"), False),  # still a blocker: it still holds its tasks
+        (stored("blocker"), None, False),  # dismissed since: the dismissal releases its tasks itself
+        (stored("major"), stored("minor", "answered"), False),  # was no blocker: it held nothing
+        (stored("blocker", blocking="yes"), stored("major", "answered"), False),  # a development gap holds its story
+    ],
+    ids=["refined", "resolved", "still-blocker", "gone", "never-held", "development"],
+)
+def test_a_replayed_recheck_a_person_changed_releases_tasks_only_when_the_gap_holds_none(
+    known: StoredGap, current: StoredGap | None, *, released: bool
+) -> None:
+    assert released_since(known, current) is released
