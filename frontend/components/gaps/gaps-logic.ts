@@ -145,11 +145,10 @@ export function patchOf(key: keyof GapFilters, v: string): Partial<GapFilters> {
 
 /**
  * The `list_gaps` query of the inbox: route `ask` (the inbox shows the questions for people; AI answers are not in it), the stored
- * statuses of the Status filter (Staged is `answered` and `applying`), the other chosen filters, and `held_back` (false: the default
- * view; true: "More found in this run", FR-GRTE-06).
+ * statuses of the Status filter (Staged is `answered` and `applying`) and the other chosen filters.
  */
-export function gapQuery(f: GapFilters, heldBack: boolean): GapQuery {
-  const q: GapQuery = { route: ["ask"], heldBack, status: STATUS_QUERY[f.status] };
+export function gapQuery(f: GapFilters): GapQuery {
+  const q: GapQuery = { route: ["ask"], status: STATUS_QUERY[f.status] };
   if (f.kind !== "all") q.kind = [f.kind];
   if (f.severity !== "all") q.severity = [f.severity];
   if (f.story !== "all") q.storyId = f.story;

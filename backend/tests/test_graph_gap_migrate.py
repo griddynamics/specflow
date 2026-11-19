@@ -103,7 +103,7 @@ async def test_fr_gdev_07_open_and_resolved_findings_become_development_gaps_wit
         "route": "ask",
         "detector": "development",
     }
-    assert open_gap.props["blocking"] == "yes" and open_gap.props["held_back"] == "no"
+    assert open_gap.props["blocking"] == "yes"
     assert (open_gap.props["story_id"], open_gap.props["created_by"]) == (STORY, "agent-1")
     assert open_gap.props["created_at"] == CREATED and open_gap.props["signature"] == signature
     assert open_gap.about_ids == ("REQ::FR::CARD_PAYMENT",)

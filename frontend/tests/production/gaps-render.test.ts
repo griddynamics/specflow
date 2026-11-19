@@ -46,7 +46,6 @@ const gap = (over: Partial<Gap> = {}): Gap => ({
   question: "What happens when a customer cancels an order that is already paid?",
   why: "Checkout and refunds depend on it.",
   blocking: false,
-  heldBack: false,
   createdAt: "2026-01-01T10:00:00Z",
   updatedAt: "2026-01-01T10:00:00Z",
   about: [{ specId: "REQ::FR::PLACE_ORDER", label: "Requirement", name: "Place order", aliases: [] }],

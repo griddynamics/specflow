@@ -330,7 +330,7 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
   }) => {
     const pid = await shopProject(page);
     await page.goto(`/projects/${pid}/gaps`);
-    await expect(inboxRows(page)).toHaveCount(4);
+    await expect(inboxRows(page)).toHaveCount(5);
     await inboxRows(page).filter({ hasText: CANCEL_TITLE }).getByRole("button").first().click();
     const c = card(page, CANCEL_TITLE);
     await c.getByTestId("gap-dismiss").click();
@@ -346,7 +346,7 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     expect(body(await dismissed)).toEqual({ reason: "not spec" });
     expect(body(await rule)).toEqual({ scope: "section", value: "doc:ORDERS › Orders › Cancel an order", reason: "not spec" });
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(inboxRows(page)).toHaveCount(3);
+    await expect(inboxRows(page)).toHaveCount(4);
     await expect(page).toHaveURL(new RegExp(`/projects/${pid}/gaps$`));
     await page.getByTestId("gaps-tab-noise").click();
     await expect(page.getByTestId("noise-rule").filter({ hasText: "doc:ORDERS › Orders › Cancel an order" })).toHaveCount(1);
@@ -404,7 +404,7 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     allowConsoleErrors(page, /status of 400/);
     const pid = await shopProject(page);
     await page.goto(`/projects/${pid}/gaps`);
-    await expect(inboxRows(page)).toHaveCount(4);
+    await expect(inboxRows(page)).toHaveCount(5);
     await page.getByTestId("gaps-raise").click();
     const d = page.getByRole("dialog", { name: "Raise a gap" });
     await d.getByTestId("raise-question").fill("Refunds?");
@@ -430,7 +430,7 @@ test.describe("Gaps: answering and the other writes on production routes", { tag
     await expect(c.getByTestId("gap-meta")).toContainText("Raised by a person");
     await expect(page).toHaveURL(/\?gap=GAP%3A%3APERSON\d+$/);
     await page.keyboard.press("Escape");
-    await expect(inboxRows(page)).toHaveCount(5);
+    await expect(inboxRows(page)).toHaveCount(6);
   });
 
   test("FR-GWEB-04: the noise report marks a section as not spec and lists, adds and removes noise rules", async ({ page }) => {

@@ -393,7 +393,6 @@ class Closer:
             "route": "ask",
             "signature": signature,
             "blocking": NO,
-            "held_back": NO,
             "run_id": run.run_id,
             "created_by": RUN_ACTOR,
             "created_at": now,

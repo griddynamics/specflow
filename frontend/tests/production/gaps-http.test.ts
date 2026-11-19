@@ -74,7 +74,6 @@ const wireGap = (over: Record<string, unknown> = {}) => ({
   created_at: T0,
   updated_at: T0,
   blocking: false,
-  held_back: false,
   about: [{ spec_id: "REQ::FR::PLACE_ORDER", label: "Requirement", name: "Place order" }],
   impacts: [{ spec_id: "REQ::FR::REFUND", label: "Requirement", name: "Refund" }],
   witness: [{ fragment_id: "FRAG::orders::3", quote: "A customer may cancel an order.", line_start: 12, line_end: 14 }],
@@ -119,7 +118,6 @@ test("FR-GWEB-04: toGap reads a gap with its nodes, quotes, options by rank, the
     headingPath: [],
   });
   assert.deepEqual(g.reach, { stories: ["STORY::CHECKOUT"], tasks: ["TASK::REFUND"] });
-  assert.equal(g.heldBack, false);
 });
 
 test("FR-GWEB-04: a list item has no options and no reach; a second recommendation never shows; any other shape is invalid_response", () => {
@@ -133,7 +131,6 @@ test("FR-GWEB-04: a list item has no options and no reach; a second recommendati
   );
   assert.throws(() => toGap(wireGap({ kind: "idea" })), invalid);
   assert.throws(() => toGap(wireGap({ about: [{ spec_id: 1 }] })), invalid);
-  assert.throws(() => toGap(wireGap({ held_back: "yes" })), invalid);
 });
 
 test("FR-GWEB-04: toNoise reads the latest finished run's sections; before any finished run there is none", () => {
@@ -165,9 +162,8 @@ test("FR-GWEB-04: toNoise reads the latest finished run's sections; before any f
   assert.throws(() => toNoise({ status: "sleeping" }), invalid);
 });
 
-test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for the open gaps of route ask and held_back=false; the held-back view for held_back=true; list filters repeat", () => {
-  assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS, false)), "status=open&route=ask&held_back=false");
-  assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS, true)), "status=open&route=ask&held_back=true");
+test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for the open gaps of route ask, every one a run found (no held_back); list filters repeat", () => {
+  assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS)), "status=open&route=ask");
   const f = {
     ...DEFAULT_GAP_FILTERS,
     status: "all" as const,
@@ -175,15 +171,12 @@ test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for the open gaps of route as
     severity: "blocker" as const,
   };
   assert.equal(
-    gapQueryString(gapQuery({ ...f, story: "STORY::A", assigned: "me" }, false)),
-    "status=open&status=answered&status=applying&status=resolved&kind=missing&severity=blocker&route=ask&story_id=STORY%3A%3AA&assigned_to=me&held_back=false",
+    gapQueryString(gapQuery({ ...f, story: "STORY::A", assigned: "me" })),
+    "status=open&status=answered&status=applying&status=resolved&kind=missing&severity=blocker&route=ask&story_id=STORY%3A%3AA&assigned_to=me",
   );
-  assert.equal(
-    gapQueryString(gapQuery({ ...DEFAULT_GAP_FILTERS, assigned: "none" }, false)),
-    "status=open&route=ask&assigned_to=none&held_back=false",
-  );
-  assert.equal(gapQueryString({ heldBack: false, cursor: "c2" }), "held_back=false&cursor=c2");
-  // The Plan's read: no route, no held_back (both), the open statuses, up to 200.
+  assert.equal(gapQueryString(gapQuery({ ...DEFAULT_GAP_FILTERS, assigned: "none" })), "status=open&route=ask&assigned_to=none");
+  assert.equal(gapQueryString({ ...gapQuery(DEFAULT_GAP_FILTERS), cursor: "c2" }), "status=open&route=ask&cursor=c2");
+  // The Plan's read: no route, the open statuses, up to 200.
   assert.equal(
     gapQueryString({ status: ["open", "answered", "applying"], limit: 200 }),
     "status=open&status=answered&status=applying&limit=200",
@@ -196,10 +189,10 @@ test("FR-GWEB-04: the Status filter offers Open (the default), Staged, Resolved 
     ["Open", "Staged", "Resolved", "All"],
   );
   assert.equal(DEFAULT_GAP_FILTERS.status, "open");
-  const q = (status: (typeof DEFAULT_GAP_FILTERS)["status"]) => gapQueryString(gapQuery({ ...DEFAULT_GAP_FILTERS, status }, false));
-  assert.equal(q("staged"), "status=answered&status=applying&route=ask&held_back=false");
-  assert.equal(q("resolved"), "status=resolved&route=ask&held_back=false");
-  assert.equal(q("all"), "status=open&status=answered&status=applying&status=resolved&route=ask&held_back=false");
+  const q = (status: (typeof DEFAULT_GAP_FILTERS)["status"]) => gapQueryString(gapQuery({ ...DEFAULT_GAP_FILTERS, status }));
+  assert.equal(q("staged"), "status=answered&status=applying&route=ask");
+  assert.equal(q("resolved"), "status=resolved&route=ask");
+  assert.equal(q("all"), "status=open&status=answered&status=applying&status=resolved&route=ask");
   assert.deepEqual(STATUS_LABEL, { open: "Open", answered: "Staged", applying: "Staged", resolved: "Resolved" });
 });
 
@@ -256,12 +249,21 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-test("FR-GWEB-04, FR-GRTE-06: list sends the filters with held_back and reads the page and its cursor", async () => {
+test("FR-GWEB-04, FR-GRTE-06: list sends the filters and reads the page and its cursor; the next page sends the cursor", async () => {
   answer(200, { gaps: [wireGap({ options: [], reach: null })], next: "c2" });
-  const page = await createHttpGaps().list(PID, gapQuery(DEFAULT_GAP_FILTERS, false));
+  const gaps = createHttpGaps();
+  const page = await gaps.list(PID, gapQuery(DEFAULT_GAP_FILTERS));
   assert.equal(page.gaps.length, 1);
   assert.equal(page.next, "c2");
-  assert.deepEqual(calls, [`GET /projects/${PID}/gaps?status=open&route=ask&held_back=false`]);
+  assert.deepEqual(calls, [`GET /projects/${PID}/gaps?status=open&route=ask`]);
+  answer(200, { gaps: [wireGap({ gap_id: "GAP::2", options: [], reach: null })], next: null });
+  const last = await gaps.list(PID, { ...gapQuery(DEFAULT_GAP_FILTERS), cursor: "c2" });
+  assert.deepEqual(
+    last.gaps.map((g) => g.id),
+    ["GAP::2"],
+  );
+  assert.equal(last.next, null);
+  assert.deepEqual(calls, [`GET /projects/${PID}/gaps?status=open&route=ask&cursor=c2`]);
   answer(200, { gaps: "none" });
   await assert.rejects(createHttpGaps().list(PID, {}), invalid);
 });

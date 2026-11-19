@@ -307,7 +307,6 @@ class _Migration:
             "detector": DEVELOPMENT_DETECTOR,
             "signature": signature,
             "blocking": YES if props.get("blocking") else NO,
-            "held_back": NO,
             "aliases": [item.finding_id],
             "created_by": str(props.get("created_by") or MIGRATION_ACTOR),
             "created_at": _iso(created_at),

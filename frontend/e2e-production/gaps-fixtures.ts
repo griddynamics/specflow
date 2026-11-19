@@ -3,6 +3,7 @@
 export const REQUIREMENT = "Requirement";
 export const CANCEL_TITLE = "Cancelling a paid order is not specified";
 export const PAYMENT_PROVIDER_TITLE = "Which payment provider takes the payment?";
+export const GUEST_TITLE = "Guest checkout is assumed";
 /** The old `FND::` id of the coding agent's question, a finding before the gap module (an alias of GAP::PAYMENT_PROVIDER). */
 export const PAYMENT_PROVIDER_FINDING = "FND::PAYMENT_PROVIDER";
 /** An `ABOUT` / `IMPACTS` node; `aliases` (its other spec ids) only when given, as an older API sends none. */
@@ -60,7 +61,6 @@ export const gap = (id: string, over: Record<string, unknown>) => ({
   created_at: "2026-11-10T10:00:00Z",
   updated_at: "2026-11-10T10:00:00Z",
   blocking: false,
-  held_back: false,
   about: [],
   impacts: [],
   witness: [],
@@ -77,7 +77,7 @@ export const gap = (id: string, over: Record<string, unknown>) => ({
 /** The shop corpus: the cancel-paid-order gap (3 options, A recommended; its first witness names its document and section), a blocker
  *  contradiction, a person's minor gap, a coding agent's blocking question (a migrated finding: its old FND id resolves to it), a gap AI
  *  answered (resolved, its answer in the clarifications document; not in the inbox), a resolved gap whose own answer amends the orders
- *  specification, and one question the run held back (FR-GRTE-06). */
+ *  specification, and a minor assumption. */
 export function shopGaps() {
   return [
     gap("GAP::CANCEL_PAID", {
@@ -194,11 +194,24 @@ export function shopGaps() {
     gap("GAP::GUEST_CHECKOUT", {
       kind: "assumption",
       severity: "minor",
-      held_back: true,
-      title: "Guest checkout is assumed",
+      title: GUEST_TITLE,
       question: "May a customer order without an account?",
     }),
   ];
+}
+
+/** `n` more open questions for people from one run, newer than the shop gaps (minor, so they sort before the shop's minor gaps). */
+export function foundGaps(n: number) {
+  return Array.from({ length: n }, (_, i) => {
+    const k = String(i + 1).padStart(2, "0");
+    return gap(`GAP::FOUND_${k}`, {
+      kind: "open_question",
+      severity: "minor",
+      title: `Found question ${k}`,
+      question: `What does requirement ${k} leave open?`,
+      created_at: "2026-11-11T10:00:00Z",
+    });
+  });
 }
 
 export const NOISE_RUN = {

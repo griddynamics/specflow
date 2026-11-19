@@ -55,7 +55,6 @@ class GapLimits(BaseModel):
     reads_per_round: int = Field(gt=0)
     context_tokens: int = Field(gt=0)
     pack_tokens: int = Field(gt=0)
-    new_questions_per_run: int = Field(gt=0)
     ai_answers_per_run: int = Field(gt=0)
     ai_answers_max_node_share: float = Field(gt=0, le=1)
     options_min: int = Field(ge=OPTIONS_FLOOR)

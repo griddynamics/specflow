@@ -14,8 +14,7 @@ For each investigated site, by its checked outcome:
   nothing is duplicated (``gaps_updated``, a ``rechecked`` event).
 - ``gap`` of severity ``info``: a ``gap_note`` row only (site outcome ``not_a_gap``: nothing to decide).
 - A new or re-checked open gap gets its checked options as ``gap_option`` rows (rank by report order, replacing the
-  rows a re-check finds); a new ``ask`` gap held back from the inbox (route step) carries ``held_back`` ``yes`` until
-  the next run's record step clears it (FR-GRTE-06). A ``routed`` event keeps the route and its reasons.
+  rows a re-check finds). A ``routed`` event keeps the route and its reasons.
 - A confirmed pointer (route ``ai``, mode ``pointer``): the gap is written ``resolved`` with resolution ``pointer``,
   with a ``Clarification`` (mode ``pointer``, placement ``none``, status ``applied``, answered by ``ai``, the pointer
   line as basis, the second check's confidence), ``ANSWERS`` to the gap and ``GROUNDED_IN`` the answering fragment,
@@ -88,7 +87,6 @@ ANSWERED: Final = "answered"
 POINTER: Final = "pointer"
 NOT_BLOCKING: Final = "no"
 YES: Final = "yes"
-NO: Final = "no"
 BLOCKER: Final = "blocker"
 DEVELOPMENT: Final = "development"
 
@@ -104,7 +102,6 @@ class SiteDecision:
     route: GapRoute | None = None
     mode: str | None = None
     reasons: tuple[str, ...] = ()
-    held_back: bool = False
     gap_id: str | None = None
     rejected: tuple[str, ...] = ()
     judge: Mapping[str, Any] | None = None
@@ -144,7 +141,6 @@ class RecordOutcome:
     skipped_nodes: int = 0
     pointers: int = 0
     ai_answered: int = 0
-    held_back: int = 0
     rejected: int = 0
     not_spec: dict[str, tuple[str, ...]] = field(default_factory=dict)
     holds: dict[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
@@ -165,7 +161,6 @@ class RecordOutcome:
             "skipped_nodes": self.skipped_nodes,
             "pointers": self.pointers,
             "ai_answered": self.ai_answered,
-            "held_back": self.held_back,
             "rejected": self.rejected,
             "not_spec": {site_id: list(ids) for site_id, ids in sorted(self.not_spec.items())},
             "holds": {gap: {"kind": kind, "about": list(ids)} for gap, (kind, ids) in sorted(self.holds.items())},
@@ -246,23 +241,8 @@ class Recorder:
         self.events: list[EventRow] = []
         self.options: dict[str, list[OptionRow]] = {}
 
-    async def _release_holds(self) -> None:
-        """Clear ``held_back`` on the gaps an earlier run held back (they show from this run on, FR-GRTE-06)."""
-
-        held = [
-            gap
-            for gap in self.by_id.values()
-            if gap.props.get("held_back") == YES and gap.props.get("run_id") != self.run.run_id
-        ]
-        if not held:
-            return
-        async with self._writer().transaction() as tx:
-            for gap in held:
-                await tx.upsert_node(GAP, gap_uuid(self.run.project_id, gap.gap_id), {"held_back": NO})
-
     async def record(self, decisions: Sequence[SiteDecision]) -> RecordOutcome:
         run = self.run
-        await self._release_holds()
         for decision in decisions:
             outcome, gap = await self._one(decision)
             self.outcome.outcomes[decision.site.site_id] = (outcome, gap)
@@ -497,7 +477,6 @@ class Recorder:
             "created_by": RUN_ACTOR,
             "created_at": now,
             "updated_at": now,
-            "held_back": YES if decision.held_back else NO,
         }
         if pointer:
             props |= {"resolution": POINTER, "resolved_at": now}
@@ -534,7 +513,6 @@ class Recorder:
             "route": route,
             "mode": decision.mode if kept else None,
             "reasons": list(decision.reasons) if kept else ["amendments_unavailable"],
-            "held_back": decision.held_back,
         }
         if decision.gates:  # every gate result, so a person sees why AI answered or why not (answers.md "Gates")
             routed["gates"] = dict(decision.gates)
@@ -561,8 +539,6 @@ class Recorder:
             )
         if pointer is None and report.options:
             self.options[new_id] = self._option_rows(new_id, report)
-        if decision.held_back:
-            self.outcome.held_back += 1
 
     def _ai_answer(
         self, gap: StoredGap, report: GapReport, decision: SiteDecision, instant: datetime

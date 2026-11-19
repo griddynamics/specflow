@@ -22,12 +22,11 @@ leave the run resumable.
 Investigation (investigation.md): ``investigate`` builds each site's context pack and read menu and calls
 ``ctx.investigator`` (the structured loop ``LoopInvestigator`` by default); ``check`` validates every report, finds
 duplicates and runs the second check of pointers and AI answers; ``route`` decides severity and route (the gates and
-the valve of AI answers) and holds back new questions beyond the run's limit; ``record`` writes gaps, options, pointer
-clarifications and AI answers (a ``pending`` clarification of mode ``ai`` with its amendment rows: staged like a
-person's answer until "Resolve gaps"). A ``not_spec`` report turns the
-sections of its nodes ``mixed`` and lists the nodes in the run's noise report (FR-GREL-07). ``close`` is the close
-check of applied answers, obsolete gaps and stale witnesses (``steps.close``, lifecycle.md "Close check"); the follow-up
-gaps it opens get a site in the same run.
+the valve of AI answers); ``record`` writes gaps, options, pointer clarifications and AI answers (a ``pending``
+clarification of mode ``ai`` with its amendment rows: staged like a person's answer until "Resolve gaps"). A
+``not_spec`` report turns the sections of its nodes ``mixed`` and lists the nodes in the run's noise report
+(FR-GREL-07). ``close`` is the close check of applied answers, obsolete gaps and stale witnesses (``steps.close``,
+lifecycle.md "Close check"); the follow-up gaps it opens get a site in the same run.
 """
 
 from __future__ import annotations
@@ -78,16 +77,7 @@ from graph.gap.steps.relevance import (
     mark_not_spec,
     noise_report,
 )
-from graph.gap.steps.route import (
-    Candidate,
-    RouteInputs,
-    ValveItem,
-    apply_valve,
-    hold_back,
-    route_report,
-    routed_payload,
-    touched,
-)
+from graph.gap.steps.route import RouteInputs, ValveItem, apply_valve, route_report, routed_payload, touched
 from graph.gap.steps.scope import scope
 from graph.gap.steps.sites import RAISED_ORIGINS, ExistingGap, Site, SiteRun, SitesOutcome, form_sites
 from graph.gap.steps.snapshot import GraphSnapshot, read_snapshot
@@ -568,15 +558,7 @@ class _Run:
             max_share=self.limits.ai_answers_max_node_share,
             spec_nodes=len(snapshot.nodes),
         )
-        candidates = [
-            Candidate(site_id, decision.severity, sites[site_id].reach, sites[site_id].rank_score)
-            for site_id, decision in decided.items()
-            if decision.route == "ask" and new[site_id]
-        ]
-        held = hold_back(candidates, self.limits.new_questions_per_run)
-        routed: Payload = {
-            site_id: dict(routed_payload(decision, held_back=site_id in held)) for site_id, decision in decided.items()
-        }
+        routed: Payload = {site_id: dict(routed_payload(decision)) for site_id, decision in decided.items()}
         return {"routed": routed}
 
     async def _record(self) -> Payload:
@@ -595,7 +577,6 @@ class _Run:
                     route=decided.get("route"),
                     mode=decided.get("mode"),
                     reasons=tuple(decided.get("reasons", ())),
-                    held_back=bool(decided.get("held_back", False)),
                     gap_id=item.gap_id,
                     rejected=item.rejected,
                     judge=item.ai_judge if decided.get("mode") == "ai" else item.judge,
@@ -698,7 +679,6 @@ class _Run:
             "routes": {"ask": recorded["routes"].get("ask", 0), "ai": recorded["routes"].get("ai", 0)},
             "pointers": int(recorded.get("pointers", 0)),
             "ai_answered": int(recorded.get("ai_answered", 0)),
-            "held_back": int(recorded.get("held_back", 0)),
             "rejected": int(recorded.get("rejected", 0)),
             "notes": int(sites["counts"].get("notes", 0)) + int(recorded["notes"]),
             "model_calls": {role: value["calls"] for role, value in cost.items()},

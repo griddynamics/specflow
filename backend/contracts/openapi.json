@@ -4257,11 +4257,6 @@
             "title": "Gap Id",
             "type": "string"
           },
-          "held_back": {
-            "default": false,
-            "title": "Held Back",
-            "type": "boolean"
-          },
           "history": {
             "anyOf": [
               {
@@ -10297,7 +10292,7 @@
     },
     "/api/v1/agent/gap-inbox": {
       "get": {
-        "description": "The gaps of the web Gaps screen (route ``ask``, held back or not) with its filters, by default the ones not\nresolved; blockers first, then reach, then newest; one page of rows, each naming its assignee. ``assigned`` keeps\nthe caller's gaps or the unassigned ones; ``assignee`` the gaps of the one member with that name (unknown, shared\nor given with ``assigned``: ``invalid_arguments``); ``story_id`` as for ``list_gaps``.",
+        "description": "The gaps of the web Gaps screen (route ``ask``) with its filters, by default the ones not resolved; blockers\nfirst, then reach, then newest; one page of rows, each naming its assignee. ``assigned`` keeps the caller's gaps\nor the unassigned ones; ``assignee`` the gaps of the one member with that name (unknown, shared or given with\n``assigned``: ``invalid_arguments``); ``story_id`` as for ``list_gaps``.",
         "operationId": "browse_gaps_api_v1_agent_gap_inbox_get",
         "parameters": [
           {
@@ -12957,7 +12952,7 @@
     },
     "/api/v1/projects/{pid}/gaps": {
       "get": {
-        "description": "The project's gaps: open, answered and applying ones unless ``status`` says otherwise; blockers first, then\nnewest first. ``about`` keeps gaps about the spec ids (aliases resolve), ``story_id`` those about the nodes the\nstory's tasks implement, ``document`` those citing or about the document lineage. ``held_back=false`` is the\ninbox's default view: it leaves out the new questions a run held back beyond its limit until the next run.\n``assigned_to`` keeps the gaps of one assignee: ``me`` (the caller), ``none`` (nobody) or a member's user id.",
+        "description": "The project's gaps: open, answered and applying ones unless ``status`` says otherwise; blockers first, then\nnewest first. ``about`` keeps gaps about the spec ids (aliases resolve), ``story_id`` those about the nodes the\nstory's tasks implement, ``document`` those citing or about the document lineage. ``assigned_to`` keeps the gaps\nof one assignee: ``me`` (the caller), ``none`` (nobody) or a member's user id.",
         "operationId": "list_gaps_api_v1_projects__pid__gaps_get",
         "parameters": [
           {
@@ -13152,22 +13147,6 @@
                 }
               ],
               "title": "Document"
-            }
-          },
-          {
-            "in": "query",
-            "name": "held_back",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Held Back"
             }
           },
           {

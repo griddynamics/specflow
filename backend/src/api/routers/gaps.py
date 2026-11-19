@@ -153,9 +153,8 @@ async def list_gaps(
 ) -> GapPage:
     """The project's gaps: open, answered and applying ones unless ``status`` says otherwise; blockers first, then
     newest first. ``about`` keeps gaps about the spec ids (aliases resolve), ``story_id`` those about the nodes the
-    story's tasks implement, ``document`` those citing or about the document lineage. ``held_back=false`` is the
-    inbox's default view: it leaves out the new questions a run held back beyond its limit until the next run.
-    ``assigned_to`` keeps the gaps of one assignee: ``me`` (the caller), ``none`` (nobody) or a member's user id."""
+    story's tasks implement, ``document`` those citing or about the document lineage. ``assigned_to`` keeps the gaps
+    of one assignee: ``me`` (the caller), ``none`` (nobody) or a member's user id."""
 
     await require_project(runtime, user.id, pid)
     service = await _runner(runtime).service()

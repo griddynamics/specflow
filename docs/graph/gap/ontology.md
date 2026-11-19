@@ -42,7 +42,7 @@ reads it and validates it against the merged ontology:
 | `placeholder_markers`, `vague_terms` | Term lists of OQ-TBD and AM-VAGUE | Non-empty |
 | `checklist` | Topics and their cue words for MS-COVERAGE, MS-ERROR, MS-LIFECYCLE | Every topic a detector names exists |
 | `routing` | Kinds AI may answer, gate thresholds, severity priors | Kinds are `gap_kind` values and AI kinds a subset of the shipped list; every kind has a prior; thresholds in range |
-| `limits` | Run, investigation, inbox and AI limits | Positive; `options_min` at least 2, `options_max` at most 4 |
+| `limits` | Run, investigation and AI limits | Positive; `options_min` at least 2, `options_max` at most 4 |
 
 Every problem is listed in one `ConfigurationError`. A project may override the file with its own copy
 (`GapSettings.rules_path`); the override is validated the same way.

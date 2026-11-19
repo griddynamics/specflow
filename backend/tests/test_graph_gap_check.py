@@ -1,6 +1,6 @@
 """The check and route steps: report validation, repair, duplicates, the second check and routing
 (docs/graph/gap/investigation.md "Checks", "Second check", "Pointer answers"; answers.md "Severity", "Routing";
-FR-GINV-05 to FR-GINV-07, FR-GRTE-01, FR-GRTE-02, FR-GRTE-06)."""
+FR-GINV-05 to FR-GINV-07, FR-GRTE-01, FR-GRTE-02)."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ from graph.gap.steps.check import (
 from graph.gap.steps.detect import Seed
 from graph.gap.steps.investigate import Investigated
 from graph.gap.steps.record import report_signature
-from graph.gap.steps.route import Candidate, hold_back, route_report, routed_payload
+from graph.gap.steps.route import route_report, routed_payload
 from graph.gap.steps.sites import Site
 from graph_support import ScriptedRequest
 
@@ -416,25 +416,15 @@ async def test_a_pointer_goes_to_the_second_check() -> None:
 # Routing
 
 
-def test_hold_back_ranks_new_questions_by_severity_reach_and_score() -> None:
-    candidates = [
-        Candidate("S1", "minor", 0, 0.5),
-        Candidate("S2", "major", 0, 0.1),
-        Candidate("S3", "minor", 3, 0.1),
-        Candidate("S4", "blocker", 0, 0.0),
-    ]
-
-    assert hold_back(candidates, 2) == {"S1", "S3"}
-    assert hold_back(candidates, 3) == {"S1"} and hold_back(candidates, 9) == frozenset()
+def test_a_report_about_out_of_scope_nodes_routes_as_an_info_note() -> None:
     mini, orders, payments = graph()
     routed = route_report(report(orders, payments, severity="minor", about=("MOD::LEGACY",)), mini.snapshot())
     assert routed.route is None and routed.severity == "info"
-    assert routed_payload(routed, held_back=False) == {
+    assert routed_payload(routed) == {
         "severity": "info",
         "route": None,
         "mode": None,
         "reasons": ["info"],
         "gates": {},
         "confidence": None,
-        "held_back": False,
     }

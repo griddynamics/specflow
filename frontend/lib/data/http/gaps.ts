@@ -1,12 +1,12 @@
 // FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "Web routes", "Models"): the production `GapsPort`. Reads: `GET /projects/{pid}/gaps` (the
-// filters as query parameters, a list filter repeating its parameter; the inbox sends `held_back=false` and "More found in this run"
-// `held_back=true`, FR-GRTE-06, and `assigned_to` for the Assigned filter; the Plan screens send none), `GET .../gaps/{gap_id}`,
-// `GET .../gap/runs/latest` (the noise report of the latest finished run, and with `GET .../graph_build` the gap check status line),
-// `GET .../gaps/ai_answers` and `GET .../gaps/noise_rules`. Writes: `POST .../gaps/{gap_id}/edits_preview`, `.../answer`, `.../dismiss`,
-// `PUT .../gaps/{gap_id}/assignee`, `POST .../gaps` (raise), `POST .../gaps/apply` ("Resolve gaps"),
-// `POST .../gaps/clarifications/{clr_id}/revert`, `POST .../gaps/noise_rules` and `DELETE .../gaps/noise_rules/{rule_id}`. Bodies are
-// parsed strictly: any other shape is `invalid_response`. Failures are `DataError`s with the API code and, for `400 answer_invalid` and `409 gap_wrong_state`, the `field`,
-// `reason` and gap `state` of the envelope's details; `503 gap_unavailable` rejects as `unavailable` (the screen's "not available" state).
+// filters as query parameters, a list filter repeating its parameter; the inbox sends `assigned_to` for the Assigned filter; the Plan
+// screens send none), `GET .../gaps/{gap_id}`, `GET .../gap/runs/latest` (the noise report of the latest finished run, and with
+// `GET .../graph_build` the gap check status line), `GET .../gaps/ai_answers` and `GET .../gaps/noise_rules`. Writes:
+// `POST .../gaps/{gap_id}/edits_preview`, `.../answer`, `.../dismiss`, `PUT .../gaps/{gap_id}/assignee`, `POST .../gaps` (raise),
+// `POST .../gaps/apply` ("Resolve gaps"), `POST .../gaps/clarifications/{clr_id}/revert`, `POST .../gaps/noise_rules` and
+// `DELETE .../gaps/noise_rules/{rule_id}`. Bodies are parsed strictly: any other shape is `invalid_response`. Failures are `DataError`s
+// with the API code and, for `400 answer_invalid` and `409 gap_wrong_state`, the `field`, `reason` and gap `state` of the envelope's
+// details; `503 gap_unavailable` rejects as `unavailable` (the screen's "not available" state).
 import {
   addNoiseRule,
   answerGap,
@@ -195,7 +195,6 @@ function toReach(v: unknown): GapReach | null {
 export function toGap(v: unknown): Gap {
   expectShape(isRecord(v) && isString(v.gap_id) && isString(v.title) && isString(v.question) && isString(v.created_at));
   expectShape(v.blocking === undefined || typeof v.blocking === "boolean");
-  expectShape(v.held_back === undefined || typeof v.held_back === "boolean");
   expectShape(v.updated_at === undefined || isString(v.updated_at));
   expectShape(v.assigned_to === undefined || v.assigned_to === null || isString(v.assigned_to));
   // A card never shows more than one recommendation (answers.md "The question card"): the first recommended option keeps the mark.
@@ -212,7 +211,6 @@ export function toGap(v: unknown): Gap {
     question: v.question,
     why: textOr(v.why, ""),
     blocking: v.blocking === true,
-    heldBack: v.held_back === true,
     createdAt: v.created_at,
     updatedAt: isString(v.updated_at) ? v.updated_at : "",
     about: listOf(v.about, toNode),
@@ -306,7 +304,6 @@ export function gapQueryString(q: GapQuery): string {
   many("route", q.route);
   if (q.storyId !== undefined) params.set("story_id", q.storyId);
   if (q.assignedTo !== undefined) params.set("assigned_to", q.assignedTo);
-  if (q.heldBack !== undefined) params.set("held_back", q.heldBack ? "true" : "false");
   if (q.cursor !== undefined) params.set("cursor", q.cursor);
   if (q.limit !== undefined) params.set("limit", String(q.limit));
   return params.toString();

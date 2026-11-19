@@ -249,8 +249,9 @@ async def test_fr_grte_05_ai_answers_stop_at_run_limit_or_node_share() -> None:
     assert (routes.count("ai"), routes.count("ask")) == (2, 23)
 
 
-async def test_fr_grte_06_run_show_at_most_configured_number_new() -> None:
-    """Given 30 new `ask` gaps, then the default inbox lists 25."""
+async def test_fr_grte_06_every_new_question_shows_in_the_inbox() -> None:
+    """Given 30 new `ask` gaps, then the inbox lists all 30 (in pages). A `held_back` mark that an earlier version
+    stored on a gap hides nothing."""
 
     world = await mini_world(interfaces(30))
     world.investigator = SeedInvestigator()
@@ -258,13 +259,16 @@ async def test_fr_grte_06_run_show_at_most_configured_number_new() -> None:
 
     result = await run_gap(world.context(), mode="full")
 
-    assert result.counts["gaps_new"]["total"] == 30 and result.counts["held_back"] == 5
-    inbox = await service.list_gaps(PROJECT, held_back=False)
-    assert len(inbox.gaps) == 25 and all(not gap.held_back for gap in inbox.gaps)
-    assert len((await service.list_gaps(PROJECT, held_back=True)).gaps) == 5
-    assert len((await service.list_gaps(PROJECT)).gaps) == 30
-    assert all(gap.status == "open" for gap in (await service.list_gaps(PROJECT)).gaps)
+    assert result.counts["gaps_new"]["total"] == result.counts["routes"]["ask"] == 30
+    assert "held_back" not in result.counts
+    first = await service.list_gaps(PROJECT, route="ask", limit=20)
+    rest = await service.list_gaps(PROJECT, route="ask", cursor=first.next, limit=20)
+    assert (len(first.gaps), len(rest.gaps), rest.next) == (20, 10, None)
+    listed = (*first.gaps, *rest.gaps)
+    assert len({gap.gap_id for gap in listed}) == 30 and {gap.status for gap in listed} == {"open"}
+    assert all("held_back" not in props for props in world.gap_nodes().values())
 
-    await run_gap(world.context(settings=GapSettings()), mode="update")
+    for props in list(world.gap_nodes().values())[:5]:
+        props["held_back"] = "yes"
 
-    assert len((await service.list_gaps(PROJECT, held_back=False)).gaps) == 30
+    assert len((await service.list_gaps(PROJECT, route="ask")).gaps) == 30

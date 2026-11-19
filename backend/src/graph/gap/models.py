@@ -571,7 +571,6 @@ class GapView(GapModel):
     detector: str
     signature: str
     blocking: bool = False
-    held_back: bool = False
     run_id: str | None = None
     story_id: str | None = None
     """The story a development gap was reported from."""

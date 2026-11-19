@@ -254,7 +254,6 @@ From `limits` in the rules file; all are starting values for the test corpus.
 | `reads_per_round` | 4 | Reads one round may request |
 | `context_tokens` | 24,000 | Context of one investigation call |
 | `pack_tokens` | 3,000 | Nearby nodes in the context pack |
-| `new_questions_per_run` | 25 | New gaps with route `ask` shown in the inbox per run; the rest are written with `held_back` `yes` and shown from the next run on |
 | `ai_answers_per_run` | 20 | AI answers per run |
 | `ai_answers_max_node_share` | 0.05 | Share of spec nodes AI answers of one run may touch |
 | `options_min`, `options_max` | 2, 4 | Options per gap |
@@ -280,7 +279,7 @@ Every run records in `gap_run.counts` and returns in `GapRunResult.counts`:
 | `outcomes` | Sites per outcome: `gap`, `not_a_gap`, `not_spec`, `duplicate` |
 | `gaps_new`, `gaps_updated` | Gaps written or re-checked, per kind and severity |
 | `routes` | New gaps per route: `ask`, `ai` (pointers and AI answers) |
-| `pointers`, `ai_answered`, `held_back`, `rejected` | New gaps resolved by a pointer, new gaps answered by AI (the host schedules their apply), new questions held back from the inbox, reports the checks rejected |
+| `pointers`, `ai_answered`, `rejected` | New gaps resolved by a pointer, new gaps answered by AI (the host schedules their apply), reports the checks rejected |
 | `notes` | Info notes written |
 | `model_calls`, `tokens` | Per gateway role |
 | `noise_nodes` | Nodes listed in the noise report |

@@ -75,8 +75,8 @@ decided ("Pointer answers" below).
 
 Every gate result is stored on the gap's `gap_event` "routed" entry, so a person can see why AI answered or
 why it did not: the route, its mode (`pointer` or `ai`), the reasons, `gates` (each gate's result) with the second
-check's `confidence`, and whether the gap is held back. The reasons a gap went to a person: `severity`, `kind`,
-`origin`, `existing`, `ai_answers_off`, `gate_entailed`, `gate_local`, `gate_consistent`, `gate_confident`,
+check's `confidence`. The reasons a gap went to a person: `severity`, `kind`, `origin`, `existing`,
+`ai_answers_off`, `gate_entailed`, `gate_local`, `gate_consistent`, `gate_confident`,
 `ai_judge_failed` (the second check's call failed; the gap is asked, never deferred), `ai_limit` (the valve),
 `gates_off` (no gates were looked at), `amendments_unavailable` (the run had no `Amendments` port to write the
 answer); an AI answer has `gates_hold`, a pointer `pointer_confirmed`.
@@ -97,18 +97,16 @@ How the shipped route step decides (`steps/route.py`):
 
 Per run, AI answers at most `ai_answers_per_run` gaps (20), and the nodes those answers touch (`ABOUT` and
 `IMPACTS`) are at most `ai_answers_max_node_share` (5 %) of the project's spec nodes. Gaps over the valve are
-routed `ask`, with the reason "AI answer limit reached" (`ai_limit`) in their event; they count as new questions
-for the inbox limit. The valve protects a project from a
-run that would rewrite much of its spec without anyone looking.
+routed `ask`, with the reason "AI answer limit reached" (`ai_limit`) in their event, and show in the inbox like
+every other new question. The valve protects a project from a run that would rewrite much of its spec without anyone
+looking.
 
 ## The question card
 
 The Gaps inbox shows one card per open gap with route `ask`, ordered by severity, then reach (the number of
-plan tasks behind the `ABOUT` and `IMPACTS` nodes), then age. At most `new_questions_per_run` (25) new cards
-per run are shown as new; the rest are listed under "More found in this run". The route step ranks a run's new
-`ask` gaps by severity, then reach (plan tasks behind the site), then the site's rank score; the gaps beyond the
-limit are written with `held_back` `yes` and left out of the default view (`list_gaps(held_back=False)`) until the
-next run's record step clears the mark.
+plan tasks behind the `ABOUT` and `IMPACTS` nodes), then age. Every new question of a run shows at once: no run
+holds any back (FR-GRTE-06). The inbox is paged (50 gaps a page; "Show more" reads the next page) and filtered
+(status, kind, severity, story, assignee).
 
 | Part | Content | Source |
 |---|---|---|

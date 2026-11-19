@@ -100,7 +100,6 @@ limits:                         # detection.md "Limits"
   reads_per_round: 4
   context_tokens: 24000
   pack_tokens: 3000
-  new_questions_per_run: 25
   ai_answers_per_run: 20
   ai_answers_max_node_share: 0.05
   options_min: 2

@@ -2,7 +2,7 @@
    QuestionBlock and Tag but no screen layout or card section structure around them. Additive, tokens only; no design-system rule is
    overridden. */
 
-/* The screen is a column: list, "Show more", the live count, "More found in this run" (the tabs and filters are in the shell's header row). */
+/* The screen is a column: list, "Show more", the live count (the tabs and filters are in the shell's header row). */
 .gaps-screen {
   flex: 1;
   min-width: 0;
@@ -28,16 +28,6 @@
 .gaps-more {
   display: flex;
   justify-content: center;
-}
-.gaps-held {
-  margin-top: var(--space-sm);
-}
-.gaps-held__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-xs);
 }
 
 /* The card: a meta row of chips, then titled sections (Question, Why, Affected nodes, Quotes, Reach, Answer). */

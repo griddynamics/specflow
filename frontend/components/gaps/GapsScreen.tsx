@@ -11,9 +11,8 @@
 //    runs) and Resolved; the Status filter offers Open (the default), Staged, Resolved and All. The table's last column is the assignee
 //    (avatar and name, or "Unassigned"), changed in place: a click opens a menu of Unassigned and the members (AssigneeMenu); a failed
 //    assignment is said above the list. The Assigned filter offers All (the default), Unassigned and each member (the members port).
-//    The filters go to the server (`list_gaps`, which orders by severity, reach, then newest): the inbox asks for route `ask` and
-//    `held_back=false` (its default view); the questions a run held back until the next run (FR-GRTE-06) are read with `held_back=true`
-//    and listed under "More found in this run", collapsed.
+//    The filters go to the server (`list_gaps`, which orders by severity, reach, then newest): the inbox asks for route `ask` and lists
+//    every gap a run found (FR-GRTE-06), a page at a time ("Show more" while more pages exist).
 //  - `?gap=<id>` opens the question card (GapCard, answerable here), also when the filters hide the row; closing removes the
 //    parameter (history.replaceState). After an answer, an assignment, an unstage, a withdrawal, a dismissal or "Resolve gaps" the lists
 //    read again without a loading state.
@@ -144,15 +143,15 @@ interface ListState {
 const LOADING: ListState = { gaps: [], next: null, phase: "loading" };
 
 /**
- * One `list_gaps` view (the inbox, or the held-back questions): the first page on every filter change, then "Show more". `version` reads
- * the first page again after a write and keeps the shown rows until it answers (no loading state).
+ * The inbox's `list_gaps` read: the first page on every filter change, then "Show more". `version` reads the first page again after a
+ * write and keeps the shown rows until it answers (no loading state).
  */
-function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, heldBack: boolean, tries: number, version: number) {
+function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, tries: number, version: number) {
   const [state, setState] = useState<{ key: string; list: ListState }>({ key: "", list: LOADING });
   const key = `${JSON.stringify(filters)}|${String(tries)}`;
   useEffect(() => {
     let alive = true;
-    gaps.list(projectId, gapQuery(filters, heldBack)).then(
+    gaps.list(projectId, gapQuery(filters)).then(
       (page) => {
         if (alive) setState({ key, list: { gaps: page.gaps, next: page.next, phase: "ready" } });
       },
@@ -163,18 +162,18 @@ function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, held
     return () => {
       alive = false;
     };
-  }, [gaps, projectId, filters, heldBack, key, version]);
+  }, [gaps, projectId, filters, key, version]);
   const list = state.key === key ? state.list : LOADING;
   const more = useCallback(() => {
     const cursor = list.next;
     if (cursor === null) return;
-    gaps.list(projectId, { ...gapQuery(filters, heldBack), cursor }).then(
+    gaps.list(projectId, { ...gapQuery(filters), cursor }).then(
       (page) => {
         setState((s) => (s.key === key ? { key, list: { gaps: [...s.list.gaps, ...page.gaps], next: page.next, phase: "ready" } } : s));
       },
       () => undefined, // the button stays; the next click tries again
     );
-  }, [gaps, projectId, filters, heldBack, key, list.next]);
+  }, [gaps, projectId, filters, key, list.next]);
   return { list, more };
 }
 
@@ -236,14 +235,9 @@ function useOpenGap(projectId: string, openId: string | null): { card: Gap | nul
 
 // ---- view ----
 
-function GapRows({
-  gaps,
-  assign,
-  label,
-  onOpen,
-}: Readonly<{ gaps: Gap[]; assign: AssignControl; label: string; onOpen: (id: string) => void }>) {
+function GapRows({ gaps, assign, onOpen }: Readonly<{ gaps: Gap[]; assign: AssignControl; onOpen: (id: string) => void }>) {
   return (
-    <DecisionList label={label} columns={["Gap", "Kind", "Severity", "Assigned"]}>
+    <DecisionList label="Gaps" columns={["Gap", "Kind", "Severity", "Assigned"]}>
       {gaps.map((g) => (
         <DecisionRow
           key={g.id}
@@ -314,45 +308,8 @@ function Filters({
   );
 }
 
-/** "More found in this run" (FR-GRTE-06): the questions the run held back from the default view, collapsed until asked for. */
-function HeldBack({
-  gaps,
-  assign,
-  next,
-  onMore,
-  onOpen,
-}: Readonly<{ gaps: Gap[]; assign: AssignControl; next: string | null; onMore: () => void; onOpen: (id: string) => void }>) {
-  const [open, setOpen] = useState(false);
-  if (gaps.length === 0) return null;
-  return (
-    <section className="gap-sec gaps-held" aria-label="More found in this run" data-testid="gaps-held-back">
-      <div className="gaps-held__head">
-        <h2 className="gap-sec__title eyebrow">More found in this run</h2>
-        <Button
-          variant="plain"
-          size="sm"
-          aria-expanded={open}
-          onClick={() => {
-            setOpen((o) => !o);
-          }}
-        >
-          {open ? "Hide" : `Show ${countText(gaps.length, next !== null)}`}
-        </Button>
-      </div>
-      <p className="gaps-count body-sm">These questions are shown with the next gap run.</p>
-      {open ? (
-        <>
-          <GapRows gaps={gaps} assign={assign} label="More found in this run" onOpen={onOpen} />
-          <ShowMore next={next} onMore={onMore} />
-        </>
-      ) : null}
-    </section>
-  );
-}
-
 function Inbox({
   inbox,
-  held,
   assign,
   assignError,
   filtered,
@@ -360,7 +317,6 @@ function Inbox({
   onRetry,
 }: Readonly<{
   inbox: ReturnType<typeof useGapList>;
-  held: ReturnType<typeof useGapList>;
   assign: AssignControl;
   assignError: string | null;
   filtered: boolean;
@@ -379,7 +335,7 @@ function Inbox({
   }
   const shown = inboxOrder(list.gaps);
   let rows: ReactNode;
-  if (shown.length > 0) rows = <GapRows gaps={shown} assign={assign} label="Gaps" onOpen={onOpen} />;
+  if (shown.length > 0) rows = <GapRows gaps={shown} assign={assign} onOpen={onOpen} />;
   else if (filtered) {
     rows = (
       <div data-testid="gaps-empty">
@@ -409,9 +365,6 @@ function Inbox({
       <p className="gaps-count body-sm" role="status" data-testid="gap-count">
         {shown.length === 0 ? "" : countText(shown.length, list.next !== null)}
       </p>
-      {held.list.phase === "ready" ? (
-        <HeldBack gaps={held.list.gaps} assign={assign} next={held.list.next} onMore={held.more} onOpen={onOpen} />
-      ) : null}
     </>
   );
 }
@@ -425,8 +378,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   const [version, setVersion] = useState(0);
   const [raising, setRaising] = useState(false);
   const [resolving, setResolving] = useState(false);
-  const inbox = useGapList(gaps, projectId, filters, false, tries, version);
-  const held = useGapList(gaps, projectId, filters, true, tries, version);
+  const inbox = useGapList(gaps, projectId, filters, tries, version);
   const { stories, people } = useFilterSources(projectId);
   const { card, reload } = useOpenGap(projectId, openId);
   const filtered = useMemo(() => JSON.stringify(filters) !== JSON.stringify(DEFAULT_GAP_FILTERS), [filters]);
@@ -484,7 +436,6 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
     content = (
       <Inbox
         inbox={inbox}
-        held={held}
         assign={assign}
         assignError={assignError}
         filtered={filtered}

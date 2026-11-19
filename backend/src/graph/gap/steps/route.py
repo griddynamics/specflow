@@ -1,5 +1,5 @@
-"""Step ``route``: severity and who answers (docs/graph/gap/answers.md "Severity", "Routing", "Gates", "The valve",
-"The question card"; FR-GRTE-01 to FR-GRTE-06).
+"""Step ``route``: severity and who answers (docs/graph/gap/answers.md "Severity", "Routing", "Gates", "The valve";
+FR-GRTE-01 to FR-GRTE-05).
 
 Routing is code: the model only proposes a severity and the evidence (FR-GRTE-01). The severity rules, in order, on the
 severity the report proposes (``severity_of``):
@@ -30,10 +30,6 @@ The valve (``apply_valve``, FR-GRTE-05): the run's ``ai`` gaps are taken in rank
 before each, when the run already has ``limits.ai_answers_per_run`` AI answers or the nodes its AI answers touch
 (``ABOUT`` and ``IMPACTS``) are already ``limits.ai_answers_max_node_share`` of the project's spec nodes, the gap is
 routed ``ask`` with the reason ``ai_limit``. Pointers decide nothing new and are not counted.
-
-The new ``ask`` gaps of a run beyond ``limits.new_questions_per_run`` are held back from the inbox's default view
-until the next run (``hold_back``): ranked by severity, then reach (plan tasks behind the site), then the site's rank
-score (FR-GRTE-06).
 """
 
 from __future__ import annotations
@@ -256,24 +252,7 @@ def apply_valve(
     return found
 
 
-@dataclass(frozen=True)
-class Candidate:
-    """A new ``ask`` gap of the run and what ranks it."""
-
-    site_id: str
-    severity: ReportSeverity
-    reach: int
-    rank_score: float
-
-
-def hold_back(candidates: Collection[Candidate], limit: int) -> frozenset[str]:
-    """The site ids of the new ``ask`` gaps beyond ``limit``, by severity, reach, rank score, then site id."""
-
-    ordered = sorted(candidates, key=lambda item: (-_RANK[item.severity], -item.reach, -item.rank_score, item.site_id))
-    return frozenset(item.site_id for item in ordered[limit:])
-
-
-def routed_payload(routed: Routed, *, held_back: bool) -> Mapping[str, object]:
+def routed_payload(routed: Routed) -> Mapping[str, object]:
     return {
         "severity": routed.severity,
         "route": routed.route,
@@ -281,5 +260,4 @@ def routed_payload(routed: Routed, *, held_back: bool) -> Mapping[str, object]:
         "reasons": list(routed.reasons),
         "gates": dict(routed.gates),
         "confidence": routed.confidence,
-        "held_back": held_back,
     }

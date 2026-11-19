@@ -240,10 +240,6 @@ def _open_development(gaps: Sequence[StoredGap], new: NewGap) -> int:
     )
 
 
-def _held_back(gap: StoredGap) -> bool:
-    return gap.props.get("held_back") == YES
-
-
 def clarification_view(props: Mapping[str, Any]) -> ClarificationView | None:
     """A stored clarification as reads return it, None when its properties do not read."""
 
@@ -304,7 +300,6 @@ def gap_view(
         detector=str(props.get("detector") or ""),
         signature=str(props.get("signature") or ""),
         blocking=_blocking(gap),
-        held_back=_held_back(gap),
         run_id=props.get("run_id"),
         story_id=props.get("story_id"),
         aliases=aliases_of(props),
@@ -364,7 +359,6 @@ class GapFilters(TypedDict, total=False):
     about: Sequence[str] | None
     story_id: str | None
     document: str | None
-    held_back: bool | None
     assigned_to: str | None
 
 
@@ -415,10 +409,10 @@ class GapService:
         newest first, then gap id. Filters combine; ``status`` defaults to the open statuses (open, answered,
         applying); ``about`` matches the gaps ``ABOUT`` any of the ids (aliases resolved); ``story_id`` the gaps
         ``ABOUT`` a node the story's tasks implement (an empty page without a plan); ``document`` (a document id)
-        the gaps citing a fragment of it or ``ABOUT`` a node with evidence in it; ``held_back`` ``False`` is the inbox's
-        default view (the new questions of the latest run beyond its limit are left out, FR-GRTE-06), ``True`` only
-        those, None both; ``assigned_to`` a user id keeps the gaps assigned to that member, ``"none"`` those nobody is
-        assigned to. ``AnswerInvalidError`` names a bad filter value, ``limit`` (1 to 200) or ``cursor``."""
+        the gaps citing a fragment of it or ``ABOUT`` a node with evidence in it; ``assigned_to`` a user id keeps the
+        gaps assigned to that member, ``"none"`` those nobody is assigned to. Every gap the filters keep is listed,
+        page by page (FR-GRTE-06). ``AnswerInvalidError`` names a bad filter value, ``limit`` (1 to 200) or
+        ``cursor``."""
 
         project_id = validate_project_id(project_id)
         if not PAGE_LIMITS[0] <= limit <= PAGE_LIMITS[1]:
@@ -430,7 +424,7 @@ class GapService:
         origins = _filter(filters.get("origin"), "origin", get_args(GapOrigin))
         routes = _filter(filters.get("route"), "route", get_args(GapRoute))
         about, story_id, document = filters.get("about"), filters.get("story_id"), filters.get("document")
-        held, assigned = filters.get("held_back"), filters.get("assigned_to")
+        assigned = filters.get("assigned_to")
         assignees = {gap_id: row.user_id for gap_id, row in (await self._records.assignments(project_id)).items()}
         wanted_assignee = None if assigned == NO_ASSIGNEE else assigned
         gaps = [
@@ -441,7 +435,6 @@ class GapService:
             and (origins is None or gap.origin in origins)
             and (routes is None or gap.props.get("route") in routes)
             and (document is None or document in gap.documents)
-            and (held is None or _held_back(gap) == held)
             and (assigned is None or assignees.get(gap.gap_id) == wanted_assignee)
         ]
         if about is not None:
@@ -1146,7 +1139,6 @@ class GapService:
             "route": "ask",
             "signature": signature,
             "blocking": "no",
-            "held_back": "no",
             "created_by": RUN_ACTOR,
             "created_at": _iso(now),
             "updated_at": _iso(now),
@@ -1290,7 +1282,6 @@ class GapService:
             "detector": new.origin,
             "signature": signature,
             "blocking": YES if new.blocking else "no",
-            "held_back": "no",
             "created_by": new.created_by,
             "created_at": _iso(now),
             "updated_at": _iso(now),

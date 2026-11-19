@@ -38,7 +38,6 @@ class GapListQuery(BaseModel):
     about: list[str] | None = Field(default=None, max_length=MAX_FILTER_VALUES)
     story_id: str | None = Field(default=None, min_length=1, max_length=MAX_ID)
     document: str | None = Field(default=None, min_length=1, max_length=MAX_ID)
-    held_back: bool | None = None
     assigned_to: str | None = Field(default=None, pattern=ASSIGNEE_PATTERN)
     """``me`` (the caller), ``none`` (nobody) or a member's user id."""
     cursor: str | None = Field(default=None, min_length=1, max_length=MAX_CURSOR)

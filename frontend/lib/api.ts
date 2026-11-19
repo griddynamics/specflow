@@ -239,11 +239,11 @@ export const dismissFinding = (pid: string, fid: string, note: string | undefine
   httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/dismiss`, json({ note: note ?? null })).then(
     (r) => r.body,
   );
-// The Gaps screen (FR-GWEB-04, FR-GWEB-06): the gap list (`query` is the encoded `list_gaps` filters, never empty: `held_back` is always
-// sent; a list filter repeating its parameter), one gap, the latest gap run with its noise report, and the writes: edits preview, answer,
-// dismiss, assign, raise, apply now, the "Answered by AI" list and revert, and the noise rules. Bodies stay `unknown`; the gaps port
-// (lib/data/http/gaps.ts) checks their shape. POSTs, PUTs and DELETEs go through `call`, so they carry the CSRF header (the BFF adds
-// nothing; the browser sends the Origin).
+// The Gaps screen (FR-GWEB-04, FR-GWEB-06): the gap list (`query` is the encoded `list_gaps` filters, never empty: the screens always
+// send a status; a list filter repeating its parameter), one gap, the latest gap run with its noise report, and the writes: edits
+// preview, answer, dismiss, assign, raise, apply now, the "Answered by AI" list and revert, and the noise rules. Bodies stay `unknown`;
+// the gaps port (lib/data/http/gaps.ts) checks their shape. POSTs, PUTs and DELETEs go through `call`, so they carry the CSRF header
+// (the BFF adds nothing; the browser sends the Origin).
 export const getGaps = (pid: string, query: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps?${query}`).then((r) => r.body);
 export const getGap = (pid: string, gid: string) =>
   httpGet(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}`).then((r) => r.body);

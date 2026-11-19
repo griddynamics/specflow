@@ -115,8 +115,6 @@ export interface Gap {
   question: string;
   why: string;
   blocking: boolean;
-  /** A new question its run held back from the inbox's default view until the next run (FR-GRTE-06). */
-  heldBack: boolean;
   createdAt: string;
   /** The `updated_at` an answer sends back (a gap changed since then answers `409 gap_stale`); "" when the API sent none. */
   updatedAt: string;
@@ -142,8 +140,6 @@ export interface GapQuery {
   storyId?: string;
   /** "me" (the caller), "none" (nobody) or a member's user id. */
   assignedTo?: string;
-  /** false = the inbox's default view, true = only the questions a run held back, undefined = not sent (both). */
-  heldBack?: boolean;
   cursor?: string;
   /** Page size, 1..200 (the server default when absent). */
   limit?: number;

@@ -21,6 +21,7 @@ from db.session import build_engine, build_session_factory, transaction
 from gap_acceptance_support import Planted, RecordedGapGateway, assert_all_recorded, write_gap_corpus_graph
 from gap_host_support import SETTINGS, store_build
 from gap_investigation_support import answer_by_site
+from gap_port_fakes import MemoryBuildRequests, SeedInvestigator
 from graph.build import open_file_stores
 from graph.core import load_ontology
 from graph.gap import GapSettings
@@ -114,3 +115,29 @@ async def test_fr_grun_01_the_runner_runs_the_library_after_a_build_on_live_stor
 
 async def _no_schema(*_args: Any, **_kwargs: Any) -> None:
     """The live graph fixture owns its schema; the runner's ``ensure_gap_schema`` is checked elsewhere."""
+
+
+def live_runner(
+    graph_project: GraphProject,
+    factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    gateway_factory: Callable[[Any], Any],
+) -> tuple[GapRunner, MemoryBuildRequests]:
+    """A runner on the live stores with the seed investigator, and the build requests it makes."""
+
+    builds = MemoryBuildRequests()
+    runner = GapRunner(
+        SETTINGS.model_copy(update={"state_dir": str(tmp_path)}),
+        GapSettings(),
+        store=graph_project.store,
+        transaction=lambda: transaction(factory),
+        dependencies=GapRunnerDependencies(
+            builds=open_file_stores(tmp_path).builds,
+            ontology=load_ontology(),
+            gateway_factory=gateway_factory,
+            investigator=lambda _gateway: SeedInvestigator(),
+            ensure=_no_schema,
+        ),
+    )
+    runner.use_builds(builds)
+    return runner, builds

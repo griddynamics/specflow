@@ -206,7 +206,7 @@ def test_the_route_is_ai_only_when_every_rule_and_gate_holds() -> None:
         assert never.route == "ask" and "kind" in never.reasons
     pointer = route_report(report(export, kind="open_question"), snapshot, **given, pointer=True)
     assert (pointer.route, pointer.mode) == ("ai", "pointer")
-    payload = routed_payload(routed, held_back=False)
+    payload = routed_payload(routed)
     assert payload["gates"] == dict(routed.gates) and payload["confidence"] == 0.95
 
 

@@ -870,8 +870,7 @@ nodes or about given spec ids: what the specification leaves open, and the answe
 The answer is `{"project_id", "items", "next_cursor"}`, blockers first, then newest first, then by gap id. Each item:
 `gap_id`, `kind`, `severity` (`blocker`, `major`, `minor`), `status`, `blocking`, `question`, `about` (the spec ids
 the gap is about) and `answer` (the text of the answer, or the chosen option's label, once a person or the AI answered;
-null before). Agents see every gap, also the new questions a gap run held back from the people's inbox view
-(`held_back`). A project whose gap runs are not configured has no gaps: the list is empty.
+null before). A project whose gap runs are not configured has no gaps: the list is empty.
 
 Errors: `project_not_found`, `no_plan` and `story_not_found` (with `story_id`), `invalid_arguments`, `invalid_cursor`,
 `graph_unavailable`, `database_unavailable`, `internal_error`.
@@ -903,9 +902,8 @@ screen's flow: list, filter, open one gap, answer it.
 | `cursor` | string or null | null | from the previous page's `next_cursor` |
 
 It lists the gaps of route `ask` (the questions for people; the AI's answers are on the web screen's "Answered by AI"
-tab), also the new questions a gap run held back from the inbox's default view (the web screen shows them under "More
-found in this run"). Order: blockers first, then reach, then newest, then gap id, as `GapService.list_gaps` orders. The
-answer is `{"project_id", "items", "next_cursor"}`; each item: `gap_id`, `title`, `severity`, `kind`, `status`
+tab), every new question of a gap run included. Order: blockers first, then reach, then newest, then gap id, as
+`GapService.list_gaps` orders. The answer is `{"project_id", "items", "next_cursor"}`; each item: `gap_id`, `title`, `severity`, `kind`, `status`
 (`open`, `staged` or `resolved`), `resolving` (true while the rebuild that applies a staged answer runs) and `assignee`, the [holder](#holders) the gap is assigned to (`you` true for the caller), null when nobody is. A member
 whose display name is an address has no name: `assignee` cannot name them, and the row shows `name` null. A project
 whose gap runs are not configured has no gaps: the list is empty.

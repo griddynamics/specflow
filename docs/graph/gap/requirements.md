@@ -103,7 +103,7 @@ slice of agent findings.
 | FR-GRTE-03 | A minor gap shall be routed `ai` only when its kind is in `ai_kinds` and every gate holds (entailed, local, consistent, confidence at least 0.85 from the second check). | Given a minor missing-information gap with confidence 0.84, then it is `ask`; with 0.9 and all gates, then `ai`. |
 | FR-GRTE-04 | An `info` report shall become a run note, not a graph node. | Given an info report, then a `gap_note` row exists and no `Gap` node. |
 | FR-GRTE-05 | AI answers in one run shall stop at the per-run limit or when their nodes reach the node-share valve; the rest shall be routed `ask`. | Given 25 AI-eligible gaps, then 20 are answered by AI and 5 are `ask`. |
-| FR-GRTE-06 | A run shall show at most the configured number of new questions, ranked by severity and reach; the rest stay `open` but hidden from the inbox's default view until the next run. | Given 30 new `ask` gaps, then the default inbox lists 25. |
+| FR-GRTE-06 | Every new question of a run shall show in the inbox; the inbox is paged and filtered. | Given 30 new `ask` gaps, then the inbox lists all 30 (in pages). |
 
 ## Answers ([answers.md](answers.md))
 

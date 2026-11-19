@@ -5,14 +5,12 @@ card its dialog shows) and ``POST /agent/gap-answer`` (what the person chose in 
 Same ``AgentRoute``, auth and membership-first dependency chain as ``api.routers.agent``. Exactly one of ``story_id``
 and ``spec_ids`` (``invalid_arguments`` otherwise); a story is resolved through the plan to the nodes its tasks
 implement (``no_plan``, ``story_not_found`` as for ``trace``), then ``GapService.list_gaps`` filters by ``about``
-(aliases resolve). Agents see every open gap, also the ones a run held back from the inbox's default view
-(``held_back`` is a people's inbox concern). Without a configured gap runner the project has no gaps: the list is
-empty. A card links to the web app at ``PUBLIC_URL``. Nothing here writes; logs carry no question or answer text
-(NFR-GSEC-02).
+(aliases resolve). Without a configured gap runner the project has no gaps: the list is empty. A card links to the
+web app at ``PUBLIC_URL``. Nothing here writes; logs carry no question or answer text (NFR-GSEC-02).
 
-``browse_gaps`` (``GET /agent/gap-inbox``) lists what the web Gaps screen lists (route ``ask``, held back or not) with
-its filters, as rows that name each assignee; ``open_gap`` (``GET /agent/gap-detail``) reads one gap whole, in any
-status, as its web card shows it (``api.gap.cards.gap_detail``).
+``browse_gaps`` (``GET /agent/gap-inbox``) lists what the web Gaps screen lists (route ``ask``) with its filters, as
+rows that name each assignee; ``open_gap`` (``GET /agent/gap-detail``) reads one gap whole, in any status, as its web
+card shows it (``api.gap.cards.gap_detail``).
 
 ``answer_gap`` writes only what the person sent from the dialog that the client showed on the MCP server's request,
 never the agent's text (decision D6): the answer is recorded as the token's user with ``via`` ``elicitation``, with the
@@ -133,10 +131,10 @@ def _assigned_to(assigned: AssignedFilter | None, caller: uuid.UUID) -> str | No
 async def browse_gaps(
     project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, args: Annotated[BrowseGapsQuery, Query()]
 ) -> GapRowList:
-    """The gaps of the web Gaps screen (route ``ask``, held back or not) with its filters, by default the ones not
-    resolved; blockers first, then reach, then newest; one page of rows, each naming its assignee. ``assigned`` keeps
-    the caller's gaps or the unassigned ones; ``assignee`` the gaps of the one member with that name (unknown, shared
-    or given with ``assigned``: ``invalid_arguments``); ``story_id`` as for ``list_gaps``."""
+    """The gaps of the web Gaps screen (route ``ask``) with its filters, by default the ones not resolved; blockers
+    first, then reach, then newest; one page of rows, each naming its assignee. ``assigned`` keeps the caller's gaps
+    or the unassigned ones; ``assignee`` the gaps of the one member with that name (unknown, shared or given with
+    ``assigned``: ``invalid_arguments``); ``story_id`` as for ``list_gaps``."""
 
     if args.cursor is not None:
         cursor_within_limit(args.cursor)

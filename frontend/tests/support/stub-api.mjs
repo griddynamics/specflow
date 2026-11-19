@@ -436,7 +436,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   // `stories` id list for the story filter and `old_ids`, the old `FND::` ids of a migrated finding that `GET /gaps/{id}` resolves to the
   // gap, as the API does; an `ABOUT` / `IMPACTS` node may carry `aliases`, its other spec ids), the latest `GapRunStatus` and the noise
   // rules. Reads: `GET /gaps` filters as `list_gaps` does (status default open, answered, applying; kind, severity, origin, route repeat;
-  // story_id; assigned_to `me`, `none` or a user id; held_back when sent; limit), sorts by severity, reach (tasks), then newest, and drops
+  // story_id; assigned_to `me`, `none` or a user id; limit, 50 by default), sorts by severity, reach (tasks), then newest, and drops
   // options, history and reach from the items; `cursor` is an offset. Every gap has `assigned_to` (null unless seeded or assigned). Writes, in memory, with the API's
   // checks and codes: `edits_preview` (edits made from the option or the own text: `amend` after the first witness line, or a
   // clarifications-document section; own text containing "FALLBACK" falls back to the document), `answer` (409 gap_stale unless
@@ -529,7 +529,6 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     const many = (name, fallback) => (q.getAll(name).length ? q.getAll(name) : fallback);
     const statuses = many("status", ["open", "answered", "applying"]);
     const keep = (name, value) => many(name, null) === null || many(name, null).includes(value);
-    const held = q.get("held_back");
     const story = q.get("story_id");
     const assigned = q.get("assigned_to");
     const assignee = assigned === "me" ? ME.id : assigned;
@@ -542,7 +541,6 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           keep("severity", g.severity) &&
           keep("origin", g.origin) &&
           keep("route", g.route) &&
-          (held === null || String(Boolean(g.held_back)) === held) &&
           (!story || (g.stories ?? []).includes(story)) &&
           (assigned === null || (assigned === "none" ? !g.assigned_to : g.assigned_to === assignee)),
       )
@@ -659,7 +657,6 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       detector: "person",
       signature: `person|${id}`,
       blocking: false,
-      held_back: false,
       run_id: null,
       created_by: "u1",
       created_at: now,

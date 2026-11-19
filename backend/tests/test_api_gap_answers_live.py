@@ -17,21 +17,16 @@ from typing import Any
 import pytest
 
 from api.gap.records import PostgresAmendments, PostgresGapRecords
-from api.gap.runner import GapRunner, GapRunnerDependencies
 from db.session import build_engine, build_session_factory, transaction
 from gap_acceptance_support import Planted, write_gap_corpus_graph
-from gap_host_support import SETTINGS, store_build
-from gap_port_fakes import MemoryBuildRequests, SeedInvestigator
-from graph.build import open_file_stores
-from graph.core import load_ontology
-from graph.gap import GapSettings
+from gap_host_support import store_build
 from graph.gap.errors import StaleGapError
 from graph.gap.models import AnswerInput, NewGap
 from graph_probes import requires_live_graph
 from graph_support import GraphProject
 from settings import DatabaseSettings
 from specflow_live import requires_live
-from test_api_gap_runner_live import _gateways, _no_schema, _project
+from test_api_gap_runner_live import _gateways, _project, live_runner
 
 pytest_plugins = ["graph_support"]
 
@@ -57,21 +52,7 @@ async def test_answer_apply_dismiss_and_raise_on_live_stores(
         graph_project.project_ids.append(project_id)
         await write_gap_corpus_graph(graph_project, project_id)
         await store_build(tmp_path, "build-1", minutes=0, project_id=project_id)
-        builds = MemoryBuildRequests()
-        runner = GapRunner(
-            SETTINGS.model_copy(update={"state_dir": str(tmp_path)}),
-            GapSettings(),
-            store=graph_project.store,
-            transaction=lambda: transaction(factory),
-            dependencies=GapRunnerDependencies(
-                builds=open_file_stores(tmp_path).builds,
-                ontology=load_ontology(),
-                gateway_factory=_gateways([]),
-                investigator=lambda _gateway: SeedInvestigator(),
-                ensure=_no_schema,
-            ),
-        )
-        runner.use_builds(builds)
+        runner, builds = live_runner(graph_project, factory, tmp_path, _gateways([]))
         records = PostgresGapRecords(lambda: transaction(factory))
         amendments = PostgresAmendments(lambda: transaction(factory))
         try:

@@ -36,11 +36,12 @@ other node.
 
 | Label | Key | Properties |
 |---|---|---|
-| `Gap` | `gap_id` (`GAP::<12 hex>`) | `kind`, `severity`, `status`, `origin`, `route`, `resolution` (when resolved), `title`, `question`, `why`, `detector` (code, or `development`, `person`), `signature`, `seed_signatures` (the signatures of the detector seeds of the gap's detector whose sites recorded or re-checked it; what a dismissal suppresses besides `signature`), `blocking` (`yes` when a development gap holds the reporting agent's claimed story), `held_back` (`yes` while a new question its run held back beyond `new_questions_per_run` waits for the next run), `story_id` (the story a development gap was reported from), `aliases` (other ids the gap answers to: the `FND::` id of a migrated first-slice finding; `get_gap` and the release of holds resolve them), `run_id`, `created_by`, `created_at`, `updated_at`, `resolved_at` |
+| `Gap` | `gap_id` (`GAP::<12 hex>`) | `kind`, `severity`, `status`, `origin`, `route`, `resolution` (when resolved), `title`, `question`, `why`, `detector` (code, or `development`, `person`), `signature`, `seed_signatures` (the signatures of the detector seeds of the gap's detector whose sites recorded or re-checked it; what a dismissal suppresses besides `signature`), `blocking` (`yes` when a development gap holds the reporting agent's claimed story), `story_id` (the story a development gap was reported from), `aliases` (other ids the gap answers to: the `FND::` id of a migrated first-slice finding; `get_gap` and the release of holds resolve them), `run_id`, `created_by`, `created_at`, `updated_at`, `resolved_at` |
 | `Clarification` | `clr_id` (`CLR::<12 hex>`) | `mode`, `placement`, `status`, `option_label`, `text`, `answered_by` (a user id, or `ai`), `answered_at`, `apply_requested_at` (when its answers were sent to an update build), `applied_build_id`, `reconcile_state` (hash of its amendments' ids, statuses, anchor hashes and revisions as the close step last saw them), `basis` (JSON: quoted lines behind an AI or pointer answer), `confidence` (AI and pointer answers: the second check's), `reverted_at`, `reverted_by` (set by `revert_clarification`) |
 
 Vocabularies are those of [gap-ontology.yaml](gap-ontology.yaml). `severity` `info` is not a graph value:
-an info finding is a run note in the relational store.
+an info finding is a run note in the relational store. A gap written while runs held new questions back may still
+carry `held_back`; nothing reads it (every new question shows, FR-GRTE-06).
 
 ### Relations
 
