@@ -16,7 +16,7 @@ import { focusedElement, focusIsLost } from "@/components/ui/use-outside";
 import { PageTitle } from "@/components/ui/TopBar";
 import type { AssistantIntro } from "@/lib/domain/assistant";
 import { docRefLink } from "@/lib/markdown/links";
-import { decisionLink } from "@/components/decisions/decision-links";
+import { gapLink } from "@/components/gaps/gap-links";
 import { applyEvent, failExchange, nearBottom, newExchange, plainText, type Exchange } from "./specbot-logic";
 import "./bot-gaps.css";
 import { useSpecBotEnv } from "./use-specbot-env";
@@ -246,8 +246,8 @@ export function SpecBotScreen({ projectId }: Readonly<{ projectId: string }>) {
                       <a
                         className="bot__decision body-sm"
                         data-testid="specbot-decision-link"
-                        href={decisionLink(routes, projectId, x.decisionLink.decisionId)}
-                        onClick={open(decisionLink(routes, projectId, x.decisionLink.decisionId))}
+                        href={gapLink(routes, projectId, x.decisionLink.decisionId)}
+                        onClick={open(gapLink(routes, projectId, x.decisionLink.decisionId))}
                       >
                         <Icon name="arrow-square-out" size={14} />
                         {x.decisionLink.label}

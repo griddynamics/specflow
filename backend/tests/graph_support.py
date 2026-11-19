@@ -719,29 +719,29 @@ GAP_ONTOLOGY: Final[dict[str, Any]] = {
     "version": "0.1",
     "owner": "gap",
     "node_types": {
-        "finding": {
-            "label": "Finding",
+        "gap": {
+            "label": "Gap",
             "origin": "analysis",
             "tier": "governance",
-            "description": "A gap finding.",
+            "description": "A gap.",
         },
     },
     "edge_types": {
         "FLAGS": {
             "origin": "analysis",
             "tier": "governance",
-            "description": "A finding flags a requirement or a module; a module flags a module.",
+            "description": "A gap flags a requirement or a module; a module flags a module.",
             "pairs": [
-                {"from": "finding", "to": "requirement"},
-                {"from": "finding", "to": "module"},
+                {"from": "gap", "to": "requirement"},
+                {"from": "gap", "to": "module"},
                 {"from": "module", "to": "module"},
             ],
         },
         "CITES": {
             "origin": "analysis",
             "tier": "governance",
-            "description": "A finding cites a fragment.",
-            "pairs": [{"from": "finding", "to": "Fragment"}],
+            "description": "A gap cites a fragment.",
+            "pairs": [{"from": "gap", "to": "Fragment"}],
         },
     },
 }

@@ -52,7 +52,9 @@ AGENT_CRED = "agent-canary-pw-51d"
 SKIP_COMMENT = "-- agent role existence check skipped (offline)"
 AGENT_GRANT = "GRANT SELECT (id, project_id, original_filename, version, status, markdown) ON documents TO {role}"
 FIRST = "0001_initial"  # frozen: the 2.0.0 schema
-HEAD = "0002_project_collaborators"
+COLLABORATORS = "0002_project_collaborators"
+GAP_MODULE = "0003_gap_module"
+HEAD = "0004_gap_assignment"
 # SHA-256 of versions/0001_initial.py as 2.0.0 shipped it; a mismatch means a frozen revision was edited.
 FROZEN_0001_SHA256 = "ebc6d2e0f6ca8eef9bcbc5acde990ed151fe17fbc1945c75e5d6289a455948dc"
 INITIAL_TABLES = (
@@ -63,13 +65,30 @@ INITIAL_TABLES = (
     "documents",
     "connection_items",
 )
-APP_TABLES = (*INITIAL_TABLES, "project_invites")
+# The relational rows of the gap module (docs/graph/gap/data-model.md "Relational store"), added by 0003.
+GAP_TABLES = (
+    "gap_option",
+    "corpus_amendment",
+    "gap_run",
+    "gap_seed",
+    "gap_site",
+    "gap_verdict",
+    "gap_section_relevance",
+    "gap_noise_rule",
+    "gap_suppression",
+    "gap_note",
+    "gap_event",
+)
+# The member who resolves a gap, added by 0004.
+ASSIGNMENT = "gap_assignment"
+APP_TABLES = (*INITIAL_TABLES, "project_invites", *GAP_TABLES, ASSIGNMENT)
 SCOPED_TABLES = (
     ("projects", "id"),
     ("project_members", "project_id"),
     ("documents", "project_id"),
     ("connections", "project_id"),
     ("connection_items", "project_id"),
+    *((table, "project_id") for table in (*GAP_TABLES, ASSIGNMENT)),
 )
 INVITES = ("project_invites", "project_id")
 
@@ -91,14 +110,16 @@ def offline_config(url: str | URL | None = DUMMY_URL) -> tuple[Config, StringIO]
 # T8 ------------------------------------------------------------------------
 
 
-def test_the_migration_history_is_the_initial_revision_and_the_collaborators_revision() -> None:
+def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_assignment_revision() -> None:
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
 
     assert script.get_heads() == [HEAD]
     assert script.get_bases() == [FIRST]
-    assert [revision.revision for revision in script.walk_revisions()] == [HEAD, FIRST]
+    assert [revision.revision for revision in script.walk_revisions()] == [HEAD, GAP_MODULE, COLLABORATORS, FIRST]
     assert script.get_revision(FIRST).down_revision is None
-    assert script.get_revision(HEAD).down_revision == FIRST
+    assert script.get_revision(COLLABORATORS).down_revision == FIRST
+    assert script.get_revision(GAP_MODULE).down_revision == COLLABORATORS
+    assert script.get_revision(HEAD).down_revision == GAP_MODULE
 
 
 # T9 ------------------------------------------------------------------------
@@ -117,6 +138,8 @@ def test_the_upgrade_creates_the_schema_and_stamps_the_head_revision(
     assert "CREATE TABLE alembic_version" in sql
     assert "INSERT INTO alembic_version (version_num) VALUES ('0001_initial')" in sql
     assert "UPDATE alembic_version SET version_num='0002_project_collaborators'" in sql
+    assert "UPDATE alembic_version SET version_num='0003_gap_module'" in sql
+    assert "UPDATE alembic_version SET version_num='0004_gap_assignment'" in sql
     assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == [
         "alembic_version",
         *APP_TABLES,
@@ -215,7 +238,7 @@ def test_env_py_without_a_url_reads_the_database_settings(
     command.upgrade(cfg, "head", sql=True)
 
     sql = buffer.getvalue()
-    assert "UPDATE alembic_version SET version_num='0002_project_collaborators'" in sql
+    assert "UPDATE alembic_version SET version_num='0003_gap_module'" in sql
     assert DB_CRED not in sql
 
 
@@ -308,7 +331,7 @@ def collaborators_sql() -> str:
     """The SQL of revision 0002 alone."""
 
     cfg, buffer = offline_config()
-    command.upgrade(cfg, f"{FIRST}:{HEAD}", sql=True)
+    command.upgrade(cfg, f"{FIRST}:{COLLABORATORS}", sql=True)
     return buffer.getvalue()
 
 
@@ -401,7 +424,7 @@ def test_0002_enables_rls_on_the_invites_and_re_creates_the_policy_without_a_gra
 def test_the_downgrade_of_0002_returns_to_the_2_0_0_schema_and_says_what_is_lost() -> None:
     cfg, buffer = offline_config()
 
-    command.downgrade(cfg, f"{HEAD}:{FIRST}", sql=True)
+    command.downgrade(cfg, f"{COLLABORATORS}:{FIRST}", sql=True)
 
     sql = buffer.getvalue()
     assert "DELETE FROM project_members WHERE project_members.role = 'collaborator';" in sql
@@ -422,3 +445,127 @@ def test_revision_0001_is_frozen() -> None:
     path = ALEMBIC_INI.parent / "migrations" / "versions" / "0001_initial.py"
     unix_text = path.read_bytes().replace(b"\r\n", b"\n")  # a CRLF checkout must not fail the guard
     assert hashlib.sha256(unix_text).hexdigest() == FROZEN_0001_SHA256
+
+
+# The gap module's tables, added by revision 0003 on top of 0002 ---------------------------------
+
+
+def gap_sql() -> str:
+    """The SQL of revision 0003 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{COLLABORATORS}:{GAP_MODULE}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0003_creates_only_the_gap_tables_and_stamps_its_revision() -> None:
+    sql = gap_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == list(GAP_TABLES)
+    for table in GAP_TABLES:
+        assert f"CONSTRAINT fk_{table}_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in sql
+    index = "CREATE UNIQUE INDEX ix_gap_option_one_recommended ON gap_option (project_id, gap_id) WHERE recommended"
+    assert index in sql
+    assert "UPDATE alembic_version SET version_num='0003_gap_module'" in sql
+    # no existing table changes: the only ALTER TABLE statements enable row-level security on a gap table
+    assert sorted(re.findall(r"ALTER TABLE (\w+) ENABLE ROW LEVEL SECURITY;", sql)) == sorted(GAP_TABLES)
+    assert sql.count("ALTER TABLE") == len(GAP_TABLES)
+    assert "DROP" not in sql.upper()
+    assert "DELETE" not in sql.upper()
+
+
+def test_0003_checks_the_role_and_skips_the_lock_timeout_offline_before_any_ddl() -> None:
+    sql = gap_sql()
+
+    first_table = sql.index("CREATE TABLE gap_option")
+    assert sql.index("-- lock_timeout skipped (offline)") < first_table
+    assert sql.index(SKIP_COMMENT) < first_table
+    assert "lock_timeout = '10s'" not in sql  # the session setting is online only
+    text = (ALEMBIC_INI.parent / "migrations" / "sql" / "0003_lock_timeout.sql").read_text("utf-8")
+    assert text.strip() == "SET LOCAL lock_timeout = '10s'"
+
+
+def test_0003_scopes_every_gap_table_to_the_agent_role_without_a_grant() -> None:
+    sql = gap_sql()
+
+    scope = "nullif(current_setting('app.project_id', true), '')::uuid"
+    for table in GAP_TABLES:
+        assert f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;" in sql
+        assert (
+            f'CREATE POLICY agent_project_scope ON {table} TO "specflow_agent" '
+            f"USING (project_id = {scope}) WITH CHECK (project_id = {scope});"
+        ) in sql
+        assert sql.index(f"CREATE TABLE {table} (") < sql.index(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+    assert sql.count("CREATE POLICY agent_project_scope") == len(GAP_TABLES)
+    assert "GRANT" not in sql.upper()
+
+
+def test_the_downgrade_of_0003_drops_only_the_gap_tables_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{GAP_MODULE}:{COLLABORATORS}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == list(reversed(GAP_TABLES))
+    assert "UPDATE alembic_version SET version_num='0002_project_collaborators'" in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("DROP TABLE")
+    assert SKIP_COMMENT not in sql  # the downgrade needs no agent role
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0003_gap_module.py").read_text("utf-8")
+    assert "Every gap row is lost" in doc
+
+
+# The gap assignment table, added by revision 0004 on top of 0003 -------------------------------
+
+
+def assignment_sql() -> str:
+    """The SQL of revision 0004 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{GAP_MODULE}:{HEAD}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0004_creates_only_the_assignment_table_keyed_to_the_member_row() -> None:
+    sql = assignment_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == [ASSIGNMENT]
+    assert "CONSTRAINT pk_gap_assignment PRIMARY KEY (project_id, gap_id)" in sql
+    assert "CONSTRAINT fk_gap_assignment_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in sql
+    assert (
+        "CONSTRAINT fk_gap_assignment_project_id_project_members FOREIGN KEY(project_id, user_id) "
+        "REFERENCES project_members (project_id, user_id) ON DELETE CASCADE"
+    ) in sql
+    assert "CREATE INDEX ix_gap_assignment_user_id ON gap_assignment (project_id, user_id);" in sql
+    assert "UPDATE alembic_version SET version_num='0004_gap_assignment'" in sql
+    assert sql.count("ALTER TABLE") == 1  # row-level security on the new table; no existing table changes
+    assert "DROP" not in sql.upper()
+    assert "DELETE FROM" not in sql.upper()
+
+
+def test_0004_checks_the_role_and_scopes_the_table_to_the_agent_role_without_a_grant() -> None:
+    sql = assignment_sql()
+
+    scope = "nullif(current_setting('app.project_id', true), '')::uuid"
+    created = sql.index("CREATE TABLE gap_assignment")
+    assert sql.index("-- lock_timeout skipped (offline)") < created
+    assert sql.index(SKIP_COMMENT) < created
+    assert created < sql.index("ALTER TABLE gap_assignment ENABLE ROW LEVEL SECURITY;")
+    assert (
+        'CREATE POLICY agent_project_scope ON gap_assignment TO "specflow_agent" '
+        f"USING (project_id = {scope}) WITH CHECK (project_id = {scope});"
+    ) in sql
+    assert "GRANT" not in sql.upper()
+
+
+def test_the_downgrade_of_0004_drops_only_the_assignment_table_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD}:{GAP_MODULE}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == [ASSIGNMENT]
+    assert "UPDATE alembic_version SET version_num='0003_gap_module'" in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("DROP TABLE")
+    assert SKIP_COMMENT not in sql  # the downgrade needs no agent role
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0004_gap_assignment.py").read_text("utf-8")
+    assert "Every assignment is lost" in doc

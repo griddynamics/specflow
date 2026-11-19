@@ -188,11 +188,11 @@ test.describe("P26 Plan page on production routes", { tag: "@production" }, () =
     await expect(screen(page)).toHaveAttribute(DATA_STAGE, "ready", { timeout: 15_000 });
   });
 
-  test("FE-PLAN-09.AC1 (c): leaving Plan for Decisions and coming back shows Stage 0 again", async ({ page, requests }) => {
+  test("FE-PLAN-09.AC1 (c): leaving Plan for Gaps and coming back shows Stage 0 again", async ({ page, requests }) => {
     await readyProject(page);
     await openPlan(page, requests);
-    await rail(page).getByRole("button", { name: "Decisions", exact: true }).click();
-    await expect(page.getByTestId("screen-decisions")).toBeVisible();
+    await rail(page).getByRole("button", { name: "Gaps", exact: true }).click();
+    await expect(page.getByTestId("screen-gaps")).toBeVisible();
     await rail(page).getByRole("button", { name: "Plan", exact: true }).click();
     await expect(screen(page)).toHaveAttribute(DATA_STAGE, "idle");
     await expect(create(page)).toBeVisible();

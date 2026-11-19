@@ -199,6 +199,11 @@ class FileBuildStore:
     async def get_build(self, project_id: str, build_id: str) -> BuildRecord | None:
         return await self._load_record(project_id, build_id)
 
+    async def list_builds(self, project_id: str) -> tuple[BuildRecord, ...]:
+        names = await asyncio.to_thread(_list_folders, self._builds(project_id))
+        records = [record for name in names if (record := await self._load_record(project_id, name)) is not None]
+        return tuple(sorted(records, key=lambda record: (record.started_at, record.build_id)))
+
     async def put_progress(self, project_id: str, build_id: str, step: StepName, state: StepState) -> None:
         async with self._lock:
             record = await self._require(project_id, build_id)

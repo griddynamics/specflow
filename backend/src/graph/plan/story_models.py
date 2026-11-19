@@ -46,6 +46,13 @@ class StoryRelease(PlanModel):
     repeat: bool = False
 
 
+class TaskHold(PlanModel):
+    """What ``hold_tasks`` did: the tasks it blocked and the ``in_progress`` tasks it left alone."""
+
+    held: tuple[str, ...] = ()
+    in_progress: tuple[str, ...] = ()
+
+
 class StoryCompletion(PlanModel):
     """What ``complete_story`` did: the tasks completed and released, the stories now claimable and the spec ids that
     changed since the plan consumed them."""

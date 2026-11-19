@@ -514,7 +514,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     expect(await work(), "no parse or summarize request, ever").toBe(0);
   });
 
-  // Decisions is covered by decisions-gate-production.spec.ts (D19): a not-Ready project shows the Ready gate there, a Ready one "No decisions yet".
+  // Gaps is covered by gaps-gate-production.spec.ts (D19): a not-Ready project shows the Ready gate there, a Ready one "No open gaps".
   test("FE-BP-03.AC8, SPL-DEMO-02: SpecBot says it is not available yet and Connections shows no connectors; neither sends a /api/backend request for content", async ({
     page,
     requests,

@@ -1,7 +1,8 @@
 """The people tools' API routes (FR-MCP-STORY-01 to -09): ``GET /areas``, ``/stories``, ``/story-preview`` and
-``POST /story-claim``, ``/story-release``, over the REAL ``PlanService`` and findings library on the in-memory plan of
-``mini_plan`` (``people_support``). Covers the structured answers, ordering and paging, holders by name, the typed error
-details, idempotency by state, the refusals that write nothing, and the audit event."""
+``POST /story-claim``, ``/story-release``, over the REAL ``PlanService`` and gap service (development gaps are the
+agents' findings) on the in-memory plan of ``mini_plan`` (``people_support``). Covers the structured answers, ordering
+and paging, holders by name, the typed error details, idempotency by state, the refusals that write nothing, and the
+audit event."""
 
 from __future__ import annotations
 
@@ -12,6 +13,8 @@ from types import SimpleNamespace
 import pytest
 
 from agent_contracts import AGENT_ROUTES
+from graph.gap import NewGap
+from graph.gap.gaps import gap_uuid
 from people_support import API, API_NODE, LATE, SETUP, STUCK, UI, PeopleRig, X, Y, serve_people
 from plan_claims_support import mini_plan, story_row, task_row
 from specflow_api_agent_support import ALPHA, USER_HEADER, agent_env, bearer_header, events, mcp_token
@@ -38,6 +41,25 @@ async def _member(people: PeopleRig, name: str) -> uuid.UUID:
     )
     people.rig.repo.members.add((uuid.UUID(ALPHA), user.id))
     return user.id
+
+
+async def blocking_gap(people: PeopleRig, text: str, story_id: str = API) -> str:
+    """Ben's open development gap about the API node, reported from ``story_id`` as blocking (marked on the node, as
+    the seeds do: no claim needed); its id."""
+
+    raised = await people.gaps.raise_gap(
+        ALPHA,
+        NewGap(
+            kind="open_question",
+            question=text,
+            about=(API_NODE,),
+            origin="development",
+            story_id=story_id,
+            created_by=str(people.ben),
+        ),
+    )
+    people.gap.nodes[("Gap", gap_uuid(ALPHA, raised.gap_id))]["blocking"] = "yes"
+    return raised.gap_id
 
 
 # --- list_areas -----------------------------------------------------------------------------------------------
@@ -169,17 +191,10 @@ async def test_findings_count_the_open_ones_about_the_story_and_the_question_is_
     async with serve_people(monkeypatch, env) as people:
         before = await people.get(STORIES, project_id=ALPHA, limit=100)
         for text in ("Is the amount in cents?", "A later blocking question"):
-            await people.findings.add(
-                ALPHA,
-                created_by=str(people.ben),
-                kind="question",
-                text=text,
-                about=["FEAT::API"],
-                story_id=API,
-                blocking=True,
-            )
+            await blocking_gap(people, text)
         response = await people.get(STORIES, project_id=ALPHA, limit=100)
-    # The seeded blocking question is about API's node but was raised on STUCK: counted, never API's question.
+    # The seeded blocking question is about API's node but was raised on STUCK: counted, never API's question (Ben's
+    # open gap about the node counts too).
     seeded = {item["story_id"]: item for item in before.json()["items"]}
     assert seeded[API]["findings"] == 2 and seeded[API]["question"] is None
     by_id = {item["story_id"]: item for item in response.json()["items"]}
@@ -189,17 +204,9 @@ async def test_findings_count_the_open_ones_about_the_story_and_the_question_is_
 
 async def test_the_question_is_cut_to_80_characters(monkeypatch, env):
     async with serve_people(monkeypatch, env) as people:
-        for finding in people.gap.findings().values():
-            finding["status"] = "resolved"  # the seeded question is no longer open
-        await people.findings.add(
-            ALPHA,
-            created_by=str(people.ben),
-            kind="question",
-            text="q" * 200,
-            about=["FEAT::API"],
-            story_id=API,
-            blocking=True,
-        )
+        for gap in people.gap.gaps().values():
+            gap["status"] = "resolved"  # the seeded question is no longer open
+        await blocking_gap(people, "q" * 200)
         response = await people.get(STORIES, project_id=ALPHA, limit=100)
     assert next(i for i in response.json()["items"] if i["story_id"] == API)["question"] == "q" * 80
 
@@ -230,7 +237,7 @@ async def test_the_mine_view_lists_the_held_stories_then_the_ones_the_callers_fi
         response = await people.get(STORIES, project_id=ALPHA, view="mine")
     assert [i["story_id"] for i in mine_for_ben.json()["items"]] == [
         STUCK
-    ]  # alice's FND::1 blocks it; ben's API is not hers
+    ]  # alice's gap (migrated as FND::1, the task's blocked_by) blocks it; ben's API is not hers
     assert [(i["story_id"], i["state"]) for i in response.json()["items"]] == [
         (X, "in_progress"),
         (Y, "in_progress"),
@@ -274,7 +281,8 @@ async def test_a_preview_shows_the_story_its_tasks_in_build_order_blockers_findi
     ]
     assert held["story"]["holder"] == {"name": "Ben", "you": False, "agent_label": "Claude Code"}
     assert held["story"]["since"] is not None and held["unblocks"] == [LATE, UI]
-    assert [(f["kind"], f["blocking"]) for f in held["findings"]] == [("question", True), ("note", False)]
+    # The open development gaps about the story's node, as gap kinds: Alice's blocking question, Ben's missing gap.
+    assert [(f["kind"], f["blocking"]) for f in held["findings"]] == [("open_question", True), ("missing", False)]
     assert held["findings"][1]["author"] == {"name": "Ben", "you": False, "agent_label": None}
 
 
@@ -387,10 +395,17 @@ async def test_a_story_that_waits_is_not_available_with_its_state_and_blockers_i
     assert [(b["story_id"], b["state"]) for b in details["blockers"]] == [(API, "in_progress"), (UI, "waiting")]
     assert details["blockers"][0]["holder"] == {"name": "Ben", "you": False, "agent_label": None}
     assert done.json()["error"]["details"] == {"state": "completed"}  # nothing left to claim, nothing it waits on
-    # a task is blocked: the details name the blocking finding with its question (QA F4, F27)
+    # a task is blocked (blocked_by the migrated FND::1): the details name the gap behind that alias with its question
+    # (QA F4, F27)
     assert blocked.json()["error"]["details"] == {
         "state": "blocked",
-        "findings": [{"finding_id": "FND::1", "kind": "question", "text": "Which currencies does the API accept?"}],
+        "findings": [
+            {
+                "finding_id": people.seeded["alice"],
+                "kind": "open_question",
+                "text": "Which currencies does the API accept?",
+            }
+        ],
     }
 
 
@@ -400,8 +415,8 @@ async def test_the_blocking_question_of_a_refusal_is_the_one_the_stories_list_sh
 
     async with serve_people(monkeypatch, env) as people:
         people.memory.set_task("TASK::A::STUCK_OPEN", implements=[API_NODE])  # the finding is about the story's node
-        for finding in people.gap.findings().values():
-            finding["text"] = "Which currencies? " + "x" * 100
+        for gap in people.gap.gaps().values():
+            gap["question"] = "Which currencies? " + "x" * 100
         rows = await people.get(STORIES, project_id=ALPHA, limit=100)
         refused = await people.post(CLAIM, claim_body(STUCK), project_id=ALPHA)
     question = next(item for item in rows.json()["items"] if item["story_id"] == STUCK)["question"]
@@ -416,8 +431,8 @@ async def test_a_resolved_finding_is_left_out_of_the_refusal(monkeypatch, env):
     """QA F27, F29: a closed finding can leave its task blocked until the plan is free; only open ones are named."""
 
     async with serve_people(monkeypatch, env) as people:
-        for finding in people.gap.findings().values():
-            finding["status"] = "resolved"
+        for gap in people.gap.gaps().values():
+            gap["status"] = "resolved"
         refused = await people.post(CLAIM, claim_body(STUCK), project_id=ALPHA)
     assert refused.json()["error"]["code"] == "not_available"
     assert refused.json()["error"]["details"] == {"state": "blocked"}

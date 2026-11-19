@@ -323,7 +323,8 @@ RLS-scoped agent session (`agent_scope.py`). Alembic (`alembic.ini`,
 `migrations/`) has hand-written revisions: `0001_initial` (frozen, the 2.0.0 schema: users, projects,
 project_members, connections, documents, connection_items, row-level security for the
 agent role on every project-scoped table and its column-level grant on `documents`)
-and `0002_project_collaborators` (the second member role, `project_invites`). `DatabaseSettings` (in
+`0002_project_collaborators` (the second member role, `project_invites`) and `0003_gap_module` (the eleven
+relational tables of the gap module, with row-level security for the agent role). `DatabaseSettings` (in
 `src/settings.py`) reads `DATABASE_*`.
 
 Every schema change is a new hand-written revision; an applied revision is never edited.
@@ -349,7 +350,7 @@ initialised with, so changing `.env.local` later does not change the database ro
 ```shell
 make up                        # repository root; postgres on 127.0.0.1:5433 (DATABASE_PORT)
 make db-upgrade                # alembic upgrade head from the host (root or backend/)
-cd backend && uv run --env-file ../.env.local alembic current   # 0002_project_collaborators (head)
+cd backend && uv run --env-file ../.env.local alembic current   # 0003_gap_module (head)
 cd backend && uv run --env-file ../.env.local alembic check     # the models match the revision
 # never recreate for a schema change; only a DB stamped with a vanished revision is recreated (make down-volumes && make up)
 ```

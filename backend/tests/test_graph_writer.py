@@ -37,7 +37,7 @@ from graph_support import shipped_ontology
 pytest_plugins = ["graph_support"]
 
 PROJECT = "proj-1"
-MODULE, FR, FINDING = "Module", "FunctionalRequirement", "Finding"
+MODULE, FR, FINDING = "Module", "FunctionalRequirement", "Gap"
 CHECKOUT, STRIPE, PAY = NodeRef(MODULE, "u-mod"), NodeRef(MODULE, "u-stripe"), NodeRef(FR, "u-fr")
 DOC, FRAG = NodeRef("Document", "d1"), NodeRef("Fragment", "f1")
 
@@ -202,11 +202,11 @@ async def test_keyed_node_upserts_merge_on_a_uniquely_constrained_key(gap_ontolo
     await gap.upsert_node(FINDING, "g1", {"title": "Missing SLA"})
 
     queries = [query for _, query, _ in [*build_runs.runs, *gap_runs.runs]]
-    assert [query.name for query in queries] == [UPSERT_DOCUMENT.name, UPSERT_FRAGMENT.name, "upsert_node_Finding"]
+    assert [query.name for query in queries] == [UPSERT_DOCUMENT.name, UPSERT_FRAGMENT.name, "upsert_node_Gap"]
     assert queries[:2] == [UPSERT_DOCUMENT, UPSERT_FRAGMENT]
     assert "MERGE (n:Document {group_id: $project_id, document_id: $key})" in render_cypher(queries[0])
     assert "MERGE (n:Fragment {group_id: $project_id, fragment_id: $key})" in render_cypher(queries[1])
-    assert "MERGE (n:Finding {group_id: $project_id, uuid: $key})" in render_cypher(queries[2])
+    assert "MERGE (n:Gap {group_id: $project_id, uuid: $key})" in render_cypher(queries[2])
     assert [params["key"] for _, _, params in [*build_runs.runs, *gap_runs.runs]] == ["d1", "f1", "g1"]
     ddl = load_gap_ddl(tmp_path)
     unique = {(item.label, item.properties) for item in schema_objects(gap_ontology, ddl) if item.kind == "unique"}

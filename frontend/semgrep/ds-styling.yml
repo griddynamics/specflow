@@ -29,6 +29,8 @@ rules:
         - "**/components/ui/use-text-selection.ts"
         - "**/components/ui/SegmentedControl.tsx"
         - "**/lib/markdown/scroll.ts"
+        # Keeps the reader's place in the Gaps inbox while a gap run adds rows above the viewport (scroll anchoring stops at the list's box).
+        - "**/components/gaps/use-keep-place.ts"
     pattern-either:
       - pattern: new ResizeObserver(...)
       - pattern: $EL.getBoundingClientRect()

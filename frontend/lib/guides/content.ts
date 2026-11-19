@@ -91,14 +91,15 @@ export const FLOW_STEPS: readonly FlowStep[] = [
     icon: "list-checks",
     name: "Decide",
     detail:
-      "Where documents disagree or leave something out, SpecFlow raises a decision with the evidence. Answer it with your team, assign it to the right person, or ask SpecBot to help.",
-    where: "Decisions",
+      "Where documents disagree or leave something out, SpecFlow raises a gap with the evidence and the options to answer it. Answer it with your team, or ask SpecBot to help.",
+    where: "Gaps",
     get: "Agreed answers that the plan builds on.",
   },
   {
     icon: "kanban",
     name: "Plan",
-    detail: "SpecFlow builds an implementation plan from the graph and your decisions. Each task links to the requirements it covers.",
+    detail:
+      "SpecFlow builds an implementation plan from the graph and your answers. Each task links to the requirements it covers and to its open gaps.",
     where: "Plan",
     get: "Tasks your team and your agents can pick up.",
   },
@@ -124,11 +125,11 @@ export const BEST_PRACTICES = {
       tips: [
         {
           advice: "Add only documents about this product",
-          reason: "Unrelated files slow every build and add features and decisions you have to clean up afterwards.",
+          reason: "Unrelated files slow every build and add features and gaps you have to clean up afterwards.",
         },
         {
           advice: "Keep one current version of each document",
-          reason: "Old drafts next to the final version produce conflicting requirements, which come back to you as decisions.",
+          reason: "Old drafts next to the final version produce conflicting requirements, which come back to you as gaps.",
         },
         {
           advice: "Prefer a connected Drive folder to one-off uploads",
@@ -142,11 +143,11 @@ export const BEST_PRACTICES = {
     },
     {
       eyebrow: "Steps 3 and 4",
-      title: "Decisions and the plan",
+      title: "Gaps and the plan",
       tips: [
         {
-          advice: "Answer open decisions before you create the plan",
-          reason: "The plan builds on your answers; open decisions leave gaps in its tasks.",
+          advice: "Answer open gaps before you create the plan",
+          reason: "The plan builds on your answers; open gaps leave holes in its tasks.",
         },
         {
           advice: "Use one SpecFlow project per change",

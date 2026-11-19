@@ -1,5 +1,5 @@
 "use client";
-// FE-PLAN-10, FE-DEC-02.AC5, FE-BP-03.AC8 (TECH-SPECS §2.15, §2.10; DECISIONS AUTO-23, P21-2, D19): the "not Ready" gate shared by Plan and Decisions.
+// FE-PLAN-10, FE-DEC-02.AC5, FE-BP-03.AC8 (TECH-SPECS §2.15, §2.10; DECISIONS AUTO-23, P21-2, D19): the "not Ready" gate shared by Plan and Gaps.
 //  - One `missionControl.snapshot(projectId)` read; `ready` opens the gate, any other phase blocks it.
 //  - A failed read (network, 4xx/5xx, not_found, invalid_response) counts as blocked (P21-2).
 //  - `missionControl.leave(projectId)` runs after the read settled (only while mounted) and on unmount: no poll survives (production, AUTO-23).

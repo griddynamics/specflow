@@ -1,0 +1,185 @@
+# gap-ontology.yaml: the ontology file graph.gap ships (owner: gap); copy of graph/gap/ontology.yaml.
+# Declares only the types and relations graph.gap owns: the Gap and Clarification nodes and their relations
+# (tier governance, no role: nothing here is extracted). Merged with the build file by load_ontology; pairs end
+# at build types, at Fragment and at Document. A file of this kind never changes the extraction fingerprint
+# (../ontology.md). Options offered for a gap, amendments, runs, seeds, sites, suppressions and noise rules are
+# not graph types: they are rows of the host's relational store (data-model.md "Relational store").
+
+format_version: 2
+name: gap-ontology
+version: "2.0"
+owner: gap
+
+vocabularies:
+  gap_kind:
+    missing: something the spec needs is not stated
+    ambiguous: a statement can be read in more than one way, or cannot be tested
+    contradiction: two statements about the same thing cannot both hold
+    inconsistency: parts that should fit do not (names, scope, cycles, payloads)
+    open_question: the text states a question or a placeholder and leaves it open
+    assumption: the text marks something as an assumption nobody confirmed
+  gap_severity:
+    blocker: the affected part cannot be built without a decision
+    major: building it means guessing behaviour users will see
+    minor: a local detail the text already implies
+  gap_status:
+    open: waiting for an answer
+    answered: an answer exists and waits to be applied
+    applying: the answer is in the corpus and an update build is queued or running
+    resolved: the close check found the gap fixed; kept as history
+  gap_origin:
+    analysis: found by a gap run (detectors and investigation)
+    development: reported by a coding agent while it builds a story
+    person: raised by a person in the app
+  gap_route:
+    ask: a person answers
+    ai: AI answers with the recommended option (advanced inference)
+  gap_resolution:
+    answered: a person's answer was applied and the close check passed
+    ai_answered: an AI answer was applied and the close check passed
+    pointer: the spec already answered it; nothing was added
+    follow_up: closed in favour of a follow-up gap
+  clarification_mode:
+    option: a person chose an offered option
+    own: a person wrote their own answer
+    ai: AI applied the recommended option
+    pointer: the answer already exists in the text; the clarification only points at it
+  clarification_placement:
+    amend: an amendment to the source section
+    document: a section of the project clarifications document
+    none: a pointer; no text is placed
+  clarification_status:
+    pending: recorded, not yet in the corpus
+    applied: in the corpus and grounded by a build
+    absorbed: the document owner adopted the text into the source; the amendment retired
+    conflict: a newer upload says something else; the amendment is suspended
+    orphaned: the anchor and its section are gone; the answer has no place
+    reverted: withdrawn by a person; the next build removes its text
+    superseded: replaced by a newer clarification of the same gap
+
+node_types:
+
+  gap:
+    label: Gap
+    origin: analysis
+    tier: governance
+    id: {format: "GAP::{SLUG}"}
+    description: |
+      A place where the spec would force a builder to guess: missing information, an ambiguity, a
+      contradiction, an inconsistency, a stated open question or an unconfirmed assumption. Linked to every
+      spec node the problem is in (ABOUT) and to the nodes an answer would also change (IMPACTS). Its slug
+      is the first 12 hex digits of its signature. A gap never changes the spec; an answer reaches the spec
+      only as corpus text read by a build.
+    attributes:
+      kind: {type: enum, values: gap_kind}
+      severity: {type: enum, values: gap_severity}
+      status: {type: enum, values: gap_status}
+      origin: {type: enum, values: gap_origin}
+      route: {type: enum, values: gap_route}
+      resolution: {type: enum, values: gap_resolution}
+      title: {type: text, max_chars: 160}
+      question: {type: text, max_chars: 1000}
+      why: {type: text, max_chars: 2000}
+      detector: {type: text, max_chars: 40}
+      signature: {type: text, max_chars: 64}
+      blocking: {type: enum, values: yes_no}
+
+  clarification:
+    label: Clarification
+    origin: human
+    tier: governance
+    id: {format: "CLR::{SLUG}"}
+    description: |
+      The answer to one gap: the chosen option or a person's own text, or the recommended option applied
+      by AI, or a pointer to text that already answers it. Records who answered and where the text goes.
+      Its text reaches the spec graph only through the corpus and an update build.
+    attributes:
+      mode: {type: enum, values: clarification_mode}
+      placement: {type: enum, values: clarification_placement}
+      status: {type: enum, values: clarification_status}
+      option_label: {type: text, max_chars: 160}
+      text: {type: text, max_chars: 4000}
+      answered_by: {type: text, max_chars: 200}
+
+edge_types:
+
+  ABOUT:
+    origin: analysis
+    tier: governance
+    description: |
+      The gap is in this node: one side of a contradiction, the stated question, the requirement with no
+      owner. A gap may be about many nodes in many documents.
+    pairs:
+      - {from: gap, to: module}
+      - {from: gap, to: feature}
+      - {from: gap, to: capability}
+      - {from: gap, to: interface}
+      - {from: gap, to: data_entity}
+      - {from: gap, to: requirement}
+      - {from: gap, to: open_question}
+
+  IMPACTS:
+    origin: analysis
+    tier: governance
+    description: |
+      The node is not wrong itself, but an answer to the gap will change it: the feature that gets a new
+      requirement, a second module the rule binds.
+    pairs:
+      - {from: gap, to: module}
+      - {from: gap, to: feature}
+      - {from: gap, to: capability}
+      - {from: gap, to: interface}
+      - {from: gap, to: data_entity}
+      - {from: gap, to: requirement}
+      - {from: gap, to: open_question}
+
+  CITES:
+    origin: analysis
+    tier: governance
+    description: |
+      The witness: a fragment holding a line that shows the gap. Properties quote, line_start and line_end.
+    pairs:
+      - {from: gap, to: Fragment}
+
+  FOLLOWS_UP:
+    origin: analysis
+    tier: governance
+    description: |
+      The source gap continues the target gap: the answer did not fix it, it was lost, reverted or
+      contradicted by a newer upload.
+    pairs:
+      - {from: gap, to: gap}
+
+  ANSWERS:
+    origin: human
+    tier: governance
+    description: |
+      The clarification answers this gap. One gap has at most one current clarification.
+    pairs:
+      - {from: clarification, to: gap}
+
+  PLACED_IN:
+    origin: human
+    tier: governance
+    description: |
+      The document the clarification's text goes into: the source document of an amendment, or the
+      project clarifications document.
+    pairs:
+      - {from: clarification, to: Document}
+
+  GROUNDED_IN:
+    origin: human
+    tier: governance
+    description: |
+      The fragment that holds the clarification's text after a build, or, for a pointer, the fragment that
+      already answered the gap. From it, the build's REFERENCED_BY leads to the spec nodes the answer made.
+    pairs:
+      - {from: clarification, to: Fragment}
+
+  REPLACES:
+    origin: human
+    tier: governance
+    description: |
+      The source clarification replaces the target clarification of the same gap.
+    pairs:
+      - {from: clarification, to: clarification}

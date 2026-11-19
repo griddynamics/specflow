@@ -841,3 +841,46 @@ async def test_a_completion_repeated_with_another_done_answers_the_first_complet
 
     assert (again.completed, again.repeat) == (first.completed, True) and _writes(memory) == writes
     assert memory.tasks[LOGIC]["status"] == "pending"
+
+
+async def test_the_block_guard_cannot_hold_tasks_nobody_claimed() -> None:
+    # Why the plan has ``hold_tasks`` (gap decision GD2): the existing block calls need a claim, so an open blocker
+    # gap could not hold the unclaimed tasks implementing its nodes with them.
+    service, memory, _ = _service()
+    memory.set_task(LOGIC, implements=["REQ::A"])
+
+    guard = await _refused(service.check_block("shop", API, claimed_by="u1", claim_token="7" * 32, spec_ids=["REQ::A"]))
+    block = await _refused(
+        service.block_story("shop", API, claim_token="7" * 32, reason="spec_ambiguous", finding_id="GAP::B1")
+    )
+
+    assert (guard.code, block.code) == ("claim_mismatch", "claim_mismatch")
+    assert memory.tasks[LOGIC]["status"] == "pending"
+
+
+async def test_holding_tasks_blocks_the_open_tasks_of_the_nodes_and_leaves_claimed_ones_alone() -> None:
+    # Scenario (GD2): a blocker gap about REQ::A; LOGIC and UI_SCREEN (pending) implement it, and so does X_CONTRACT,
+    # in progress under u2's claim. The API story cannot be claimed until the gap's hold is released.
+    service, memory, _ = _service()
+    claim = await service.claim_story("shop", X, claimed_by="u2")
+    for task_id in (LOGIC, "TASK::A::UI_SCREEN", "TASK::A::X_CONTRACT"):
+        memory.set_task(task_id, implements=["REQ::A"])
+
+    held = await service.hold_tasks("shop", "GAP::B1", ["REQ::A"], reason="spec_missing")
+
+    assert held.held == (LOGIC, "TASK::A::UI_SCREEN")
+    assert held.in_progress == ("TASK::A::X_CONTRACT",)
+    assert (memory.tasks[LOGIC]["status"], memory.tasks[LOGIC]["blocked_by"]) == ("blocked", "GAP::B1")
+    assert memory.tasks[LOGIC]["block_reason"] == "spec_missing"
+    assert memory.tasks["TASK::A::X_CONTRACT"]["status"] == "in_progress"
+    assert memory.stories[X]["claimed_by"] == "u2" and claim.claim_token
+    refused = await _refused(service.claim_story("shop", API, claimed_by="u1"))
+    assert refused.code == "not_available"
+    again = await service.hold_tasks("shop", "GAP::B1", ["REQ::A"], reason="spec_missing")
+    assert again.held == ()
+
+    released = await service.unblock_finding("shop", "GAP::B1")
+
+    assert released == (LOGIC, "TASK::A::UI_SCREEN")
+    assert memory.tasks[LOGIC]["status"] == "pending"
+    assert (await service.claim_story("shop", API, claimed_by="u1")).claim_token

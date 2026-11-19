@@ -44,6 +44,12 @@ def test_update_requires_a_chain_from_the_last_consumed_build_to_the_current_bui
     assert check_chain(reports, "build-2", "build-4", "update") == reports
 
 
+def test_an_update_of_the_already_consumed_build_takes_the_empty_chain() -> None:
+    assert check_chain((), "build-2", "build-2", "update") == ()
+    with pytest.raises(ConfigurationError, match="change_reports_missing"):
+        check_chain((), "build-2", "build-3", "update")
+
+
 def test_a_gap_names_the_missing_build_before_any_write() -> None:
     reports = (
         report("build-4", "build-3"),

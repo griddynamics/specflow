@@ -3,16 +3,16 @@ architecture.md "Write routes").
 
 Same ``AgentRoute``, auth and membership-first dependency chain as ``api.routers.agent_stories``; the caller is the
 token's user. A route checks the formats before any read or write (``refers_to`` values are checked, never fetched),
-calls one library call (``FindingFlow.add_finding``, ``PlanService.report_progress`` or ``complete_story``) and maps
-its refusals to the tool codes; nothing is written on a refusal. The library checks under the story lock that the
-caller holds the story the token claims (the claim token alone is not enough). The ``api.agent.written`` event
-carries ids, the outcome and ``repeat`` only: never finding text, a note, a label or a claim token. Nothing here
-writes SQL or Cypher.
+calls one library call (``GapService.raise_gap`` or ``add_note``, ``PlanService.report_progress`` or
+``complete_story``) and maps its refusals to the tool codes; nothing is written on a refusal. The library checks under
+the story lock that the caller holds the story the token claims (the claim token alone is not enough). The
+``api.agent.written`` event carries ids, the outcome and ``repeat`` only: never finding text, a note, a label or a
+claim token. Nothing here writes SQL or Cypher.
 """
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, cast
 
 from fastapi import APIRouter
 
@@ -35,13 +35,13 @@ from api.errors import (
     invalid_arguments,
     invalid_commit,
     node_not_found,
-    required,
 )
+from api.finding_refs import InvalidRefError, checked_refs
+from api.gap.development import development_service, gap_kind
 from api.routers.agent import AgentRoute
 from api.write_support import plan_read, write_refusal, written
 from graph.core.errors import ConfigurationError
-from graph.gap import FindingError, FindingFlow, FindingRef, FlowAdded, NewFinding
-from graph.gap.arguments import references
+from graph.gap import AnswerInvalidError, GapKind, GapService, NewGap, SourceRef
 from graph.plan.arguments import check_pr_url, commit_text
 from graph.plan.errors import TaskStateError
 from graph.plan.names import TaskProgress
@@ -75,15 +75,21 @@ def _refused(error: ConfigurationError) -> Exception:
 async def add_finding(
     project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, body: AddFindingBody
 ) -> FindingResult:
-    """Record a finding; a repeat answers the open finding with the same dedupe key, before the blocking rules;
-    ``blocking`` also blocks the caller's claimed story."""
+    """Record a finding as a development gap (docs/graph/gap/lifecycle.md "Development gaps", FR-GDEV-01): a repeat
+    answers the open gap with the same question, story and nodes; ``blocking`` also blocks the caller's claimed story
+    (FR-GDEV-02); a new gap is investigated at once in a ``site`` run (FR-GDEV-03). A ``note`` is no gap: it is kept
+    as a note of the story's nodes."""
 
     graph_id, caller = str(project.id), str(user.id)
     try:
-        refs = references([(ref.type, ref.value) for ref in body.refers_to])
-    except ConfigurationError:
+        refs = checked_refs((ref.type, ref.value) for ref in body.refers_to)
+    except InvalidRefError:
         raise invalid_arguments("refers_to") from None
+    lacking = _lacking(body)
+    if lacking is not None:
+        raise invalid_arguments(lacking)
     reads = await agent_reads(runtime)
+    service = await development_service(runtime)
     ids: dict[str, str | None] = {"story_id": body.story_id, "finding_id": None}
 
     async def add() -> tuple[FindingResult, bool]:
@@ -91,43 +97,54 @@ async def add_finding(
             story_id = body.story_id
             await plan_read(lambda: reads.plan.story_preview(graph_id, story_id))
         try:
-            added = await _flow(reads, graph_id, caller, refs, body)
-        except FindingError as error:
-            raise _finding_refusal(error) from None
-        except ConfigurationError as error:
-            raise _refused(error) from None
+            result = await _added(service, graph_id, caller, refs, body)
+        except AnswerInvalidError as error:
+            raise await _gap_refusal(reads, graph_id, body, error) from None
         except TaskStateError as error:
             raise await write_refusal(reads, graph_id, body.story_id or "", error) from None
-        ids["finding_id"] = added.finding.finding_id
-        holders = await holders_of(runtime, project.id, user.id, [added.finding.created_by])
-        return views.finding_result(graph_id, added, holders), not added.created
+        if result.created and result.finding.kind != "note" and runtime.gaps is not None:
+            await runtime.gaps.start_site(graph_id, result.finding.finding_id)
+        ids["finding_id"] = result.finding.finding_id
+        author = await _author(service, graph_id, result, caller)
+        holders = await holders_of(runtime, project.id, user.id, [author])
+        return views.with_author(result, holders.of(author)), not result.created
 
     return await written("findings", graph_id, user, ids, add)
 
 
-async def _flow(
-    reads: AgentReads, graph_id: str, caller: str, refs: tuple[FindingRef, ...], body: AddFindingBody
-) -> FlowAdded:
-    """The library call. A blocking finding that lacks what blocking needs is refused only after the dedupe, so a
-    repeat answers whatever its flags say (tools.md "Repeats")."""
+async def _added(
+    service: GapService, graph_id: str, caller: str, refs: tuple[SourceRef, ...], body: AddFindingBody
+) -> FindingResult:
+    """The library call: ``GapService.add_note`` for a note, else ``raise_gap`` with origin ``development``."""
 
-    findings = required(reads.findings, "the findings store")
-    new = NewFinding(
-        created_by=caller,
-        kind=body.kind,
-        text=body.text,
+    if body.kind == "note":
+        note_id = await service.add_note(
+            graph_id, spec_ids=body.about, text=body.text, created_by=caller, story_id=body.story_id
+        )
+        return views.note_result(graph_id, note_id, body, refs)
+    new = NewGap(
+        kind=cast(GapKind, gap_kind(body.kind)),
+        question=body.text,
         about=tuple(body.about),
-        refers_to=refs,
-        story_id=body.story_id,
+        origin="development",
         blocking=body.blocking,
+        story_id=body.story_id,
+        claim_token=body.claim_token if body.blocking else None,
+        created_by=caller,
+        refs=refs,
     )
-    lacking = _lacking(body)
-    if lacking is None:
-        return await FindingFlow(findings, reads.plan).add_finding(graph_id, new, claim_token=body.claim_token)
-    repeat = await findings.match(graph_id, created_by=caller, kind=body.kind, about=new.about, text=body.text)
-    if repeat is None:
-        raise invalid_arguments(lacking)
-    return FlowAdded(finding=repeat, created=False)
+    raised = await service.raise_gap(graph_id, new)
+    gap = await service.get_gap(graph_id, raised.gap_id)
+    return views.gap_finding_result(graph_id, gap, raised, refs if raised.created else ())
+
+
+async def _author(service: GapService, graph_id: str, result: FindingResult, caller: str) -> str:
+    """Who reported the finding: the caller of a new gap or a note, the first reporter of a repeat (another member
+    may have asked the same question about the same nodes from the same story)."""
+
+    if result.created or result.finding.kind == "note":
+        return caller
+    return (await service.get_gap(graph_id, result.finding.finding_id)).created_by
 
 
 def _lacking(body: AddFindingBody) -> str | None:
@@ -142,12 +159,18 @@ def _lacking(body: AddFindingBody) -> str | None:
     return "claim_token" if body.claim_token is None else None
 
 
-def _finding_refusal(error: FindingError) -> Exception:
-    if error.code == "node_not_found":
-        return node_not_found(story_views.details_dict(ErrorDetails(spec_ids=list(error.spec_ids))))
-    if error.code == "finding_limit":
+async def _gap_refusal(reads: AgentReads, graph_id: str, body: AddFindingBody, error: AnswerInvalidError) -> Exception:
+    """The tool error of a refused development gap: unknown ids are ``node_not_found`` naming them, the open-gap
+    limit ``finding_limit``, a text out of bounds ``invalid_arguments`` (``text``)."""
+
+    if error.field == "about" and error.reason == "unknown_ids":
+        missing = [spec_id for spec_id in body.about if await reads.reader.node(graph_id, spec_id) is None]
+        return node_not_found(story_views.details_dict(ErrorDetails(spec_ids=missing)))
+    if error.field == "limit":
         return finding_limit()
-    return error
+    if error.field in ("question", "text"):
+        return invalid_arguments("text")
+    return invalid_arguments("about")
 
 
 # --- report_task ----------------------------------------------------------------------------------------------

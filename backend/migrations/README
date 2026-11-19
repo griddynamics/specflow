@@ -21,7 +21,7 @@ On a schema change:
    it on start. Deployed databases upgrade in place.
 3. Check it: from backend/ `uv run --env-file ../.env.local alembic check` (the models
    match the revisions) and `uv run --env-file ../.env.local alembic current`, which
-   prints the head, `0002_project_collaborators (head)` at the time of writing.
+   prints the head, `0003_gap_module (head)` at the time of writing.
 
 Recreate a database only when it is stamped with a revision that no longer exists (for
 example `0005` from the old chain): `alembic upgrade` fails there with "Can't locate

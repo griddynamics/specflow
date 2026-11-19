@@ -801,6 +801,28 @@ class BuildStoreContract:
         assert latest is not None
         assert latest.build_id == "c"
 
+    # list_builds
+
+    async def test_list_builds_is_empty_for_an_empty_project(self, builds: BuildStore) -> None:
+        assert await builds.list_builds("proj") == ()
+
+    async def test_list_builds_orders_every_build_by_start_then_id_and_keeps_projects_apart(
+        self, builds: BuildStore
+    ) -> None:
+        await start(
+            builds,
+            record("b2", minutes=20),
+            record("c", minutes=1),
+            record("a", minutes=1),
+            record("b1", project_id="other"),
+        )
+        await builds.finish_build(result_of("c", status="failed", minutes=1))
+
+        listed = await builds.list_builds("proj")
+
+        assert [found.build_id for found in listed] == ["a", "c", "b2"]
+        assert listed[1].status == "failed"
+
     async def test_finished_only_skips_running_and_failed_builds(self, builds: BuildStore) -> None:
         await start(builds, record("done", minutes=1), record("failed", minutes=2), record("running", minutes=3))
         await builds.finish_build(result_of("done", minutes=1))
@@ -1017,6 +1039,10 @@ class MemoryBuildStore:
 
     async def get_build(self, project_id: str, build_id: str) -> BuildRecord | None:
         return self.records.get((project_id, build_id))
+
+    async def list_builds(self, project_id: str) -> tuple[BuildRecord, ...]:
+        found = [record for (project, _), record in self.records.items() if project == project_id]
+        return tuple(sorted(found, key=lambda record: (record.started_at, record.build_id)))
 
     async def put_progress(self, project_id: str, build_id: str, step: StepName, state: StepState) -> None:
         current = self.records.get((project_id, build_id))

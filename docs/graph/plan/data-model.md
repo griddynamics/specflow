@@ -99,7 +99,7 @@ A task may implement nodes of several stories; it is `IN_STORY` the one the Task
 | `commit` | Full git commit hash that finished the task (40 or 64 hex, lower case) |
 | `completed_by`, `completed_at` | Who completed the task (the claimant, a user id for story claims) and when; kept after completion, also when the task is later superseded |
 | `block_reason` | Block reason code while `blocked` ([lifecycle.md](lifecycle.md)) |
-| `blocked_by` | `finding_id` of the blocking finding that blocked the task ([../gap.md](../gap.md) "Blocking link"); only while `blocked`, cleared with the block |
+| `blocked_by` | `finding_id` of the blocking finding that blocked the task (a development gap that blocks its story, or an open blocker gap that holds the task: [../gap/lifecycle.md](../gap/lifecycle.md) "Plan link"; a migrated first-slice finding's `FND::` id names its gap through the gap's aliases); only while `blocked`, cleared with the block |
 | `note` | Last short note from the agent (at most 500 characters); never logged |
 | `created_at`, `updated_at`, `created_run_id`, `last_run_id` | Write stamps |
 | `_lock` | Technical CAS token used and cleared inside a single lifecycle or persist statement; never returned by reads |

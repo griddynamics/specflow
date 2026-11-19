@@ -213,7 +213,7 @@ test("FE-BP-03.AC10, AC7: an unknown or non-UUID project id and the old hello ro
   const { context, page, errors } = await newPage();
   try {
     for (const bad of ["00000000-0000-0000-0000-000000000000", "not-a-uuid"]) {
-      await page.goto(`${fe.base}/projects/${bad}/decisions`);
+      await page.goto(`${fe.base}/projects/${bad}/gaps`);
       await page.waitForURL(mc(pid), { timeout: 15_000 }); // -> `/` -> the newest project's Mission Control (O12)
     }
     for (const old of [`/projects/${pid}`, `/projects/${pid}/documents/00000000-0000-0000-0000-000000000001`]) {

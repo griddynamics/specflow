@@ -1,0 +1,85 @@
+{
+  "role": "gap_judge",
+  "calls": [
+    {
+      "input_hash": "dfcaea72e664c7835e3ed731a189e0eb3bed9174f8de8f47ca85ffcb0f7b434f",
+      "note": "reconcile own-words.md: Place order section against the cancel-paid-order answer",
+      "answer": {
+        "decisions": [
+          {
+            "decision": "a paid order may be cancelled",
+            "in_section": "stated"
+          },
+          {
+            "decision": "until 30 minutes after payment",
+            "in_section": "stated"
+          },
+          {
+            "decision": "the full amount is refunded",
+            "in_section": "stated"
+          }
+        ],
+        "verdict": "same",
+        "confidence": 0.92,
+        "reason": "Half an hour after payment with a full refund is the same rule as 30 minutes with the full amount refunded."
+      }
+    },
+    {
+      "input_hash": "3ef8f0f5d93623544102973b367dd6d8ec75117cc8fb8ea981bbb7c16e99edc7",
+      "note": "reconcile changed-rule.md: Place order section against the cancel-paid-order answer",
+      "answer": {
+        "decisions": [
+          {
+            "decision": "a paid order may be cancelled",
+            "in_section": "stated"
+          },
+          {
+            "decision": "until 30 minutes after payment",
+            "in_section": "contradicted"
+          },
+          {
+            "decision": "the full amount is refunded",
+            "in_section": "contradicted"
+          }
+        ],
+        "verdict": "different",
+        "confidence": 0.95,
+        "reason": "The section allows cancelling until shipping and keeps a 5% fee; the answer allows 30 minutes with a full refund."
+      }
+    },
+    {
+      "input_hash": "cfa1b659b2af87ce981208be83dcfb8ab33d6b73943340d86668bf26daf8c75c",
+      "note": "reconcile partial adoption: the owner kept 'within 30 minutes' and dropped the refund; the model says same, its decisions list the refund as missing",
+      "answer": {
+        "decisions": [
+          {
+            "decision": "a paid order may be cancelled",
+            "in_section": "stated"
+          },
+          {
+            "decision": "within 30 minutes of payment",
+            "in_section": "stated"
+          },
+          {
+            "decision": "the full amount is refunded",
+            "in_section": "missing"
+          }
+        ],
+        "verdict": "same",
+        "confidence": 0.8,
+        "reason": "The section keeps the 30-minute cancellation; the refund is not stated."
+      }
+    },
+    {
+      "input_hash": "6045baa9af43819aa13717823844e59d6284e94fe5163c09eea4bef5ad207482",
+      "note": "ai answer: CSV export site SITE::1B92214C2E59 option A (the customer's own orders) against 'Customers can export their orders as CSV.'",
+      "answer": {
+        "entailed": true,
+        "consistent": true,
+        "confidence": 0.92,
+        "reason": "'Their orders' says the export holds the exporting customer's orders; the edit adds nothing else.",
+        "find_words": null
+      }
+    }
+  ]
+}

@@ -1,8 +1,9 @@
 """The rig of the people tools and the story writes (``list_areas``, ``list_stories``, ``preview_story``,
 ``claim_story``, ``release_story``): the API app over fakes, with the story claim tests' plan (``mini_plan``: a project
 area with a completed setup story, ready, waiting, cycle and blocked stories), the REAL ``PlanService`` over the
-in-memory plan executor (locks and rollback included), the findings library over an in-memory store, and the project's
-members by name (Alice is the caller, Ben a member).
+in-memory plan executor (locks and rollback included), the gap service over an in-memory store (development gaps are
+the agents' findings; ``Runtime.gaps`` is a stand-in runner), and the project's members by name (Alice is the caller,
+Ben a member).
 
 Faked as in ``specflow_api_agent_support``: Postgres (``FakeRepo``) and the graph store (here the plan's in-memory
 executor); everything between the route and them is the product's.
@@ -10,9 +11,8 @@ executor); everything between the route and them is the product's.
 
 from __future__ import annotations
 
-import itertools
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -21,10 +21,14 @@ from typing import Any, Final
 import pytest
 
 from api.agent_reads import AgentReads
+from api.gap.findings import OpenGaps
+from api.gap.holds import PlanHolds
+from gap_port_fakes import MemoryAmendments, MemoryGapRecords
 from gap_support import Clock, MemoryGapExecutor
 from graph.core import GraphReader
-from graph.core.reader import GraphNode
-from graph.gap import Findings
+from graph.core.reader import GraphEdge, GraphNode
+from graph.gap import GapService, NewGap, load_gap_rules
+from graph.gap.gaps import gap_uuid
 from graph.plan import PlanService
 from graph.plan.lifecycle import TaskLifecycle
 from graph_plan_support import plan_ontology, plan_rules
@@ -67,17 +71,55 @@ class GapSpecs:
     async def node(self, _project_id: str, spec_id: str) -> GraphNode | None:
         return self._node(spec_id) if spec_id in self._gap.specs else None
 
+    async def edges(self, _project_id: str) -> list[GraphEdge]:
+        return []  # no domain edges among the spec nodes
+
+    def reader_answers(self) -> dict[str, Callable[[Mapping[str, Any]], list[dict[str, Any]]]]:
+        """The rig's ``GraphReader`` answers for one node by id or alias (``add_finding`` names the unknown ids)."""
+
+        def row(spec_id: str) -> dict[str, Any]:
+            spec = self._gap.specs[spec_id]
+            props = {"spec_id": spec_id, "uuid": spec["uuid"], "name": spec_id, "spec_id_aliases": spec["aliases"]}
+            return {"labels": ["SpecNode", spec["label"]], "props": props, "provenance": []}
+
+        return {
+            "read_node_by_spec_id": lambda params: (
+                [row(params["spec_id"])] if params["spec_id"] in self._gap.specs else []
+            ),
+            "read_node_by_alias": lambda params: [
+                row(spec_id) for spec_id, spec in self._gap.specs.items() if params["spec_id"] in spec["aliases"]
+            ],
+        }
+
+
+class GapsRunner:
+    """Stands in for ``api.gap.runner.GapRunner`` for the routes: ``service()``; ``start_site`` is recorded only."""
+
+    def __init__(self) -> None:
+        self.gaps: GapService | None = None
+        self.sites: list[tuple[str, str]] = []
+
+    async def service(self) -> GapService:
+        assert self.gaps is not None
+        return self.gaps
+
+    async def start_site(self, project_id: str, gap_id: str) -> None:
+        self.sites.append((project_id, gap_id))
+
 
 @dataclass
 class PeopleRig:
     rig: AgentRig
     memory: MemoryPlanExecutor
     plan: PlanService
-    findings: Findings
+    gaps: GapService
+    runner: GapsRunner
+    seeded: dict[str, str]
     gap: MemoryGapExecutor
     specs: GapSpecs
     alice: uuid.UUID
     ben: uuid.UUID
+    records: MemoryGapRecords
 
     async def get(self, path: str, **params: Any) -> Any:
         return await self.rig.get(path, **params)
@@ -118,26 +160,57 @@ async def serve_people(
         ontology = plan_ontology()
         gap = MemoryGapExecutor(ALPHA)
         gap.spec(API_NODE, "Feature", [])
-        counter = itertools.count(1)  # FND::1 is the finding that blocks the STUCK story of the plan
-        monkeypatch.setattr("graph.gap.findings.new_finding_id", lambda: f"FND::{next(counter)}")
-        findings = Findings(gap, ontology, clock=Clock())
-        await findings.add(
-            ALPHA,
-            created_by=str(alice),
-            kind="question",
-            text="Which currencies does the API accept?",
-            about=[API_NODE],
-            story_id=STUCK,
-            blocking=True,
-        )
-        await findings.add(
-            ALPHA, created_by=str(ben.id), kind="note", text="The API is slow | very.\nReally.", about=[API_NODE]
-        )
+        runner = GapsRunner()
+        records = MemoryGapRecords()
+        port = OpenGaps(lambda: runner)
         specs = GapSpecs(gap)
+        rig.executor.answers.update(specs.reader_answers())
         plan = PlanService(
-            plan_memory, ontology, plan_rules(ontology), findings=findings, clock=Clock(), graph=specs
+            plan_memory, ontology, plan_rules(ontology), findings=port, clock=Clock(), graph=specs
         )  # +1 s a call
-        rig.runtime.agent_reads = AgentReads(
-            ontology=ontology, reader=GraphReader(rig.executor, ontology), plan=plan, findings=findings
+        runner.gaps = GapService(
+            gap,
+            GraphReader(rig.executor, ontology),
+            ontology,
+            load_gap_rules(ontology=ontology),
+            records,
+            MemoryAmendments(),
+            holds=PlanHolds(plan),
+            clock=Clock(),
         )
-        yield PeopleRig(rig, plan_memory, plan, findings, gap, specs, alice, ben.id)
+        seeded = await seed_gaps(runner.gaps, gap, alice, ben.id)
+        rig.runtime.gaps = runner
+        rig.runtime.agent_reads = AgentReads(
+            ontology=ontology, reader=GraphReader(rig.executor, ontology), plan=plan, open_findings=port
+        )
+        yield PeopleRig(rig, plan_memory, plan, runner.gaps, runner, seeded, gap, specs, alice, ben.id, records)
+
+
+async def seed_gaps(gaps: GapService, gap: MemoryGapExecutor, alice: uuid.UUID, ben: uuid.UUID) -> dict[str, str]:
+    """Alice's blocking question from the STUCK story (a migrated first-slice finding: its old id ``FND::1`` is the
+    ``blocked_by`` of the plan's blocked STUCK task) and Ben's open gap; their ids by author name."""
+
+    question = await gaps.raise_gap(
+        ALPHA,
+        NewGap(
+            kind="open_question",
+            question="Which currencies does the API accept?",
+            about=(API_NODE,),
+            origin="development",
+            story_id=STUCK,
+            created_by=str(alice),
+        ),
+    )
+    node = gap.nodes[("Gap", gap_uuid(ALPHA, question.gap_id))]
+    node.update(blocking="yes", aliases=["FND::1"])
+    other = await gaps.raise_gap(
+        ALPHA,
+        NewGap(
+            kind="missing",
+            question="The API is slow | very.\nReally.",
+            about=(API_NODE,),
+            origin="development",
+            created_by=str(ben),
+        ),
+    )
+    return {"alice": question.gap_id, "ben": other.gap_id}

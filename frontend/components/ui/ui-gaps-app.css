@@ -60,12 +60,6 @@
   transform: none;
 }
 
-/* P15 (QA M4, GAPS G-P15-9): DocLinks buttons are bare <button>s (the bundle sets the font on the list, not on the button), so they rendered in the browser
-   default (Arial 13.33px) in the decision modal. They take the font of the list. */
-.gdg-doclinks button {
-  font-family: inherit;
-}
-
 /* P28 (PQ9, owner Q24/Q25, GAPS G-SEV-1; deliberate deviation from the DS SeverityBadge): the severity badge is quiet. Every level is `--ink` text, no
    background, no bars, no pill padding; only Critical has a red exclamation icon before the word. The word always shows. The doubled class beats the
    bundle's `.gdg-sev--<level>` colours and backgrounds whatever the import order. */
@@ -86,6 +80,13 @@
   top: 50%;
   transform: translateY(-50%);
   color: var(--severity-critical);
+}
+
+/* FR-GWEB-04 (gap answers.md "The question card"): the "Recommended" mark of an option card sits under the option's text at its start,
+   not stretched across the card's text grid. */
+.gdg-oc__rec {
+  justify-self: start;
+  padding-top: var(--space-2xs);
 }
 
 /* PeoplePicker email mode: a chip the API refused, and the message lines under the field. */

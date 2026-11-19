@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import { groupByArea, type StoryGroup } from "@/lib/domain/logic/plan";
 import type { PlanSnapshot, PlanTask } from "@/lib/domain/plan";
+import type { Gap } from "@/lib/domain/gaps";
 import { AreaSection } from "./AreaSection";
 import { StorySection } from "./StorySection";
 import { TaskRow } from "./TaskRow";
@@ -19,6 +20,7 @@ export function PlanOutline({
   onToggleStory,
   onToggleTask,
   renderBody,
+  gapsOf,
 }: Readonly<{
   plan: PlanSnapshot;
   openAreas: ReadonlySet<string>;
@@ -28,6 +30,8 @@ export function PlanOutline({
   onToggleStory: (storyId: string) => void;
   onToggleTask: (taskId: string) => void;
   renderBody: (task: PlanTask) => ReactNode;
+  /** FR-GWEB-04: the open gaps of a task (none when absent) and of a story's tasks. */
+  gapsOf?: { task: (task: PlanTask) => Gap[]; story: (tasks: PlanTask[]) => Gap[] };
 }>) {
   return (
     <>
@@ -49,6 +53,7 @@ export function PlanOutline({
               onToggle={onToggleStory}
               onToggleTask={onToggleTask}
               renderBody={renderBody}
+              gapsOf={gapsOf}
             />
           ))}
         </AreaSection>
@@ -64,6 +69,7 @@ function StoryRows({
   onToggle,
   onToggleTask,
   renderBody,
+  gapsOf,
 }: Readonly<{
   group: StoryGroup;
   open: boolean;
@@ -71,10 +77,12 @@ function StoryRows({
   onToggle: (storyId: string) => void;
   onToggleTask: (taskId: string) => void;
   renderBody: (task: PlanTask) => ReactNode;
+  gapsOf?: { task: (task: PlanTask) => Gap[]; story: (tasks: PlanTask[]) => Gap[] };
 }>) {
   return (
     <StorySection
       group={group}
+      gapCount={gapsOf?.story(group.tasks).length ?? 0}
       open={open}
       onToggle={() => {
         onToggle(group.story.storyId);
@@ -84,6 +92,7 @@ function StoryRows({
         <TaskRow
           key={t.taskId}
           task={t}
+          gapCount={gapsOf?.task(t).length ?? 0}
           open={openTasks.has(t.taskId)}
           onToggle={() => {
             onToggleTask(t.taskId);

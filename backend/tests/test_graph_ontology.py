@@ -188,8 +188,8 @@ def test_default_discovery_merges_the_ontology_file_of_each_submodule_package(
     monkeypatch.setattr(loader_module, "files", package_files)
     merged = load_ontology()
     assert set(asked) == {"graph"}
-    assert merged.owner_of("Finding") == "gap"
-    assert merged.is_legal("CITES", "Finding", "Fragment")
+    assert merged.owner_of("Gap") == "gap"
+    assert merged.is_legal("CITES", "Gap", "Fragment")
     assert len(merged.node_types) == 13 and len(merged.relations) == 13
     assert merged.extracted_labels == tuple(EXTRACTED_LABELS)
 
@@ -1701,11 +1701,11 @@ def test_an_unknown_key_alone_does_not_hide_later_problems(tmp_path: Path) -> No
 def test_gap_relation_to_fragment_loads(tmp_path: Path) -> None:
     gap = write_ontology(tmp_path / "gap", GAP_FILE)
     merged = load_ontology(submodule_files=[gap])
-    assert merged.is_legal("CITES", "Finding", "Fragment")
+    assert merged.is_legal("CITES", "Gap", "Fragment")
     assert merged.owner_of("CITES") == "gap"
-    assert merged.owner_of("Finding") == "gap"
+    assert merged.owner_of("Gap") == "gap"
     assert merged.owner_of("Module") == "build"
-    assert merged.is_declared("Finding")
+    assert merged.is_declared("Gap")
     assert len(merged.node_types) == 13
     assert len(merged.relations) == 13
 
@@ -1713,8 +1713,8 @@ def test_gap_relation_to_fragment_loads(tmp_path: Path) -> None:
 def test_gap_relation_crosses_owners_and_expands_groups(tmp_path: Path) -> None:
     merged = load_ontology(submodule_files=[write_ontology(tmp_path / "gap", GAP_FILE)])
     for label in [*REQUIREMENT_LABELS, "Module"]:
-        assert merged.is_legal("FLAGS", "Finding", label)
-    assert not merged.is_legal("FLAGS", "Finding", "Feature")
+        assert merged.is_legal("FLAGS", "Gap", label)
+    assert not merged.is_legal("FLAGS", "Gap", "Feature")
 
 
 def test_gap_types_are_not_extracted_and_leave_the_build_surface_unchanged(tmp_path: Path, shipped: Ontology) -> None:
@@ -1726,16 +1726,16 @@ def test_gap_types_are_not_extracted_and_leave_the_build_surface_unchanged(tmp_p
     assert merged.edge_type_map() == shipped.edge_type_map()
     assert merged.fingerprint("nodes") == shipped.fingerprint("nodes")
     assert merged.fingerprint("edges") == shipped.fingerprint("edges")
-    assert not merged.node_type("Finding").extracted
-    assert merged.node_type("Finding").role is None
-    assert "Finding" not in merged.hub_labels
+    assert not merged.node_type("Gap").extracted
+    assert merged.node_type("Gap").role is None
+    assert "Gap" not in merged.hub_labels
 
 
 def test_gap_file_declaring_an_extracted_type_fails(tmp_path: Path) -> None:
     data = copy.deepcopy(GAP_FILE)
-    data["node_types"]["finding"].update({"origin": "extracted", "role": "atomic", "id": {"format": "GAP::{SLUG}"}})
+    data["node_types"]["gap"].update({"origin": "extracted", "role": "atomic", "id": {"format": "GAP::{SLUG}"}})
     problems = load_problems(None, [write_ontology(tmp_path / "gap", data)])
-    assert has_problem(problems, "node_types.finding.origin", "is not owned by owner 'gap'")
+    assert has_problem(problems, "node_types.gap.origin", "is not owned by owner 'gap'")
 
 
 def test_gap_file_declaring_an_extracted_relation_fails(tmp_path: Path) -> None:
@@ -1753,16 +1753,16 @@ def test_build_relation_to_fragment_fails(tmp_path: Path) -> None:
 
 def test_gap_relation_to_a_built_in_label_other_than_evidence_fails(tmp_path: Path) -> None:
     data = copy.deepcopy(GAP_FILE)
-    data["edge_types"]["CITES"]["pairs"] = [{"from": "finding", "to": "SpecNode"}]
+    data["edge_types"]["CITES"]["pairs"] = [{"from": "gap", "to": "SpecNode"}]
     problems = load_problems(None, [write_ontology(tmp_path / "gap", data)])
     assert has_problem(problems, "edge_types.CITES.pairs[0].to", "'SpecNode' is not a declared")
 
 
 def test_gap_relation_may_end_at_document(tmp_path: Path) -> None:
     data = copy.deepcopy(GAP_FILE)
-    data["edge_types"]["CITES"]["pairs"].append({"from": "finding", "to": "Document"})
+    data["edge_types"]["CITES"]["pairs"].append({"from": "gap", "to": "Document"})
     merged = load_ontology(submodule_files=[write_ontology(tmp_path / "gap", data)])
-    assert merged.is_legal("CITES", "Finding", "Document")
+    assert merged.is_legal("CITES", "Gap", "Document")
 
 
 def test_submodule_file_may_not_have_owner_build(tmp_path: Path) -> None:
@@ -1783,11 +1783,11 @@ def test_submodule_file_may_not_declare_build_only_sections(tmp_path: Path, sect
 def test_names_stay_unique_across_files(tmp_path: Path) -> None:
     data = copy.deepcopy(GAP_FILE)
     data["node_types"]["module"] = {"label": "Module", "origin": "analysis", "tier": "context"}
-    data["node_types"]["finding"]["label"] = "Feature"
+    data["node_types"]["gap"]["label"] = "Feature"
     data["edge_types"]["PART_OF"] = {
         "origin": "analysis",
         "tier": "governance",
-        "pairs": [{"from": "finding", "to": "module"}],
+        "pairs": [{"from": "gap", "to": "module"}],
     }
     problems = load_problems(None, [write_ontology(tmp_path / "gap", data)])
     assert has_problem(problems, "node_types.module", "already declared in")
@@ -1797,9 +1797,9 @@ def test_names_stay_unique_across_files(tmp_path: Path) -> None:
 
 def test_a_relation_may_not_share_its_name_with_a_label(tmp_path: Path) -> None:
     data = copy.deepcopy(GAP_FILE)
-    data["edge_types"]["Finding"] = data["edge_types"].pop("CITES")
+    data["edge_types"]["Gap"] = data["edge_types"].pop("CITES")
     problems = load_problems(None, [write_ontology(tmp_path / "gap", data)])
-    assert has_problem(problems, "edge_types.Finding", "may not share its name with a label")
+    assert has_problem(problems, "edge_types.Gap", "may not share its name with a label")
 
 
 def test_vocabularies_and_groups_are_shared_by_name_across_files(tmp_path: Path) -> None:
@@ -1818,8 +1818,8 @@ def test_vocabularies_and_groups_are_shared_by_name_across_files(tmp_path: Path)
 
 def test_cross_file_problems_are_reported_together(tmp_path: Path) -> None:
     data = copy.deepcopy(GAP_FILE)
-    data["node_types"]["finding"]["origin"] = "extracted"
-    data["edge_types"]["CITES"]["pairs"] = [{"from": "finding", "to": "nowhere"}]
+    data["node_types"]["gap"]["origin"] = "extracted"
+    data["edge_types"]["CITES"]["pairs"] = [{"from": "gap", "to": "nowhere"}]
     build = mutated(lambda d: put(d, "node_types.module.colour", "red"))
     problems = load_problems(write_ontology(tmp_path / "build", build), [write_ontology(tmp_path / "gap", data)])
     assert has_problem(problems, "colour", "unknown key")
@@ -2240,7 +2240,7 @@ def test_attribute_output_model_for_a_non_extracted_label_is_a_conformance_error
 ) -> None:
     merged = load_ontology(submodule_files=[write_ontology(tmp_path / "gap", GAP_FILE)])
     with pytest.raises(ConformanceError) as raised:
-        merged.attribute_output_model("Finding")
+        merged.attribute_output_model("Gap")
     assert raised.value.code == "ontology_no_attribute_model"
 
 
@@ -2300,7 +2300,7 @@ def test_id_prefixes_are_unique_and_none_is_a_prefix_of_another(shipped: Ontolog
 def test_id_prefix_without_a_format_is_a_conformance_error(tmp_path: Path) -> None:
     merged = load_ontology(submodule_files=[write_ontology(tmp_path / "gap", GAP_FILE)])
     with pytest.raises(ConformanceError) as raised:
-        merged.id_prefix("Finding")
+        merged.id_prefix("Gap")
     assert raised.value.code == "ontology_no_id_format"
     with pytest.raises(ConformanceError):
         merged.id_prefix("Nowhere")

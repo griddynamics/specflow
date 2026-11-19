@@ -534,7 +534,15 @@ An answered window is stored under all three keys (a reused one under the last t
 no edge change; every other window is called, with its cause: `dirty` (it holds a dirty fragment),
 `catalog_changed` (clean, its content stored under another window catalog) or `not_stored` (clean,
 nothing stored for its content, as in the first `update` after a fingerprint change); every window of a
-`first` or `rebuild` build is `first`. A failed window of an `update` build falls back to the edges
+`first` or `rebuild` build is `first`. A `dirty` window that answers keeps its earlier edges on unchanged
+fragments: the earlier answer is read as a fallback reads it (last key, else window key), and an earlier
+edge counts only when every fragment it was stored on is still in the window (by id, or the id a fragment
+replaces). The new answer's edges whose fragments are all unchanged (neither dirty nor outside the earlier
+window), and those it tied to no fragment (the attribution fallback above), are dropped unless an end is a
+node grounded only in changed fragments; the earlier edges whose fragments are all unchanged are kept
+(`reused`), and one with the same ends and relation as a kept new edge adds its fragments to that edge.
+So an edit re-links only the facts of its own fragments, and a node of another section of the same window
+gets no edge change from the model answering its text again; the merged edges are what the window stores. A failed window of an `update` build falls back to the edges
 under its last key (the same content: complete), else under its window key (its first fragment's id,
 or the id that fragment replaces; `windows_fallback`, `units_fallback`). The window key holds the
 answer of a window that may have been cut differently, so its edges keep only their fragments inside

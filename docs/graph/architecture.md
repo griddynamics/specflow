@@ -14,7 +14,7 @@ graph/
   core/    shared by every submodule: the store port, queries, reader, writer, ontology, gateway
   stores/  one folder per graph database behind the port (neo4j, arcadedb, postgres, tigergraph; _bolt is shared)
   build/   builds and updates the graph
-  gap/     findings beside the spec graph, first slice of gap detection (gap.md)
+  gap/     gaps in the spec graph and their answers (gap/INDEX.md)
   plan/    implementation plans for coding agents on the spec graph (plan/INDEX.md)
 ```
 
@@ -38,7 +38,7 @@ the host builds a store from `StoreConfig` with `graph.stores.build_store`.
 | build | Conform, diff, persist | Ground, legalise and normalise the result (conform judge, quarantine), match it to the current graph, write the difference | [build.md](build.md) |
 | build | Analysis | Shared validator of the ontology's hard rules; light inference; verification and repair; consolidated metrics | [analysis.md](analysis.md) |
 | build | Run | `run_build`, phase functions, build options, build result | [build.md](build.md), [api.md](api.md) |
-| gap | Findings | `Findings` (add, match, withdraw, resolve, dismiss, read, `open_counts`, `refresh`) and `FindingFlow` (the blocking link, composed with a structural `StoryBlocks` port the host fills with `PlanService`). Its own query files `gap/queries/*.cypher` (4), their SQL ports `stores/postgres/queries/gap/*.sql` (4) and its DDL `gap/ddl/gap_schema.cypher`, found by the core `ensure_schema`; the queries are registered as `gap.*` in the Cypher dialect (`stores/_bolt/cypher.py`, which ArcadeDB shares) and in the PostgreSQL dialect (`stores/postgres/dialect.py`) | [gap.md](gap.md) |
+| gap | Gaps | `run_gap`, `GapService` (reads, answers, apply, dismissals, raised and development gaps, holds) and `ensure_gap_schema` (with the migration of first-slice findings); its own query files `gap/queries/*.cypher`, their SQL ports `stores/postgres/queries/gap/*.sql` and its DDL `gap/ddl/gap_schema.cypher`, found by the core `ensure_schema`; the queries are registered as `gap.*` in the Cypher dialect (`stores/_bolt/cypher.py`, which ArcadeDB shares) and in the PostgreSQL dialect (`stores/postgres/dialect.py`) | [gap/architecture.md](gap/architecture.md) |
 
 ## Import rules
 
@@ -62,7 +62,7 @@ Each node type and relation in the ontology has an `origin`, and the origin name
 | Origin | Owner |
 |---|---|
 | `extracted` (spec nodes, domain edges) | `graph.build` |
-| `agent` (findings), later `analysis`, `human` | `graph.gap` (declared in `graph/gap/ontology.yaml`, [gap.md](gap.md)) |
+| `analysis`, `human` (gaps and clarifications) | `graph.gap` (declared in `graph/gap/ontology.yaml`, [gap/ontology.md](gap/ontology.md)) |
 | `planner` | `graph.plan` (declared in `graph/plan/ontology.yaml`, [plan/ontology.md](plan/ontology.md)) |
 
 `graph.build` also owns the built-in names, which no ontology declares: labels `SpecNode`, `Document`,

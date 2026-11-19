@@ -86,6 +86,16 @@ forbidden_modules = [
     "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "mcp_server", "storage", "temporal",
 ]
 
+# The gap library stays free of the agent runtime: its tool agent investigator is host code
+# (agent_runtime.gap_investigator, docs/graph/gap/investigation.md "Tool agent adapter").
+[[tool.importlinter.contracts]]
+name = "The gap library imports no agent runtime or agent SDK"
+id = "gap-no-agent-runtime"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["graph.gap"]
+forbidden_modules = ["agent_runtime", "agents", "temporalio", "temporal"]
+
 # graph.build sits on graph.core; the core never imports the build pipeline, the gap detector
 # or the planner.
 [[tool.importlinter.contracts]]

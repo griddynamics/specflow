@@ -239,7 +239,7 @@ export async function stubLog(): Promise<StubEntry[]> {
   return (await control("GET", "/log")) as StubEntry[];
 }
 
-/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs, workFail, workReadFail); a null time = never finishes. */
+/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs, workFail, workReadFail, gapFail); a null time = never finishes. */
 export async function stubTiming(t: Record<string, number | string | null>): Promise<void> {
   await control("POST", "/timing", t);
 }
@@ -254,6 +254,7 @@ export const STUB_TIMING = {
   planMs: 2000,
   workFail: null,
   workReadFail: null,
+  gapFail: null,
 };
 
 /** Seeds a source with chosen file states in the stub (the case control port; see tests/support/stub-sources.mjs `seed`). Returns its id. */
@@ -267,6 +268,30 @@ export async function seedWork(
   work: { findings?: Record<string, unknown>[]; claims?: Record<string, unknown>[] },
 ): Promise<void> {
   await control("POST", "/seed-work", { pid, work });
+}
+
+/** Seeds the gaps (full `GapView` rows, plus stub-only `stories` and `documents` id lists), the latest gap run, the noise rules and the
+ *  corpus documents (`{document_id, lineage, path, title, markdown}`, the Documents tab) of a project in the stub. */
+export async function seedGaps(
+  pid: string,
+  seed: {
+    gaps?: Record<string, unknown>[];
+    run?: Record<string, unknown>;
+    rules?: Record<string, unknown>[];
+    corpus?: Record<string, unknown>[];
+  },
+): Promise<void> {
+  await control("POST", "/seed-gaps", { pid, ...seed });
+}
+
+/** A running gap run records one more site (stub): its gaps join the project's (same id replaces) and the run counts the site. */
+export async function recordGaps(pid: string, gaps: Record<string, unknown>[]): Promise<void> {
+  await control("POST", "/record-gaps", { pid, gaps });
+}
+
+/** The update build of the applied answers finished (stub): every applying gap of the project resolves with its answer applied. */
+export async function settleGaps(pid: string): Promise<void> {
+  await control("POST", "/settle-gaps", { pid });
 }
 
 /** The stub's collaborator knobs; `resetPeopleState` puts them back so one case never decides another. */
@@ -286,6 +311,22 @@ const seedMembersState = async (state: Partial<typeof PEOPLE_STATE>): Promise<vo
 /** Seeds a project in the stub where the caller is owner or collaborator, with chosen members and invites (stub-members.mjs `seed`). */
 export async function seedMembers(spec: SeedMembers): Promise<{ id: string; name: string }> {
   return (await control("POST", "/seed-members", spec)) as { id: string; name: string };
+}
+
+/** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */
+export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> {
+  expect((await bff(page, "POST", `/projects/${pid}/graph_build`, { reasoning_level: 3 })).status).toBe(202);
+  await expect
+    .poll(
+      async () =>
+        ((await bff(page, "GET", `/projects/${pid}/graph_build`)).json as { status: "idle" | "running" | "succeeded" | "failed" }).status,
+      { timeout: 10_000 },
+    )
+    .toBe("succeeded");
+  expect((await bff(page, "POST", `/projects/${pid}/plan`, { replan: false })).status).toBe(202);
+  await expect
+    .poll(async () => ((await bff(page, "GET", `/projects/${pid}/plan`)).json as { has_plan: boolean }).has_plan, { timeout: 15_000 })
+    .toBe(true);
 }
 
 /** Removes a source in the stub as if another tab had (the details modal then finds it gone). */
@@ -338,11 +379,16 @@ export function allowedGateCalls(pid: string): (r: { method: string; path: strin
   return (r) => r.method === "GET" && (shell.test(r.path) || docs.test(r.path));
 }
 
-/** After a gate screen: nothing keeps polling, the backend calls since `from` stay inside the allow-list, no write, no parse or summarize. */
-export async function expectGateNetwork(page: Page, requests: RequestLog[], from: number, pid: string): Promise<void> {
+/** After a gate screen: nothing keeps polling, the backend calls since `from` stay inside the allow-list (the gate's by default), no write, no parse or summarize. */
+export async function expectGateNetwork(
+  page: Page,
+  requests: RequestLog[],
+  from: number,
+  pid: string,
+  allowed: (r: { method: string; path: string }) => boolean = allowedGateCalls(pid),
+): Promise<void> {
   await networkQuiet(page, 2_500); // no request for longer than a poll interval: nothing keeps polling
   const made = calls(requests.slice(from));
-  const allowed = allowedGateCalls(pid);
   expect(
     made.filter((r) => !allowed(r)).map((r) => `${r.method} ${r.path}`),
     "backend calls outside the allow-list",

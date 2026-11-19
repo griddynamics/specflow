@@ -2,7 +2,7 @@
   "add_finding": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"FND::000000000004\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[{\"type\":\"commit\",\"value\":\"e44f0c1\"},{\"type\":\"pr\",\"value\":\"https://git.example.test/shop/pull/7\"}],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:04Z\",\"orphaned\":false},\"created\":true,\"blocked\":[]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"GAP::94895421A479\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[{\"type\":\"pr\",\"value\":\"https://git.example.test/shop/pull/7\"},{\"type\":\"commit\",\"value\":\"e44f0c1\"}],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:03Z\",\"orphaned\":false},\"created\":true,\"blocked\":[]}",
         "type": "text"
       }
     ],
@@ -20,18 +20,18 @@
           "you": true
         },
         "blocking": false,
-        "created_at": "2026-01-01T10:00:04Z",
-        "finding_id": "FND::000000000004",
+        "created_at": "2026-01-01T10:00:03Z",
+        "finding_id": "GAP::94895421A479",
         "kind": "gap",
         "orphaned": false,
         "refers_to": [
           {
-            "type": "commit",
-            "value": "e44f0c1"
-          },
-          {
             "type": "pr",
             "value": "https://git.example.test/shop/pull/7"
+          },
+          {
+            "type": "commit",
+            "value": "e44f0c1"
           }
         ],
         "status": "open",
@@ -44,7 +44,7 @@
   "add_finding_blocking": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"FND::000000000004\",\"kind\":\"question\",\"text\":\"Is a cart kept for one day or for a week?\",\"status\":\"open\",\"blocking\":true,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:04Z\",\"orphaned\":false},\"created\":true,\"blocked\":[\"TASK::WEB_SHOP::LOGIC_CHECKOUT\"]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"GAP::11976552AF83\",\"kind\":\"question\",\"text\":\"Is a cart kept for one day or for a week?\",\"status\":\"open\",\"blocking\":true,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:03Z\",\"orphaned\":false},\"created\":true,\"blocked\":[\"TASK::WEB_SHOP::LOGIC_CHECKOUT\"]}",
         "type": "text"
       }
     ],
@@ -64,8 +64,8 @@
           "you": true
         },
         "blocking": true,
-        "created_at": "2026-01-01T10:00:04Z",
-        "finding_id": "FND::000000000004",
+        "created_at": "2026-01-01T10:00:03Z",
+        "finding_id": "GAP::11976552AF83",
         "kind": "question",
         "orphaned": false,
         "refers_to": [],
@@ -76,10 +76,10 @@
       "project_id": "00000000-0000-4000-8000-000000000001"
     }
   },
-  "add_finding_blocking_repeat_without_a_claim": {
+  "add_finding_blocking_repeat_with_a_wrong_token": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"FND::000000000004\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[{\"type\":\"commit\",\"value\":\"e44f0c1\"},{\"type\":\"pr\",\"value\":\"https://git.example.test/shop/pull/7\"}],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:04Z\",\"orphaned\":false},\"created\":false,\"blocked\":[]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"GAP::94895421A479\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:03Z\",\"orphaned\":false},\"created\":false,\"blocked\":[]}",
         "type": "text"
       }
     ],
@@ -97,20 +97,11 @@
           "you": true
         },
         "blocking": false,
-        "created_at": "2026-01-01T10:00:04Z",
-        "finding_id": "FND::000000000004",
+        "created_at": "2026-01-01T10:00:03Z",
+        "finding_id": "GAP::94895421A479",
         "kind": "gap",
         "orphaned": false,
-        "refers_to": [
-          {
-            "type": "commit",
-            "value": "e44f0c1"
-          },
-          {
-            "type": "pr",
-            "value": "https://git.example.test/shop/pull/7"
-          }
-        ],
+        "refers_to": [],
         "status": "open",
         "story_id": "STORY::WEB_SHOP::CHECKOUT",
         "text": "The spec does not say how long a cart is kept."
@@ -121,7 +112,7 @@
   "add_finding_repeat": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"FND::000000000004\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[{\"type\":\"commit\",\"value\":\"e44f0c1\"},{\"type\":\"pr\",\"value\":\"https://git.example.test/shop/pull/7\"}],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:04Z\",\"orphaned\":false},\"created\":false,\"blocked\":[]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"GAP::94895421A479\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:03Z\",\"orphaned\":false},\"created\":false,\"blocked\":[]}",
         "type": "text"
       }
     ],
@@ -139,24 +130,102 @@
           "you": true
         },
         "blocking": false,
-        "created_at": "2026-01-01T10:00:04Z",
-        "finding_id": "FND::000000000004",
+        "created_at": "2026-01-01T10:00:03Z",
+        "finding_id": "GAP::94895421A479",
         "kind": "gap",
         "orphaned": false,
-        "refers_to": [
-          {
-            "type": "commit",
-            "value": "e44f0c1"
-          },
-          {
-            "type": "pr",
-            "value": "https://git.example.test/shop/pull/7"
-          }
-        ],
+        "refers_to": [],
         "status": "open",
         "story_id": "STORY::WEB_SHOP::CHECKOUT",
         "text": "The spec does not say how long a cart is kept."
       },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "answer_gap_without_a_dialog": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"gap_id\":\"GAP::4D5B5E912AC8\",\"answered\":false,\"action\":\"no_dialog\",\"choice\":null,\"placement\":null,\"clr_id\":null,\"apply_at\":null,\"note\":\"Nothing was recorded: this client speaks MCP protocol 2025-03-26; the dialog needs 2026-07-28. Give the user web_url to answer on the web card.\",\"web_url\":\"https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "action": "no_dialog",
+      "answered": false,
+      "apply_at": null,
+      "choice": null,
+      "clr_id": null,
+      "gap_id": "GAP::4D5B5E912AC8",
+      "note": "Nothing was recorded: this client speaks MCP protocol 2025-03-26; the dialog needs 2026-07-28. Give the user web_url to answer on the web card.",
+      "placement": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "web_url": "https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::4D5B5E912AC8"
+    }
+  },
+  "browse_gaps_first_page": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"gap_id\":\"GAP::2ACAD8855B21\",\"title\":\"Missing in the spec: ENT::REFUND\",\"severity\":\"major\",\"kind\":\"missing\",\"status\":\"open\",\"resolving\":false,\"assignee\":null},{\"gap_id\":\"GAP::4D5B5E912AC8\",\"title\":\"Unconfirmed assumption in the spec: REQ::CON::CUSTOMER_HAS_EMAIL\",\"severity\":\"major\",\"kind\":\"assumption\",\"status\":\"open\",\"resolving\":false,\"assignee\":null},{\"gap_id\":\"GAP::57B77104E7F4\",\"title\":\"Contradiction in the spec: REQ::BR::HOLD_ORDERS_OVER_500_EUR, REQ::BR::REVIEW_ORDERS_OVER_1000_EUR\",\"severity\":\"major\",\"kind\":\"contradiction\",\"status\":\"open\",\"resolving\":false,\"assignee\":null}],\"next_cursor\":\"WzEsIDAsIC0xNzk0OTkyNDAwMDAwMDAwLCAiR0FQOjo1N0I3NzEwNEU3RjQiXQ\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "assignee": null,
+          "gap_id": "GAP::2ACAD8855B21",
+          "kind": "missing",
+          "resolving": false,
+          "severity": "major",
+          "status": "open",
+          "title": "Missing in the spec: ENT::REFUND"
+        },
+        {
+          "assignee": null,
+          "gap_id": "GAP::4D5B5E912AC8",
+          "kind": "assumption",
+          "resolving": false,
+          "severity": "major",
+          "status": "open",
+          "title": "Unconfirmed assumption in the spec: REQ::CON::CUSTOMER_HAS_EMAIL"
+        },
+        {
+          "assignee": null,
+          "gap_id": "GAP::57B77104E7F4",
+          "kind": "contradiction",
+          "resolving": false,
+          "severity": "major",
+          "status": "open",
+          "title": "Contradiction in the spec: REQ::BR::HOLD_ORDERS_OVER_500_EUR, REQ::BR::REVIEW_ORDERS_OVER_1000_EUR"
+        }
+      ],
+      "next_cursor": "WzEsIDAsIC0xNzk0OTkyNDAwMDAwMDAwLCAiR0FQOjo1N0I3NzEwNEU3RjQiXQ",
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "browse_gaps_unassigned_questions": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"gap_id\":\"GAP::BDC6ECC57F46\",\"title\":\"Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\",\"severity\":\"major\",\"kind\":\"open_question\",\"status\":\"open\",\"resolving\":false,\"assignee\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "assignee": null,
+          "gap_id": "GAP::BDC6ECC57F46",
+          "kind": "open_question",
+          "resolving": false,
+          "severity": "major",
+          "status": "open",
+          "title": "Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER"
+        }
+      ],
+      "next_cursor": null,
       "project_id": "00000000-0000-4000-8000-000000000001"
     }
   },
@@ -411,7 +480,7 @@
   "get_node": {
     "content": [
       {
-        "text": "{\"node\":{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"spec_id_aliases\":[],\"attributes\":{\"external\":\"yes\",\"type\":\"other\"},\"statements\":[]},\"edges\":{\"items\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"spec_id\":\"CON::STRIPE\",\"label\":\"Constraint\",\"name\":\"Stripe rejects repeated payment attempts\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::INTEGRATED\",\"label\":\"Interface\",\"name\":\"Interface integrated by one module\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null}],\"by_relation\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"count\":1},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"count\":1},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"count\":2}],\"total\":4},\"plan\":{\"plan_state\":\"in_progress\",\"tasks\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"commit\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"commit\":null}]},\"provenance\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000003\",\"kind\":\"note\",\"text\":\"Stripe retries are limited.\",\"blocking\":false,\"about\":[\"MOD::STRIPE\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null}}]}",
+        "text": "{\"node\":{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"spec_id_aliases\":[],\"attributes\":{\"external\":\"yes\",\"type\":\"other\"},\"statements\":[]},\"edges\":{\"items\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"spec_id\":\"CON::STRIPE\",\"label\":\"Constraint\",\"name\":\"Stripe rejects repeated payment attempts\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::INTEGRATED\",\"label\":\"Interface\",\"name\":\"Interface integrated by one module\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null}],\"by_relation\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"count\":1},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"count\":1},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"count\":2}],\"total\":4},\"plan\":{\"plan_state\":\"in_progress\",\"tasks\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"commit\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"commit\":null}]},\"provenance\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"}]}",
         "type": "text"
       }
     ],
@@ -492,23 +561,10 @@
             "you": false
           },
           "blocking": true,
-          "finding_id": "FND::000000000002",
-          "kind": "conflict",
+          "finding_id": "GAP::7CD993BFCB1D",
+          "kind": "contradiction",
+          "severity": "major",
           "text": "The spec says card payment is optional and required."
-        },
-        {
-          "about": [
-            "MOD::STRIPE"
-          ],
-          "author": {
-            "agent_label": null,
-            "name": null,
-            "you": false
-          },
-          "blocking": false,
-          "finding_id": "FND::000000000003",
-          "kind": "note",
-          "text": "Stripe retries are limited."
         }
       ],
       "node": {
@@ -688,10 +744,60 @@
       ]
     }
   },
+  "get_node_with_a_gap": {
+    "content": [
+      {
+        "text": "{\"node\":{\"spec_id\":\"REQ::FR::PLACE_ORDER\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can place an order from the cart\",\"spec_id_aliases\":[],\"attributes\":{\"acceptance_criteria\":[\"The order is stored in the Orders database\"]},\"statements\":[{\"fragment_id\":\"upload:orders-spec#orders-service-specification/overview#35c76bfb\",\"document_id\":\"upload:orders-spec\",\"text\":\"A customer places an order from the cart; the Orders service stores it in the Orders database.\"}]},\"edges\":null,\"plan\":null,\"provenance\":null,\"findings\":[{\"finding_id\":\"GAP::BDC6ECC57F46\",\"kind\":\"open_question\",\"text\":\"Can a customer cancel a paid order?\",\"blocking\":false,\"about\":[\"QST::CANCEL_PAID_ORDER\",\"REQ::FR::PLACE_ORDER\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null},\"severity\":\"major\"}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "edges": null,
+      "findings": [
+        {
+          "about": [
+            "QST::CANCEL_PAID_ORDER",
+            "REQ::FR::PLACE_ORDER"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": null,
+            "you": false
+          },
+          "blocking": false,
+          "finding_id": "GAP::BDC6ECC57F46",
+          "kind": "open_question",
+          "severity": "major",
+          "text": "Can a customer cancel a paid order?"
+        }
+      ],
+      "node": {
+        "attributes": {
+          "acceptance_criteria": [
+            "The order is stored in the Orders database"
+          ]
+        },
+        "label": "FunctionalRequirement",
+        "name": "Customer can place an order from the cart",
+        "spec_id": "REQ::FR::PLACE_ORDER",
+        "spec_id_aliases": [],
+        "statements": [
+          {
+            "document_id": "upload:orders-spec",
+            "fragment_id": "upload:orders-spec#orders-service-specification/overview#35c76bfb",
+            "text": "A customer places an order from the cart; the Orders service stores it in the Orders database."
+          }
+        ]
+      },
+      "plan": null,
+      "provenance": null
+    }
+  },
   "get_node_without_a_plan": {
     "content": [
       {
-        "text": "{\"node\":{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"spec_id_aliases\":[],\"attributes\":{\"external\":\"yes\",\"type\":\"other\"},\"statements\":[]},\"edges\":{\"items\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"spec_id\":\"CON::STRIPE\",\"label\":\"Constraint\",\"name\":\"Stripe rejects repeated payment attempts\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::INTEGRATED\",\"label\":\"Interface\",\"name\":\"Interface integrated by one module\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null}],\"by_relation\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"count\":1},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"count\":1},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"count\":2}],\"total\":4},\"plan\":null,\"provenance\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000003\",\"kind\":\"note\",\"text\":\"Stripe retries are limited.\",\"blocking\":false,\"about\":[\"MOD::STRIPE\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null}}]}",
+        "text": "{\"node\":{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"spec_id_aliases\":[],\"attributes\":{\"external\":\"yes\",\"type\":\"other\"},\"statements\":[]},\"edges\":{\"items\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"spec_id\":\"CON::STRIPE\",\"label\":\"Constraint\",\"name\":\"Stripe rejects repeated payment attempts\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::INTEGRATED\",\"label\":\"Interface\",\"name\":\"Interface integrated by one module\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null}],\"by_relation\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"count\":1},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"count\":1},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"count\":2}],\"total\":4},\"plan\":null,\"provenance\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"}]}",
         "type": "text"
       }
     ],
@@ -772,23 +878,10 @@
             "you": false
           },
           "blocking": true,
-          "finding_id": "FND::000000000002",
-          "kind": "conflict",
+          "finding_id": "GAP::7CD993BFCB1D",
+          "kind": "contradiction",
+          "severity": "major",
           "text": "The spec says card payment is optional and required."
-        },
-        {
-          "about": [
-            "MOD::STRIPE"
-          ],
-          "author": {
-            "agent_label": null,
-            "name": null,
-            "you": false
-          },
-          "blocking": false,
-          "finding_id": "FND::000000000003",
-          "kind": "note",
-          "text": "Stripe retries are limited."
         }
       ],
       "node": {
@@ -809,7 +902,7 @@
   "get_story_brief": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"kind\":\"feature\",\"title\":\"Checkout\",\"summary\":null,\"anchor\":\"FEAT::CHECKOUT\",\"release\":null,\"state\":\"ready\"},\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"kind\":\"module\",\"anchor\":null,\"title\":\"WEB_SHOP\",\"description\":null,\"interfaces\":[],\"not_buildable\":[],\"planned_by\":\"model\",\"prompt_ref\":null,\"status\":\"active\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"last_run_id\":null},\"profile\":{},\"tasks\":[{\"task_id\":\"TASK::WEB_SHOP::DATA_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::DATA_CHECKOUT\",\"phase\":\"logic\",\"status\":\"completed\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[],\"done_when\":[]},{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"done_when\":[]}],\"implements\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Customer can complete checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout responds within one second\",\"at\":null}],\"provenance\":[],\"assumption\":false}],\"contracts\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"title\":\"Task TASK::PAYMENTS::CONTRACT\",\"commit\":\"abababababababababababababababababababab\",\"implements\":[\"IFC::STRIPE_API\",\"MOD::PAYMENTS_SERVICE\"],\"interfaces\":[]}],\"open_questions\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"neighbours\":[{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"label\":\"Feature\",\"name\":\"Card payment\",\"relation\":\"DEPENDS_ON\",\"direction\":\"out\",\"of\":\"FEAT::CHECKOUT\",\"basis\":\"stated\",\"confidence\":null},{\"spec_id\":\"MOD::WEB_SHOP\",\"label\":\"Module\",\"name\":\"Web shop\",\"relation\":\"PART_OF\",\"direction\":\"out\",\"of\":\"FEAT::CHECKOUT\",\"basis\":\"stated\",\"confidence\":null}],\"spec_changed\":false,\"missing\":[],\"expansion\":{\"more\":3,\"top\":[{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"title\":\"Customer can pay by card\"},{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"title\":\"Payments service\"},{\"spec_id\":\"FEAT::CHECKOUT_REVIEW\",\"title\":\"Checkout review\"}],\"next\":\"expand_brief\"}}}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"kind\":\"feature\",\"title\":\"Checkout\",\"summary\":null,\"anchor\":\"FEAT::CHECKOUT\",\"release\":null,\"state\":\"ready\"},\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"kind\":\"module\",\"anchor\":null,\"title\":\"WEB_SHOP\",\"description\":null,\"interfaces\":[],\"not_buildable\":[],\"planned_by\":\"model\",\"prompt_ref\":null,\"status\":\"active\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"last_run_id\":null},\"profile\":{},\"tasks\":[{\"task_id\":\"TASK::WEB_SHOP::DATA_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::DATA_CHECKOUT\",\"phase\":\"logic\",\"status\":\"completed\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[],\"done_when\":[]},{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"done_when\":[]}],\"implements\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Customer can complete checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout responds within one second\",\"at\":null}],\"provenance\":[],\"assumption\":false}],\"contracts\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"title\":\"Task TASK::PAYMENTS::CONTRACT\",\"commit\":\"abababababababababababababababababababab\",\"implements\":[\"IFC::STRIPE_API\",\"MOD::PAYMENTS_SERVICE\"],\"interfaces\":[]}],\"open_questions\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"},{\"finding_id\":\"GAP::5164DF2E2C93\",\"kind\":\"open_question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"severity\":\"major\"}],\"neighbours\":[{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"label\":\"Feature\",\"name\":\"Card payment\",\"relation\":\"DEPENDS_ON\",\"direction\":\"out\",\"of\":\"FEAT::CHECKOUT\",\"basis\":\"stated\",\"confidence\":null},{\"spec_id\":\"MOD::WEB_SHOP\",\"label\":\"Module\",\"name\":\"Web shop\",\"relation\":\"PART_OF\",\"direction\":\"out\",\"of\":\"FEAT::CHECKOUT\",\"basis\":\"stated\",\"confidence\":null}],\"spec_changed\":false,\"missing\":[],\"expansion\":{\"more\":3,\"top\":[{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"title\":\"Customer can pay by card\"},{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"title\":\"Payments service\"},{\"spec_id\":\"FEAT::CHECKOUT_REVIEW\",\"title\":\"Checkout review\"}],\"next\":\"expand_brief\"}}}",
         "type": "text"
       }
     ],
@@ -874,8 +967,9 @@
               "you": false
             },
             "blocking": true,
-            "finding_id": "FND::000000000002",
-            "kind": "conflict",
+            "finding_id": "GAP::7CD993BFCB1D",
+            "kind": "contradiction",
+            "severity": "major",
             "text": "The spec says card payment is optional and required."
           },
           {
@@ -888,8 +982,9 @@
               "you": true
             },
             "blocking": false,
-            "finding_id": "FND::000000000001",
-            "kind": "question",
+            "finding_id": "GAP::5164DF2E2C93",
+            "kind": "open_question",
+            "severity": "major",
             "text": "Which currencies does checkout accept?"
           }
         ],
@@ -1016,7 +1111,7 @@
   "get_story_brief_no_neighbours": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"kind\":\"feature\",\"title\":\"Checkout\",\"summary\":null,\"anchor\":\"FEAT::CHECKOUT\",\"release\":null,\"state\":\"ready\"},\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"kind\":\"module\",\"anchor\":null,\"title\":\"WEB_SHOP\",\"description\":null,\"interfaces\":[],\"not_buildable\":[],\"planned_by\":\"model\",\"prompt_ref\":null,\"status\":\"active\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"last_run_id\":null},\"profile\":{},\"tasks\":[{\"task_id\":\"TASK::WEB_SHOP::DATA_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::DATA_CHECKOUT\",\"phase\":\"logic\",\"status\":\"completed\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[],\"done_when\":[]},{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"done_when\":[]}],\"implements\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Customer can complete checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout responds within one second\",\"at\":null}],\"provenance\":[],\"assumption\":false}],\"contracts\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"title\":\"Task TASK::PAYMENTS::CONTRACT\",\"commit\":\"abababababababababababababababababababab\",\"implements\":[\"IFC::STRIPE_API\",\"MOD::PAYMENTS_SERVICE\"],\"interfaces\":[]}],\"open_questions\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"neighbours\":[],\"spec_changed\":false,\"missing\":[],\"expansion\":{\"more\":5,\"top\":[{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"title\":\"Card payment\"},{\"spec_id\":\"MOD::WEB_SHOP\",\"title\":\"Web shop\"},{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"title\":\"Customer can pay by card\"}],\"next\":\"expand_brief\"}}}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"kind\":\"feature\",\"title\":\"Checkout\",\"summary\":null,\"anchor\":\"FEAT::CHECKOUT\",\"release\":null,\"state\":\"ready\"},\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"kind\":\"module\",\"anchor\":null,\"title\":\"WEB_SHOP\",\"description\":null,\"interfaces\":[],\"not_buildable\":[],\"planned_by\":\"model\",\"prompt_ref\":null,\"status\":\"active\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"last_run_id\":null},\"profile\":{},\"tasks\":[{\"task_id\":\"TASK::WEB_SHOP::DATA_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::DATA_CHECKOUT\",\"phase\":\"logic\",\"status\":\"completed\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[],\"done_when\":[]},{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"done_when\":[]}],\"implements\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Customer can complete checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout responds within one second\",\"at\":null}],\"provenance\":[],\"assumption\":false}],\"contracts\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"title\":\"Task TASK::PAYMENTS::CONTRACT\",\"commit\":\"abababababababababababababababababababab\",\"implements\":[\"IFC::STRIPE_API\",\"MOD::PAYMENTS_SERVICE\"],\"interfaces\":[]}],\"open_questions\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"},{\"finding_id\":\"GAP::5164DF2E2C93\",\"kind\":\"open_question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"severity\":\"major\"}],\"neighbours\":[],\"spec_changed\":false,\"missing\":[],\"expansion\":{\"more\":5,\"top\":[{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"title\":\"Card payment\"},{\"spec_id\":\"MOD::WEB_SHOP\",\"title\":\"Web shop\"},{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"title\":\"Customer can pay by card\"}],\"next\":\"expand_brief\"}}}",
         "type": "text"
       }
     ],
@@ -1081,8 +1176,9 @@
               "you": false
             },
             "blocking": true,
-            "finding_id": "FND::000000000002",
-            "kind": "conflict",
+            "finding_id": "GAP::7CD993BFCB1D",
+            "kind": "contradiction",
+            "severity": "major",
             "text": "The spec says card payment is optional and required."
           },
           {
@@ -1095,8 +1191,9 @@
               "you": true
             },
             "blocking": false,
-            "finding_id": "FND::000000000001",
-            "kind": "question",
+            "finding_id": "GAP::5164DF2E2C93",
+            "kind": "open_question",
+            "severity": "major",
             "text": "Which currencies does checkout accept?"
           }
         ],
@@ -1196,6 +1293,364 @@
           }
         ]
       },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "get_story_brief_with_a_gap": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"story\":{\"story_id\":\"STORY::A::API\",\"kind\":\"feature\",\"title\":\"Title of STORY::A::API\",\"summary\":null,\"anchor\":null,\"release\":\"R1\",\"state\":\"ready\"},\"area\":{\"area_id\":\"AREA::A\",\"kind\":\"module\",\"anchor\":null,\"title\":\"Area AREA::A\",\"description\":null,\"interfaces\":[],\"not_buildable\":[],\"planned_by\":\"model\",\"prompt_ref\":null,\"status\":\"active\",\"created_at\":\"2026-01-01T10:00:00Z\",\"updated_at\":\"2026-01-01T10:00:00Z\",\"last_run_id\":null},\"profile\":{},\"tasks\":[{\"task_id\":\"TASK::A::API_CONTRACT\",\"title\":\"Title of TASK::A::API_CONTRACT\",\"phase\":\"contract\",\"status\":\"pending\",\"complexity\":\"high\",\"progress\":null,\"waits_for\":[\"TASK::P::TC\"],\"done_when\":[]},{\"task_id\":\"TASK::A::API_LOGIC\",\"title\":\"Title of TASK::A::API_LOGIC\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[\"TASK::A::API_CONTRACT\"],\"done_when\":[]}],\"implements\":[{\"spec_id\":\"REQ::FR::PLACE_ORDER\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can place an order from the cart\",\"attributes\":{\"acceptance_criteria\":[\"The order is stored in the Orders database\"]},\"statements\":[{\"fragment_id\":\"upload:orders-spec#orders-service-specification/overview#35c76bfb\",\"document_id\":\"upload:orders-spec\",\"revision_id\":\"REV::ORDERS_SPEC::1\",\"version\":1,\"text\":\"A customer places an order from the cart; the Orders service stores it in the Orders database.\",\"at\":null}],\"provenance\":[{\"document_id\":\"upload:orders-spec\",\"path\":\"orders-spec.md\",\"fragment_id\":\"upload:orders-spec#orders-service-specification/overview#35c76bfb\",\"line_start\":5,\"line_end\":5,\"quote\":\"A customer places an order from the cart; the Orders service stores it in the Orders database.\"}],\"assumption\":false}],\"contracts\":[{\"task_id\":\"TASK::P::TC\",\"title\":\"Title of TASK::P::TC\",\"commit\":\"cccccccccccccccccccccccccccccccccccccccc\",\"implements\":[],\"interfaces\":[]}],\"open_questions\":[{\"spec_id\":\"QST::CANCEL_PAID_ORDER\",\"statement\":\"Can a customer cancel a paid order?\",\"provenance\":[{\"document_id\":\"upload:orders-spec\",\"path\":\"orders-spec.md\",\"fragment_id\":\"upload:orders-spec#orders-service-specification/place-order#e1486afe\",\"line_start\":9,\"line_end\":9,\"quote\":\"Can a customer cancel a paid order?\"}],\"about\":\"REQ::FR::PLACE_ORDER\"}],\"findings\":[{\"finding_id\":\"GAP::BDC6ECC57F46\",\"kind\":\"open_question\",\"text\":\"Can a customer cancel a paid order?\",\"blocking\":false,\"about\":[\"QST::CANCEL_PAID_ORDER\",\"REQ::FR::PLACE_ORDER\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null},\"severity\":\"major\"}],\"neighbours\":[{\"spec_id\":\"FEAT::PLACE_ORDER\",\"label\":\"Feature\",\"name\":\"Place order\",\"relation\":\"PART_OF\",\"direction\":\"out\",\"of\":\"REQ::FR::PLACE_ORDER\",\"basis\":\"stated\",\"confidence\":null},{\"spec_id\":\"QST::CANCEL_PAID_ORDER\",\"label\":\"OpenQuestion\",\"name\":\"Can a customer cancel a paid order?\",\"relation\":\"RELATES_TO\",\"direction\":\"in\",\"of\":\"REQ::FR::PLACE_ORDER\",\"basis\":\"stated\",\"confidence\":null}],\"spec_changed\":true,\"missing\":[],\"expansion\":{\"more\":0,\"top\":[],\"next\":\"expand_brief\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "brief": {
+        "area": {
+          "anchor": null,
+          "area_id": "AREA::A",
+          "created_at": "2026-01-01T10:00:00Z",
+          "description": null,
+          "interfaces": [],
+          "kind": "module",
+          "last_run_id": null,
+          "not_buildable": [],
+          "planned_by": "model",
+          "prompt_ref": null,
+          "status": "active",
+          "title": "Area AREA::A",
+          "updated_at": "2026-01-01T10:00:00Z"
+        },
+        "contracts": [
+          {
+            "commit": "cccccccccccccccccccccccccccccccccccccccc",
+            "implements": [],
+            "interfaces": [],
+            "task_id": "TASK::P::TC",
+            "title": "Title of TASK::P::TC"
+          }
+        ],
+        "expansion": {
+          "more": 0,
+          "next": "expand_brief",
+          "top": []
+        },
+        "findings": [
+          {
+            "about": [
+              "QST::CANCEL_PAID_ORDER",
+              "REQ::FR::PLACE_ORDER"
+            ],
+            "author": {
+              "agent_label": null,
+              "name": null,
+              "you": false
+            },
+            "blocking": false,
+            "finding_id": "GAP::BDC6ECC57F46",
+            "kind": "open_question",
+            "severity": "major",
+            "text": "Can a customer cancel a paid order?"
+          }
+        ],
+        "implements": [
+          {
+            "assumption": false,
+            "attributes": {
+              "acceptance_criteria": [
+                "The order is stored in the Orders database"
+              ]
+            },
+            "label": "FunctionalRequirement",
+            "name": "Customer can place an order from the cart",
+            "provenance": [
+              {
+                "document_id": "upload:orders-spec",
+                "fragment_id": "upload:orders-spec#orders-service-specification/overview#35c76bfb",
+                "line_end": 5,
+                "line_start": 5,
+                "path": "orders-spec.md",
+                "quote": "A customer places an order from the cart; the Orders service stores it in the Orders database."
+              }
+            ],
+            "spec_id": "REQ::FR::PLACE_ORDER",
+            "statements": [
+              {
+                "at": null,
+                "document_id": "upload:orders-spec",
+                "fragment_id": "upload:orders-spec#orders-service-specification/overview#35c76bfb",
+                "revision_id": "REV::ORDERS_SPEC::1",
+                "text": "A customer places an order from the cart; the Orders service stores it in the Orders database.",
+                "version": 1
+              }
+            ]
+          }
+        ],
+        "missing": [],
+        "neighbours": [
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "out",
+            "label": "Feature",
+            "name": "Place order",
+            "of": "REQ::FR::PLACE_ORDER",
+            "relation": "PART_OF",
+            "spec_id": "FEAT::PLACE_ORDER"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "OpenQuestion",
+            "name": "Can a customer cancel a paid order?",
+            "of": "REQ::FR::PLACE_ORDER",
+            "relation": "RELATES_TO",
+            "spec_id": "QST::CANCEL_PAID_ORDER"
+          }
+        ],
+        "open_questions": [
+          {
+            "about": "REQ::FR::PLACE_ORDER",
+            "provenance": [
+              {
+                "document_id": "upload:orders-spec",
+                "fragment_id": "upload:orders-spec#orders-service-specification/place-order#e1486afe",
+                "line_end": 9,
+                "line_start": 9,
+                "path": "orders-spec.md",
+                "quote": "Can a customer cancel a paid order?"
+              }
+            ],
+            "spec_id": "QST::CANCEL_PAID_ORDER",
+            "statement": "Can a customer cancel a paid order?"
+          }
+        ],
+        "profile": {},
+        "spec_changed": true,
+        "story": {
+          "anchor": null,
+          "kind": "feature",
+          "release": "R1",
+          "state": "ready",
+          "story_id": "STORY::A::API",
+          "summary": null,
+          "title": "Title of STORY::A::API"
+        },
+        "tasks": [
+          {
+            "complexity": "high",
+            "done_when": [],
+            "phase": "contract",
+            "progress": null,
+            "status": "pending",
+            "task_id": "TASK::A::API_CONTRACT",
+            "title": "Title of TASK::A::API_CONTRACT",
+            "waits_for": [
+              "TASK::P::TC"
+            ]
+          },
+          {
+            "complexity": "medium",
+            "done_when": [],
+            "phase": "logic",
+            "progress": null,
+            "status": "pending",
+            "task_id": "TASK::A::API_LOGIC",
+            "title": "Title of TASK::A::API_LOGIC",
+            "waits_for": [
+              "TASK::A::API_CONTRACT"
+            ]
+          }
+        ]
+      },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "get_task_brief_with_a_gap": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"task\":{\"task_id\":\"TASK::A::API_LOGIC\",\"area_id\":\"AREA::A\",\"action\":\"API_LOGIC\",\"revision\":1,\"story_id\":\"STORY::A::API\",\"phase\":\"logic\",\"title\":\"Title of TASK::A::API_LOGIC\",\"description\":null,\"done_when\":[],\"complexity\":\"medium\",\"implements\":[\"REQ::FR::PLACE_ORDER\"],\"release\":[],\"has_open_questions\":false,\"planned_by\":\"model\",\"prompt_ref\":null,\"spec_build_id\":null,\"status\":\"pending\",\"claimed_by\":null,\"claimed_at\":null,\"attempts\":0,\"commit\":null,\"block_reason\":null,\"note\":null,\"created_at\":\"2026-01-01T10:00:00Z\",\"updated_at\":\"2026-01-01T10:00:00Z\",\"created_run_id\":null,\"last_run_id\":null,\"waits_for\":[\"TASK::A::API_CONTRACT\"],\"waited_by\":[],\"predecessor\":null,\"successor\":null},\"done_when\":[],\"story\":{\"story_id\":\"STORY::A::API\",\"area_id\":\"AREA::A\",\"kind\":\"feature\",\"anchor\":null,\"chapter\":null,\"title\":\"Title of STORY::A::API\",\"summary\":null,\"prompt_ref\":null,\"release\":\"R1\",\"status\":\"active\",\"created_at\":\"2026-01-01T10:00:00Z\",\"updated_at\":\"2026-01-01T10:00:00Z\",\"last_run_id\":null,\"progress\":\"pending\",\"task_counts\":{\"pending\":2}},\"area\":{\"area_id\":\"AREA::A\",\"kind\":\"module\",\"anchor\":null,\"title\":\"Area AREA::A\",\"description\":null,\"interfaces\":[],\"not_buildable\":[],\"planned_by\":\"model\",\"prompt_ref\":null,\"status\":\"active\",\"created_at\":\"2026-01-01T10:00:00Z\",\"updated_at\":\"2026-01-01T10:00:00Z\",\"last_run_id\":null},\"profile\":{},\"implements\":[{\"spec_id\":\"REQ::FR::PLACE_ORDER\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can place an order from the cart\",\"attributes\":{\"acceptance_criteria\":[\"The order is stored in the Orders database\"]},\"statements\":[{\"fragment_id\":\"upload:orders-spec#orders-service-specification/overview#35c76bfb\",\"document_id\":\"upload:orders-spec\",\"revision_id\":\"REV::ORDERS_SPEC::1\",\"version\":1,\"text\":\"A customer places an order from the cart; the Orders service stores it in the Orders database.\",\"at\":null}],\"provenance\":[{\"document_id\":\"upload:orders-spec\",\"path\":\"orders-spec.md\",\"fragment_id\":\"upload:orders-spec#orders-service-specification/overview#35c76bfb\",\"line_start\":5,\"line_end\":5,\"quote\":\"A customer places an order from the cart; the Orders service stores it in the Orders database.\"}],\"assumption\":false}],\"contracts\":[],\"open_questions\":[{\"spec_id\":\"QST::CANCEL_PAID_ORDER\",\"statement\":\"Can a customer cancel a paid order?\",\"provenance\":[{\"document_id\":\"upload:orders-spec\",\"path\":\"orders-spec.md\",\"fragment_id\":\"upload:orders-spec#orders-service-specification/place-order#e1486afe\",\"line_start\":9,\"line_end\":9,\"quote\":\"Can a customer cancel a paid order?\"}],\"about\":\"REQ::FR::PLACE_ORDER\"}],\"neighbours\":[{\"spec_id\":\"FEAT::PLACE_ORDER\",\"label\":\"Feature\",\"name\":\"Place order\",\"relation\":\"PART_OF\",\"direction\":\"out\",\"of\":\"REQ::FR::PLACE_ORDER\",\"basis\":\"stated\",\"confidence\":null},{\"spec_id\":\"QST::CANCEL_PAID_ORDER\",\"label\":\"OpenQuestion\",\"name\":\"Can a customer cancel a paid order?\",\"relation\":\"RELATES_TO\",\"direction\":\"in\",\"of\":\"REQ::FR::PLACE_ORDER\",\"basis\":\"stated\",\"confidence\":null}],\"placement\":[{\"spec_id\":\"REQ::FR::PLACE_ORDER\",\"rule\":null,\"via\":[]}],\"spec_changed\":true,\"missing\":[]},\"findings\":[{\"finding_id\":\"GAP::BDC6ECC57F46\",\"kind\":\"open_question\",\"text\":\"Can a customer cancel a paid order?\",\"blocking\":false,\"about\":[\"QST::CANCEL_PAID_ORDER\",\"REQ::FR::PLACE_ORDER\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null},\"severity\":\"major\"}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "brief": {
+        "area": {
+          "anchor": null,
+          "area_id": "AREA::A",
+          "created_at": "2026-01-01T10:00:00Z",
+          "description": null,
+          "interfaces": [],
+          "kind": "module",
+          "last_run_id": null,
+          "not_buildable": [],
+          "planned_by": "model",
+          "prompt_ref": null,
+          "status": "active",
+          "title": "Area AREA::A",
+          "updated_at": "2026-01-01T10:00:00Z"
+        },
+        "contracts": [],
+        "done_when": [],
+        "implements": [
+          {
+            "assumption": false,
+            "attributes": {
+              "acceptance_criteria": [
+                "The order is stored in the Orders database"
+              ]
+            },
+            "label": "FunctionalRequirement",
+            "name": "Customer can place an order from the cart",
+            "provenance": [
+              {
+                "document_id": "upload:orders-spec",
+                "fragment_id": "upload:orders-spec#orders-service-specification/overview#35c76bfb",
+                "line_end": 5,
+                "line_start": 5,
+                "path": "orders-spec.md",
+                "quote": "A customer places an order from the cart; the Orders service stores it in the Orders database."
+              }
+            ],
+            "spec_id": "REQ::FR::PLACE_ORDER",
+            "statements": [
+              {
+                "at": null,
+                "document_id": "upload:orders-spec",
+                "fragment_id": "upload:orders-spec#orders-service-specification/overview#35c76bfb",
+                "revision_id": "REV::ORDERS_SPEC::1",
+                "text": "A customer places an order from the cart; the Orders service stores it in the Orders database.",
+                "version": 1
+              }
+            ]
+          }
+        ],
+        "missing": [],
+        "neighbours": [
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "out",
+            "label": "Feature",
+            "name": "Place order",
+            "of": "REQ::FR::PLACE_ORDER",
+            "relation": "PART_OF",
+            "spec_id": "FEAT::PLACE_ORDER"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "OpenQuestion",
+            "name": "Can a customer cancel a paid order?",
+            "of": "REQ::FR::PLACE_ORDER",
+            "relation": "RELATES_TO",
+            "spec_id": "QST::CANCEL_PAID_ORDER"
+          }
+        ],
+        "open_questions": [
+          {
+            "about": "REQ::FR::PLACE_ORDER",
+            "provenance": [
+              {
+                "document_id": "upload:orders-spec",
+                "fragment_id": "upload:orders-spec#orders-service-specification/place-order#e1486afe",
+                "line_end": 9,
+                "line_start": 9,
+                "path": "orders-spec.md",
+                "quote": "Can a customer cancel a paid order?"
+              }
+            ],
+            "spec_id": "QST::CANCEL_PAID_ORDER",
+            "statement": "Can a customer cancel a paid order?"
+          }
+        ],
+        "placement": [
+          {
+            "rule": null,
+            "spec_id": "REQ::FR::PLACE_ORDER",
+            "via": []
+          }
+        ],
+        "profile": {},
+        "spec_changed": true,
+        "story": {
+          "anchor": null,
+          "area_id": "AREA::A",
+          "chapter": null,
+          "created_at": "2026-01-01T10:00:00Z",
+          "kind": "feature",
+          "last_run_id": null,
+          "progress": "pending",
+          "prompt_ref": null,
+          "release": "R1",
+          "status": "active",
+          "story_id": "STORY::A::API",
+          "summary": null,
+          "task_counts": {
+            "pending": 2
+          },
+          "title": "Title of STORY::A::API",
+          "updated_at": "2026-01-01T10:00:00Z"
+        },
+        "task": {
+          "action": "API_LOGIC",
+          "area_id": "AREA::A",
+          "attempts": 0,
+          "block_reason": null,
+          "claimed_at": null,
+          "claimed_by": null,
+          "commit": null,
+          "complexity": "medium",
+          "created_at": "2026-01-01T10:00:00Z",
+          "created_run_id": null,
+          "description": null,
+          "done_when": [],
+          "has_open_questions": false,
+          "implements": [
+            "REQ::FR::PLACE_ORDER"
+          ],
+          "last_run_id": null,
+          "note": null,
+          "phase": "logic",
+          "planned_by": "model",
+          "predecessor": null,
+          "prompt_ref": null,
+          "release": [],
+          "revision": 1,
+          "spec_build_id": null,
+          "status": "pending",
+          "story_id": "STORY::A::API",
+          "successor": null,
+          "task_id": "TASK::A::API_LOGIC",
+          "title": "Title of TASK::A::API_LOGIC",
+          "updated_at": "2026-01-01T10:00:00Z",
+          "waited_by": [],
+          "waits_for": [
+            "TASK::A::API_CONTRACT"
+          ]
+        }
+      },
+      "findings": [
+        {
+          "about": [
+            "QST::CANCEL_PAID_ORDER",
+            "REQ::FR::PLACE_ORDER"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": null,
+            "you": false
+          },
+          "blocking": false,
+          "finding_id": "GAP::BDC6ECC57F46",
+          "kind": "open_question",
+          "severity": "major",
+          "text": "Can a customer cancel a paid order?"
+        }
+      ],
       "project_id": "00000000-0000-4000-8000-000000000001"
     }
   },
@@ -1320,6 +1775,62 @@
           "waiting": 0
         }
       ],
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "list_gaps_spec_ids_first_page": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"gap_id\":\"GAP::BDC6ECC57F46\",\"kind\":\"open_question\",\"severity\":\"major\",\"status\":\"open\",\"blocking\":false,\"question\":\"Can a customer cancel a paid order?\",\"about\":[\"QST::CANCEL_PAID_ORDER\",\"REQ::FR::PLACE_ORDER\"],\"answer\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "about": [
+            "QST::CANCEL_PAID_ORDER",
+            "REQ::FR::PLACE_ORDER"
+          ],
+          "answer": null,
+          "blocking": false,
+          "gap_id": "GAP::BDC6ECC57F46",
+          "kind": "open_question",
+          "question": "Can a customer cancel a paid order?",
+          "severity": "major",
+          "status": "open"
+        }
+      ],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "list_gaps_story": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"gap_id\":\"GAP::BDC6ECC57F46\",\"kind\":\"open_question\",\"severity\":\"major\",\"status\":\"open\",\"blocking\":false,\"question\":\"Can a customer cancel a paid order?\",\"about\":[\"QST::CANCEL_PAID_ORDER\",\"REQ::FR::PLACE_ORDER\"],\"answer\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "about": [
+            "QST::CANCEL_PAID_ORDER",
+            "REQ::FR::PLACE_ORDER"
+          ],
+          "answer": null,
+          "blocking": false,
+          "gap_id": "GAP::BDC6ECC57F46",
+          "kind": "open_question",
+          "question": "Can a customer cancel a paid order?",
+          "severity": "major",
+          "status": "open"
+        }
+      ],
+      "next_cursor": null,
       "project_id": "00000000-0000-4000-8000-000000000001"
     }
   },
@@ -1491,7 +2002,7 @@
   "list_stories_one_area": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":\"AREA::STRIPE\",\"view\":\"open\",\"total_count\":1,\"items\":[{\"rank\":1,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":2,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":\"AREA::STRIPE\",\"view\":\"open\",\"total_count\":1,\"items\":[{\"rank\":1,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
         "type": "text"
       }
     ],
@@ -1507,7 +2018,7 @@
           "completed_at": null,
           "completed_by": null,
           "cycle_with": [],
-          "findings": 2,
+          "findings": 1,
           "holder": {
             "agent_label": null,
             "name": "Alice",
@@ -1536,7 +2047,7 @@
   "list_stories_open": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"open\",\"total_count\":3,\"items\":[{\"rank\":1,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"ready\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":2,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":2,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":2,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":3,\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area\":{\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"title\":\"PAYMENTS_SERVICE\"},\"kind\":\"feature\",\"state\":\"blocked\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"open\",\"total_count\":3,\"items\":[{\"rank\":1,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"ready\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":2,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":2,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":3,\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area\":{\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"title\":\"PAYMENTS_SERVICE\"},\"kind\":\"feature\",\"state\":\"blocked\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
         "type": "text"
       }
     ],
@@ -1575,7 +2086,7 @@
           "completed_at": null,
           "completed_by": null,
           "cycle_with": [],
-          "findings": 2,
+          "findings": 1,
           "holder": {
             "agent_label": null,
             "name": "Alice",
@@ -1668,7 +2179,7 @@
   "list_stories_open_with_a_holder": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"open\",\"total_count\":3,\"items\":[{\"rank\":1,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":2,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":2,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":\"Claude Code · laptop\"},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":2,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":3,\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area\":{\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"title\":\"PAYMENTS_SERVICE\"},\"kind\":\"feature\",\"state\":\"blocked\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"open\",\"total_count\":3,\"items\":[{\"rank\":1,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":2,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":\"Claude Code · laptop\"},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":2,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":3,\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area\":{\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"title\":\"PAYMENTS_SERVICE\"},\"kind\":\"feature\",\"state\":\"blocked\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
         "type": "text"
       }
     ],
@@ -1684,7 +2195,7 @@
           "completed_at": null,
           "completed_by": null,
           "cycle_with": [],
-          "findings": 2,
+          "findings": 1,
           "holder": {
             "agent_label": null,
             "name": "Alice",
@@ -1758,6 +2269,106 @@
       "project_id": "00000000-0000-4000-8000-000000000001",
       "total_count": 3,
       "view": "open"
+    }
+  },
+  "open_gap_question": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"gap_id\":\"GAP::BDC6ECC57F46\",\"title\":\"Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\",\"severity\":\"major\",\"kind\":\"open_question\",\"origin\":\"analysis\",\"status\":\"open\",\"resolving\":false,\"blocking\":false,\"question\":\"Can a customer cancel a paid order?\",\"why\":\"Found by the detectors OQ-STATED (1 seeds).\",\"about\":[{\"spec_id\":\"QST::CANCEL_PAID_ORDER\",\"type\":\"OpenQuestion\",\"name\":\"Can a customer cancel a paid order?\"},{\"spec_id\":\"REQ::FR::PLACE_ORDER\",\"type\":\"FunctionalRequirement\",\"name\":\"Customer can place an order from the cart\"}],\"impacts\":[],\"quotes\":[{\"source\":\"orders-spec.md, \\\"Place order\\\", line 9\",\"text\":\"Can a customer cancel a paid order?\"}],\"options\":[{\"code\":\"A\",\"rank\":1,\"title\":\"A) State it in the section (recommended)\",\"label\":\"State it in the section\",\"detail\":\"\",\"recommended\":true,\"placement\":\"amend\",\"edits\":[{\"placement\":\"amend\",\"where\":\"the line \\\"Can a customer cancel a paid order?\\\"\",\"operation\":\"insert_after\",\"text\":\"The spec states the answer here.\"}]},{\"code\":\"B\",\"rank\":2,\"title\":\"B) Clarifications document\",\"label\":\"Clarifications document\",\"detail\":\"\",\"recommended\":false,\"placement\":\"document\",\"edits\":[{\"placement\":\"document\",\"where\":\"the clarifications document, under \\\"QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\\\"\",\"operation\":\"append_section\",\"text\":\"The spec settles this for QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER.\"}]}],\"answer\":null,\"history\":[{\"at\":\"2026-11-18T09:00:00.000001Z\",\"event\":\"created\",\"text\":\"Gap found\",\"by\":\"SpecFlow\"},{\"at\":\"2026-11-18T09:00:00.000002Z\",\"event\":\"routed\",\"text\":\"Routed to people\",\"by\":\"SpecFlow\"}],\"follow_ups\":[],\"reach_stories\":[],\"reach_tasks\":[],\"assignee\":null,\"answerable\":true,\"updated_at\":\"2026-11-18T09:00:00Z\",\"web_url\":\"https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::BDC6ECC57F46\",\"card\":\"**Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER** (major open question, found by analysis, `GAP::BDC6ECC57F46`)\\n\\n**Status:** open · **Assigned to:** nobody\\n\\n**Question:** Can a customer cancel a paid order?\\n\\n**Why it matters:** Found by the detectors OQ-STATED (1 seeds).\\n\\n**About:** `QST::CANCEL_PAID_ORDER` Can a customer cancel a paid order? (OpenQuestion); `REQ::FR::PLACE_ORDER` Customer can place an order from the cart (FunctionalRequirement)\\n\\n**Quoted lines:**\\n> orders-spec.md, \\\"Place order\\\", line 9: \\\"Can a customer cancel a paid order?\\\"\\n\\n**Options:**\\n- **A) State it in the section (recommended)**\\n  - Changes the line \\\"Can a customer cancel a paid order?\\\": add after it \\\"The spec states the answer here.\\\"\\n- **B) Clarifications document**\\n  - Changes the clarifications document, under \\\"QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\\\": add \\\"The spec settles this for QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER.\\\"\\n- **Other**: your own answer\\n\\n**History:**\\n- 2026-11-18 09:00 UTC: Gap found (SpecFlow)\\n- 2026-11-18 09:00 UTC: Routed to people (SpecFlow)\\n\\nWeb card: https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::BDC6ECC57F46\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "about": [
+        {
+          "name": "Can a customer cancel a paid order?",
+          "spec_id": "QST::CANCEL_PAID_ORDER",
+          "type": "OpenQuestion"
+        },
+        {
+          "name": "Customer can place an order from the cart",
+          "spec_id": "REQ::FR::PLACE_ORDER",
+          "type": "FunctionalRequirement"
+        }
+      ],
+      "answer": null,
+      "answerable": true,
+      "assignee": null,
+      "blocking": false,
+      "card": "**Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER** (major open question, found by analysis, `GAP::BDC6ECC57F46`)\n\n**Status:** open · **Assigned to:** nobody\n\n**Question:** Can a customer cancel a paid order?\n\n**Why it matters:** Found by the detectors OQ-STATED (1 seeds).\n\n**About:** `QST::CANCEL_PAID_ORDER` Can a customer cancel a paid order? (OpenQuestion); `REQ::FR::PLACE_ORDER` Customer can place an order from the cart (FunctionalRequirement)\n\n**Quoted lines:**\n> orders-spec.md, \"Place order\", line 9: \"Can a customer cancel a paid order?\"\n\n**Options:**\n- **A) State it in the section (recommended)**\n  - Changes the line \"Can a customer cancel a paid order?\": add after it \"The spec states the answer here.\"\n- **B) Clarifications document**\n  - Changes the clarifications document, under \"QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\": add \"The spec settles this for QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER.\"\n- **Other**: your own answer\n\n**History:**\n- 2026-11-18 09:00 UTC: Gap found (SpecFlow)\n- 2026-11-18 09:00 UTC: Routed to people (SpecFlow)\n\nWeb card: https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::BDC6ECC57F46",
+      "follow_ups": [],
+      "gap_id": "GAP::BDC6ECC57F46",
+      "history": [
+        {
+          "at": "2026-11-18T09:00:00.000001Z",
+          "by": "SpecFlow",
+          "event": "created",
+          "text": "Gap found"
+        },
+        {
+          "at": "2026-11-18T09:00:00.000002Z",
+          "by": "SpecFlow",
+          "event": "routed",
+          "text": "Routed to people"
+        }
+      ],
+      "impacts": [],
+      "kind": "open_question",
+      "options": [
+        {
+          "code": "A",
+          "detail": "",
+          "edits": [
+            {
+              "operation": "insert_after",
+              "placement": "amend",
+              "text": "The spec states the answer here.",
+              "where": "the line \"Can a customer cancel a paid order?\""
+            }
+          ],
+          "label": "State it in the section",
+          "placement": "amend",
+          "rank": 1,
+          "recommended": true,
+          "title": "A) State it in the section (recommended)"
+        },
+        {
+          "code": "B",
+          "detail": "",
+          "edits": [
+            {
+              "operation": "append_section",
+              "placement": "document",
+              "text": "The spec settles this for QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER.",
+              "where": "the clarifications document, under \"QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER\""
+            }
+          ],
+          "label": "Clarifications document",
+          "placement": "document",
+          "rank": 2,
+          "recommended": false,
+          "title": "B) Clarifications document"
+        }
+      ],
+      "origin": "analysis",
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "question": "Can a customer cancel a paid order?",
+      "quotes": [
+        {
+          "source": "orders-spec.md, \"Place order\", line 9",
+          "text": "Can a customer cancel a paid order?"
+        }
+      ],
+      "reach_stories": [],
+      "reach_tasks": [],
+      "resolving": false,
+      "severity": "major",
+      "status": "open",
+      "title": "Open question in the spec: QST::CANCEL_PAID_ORDER, REQ::FR::PLACE_ORDER",
+      "updated_at": "2026-11-18T09:00:00Z",
+      "web_url": "https://app.example.test/projects/00000000-0000-4000-8000-000000000001/gaps?gap=GAP::BDC6ECC57F46",
+      "why": "Found by the detectors OQ-STATED (1 seeds)."
     }
   },
   "path_affects": {
@@ -1907,7 +2518,7 @@
   "preview_story_blocked": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"kind\":\"feature\",\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"summary\":null,\"release\":null,\"state\":\"blocked\",\"holder\":null,\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\"],\"items\":[{\"task_id\":\"TASK::PAYMENTS::LOGIC\",\"title\":\"Task TASK::PAYMENTS::LOGIC\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null},{\"task_id\":\"TASK::PAYMENTS::UNSHARED\",\"title\":\"Task TASK::PAYMENTS::UNSHARED\",\"status\":\"blocked\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}}],\"unblocks\":[]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"kind\":\"feature\",\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"summary\":null,\"release\":null,\"state\":\"blocked\",\"holder\":null,\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\"],\"items\":[{\"task_id\":\"TASK::PAYMENTS::LOGIC\",\"title\":\"Task TASK::PAYMENTS::LOGIC\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null},{\"task_id\":\"TASK::PAYMENTS::UNSHARED\",\"title\":\"Task TASK::PAYMENTS::UNSHARED\",\"status\":\"blocked\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"}],\"unblocks\":[]}",
         "type": "text"
       }
     ],
@@ -1927,8 +2538,9 @@
             "you": false
           },
           "blocking": true,
-          "finding_id": "FND::000000000002",
-          "kind": "conflict",
+          "finding_id": "GAP::7CD993BFCB1D",
+          "kind": "contradiction",
+          "severity": "major",
           "text": "The spec says card payment is optional and required."
         }
       ],
@@ -1973,7 +2585,7 @@
   "preview_story_held": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":\"Claude Code · laptop\"},\"since\":\"2026-01-01T10:00:01Z\",\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"unblocks\":[]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":\"Claude Code · laptop\"},\"since\":\"2026-01-01T10:00:01Z\",\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"},{\"finding_id\":\"GAP::5164DF2E2C93\",\"kind\":\"open_question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"severity\":\"major\"}],\"unblocks\":[]}",
         "type": "text"
       }
     ],
@@ -1993,8 +2605,9 @@
             "you": false
           },
           "blocking": true,
-          "finding_id": "FND::000000000002",
-          "kind": "conflict",
+          "finding_id": "GAP::7CD993BFCB1D",
+          "kind": "contradiction",
+          "severity": "major",
           "text": "The spec says card payment is optional and required."
         },
         {
@@ -2007,8 +2620,9 @@
             "you": true
           },
           "blocking": false,
-          "finding_id": "FND::000000000001",
-          "kind": "question",
+          "finding_id": "GAP::5164DF2E2C93",
+          "kind": "open_question",
+          "severity": "major",
           "text": "Which currencies does checkout accept?"
         }
       ],
@@ -2049,7 +2663,7 @@
   "preview_story_in_progress": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"kind\":\"feature\",\"area_id\":\"AREA::STRIPE\",\"summary\":null,\"release\":null,\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::STRIPE::CORE\"],\"items\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"title\":\"Task TASK::STRIPE::SETUP\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"title\":\"Task TASK::STRIPE::WIRE\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000003\",\"kind\":\"note\",\"text\":\"Stripe retries are limited.\",\"blocking\":false,\"about\":[\"MOD::STRIPE\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null}}],\"unblocks\":[]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"kind\":\"feature\",\"area_id\":\"AREA::STRIPE\",\"summary\":null,\"release\":null,\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::STRIPE::CORE\"],\"items\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"title\":\"Task TASK::STRIPE::SETUP\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"title\":\"Task TASK::STRIPE::WIRE\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"}],\"unblocks\":[]}",
         "type": "text"
       }
     ],
@@ -2069,23 +2683,10 @@
             "you": false
           },
           "blocking": true,
-          "finding_id": "FND::000000000002",
-          "kind": "conflict",
+          "finding_id": "GAP::7CD993BFCB1D",
+          "kind": "contradiction",
+          "severity": "major",
           "text": "The spec says card payment is optional and required."
-        },
-        {
-          "about": [
-            "MOD::STRIPE"
-          ],
-          "author": {
-            "agent_label": null,
-            "name": null,
-            "you": false
-          },
-          "blocking": false,
-          "finding_id": "FND::000000000003",
-          "kind": "note",
-          "text": "Stripe retries are limited."
         }
       ],
       "items": [
@@ -2133,7 +2734,7 @@
   "preview_story_ready": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"ready\",\"holder\":null,\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"unblocks\":[]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"ready\",\"holder\":null,\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"},{\"finding_id\":\"GAP::5164DF2E2C93\",\"kind\":\"open_question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"severity\":\"major\"}],\"unblocks\":[]}",
         "type": "text"
       }
     ],
@@ -2153,8 +2754,9 @@
             "you": false
           },
           "blocking": true,
-          "finding_id": "FND::000000000002",
-          "kind": "conflict",
+          "finding_id": "GAP::7CD993BFCB1D",
+          "kind": "contradiction",
+          "severity": "major",
           "text": "The spec says card payment is optional and required."
         },
         {
@@ -2167,8 +2769,9 @@
             "you": true
           },
           "blocking": false,
-          "finding_id": "FND::000000000001",
-          "kind": "question",
+          "finding_id": "GAP::5164DF2E2C93",
+          "kind": "open_question",
+          "severity": "major",
           "text": "Which currencies does checkout accept?"
         }
       ],
@@ -2205,7 +2808,7 @@
   "preview_story_released": {
     "content": [
       {
-        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"ready\",\"holder\":null,\"since\":null,\"branch\":\"feat/checkout\",\"note\":\"Stopped for the day\"},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"unblocks\":[]}",
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"ready\",\"holder\":null,\"since\":null,\"branch\":\"feat/checkout\",\"note\":\"Stopped for the day\"},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"GAP::7CD993BFCB1D\",\"kind\":\"contradiction\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"severity\":\"major\"},{\"finding_id\":\"GAP::5164DF2E2C93\",\"kind\":\"open_question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"severity\":\"major\"}],\"unblocks\":[]}",
         "type": "text"
       }
     ],
@@ -2225,8 +2828,9 @@
             "you": false
           },
           "blocking": true,
-          "finding_id": "FND::000000000002",
-          "kind": "conflict",
+          "finding_id": "GAP::7CD993BFCB1D",
+          "kind": "contradiction",
+          "severity": "major",
           "text": "The spec says card payment is optional and required."
         },
         {
@@ -2239,8 +2843,9 @@
             "you": true
           },
           "blocking": false,
-          "finding_id": "FND::000000000001",
-          "kind": "question",
+          "finding_id": "GAP::5164DF2E2C93",
+          "kind": "open_question",
+          "severity": "major",
           "text": "Which currencies does checkout accept?"
         }
       ],
@@ -2272,6 +2877,75 @@
         "STORY::WEB_SHOP::CHECKOUT"
       ],
       "unblocks": []
+    }
+  },
+  "preview_story_with_a_gap": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::A::API\",\"title\":\"Title of STORY::A::API\",\"kind\":\"feature\",\"area_id\":\"AREA::A\",\"summary\":null,\"release\":\"R1\",\"state\":\"ready\",\"holder\":null,\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::A::API\"],\"items\":[{\"task_id\":\"TASK::A::API_CONTRACT\",\"title\":\"Title of TASK::A::API_CONTRACT\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"high\",\"progress\":null},{\"task_id\":\"TASK::A::API_LOGIC\",\"title\":\"Title of TASK::A::API_LOGIC\",\"status\":\"pending\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"GAP::BDC6ECC57F46\",\"kind\":\"open_question\",\"text\":\"Can a customer cancel a paid order?\",\"blocking\":false,\"about\":[\"QST::CANCEL_PAID_ORDER\",\"REQ::FR::PLACE_ORDER\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null},\"severity\":\"major\"}],\"unblocks\":[\"STORY::A::LATE\",\"STORY::A::UI\"]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blockers": [],
+      "findings": [
+        {
+          "about": [
+            "QST::CANCEL_PAID_ORDER",
+            "REQ::FR::PLACE_ORDER"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": null,
+            "you": false
+          },
+          "blocking": false,
+          "finding_id": "GAP::BDC6ECC57F46",
+          "kind": "open_question",
+          "severity": "major",
+          "text": "Can a customer cancel a paid order?"
+        }
+      ],
+      "items": [
+        {
+          "complexity": "high",
+          "progress": null,
+          "ready": true,
+          "status": "pending",
+          "task_id": "TASK::A::API_CONTRACT",
+          "title": "Title of TASK::A::API_CONTRACT"
+        },
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": false,
+          "status": "pending",
+          "task_id": "TASK::A::API_LOGIC",
+          "title": "Title of TASK::A::API_LOGIC"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "story": {
+        "area_id": "AREA::A",
+        "branch": null,
+        "holder": null,
+        "kind": "feature",
+        "note": null,
+        "release": "R1",
+        "since": null,
+        "state": "ready",
+        "story_id": "STORY::A::API",
+        "summary": null,
+        "title": "Title of STORY::A::API"
+      },
+      "story_ids": [
+        "STORY::A::API"
+      ],
+      "unblocks": [
+        "STORY::A::LATE",
+        "STORY::A::UI"
+      ]
     }
   },
   "release_story": {
@@ -2595,7 +3269,7 @@
   "trace_spec_ids_affects_with_holders": {
     "content": [
       {
-        "text": "{\"direction\":\"affects\",\"sources\":[\"IFC::STRIPE_API\"],\"context\":[],\"nodes\":[{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"CONSUMED_BY\",\"step\":\"forward\",\"role\":\"used_by\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":true,\"plan_state\":\"completed\",\"tasks\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"status\":\"completed\",\"holder\":null,\"commit\":\"abababababababababababababababababababab\"}],\"findings\":0},{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"PROVIDED_BY\",\"step\":\"forward\",\"role\":\"coupled\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":true,\"plan_state\":\"in_progress\",\"tasks\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"commit\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"commit\":null}],\"findings\":2},{\"spec_id\":\"REQ::INT::CALL_STRIPE\",\"label\":\"IntegrationRequirement\",\"name\":\"Web shop calls Stripe API for card payment\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"PART_OF\",\"step\":\"scope\",\"role\":\"contains\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":false,\"plan_state\":\"unplanned\",\"tasks\":[],\"findings\":0}],\"stories\":[{\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"progress\":\"blocked\",\"holders\":[]},{\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area_id\":\"AREA::STRIPE\",\"progress\":\"in_progress\",\"holders\":[{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}]}],\"summary\":{\"completed\":1,\"in_progress\":1,\"open\":0,\"unplanned\":1},\"open_questions\":[],\"unknown\":[\"NOPE::X\"],\"truncated\":false,\"seeds_truncated\":false}",
+        "text": "{\"direction\":\"affects\",\"sources\":[\"IFC::STRIPE_API\"],\"context\":[],\"nodes\":[{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"CONSUMED_BY\",\"step\":\"forward\",\"role\":\"used_by\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":true,\"plan_state\":\"completed\",\"tasks\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"status\":\"completed\",\"holder\":null,\"commit\":\"abababababababababababababababababababab\"}],\"findings\":0},{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"PROVIDED_BY\",\"step\":\"forward\",\"role\":\"coupled\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":true,\"plan_state\":\"in_progress\",\"tasks\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"commit\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"commit\":null}],\"findings\":1},{\"spec_id\":\"REQ::INT::CALL_STRIPE\",\"label\":\"IntegrationRequirement\",\"name\":\"Web shop calls Stripe API for card payment\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"PART_OF\",\"step\":\"scope\",\"role\":\"contains\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":false,\"plan_state\":\"unplanned\",\"tasks\":[],\"findings\":0}],\"stories\":[{\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"progress\":\"blocked\",\"holders\":[]},{\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area_id\":\"AREA::STRIPE\",\"progress\":\"in_progress\",\"holders\":[{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}]}],\"summary\":{\"completed\":1,\"in_progress\":1,\"open\":0,\"unplanned\":1},\"open_questions\":[],\"unknown\":[\"NOPE::X\"],\"truncated\":false,\"seeds_truncated\":false}",
         "type": "text"
       }
     ],
@@ -2634,7 +3308,7 @@
         {
           "basis": "stated",
           "confidence": null,
-          "findings": 2,
+          "findings": 1,
           "hops": 1,
           "label": "Module",
           "name": "Stripe",

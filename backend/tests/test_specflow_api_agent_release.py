@@ -193,7 +193,8 @@ async def test_a_graph_outage_or_a_bug_below_the_route_is_a_coded_error_with_no_
 ):
     async with serve_people(monkeypatch, env) as people:
         reads = people.rig.runtime.agent_reads
-        people.rig.runtime.agent_reads = dataclasses.replace(reads, plan=Raising(error), findings=Raising(error))
+        people.rig.runtime.agent_reads = dataclasses.replace(reads, plan=Raising(error), open_findings=Raising(error))
+        monkeypatch.setattr(people.runner, "gaps", Raising(error))  # the gap service below add_finding
         response = await request_of(people, name)
     assert response.status_code == status and response.json()["error"]["code"] == code
     assert "neo4j_unreachable" not in response.text and "unknown_label" not in response.text

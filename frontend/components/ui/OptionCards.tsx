@@ -2,9 +2,12 @@
 // FE-DEC-02, FE-DS-02, FE-DOD-05 (R5): port of `OptionCards` in bundle.js. A radiogroup of lettered cards (A, B, C ...), an
 // optional "Other" card (value "__other") that reveals a text box, or a Yes/No pair. One tab stop (the selected card, else
 // the first); arrow keys move AND select, like native radios. `defaultOther` is used by the bundle preview, not in
-// index.d.ts. Added: choosing "Other" with a click moves the focus into the box.
+// index.d.ts. Added: choosing "Other" with a click moves the focus into the box. FR-GWEB-04 (gap answers.md "The question card"):
+// `recommended` names the one option that carries a "Recommended" mark (a Tag in the card, part of the radio's accessible name); without
+// it the cards render exactly as before.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Icon } from "./Icon";
+import { Tag } from "./Tag";
 import { OPTION_LETTERS, radioMove } from "./app-logic";
 import { useControlled } from "./use-controlled";
 import { cx, nonEmpty, truthy } from "./utils";
@@ -29,6 +32,8 @@ export interface OptionCardsProps {
   /** Read-only: no card can be chosen and the Other box is not editable. */
   disabled?: boolean;
   label: string;
+  /** The value of the option marked "Recommended" (at most one). */
+  recommended?: string;
 }
 
 interface Opt {
@@ -53,6 +58,7 @@ export function OptionCards({
   noLabel,
   disabled,
   label,
+  recommended,
 }: Readonly<OptionCardsProps>) {
   let opts: Opt[] =
     type === "yesno"
@@ -115,6 +121,11 @@ export function OptionCards({
               <span className="gdg-oc__text">
                 <span className="gdg-oc__label">{op.label}</span>
                 {truthy(op.description) ? <span className="gdg-oc__desc">{op.description}</span> : null}
+                {recommended !== undefined && !truthy(op.other) && op.value === recommended ? (
+                  <span className="gdg-oc__rec" data-testid="option-recommended">
+                    <Tag tone="accent">Recommended</Tag>
+                  </span>
+                ) : null}
               </span>
             </button>
             {truthy(op.other) && on ? (
@@ -125,6 +136,7 @@ export function OptionCards({
                 value={other}
                 placeholder={nonEmpty(otherPlaceholder) ?? "Describe your answer"}
                 aria-label="Other answer"
+                data-testid="option-other-text"
                 readOnly={disabled}
                 onChange={(e) => {
                   setOther(e.target.value);

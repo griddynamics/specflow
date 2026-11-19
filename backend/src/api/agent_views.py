@@ -92,7 +92,12 @@ async def holders_of(
         return Holders(caller, await repo.member_names(session, project_id, wanted))
 
 
-def finding_items(findings: Iterable[OpenFinding], holders: Holders) -> list[FindingItem]:
+def finding_items(
+    findings: Iterable[OpenFinding], holders: Holders, severities: Mapping[str, str] | None = None
+) -> list[FindingItem]:
+    """The findings as the tools show them; ``severities`` holds the severity of the open gaps among them."""
+
+    severity = severities or {}
     return [
         FindingItem(
             finding_id=item.finding_id,
@@ -101,6 +106,7 @@ def finding_items(findings: Iterable[OpenFinding], holders: Holders) -> list[Fin
             blocking=item.blocking,
             about=list(item.about_spec_ids),
             author=holders.of(item.created_by) or Holder(name=None, you=False),
+            severity=severity.get(item.finding_id),
         )
         for item in findings
     ]
@@ -119,7 +125,12 @@ def _task_ref(task: TraceTask, holders: Holders) -> TaskRef:
 HINT_TOP: Final = 3
 
 
-def story_brief_body(brief: StoryBrief, holders: Holders, expansion: Expansion | None = None) -> StoryBriefBody:
+def story_brief_body(
+    brief: StoryBrief,
+    holders: Holders,
+    expansion: Expansion | None = None,
+    severities: Mapping[str, str] | None = None,
+) -> StoryBriefBody:
     """The brief; with ``expansion`` (what ``expand_brief`` returns at its default budget) its hint: how many nodes,
     the first three by rank."""
 
@@ -152,7 +163,7 @@ def story_brief_body(brief: StoryBrief, holders: Holders, expansion: Expansion |
         implements=list(brief.implements),
         contracts=list(brief.contracts),
         open_questions=list(brief.open_questions),
-        findings=finding_items(brief.findings, holders),
+        findings=finding_items(brief.findings, holders, severities),
         neighbours=list(brief.neighbours),
         spec_changed=brief.spec_changed,
         missing=list(brief.missing),

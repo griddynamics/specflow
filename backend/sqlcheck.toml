@@ -81,7 +81,8 @@ paths_include = ["**/src/**"]
 
 [schema_parity]
 metadata = "db.models:Base.metadata"   # db.models registers every table on the shared Base
-# The graph store tables and the system catalogs of the PostgreSQL graph store's SQL are declared in
+# The graph store tables, the system catalogs of the PostgreSQL graph store's SQL and pg_roles (read by
+# migration 0003's agent role check) are declared in
 # sql-schema.json for the sql-rules step, but no ORM model owns them (design D5: Alembic does not).
 ignore_tables = [
     "alembic_version",
@@ -94,6 +95,7 @@ ignore_tables = [
     "pg_constraint",
     "pg_extension",
     "pg_proc",
+    "pg_roles",
 ]
 implicit_columns = []
 conditional_unique_dialects = ["postgresql"]

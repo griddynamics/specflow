@@ -3,7 +3,7 @@
     "page_1": {
       "content": [
         {
-          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"task\":{\"task_id\":\"TASK::ORDERS::B\",\"area_id\":\"AREA::ORDERS\",\"action\":\"B\",\"revision\":1,\"story_id\":\"STORY::ORDERS::PLACE\",\"phase\":\"logic\",\"title\":\"Task TASK::ORDERS::B\",\"description\":null,\"done_when\":[],\"complexity\":\"medium\",\"implements\":[],\"release\":[],\"has_open_questions\":false,\"planned_by\":\"model\",\"prompt_ref\":null,\"spec_build_id\":null,\"status\":\"pending\",\"claimed_by\":null,\"claimed_at\":null,\"attempts\":0,\"commit\":null,\"block_reason\":null,\"note\":null,\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"created_run_id\":null,\"last_run_id\":null,\"waits_for\":[\"TASK::ORDERS::A\"],\"waited_by\":[\"TASK::ORDERS::C\"],\"predecessor\":null,\"successor\":null},\"done_when\":[{\"text\":\"An order is stored.\",\"source\":\"spec\"}],\"story\":null,\"area\":null,\"profile\":{\"languages\":[\"python\"]},\"implements\":[],\"contracts\":[],\"open_questions\":[],\"neighbours\":[],\"placement\":[],\"spec_changed\":true,\"missing\":[\"REQ::GONE\"]}}",
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"task\":{\"task_id\":\"TASK::ORDERS::B\",\"area_id\":\"AREA::ORDERS\",\"action\":\"B\",\"revision\":1,\"story_id\":\"STORY::ORDERS::PLACE\",\"phase\":\"logic\",\"title\":\"Task TASK::ORDERS::B\",\"description\":null,\"done_when\":[],\"complexity\":\"medium\",\"implements\":[],\"release\":[],\"has_open_questions\":false,\"planned_by\":\"model\",\"prompt_ref\":null,\"spec_build_id\":null,\"status\":\"pending\",\"claimed_by\":null,\"claimed_at\":null,\"attempts\":0,\"commit\":null,\"block_reason\":null,\"note\":null,\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"created_run_id\":null,\"last_run_id\":null,\"waits_for\":[\"TASK::ORDERS::A\"],\"waited_by\":[\"TASK::ORDERS::C\"],\"predecessor\":null,\"successor\":null},\"done_when\":[{\"text\":\"An order is stored.\",\"source\":\"spec\"}],\"story\":null,\"area\":null,\"profile\":{\"languages\":[\"python\"]},\"implements\":[],\"contracts\":[],\"open_questions\":[],\"neighbours\":[],\"placement\":[],\"spec_changed\":true,\"missing\":[\"REQ::GONE\"]},\"findings\":[]}",
           "type": "text"
         }
       ],
@@ -70,6 +70,7 @@
             ]
           }
         },
+        "findings": [],
         "project_id": "00000000-0000-4000-8000-000000000001"
       }
     }

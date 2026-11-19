@@ -284,6 +284,7 @@ class _EdgeUnitRun:
                     fact=edge.fact or None,
                     fragment_ids=tuple(self.unit.fragment_ids[index] for index in edge.indices) or fallback,
                     unit_id=self.unit.unit_id,
+                    cited=bool(edge.indices),
                 )
             )
         return result
@@ -675,19 +676,34 @@ async def _settle_windows(
     fallback edges (``update`` builds), else its answered parts, and skips its dirty fragments."""
 
     failed: list[tuple[_UnitEdges, int, _EdgeResult]] = []
+    answered: list[tuple[_UnitEdges, int, EdgeWindowCause, _EdgeResult]] = []
     for unit_edges, results_ in zip(called, answers, strict=True):
-        for (position, _), result in zip(unit_edges.calls, results_, strict=True):
-            if not result.complete:
+        for (position, cause), result in zip(unit_edges.calls, results_, strict=True):
+            if result.complete:
+                answered.append((unit_edges, position, cause, result))
+            else:
                 failed.append((unit_edges, position, result))
-                continue
-            book.collected.extend((_edge_order(unit_edges.index, edge), edge) for edge in result.edges)
-            if ctx.results is not None:
-                key = unit_edges.keys[position]
-                near = [ctx.by_cid[cid].identity_key for cid in unit_edges.catalog.near]
-                window = unit_edges.windows[position]
-                payload = _edge_payload(result.edges, unit_edges.unit, window, ctx.by_cid, near=near, key=key)
-                book.entries[key] = payload
-                _remember(ctx, unit_edges, position, payload, book)
+    earlier: dict[tuple[str, Window], _Fallback] = {}
+    dirty = [
+        (unit_edges.unit, unit_edges.windows[position])
+        for unit_edges, position, cause, _ in answered
+        if cause == "dirty"
+    ]
+    if ctx.results is not None and ctx.reading and dirty:
+        earlier = await _fallback_edges(
+            ctx.results, ctx.fingerprint, dirty, ctx.fragments_by_id, ctx.cid_of, whole=True
+        )
+    for unit_edges, position, _, result in answered:
+        window = unit_edges.windows[position]
+        previous = earlier.get((unit_edges.unit.unit_id, window))
+        edges = result.edges if previous is None else _clean_kept(ctx, result.edges, previous)
+        book.collected.extend((_edge_order(unit_edges.index, edge), edge) for edge in edges)
+        if ctx.results is not None:
+            key = unit_edges.keys[position]
+            near = [ctx.by_cid[cid].identity_key for cid in unit_edges.catalog.near]
+            payload = _edge_payload(edges, unit_edges.unit, window, ctx.by_cid, near=near, key=key)
+            book.entries[key] = payload
+            _remember(ctx, unit_edges, position, payload, book)
     fallbacks: dict[tuple[str, Window], _Fallback] = {}
     if ctx.results is not None and ctx.reading and failed:
         fallbacks = await _fallback_edges(
@@ -709,6 +725,46 @@ async def _settle_windows(
         book.skipped.update(result.skipped)
         book.collected.extend((_edge_order(unit_edges.index, edge), edge) for edge in result.edges)
         book.edge_failed.extend(unit_edges.unit.fragment_ids[start:end])
+
+
+def _clean_kept(ctx: _EdgeContext, fresh: Sequence[RawEdge], previous: _Fallback) -> list[RawEdge]:
+    """A dirty window's edges in an ``update`` build: the fresh answer's edges on a changed fragment (dirty, or one the
+    earlier answer did not hold), then the earlier answer's edges on unchanged fragments only, so an edit re-links only
+    the facts of its own fragments. A fresh edge on unchanged fragments only, or one the answer tied to no fragment
+    (``cited`` false), is kept only when an end is grounded only in changed fragments (a node of the edited text); any
+    other is the model answering the same text again and is dropped for the earlier answer's. An earlier edge counts
+    only when every fragment it was stored on is still in the window (``whole``); one with the same ends and relation
+    as a kept fresh edge adds its fragments to that edge instead of standing alone."""
+
+    changed = set(ctx.dirty) | set(previous.uncovered)
+
+    def on_unchanged(edge: RawEdge) -> bool:
+        return bool(edge.fragment_ids) and not any(fid in changed for fid in edge.fragment_ids)
+
+    def edited(cid: str) -> bool:
+        node = ctx.by_cid.get(cid)
+        return node is not None and bool(node.fragment_ids) and all(fid in changed for fid in node.fragment_ids)
+
+    def key(edge: RawEdge) -> tuple[str, str, str]:
+        return (edge.source_cid, edge.relation, edge.target_cid)
+
+    earlier = [edge for edge in previous.edges if on_unchanged(edge)]
+    kept = [
+        edge
+        for edge in fresh
+        if (edge.cited and not on_unchanged(edge)) or edited(edge.source_cid) or edited(edge.target_cid)
+    ]
+    grounds: dict[tuple[str, str, str], tuple[str, ...]] = {}
+    for edge in earlier:
+        grounds[key(edge)] = (*grounds.get(key(edge), ()), *edge.fragment_ids)
+    merged = [
+        edge.model_copy(update={"fragment_ids": tuple(dict.fromkeys((*edge.fragment_ids, *grounds[key(edge)])))})
+        if key(edge) in grounds
+        else edge
+        for edge in kept
+    ]
+    held = {key(edge) for edge in kept}
+    return merged + [edge for edge in earlier if key(edge) not in held]
 
 
 def _edges_artifact(
@@ -825,10 +881,13 @@ async def _fallback_edges(
     failed: Sequence[tuple[Unit, Window]],
     fragments_by_id: Mapping[str, FragmentRec],
     cid_of: Mapping[str, str],
+    *,
+    whole: bool = False,
 ) -> dict[tuple[str, Window], _Fallback]:
     """The last stored edges of each failed window, by unit id and window: those of its content first (complete), else
     those of its identity (document and first fragment, or the id that fragment replaces), clipped to the window, with
-    the window's fragments the stored window did not hold.
+    the window's fragments the stored window did not hold. ``whole``: an edge of another content keeps only when every
+    fragment it was stored on maps to a fragment of the window (a dirty window's earlier answer, ``_clean_kept``).
     """
 
     wanted: dict[tuple[str, Window], list[tuple[str, bool]]] = {}
@@ -852,7 +911,7 @@ async def _fallback_edges(
                 fallbacks[(unit.unit_id, window)] = _Fallback(_stored_edges(found[key], unit, window, cid_of))
             else:
                 fallbacks[(unit.unit_id, window)] = _Fallback(
-                    _stored_edges(found[key], unit, window, cid_of, fragments_by_id=fragments_by_id),
+                    _stored_edges(found[key], unit, window, cid_of, fragments_by_id=fragments_by_id, whole=whole),
                     _uncovered(found[key], unit.fragment_ids[window[0] : window[1]], fragments_by_id),
                 )
             break
@@ -942,6 +1001,7 @@ def _stored_edges(
     cid_of: Mapping[str, str],
     *,
     fragments_by_id: Mapping[str, FragmentRec] | None = None,
+    whole: bool = False,
 ) -> list[RawEdge]:
     """The stored raw edges of a window on this build's cids, marked ``reused``; an edge whose endpoint has no canonical
     node now, or a malformed item, is left out.
@@ -972,7 +1032,7 @@ def _stored_edges(
         else:
             stored = [fid for fid in item.get("fragments") or () if isinstance(fid, str)]
             fragment_ids = tuple(dict.fromkeys(successor[fid] for fid in stored if fid in successor))
-            if not fragment_ids:
+            if not fragment_ids or (whole and any(fid not in successor for fid in stored)):
                 continue
         fact = item.get("fact")
         edges.append(

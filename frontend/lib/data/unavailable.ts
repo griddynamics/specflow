@@ -1,11 +1,11 @@
-// SPL-DEMO-01, SPL-DEMO-02: the production adapter for the ports the backend does not serve yet (decisions, connectors,
+// SPL-DEMO-01, SPL-DEMO-02: the production adapter for the ports the backend does not serve yet (connectors,
 // assistant, files, comments, diagrams) and for the people directory and mentions. Each method answers "empty" or "not found",
 // so a screen shows its existing empty state. No fixture, no fetch, no timer.
 import type { AssistantEvent, AssistantIntro } from "@/lib/domain/assistant";
 import { DataError } from "@/lib/domain/errors";
 import type { DataPorts } from "./ports";
 
-export type UnavailablePorts = Pick<DataPorts, "files" | "comments" | "diagrams" | "decisions" | "assistant" | "connectors">;
+export type UnavailablePorts = Pick<DataPorts, "files" | "comments" | "diagrams" | "assistant" | "connectors">;
 
 const notFound = (): Promise<never> => Promise.reject(new DataError("not_found", false));
 const notAvailable = (): Promise<never> => Promise.reject(new DataError("not_available", false));
@@ -36,12 +36,6 @@ export function unavailableIntro(firstName: string): AssistantIntro {
 }
 
 export const unavailable: UnavailablePorts = {
-  decisions: {
-    list: () => Promise.resolve([]),
-    domains: () => Promise.resolve([]),
-    get: notFound,
-    submit: notFound,
-  },
   connectors: {
     list: () => Promise.resolve([]),
     categories: () => Promise.resolve(["All"]),

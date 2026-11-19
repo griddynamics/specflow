@@ -1,7 +1,7 @@
 """The rig of the agent reads of the spec graph (``get_story_brief``, ``trace``, ``get_node``, ``search_spec``,
 ``similar``, ``get_evidence``, ``path``, ``expand_brief``): the API app over fakes, with the shop fixture
-(``fixtures/graph/plan/shop.yaml``) as the spec graph, a small plan whose tasks implement its nodes, the findings
-library over an in-memory store, and the project's members by name.
+(``fixtures/graph/plan/shop.yaml``) as the spec graph, a small plan whose tasks implement its nodes, the gap service
+(development gaps, the plan's findings) over an in-memory store, and the project's members by name.
 
 The rig adds to the fixture what only these reads look at: stored vectors of a few nodes (``VECTORS``, one of another
 embedding model), statements (``STMTS``) and a second node on the quality line (``CHECKOUT_SPEED_LINE``). Its reader's
@@ -10,7 +10,7 @@ the stored vectors.
 
 Boundaries faked, as in ``specflow_api_agent_support``: Postgres (``FakeRepo``) and the graph store: ``ShopExecutor``
 answers the reader's queries over the fixture, so the REAL ``GraphReader`` (``hops``, ``find_nodes``, ``node``,
-``neighbours``) and the REAL ``PlanService`` and ``Findings`` run. Every query is also rendered by the Cypher and the
+``neighbours``) and the REAL ``PlanService`` and ``GapService`` run. Every query is also rendered by the Cypher and the
 PostgreSQL dialects, so a template either store lacks fails the test.
 """
 
@@ -32,10 +32,14 @@ import pytest
 import yaml
 
 from api.agent_reads import AgentReads
+from api.gap.findings import OpenGaps
+from api.gap.holds import PlanHolds
+from gap_port_fakes import MemoryAmendments, MemoryGapRecords
 from gap_support import Clock, MemoryGapExecutor
 from graph.core import GraphReader, LLMError
 from graph.core.queries import Query
-from graph.gap import Findings
+from graph.gap import GapService, NewGap, load_gap_rules
+from graph.gap.gaps import gap_uuid
 from graph.plan import PlanService
 from graph.plan.models import CurrentTask
 from graph.plan.reader import LoadedPlan
@@ -307,12 +311,31 @@ def memory_plan(loaded: LoadedPlan, project_id: str, *, applying: bool = False) 
     return memory
 
 
+class DevelopmentRunner:
+    """Stands in for ``api.gap.runner.GapRunner`` for the routes: ``service()`` and ``start_site`` (recorded only: no
+    gap run in this rig)."""
+
+    def __init__(self) -> None:
+        self.gaps: GapService | None = None
+        self.sites: list[tuple[str, str]] = []
+
+    async def service(self) -> GapService:
+        assert self.gaps is not None
+        return self.gaps
+
+    async def start_site(self, project_id: str, gap_id: str) -> None:
+        self.sites.append((project_id, gap_id))
+
+
 @dataclass
 class SpecRig:
     rig: AgentRig
     executor: ShopExecutor
     memory: MemoryGapExecutor
-    findings: Findings
+    gaps: GapService
+    port: OpenGaps
+    runner: DevelopmentRunner
+    seeded: dict[str, str]
     alice: uuid.UUID
     ben: uuid.UUID
 
@@ -320,28 +343,35 @@ class SpecRig:
         return await self.rig.get(path, **params)
 
 
-async def add_findings(findings: Findings, alice: uuid.UUID, ben: uuid.UUID) -> None:
-    """One open finding by alice on the Checkout story's node, a blocking one by ben, one by a member who left."""
+async def add_findings(gaps: GapService, memory: MemoryGapExecutor, alice: uuid.UUID, ben: uuid.UUID) -> dict[str, str]:
+    """Development gaps (the agents' findings): an open question by alice on the Checkout story's node, a blocking
+    contradiction by ben reported from the Checkout story, and a note by a member who left (no gap). Their ids by
+    author name."""
 
-    await findings.add(
+    question = await gaps.raise_gap(
         ALPHA,
-        created_by=str(alice),
-        kind="question",
-        text="Which currencies does checkout accept?",
-        about=["FEAT::CHECKOUT"],
+        NewGap(
+            kind="open_question",
+            question="Which currencies does checkout accept?",
+            about=("FEAT::CHECKOUT",),
+            origin="development",
+            created_by=str(alice),
+        ),
     )
-    await findings.add(
+    conflict = await gaps.raise_gap(
         ALPHA,
-        created_by=str(ben),
-        kind="conflict",
-        text="The spec says card payment is optional and required.",
-        about=["FEAT::CHECKOUT", "FEAT::CARD_PAYMENT", "MOD::STRIPE"],
-        story_id=CHECKOUT,
-        blocking=True,
+        NewGap(
+            kind="contradiction",
+            question="The spec says card payment is optional and required.",
+            about=("FEAT::CHECKOUT", "FEAT::CARD_PAYMENT", "MOD::STRIPE"),
+            origin="development",
+            story_id=CHECKOUT,
+            created_by=str(ben),
+        ),
     )
-    await findings.add(
-        ALPHA, created_by=str(LEFT_ID), kind="note", text="Stripe retries are limited.", about=["MOD::STRIPE"]
-    )
+    memory.nodes[("Gap", gap_uuid(ALPHA, conflict.gap_id))]["blocking"] = "yes"  # it held the story when reported
+    await gaps.add_note(ALPHA, spec_ids=["MOD::STRIPE"], text="Stripe retries are limited.", created_by=str(LEFT_ID))
+    return {"alice": question.gap_id, "ben": conflict.gap_id}
 
 
 @asynccontextmanager
@@ -374,11 +404,19 @@ async def serve_spec(
         memory = MemoryGapExecutor(ALPHA)
         for spec_id, node in executor.nodes.items():
             memory.spec(spec_id, node["label"], node.get("aliases", []))
-        counter = itertools.count(1)  # the ids of the seeded findings are the same in every run
-        monkeypatch.setattr("graph.gap.findings.new_finding_id", lambda: f"FND::{next(counter):012d}")
-        findings = Findings(memory, ontology, clock=Clock())
-        await add_findings(findings, alice, ben.id)
-        memory.calls.clear()  # what the routes read is counted from here
+        runner = DevelopmentRunner()
+        port = OpenGaps(lambda: runner)
+        records = MemoryGapRecords()
+        rules = load_gap_rules(ontology=ontology)
+        clock = Clock()  # one clock: a gap raised through a route is newer than the seeds
+
+        def gap_service(holds: Any) -> GapService:
+            return GapService(
+                memory, reader_of(executor), ontology, rules, records, MemoryAmendments(), holds=holds, clock=clock
+            )
+
+        seeding = gap_service(None)
+        seeded = await add_findings(seeding, memory, alice, ben.id)
         loaded = (
             spec_plan(alice, ben.id) if has_plan else LoadedPlan(shop_plan().current.model_copy(update={"plan": None}))
         )
@@ -397,7 +435,7 @@ async def serve_spec(
                 ontology,
                 plan_rules(ontology),
                 graph=ShopSpecGraph(),
-                findings=findings,
+                findings=port,
                 clock=Clock(),
             )
             if writable == "claimed":
@@ -412,12 +450,15 @@ async def serve_spec(
                 plan_rules(ontology),
                 graph=ShopSpecGraph(),
                 load=load,
-                findings=findings,
+                findings=port,
             )
+        runner.gaps = gap_service(PlanHolds(plan))
+        rig.runtime.gaps = runner
         rig.runtime.agent_reads = AgentReads(
-            ontology=ontology, reader=reader_of(executor), plan=plan, findings=findings
+            ontology=ontology, reader=reader_of(executor), plan=plan, open_findings=port
         )
-        yield SpecRig(rig, executor, memory, findings, alice, ben.id)
+        memory.calls.clear()  # what the routes read is counted from here
+        yield SpecRig(rig, executor, memory, runner.gaps, port, runner, seeded, alice, ben.id)
 
 
 class Raising:
@@ -471,7 +512,7 @@ def recording_reads(spec: SpecRig) -> list[Any]:
         reads,
         reader=Recording(reads.reader, seen),
         plan=Recording(reads.plan, seen),
-        findings=Recording(reads.findings, seen),
+        open_findings=Recording(reads.open_findings, seen),
     )
     return seen
 
@@ -502,6 +543,6 @@ def with_plan(spec: SpecRig, tasks: tuple[CurrentTask, ...], graph: TraceGraph |
         plan_rules(ontology),
         graph=ShopSpecGraph(graph),
         load=load,
-        findings=spec.findings,
+        findings=spec.port,
     )
     spec.rig.runtime.agent_reads = dataclasses.replace(reads, plan=plans)

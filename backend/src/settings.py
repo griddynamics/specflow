@@ -36,6 +36,7 @@ from pydantic_settings import (
 
 from cloud_profile import CLOUD_PROVIDERS, CONFIG_FILE_VARIABLE, Cloud, load_profile
 from graph.core import LLMConfig
+from graph.core.errors import ConfigurationError as GraphConfigurationError
 from graph.stores.config import BACKENDS, DEFAULT_BACKEND, StoreConfig
 from logger.logger import WARNING, get_logger, log_event
 
@@ -49,6 +50,13 @@ def _postgres() -> Any:
 
 def _sqlalchemy() -> Any:
     return importlib.import_module("sqlalchemy")
+
+
+def _gap_settings() -> Any:
+    """``graph.gap.settings``, imported by the api role only: the ``graph.gap`` package pulls in the model clients,
+    which the other roles do not install."""
+
+    return importlib.import_module("graph.gap.settings")
 
 
 DATABASE_ENVIRONMENT: Final = (
@@ -608,12 +616,50 @@ def _exact_entries(value: tuple[str, ...]) -> tuple[str, ...]:
 ResourceUrl = Annotated[str, BeforeValidator(_resource_url)]
 
 
-class McpSettings(_MappedSettings):
-    """The MCP role (FR-MCP-OPS-01): the public resource URL, audience, clients and transport allowlists."""
+_SCHEME: Final = re.compile(r"[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
-    blank_is_unset: ClassVar[tuple[str, ...]] = ("MCP_AUDIENCE", "MCP_CLIENT_IDS", "MCP_PORT")
+
+def _internal_url(value: Any) -> Any:
+    """``API_INTERNAL_URL`` as the web app reads it (``normalizeInternalUrl``): a bare ``host[:port]`` becomes
+    ``http://host[:port]`` and trailing slashes go. Refused (the API client forwards the caller's token to this
+    address): userinfo, a query, a fragment, a scheme other than http(s), a host named like a scheme and a ``%``
+    in the host."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        raise ValueError("must not be blank")
+    if not _SCHEME.match(text):
+        text = f"http://{text}"
+    text = text.rstrip("/")
+    if not text.isascii() or not text.isprintable() or any(c in text for c in ' "\\'):
+        raise ValueError("must be a plain http(s) URL")
+    try:
+        parts = urlsplit(text)
+        _ = parts.port
+    except ValueError as error:
+        raise ValueError("must be a valid URL") from error
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError("must be an http(s) URL with a host")
+    if parts.hostname in ("http", "https") or "%" in parts.netloc:  # typos such as ``http:/api`` or ``api%40evil``
+        raise ValueError("must name a real host")
+    if "@" in parts.netloc or parts.query or parts.fragment or "?" in text or "#" in text:
+        raise ValueError("must have no user information, query or fragment")
+    return text
+
+
+InternalUrl = Annotated[str, BeforeValidator(_internal_url)]
+
+
+class McpSettings(_MappedSettings):
+    """The MCP role (FR-MCP-OPS-01): the public resource URL, audience, clients and transport allowlists; for the
+    api role's agent routes also ``PUBLIC_URL``, the web app's address that the gap cards link to (none when unset)."""
+
+    blank_is_unset: ClassVar[tuple[str, ...]] = ("MCP_AUDIENCE", "MCP_CLIENT_IDS", "MCP_PORT", "PUBLIC_URL")
 
     resource_url: ResourceUrl = Field(validation_alias="MCP_RESOURCE_URL")
+    public_url: InternalUrl | None = Field(default=None, validation_alias="PUBLIC_URL")
     audience_override: StrippedOptionalText = Field(default=None, validation_alias="MCP_AUDIENCE")
     client_ids: Csv = Field(default=(MCP_CLIENT_ID,), validation_alias="MCP_CLIENT_IDS")
     allowed_hosts: Csv = Field(default=(), validation_alias="MCP_ALLOWED_HOSTS")
@@ -653,42 +699,6 @@ class McpSettings(_MappedSettings):
         default = {"https": HTTPS_PORT, "http": HTTP_PORT}[parts.scheme]
         resource = host if parts.port in (None, default) else f"{host}:{parts.port}"
         return tuple(dict.fromkeys((resource, *self.allowed_hosts)))
-
-
-_SCHEME: Final = re.compile(r"[a-z][a-z0-9+.-]*://", re.IGNORECASE)
-
-
-def _internal_url(value: Any) -> Any:
-    """``API_INTERNAL_URL`` as the web app reads it (``normalizeInternalUrl``): a bare ``host[:port]`` becomes
-    ``http://host[:port]`` and trailing slashes go. Refused (the API client forwards the caller's token to this
-    address): userinfo, a query, a fragment, a scheme other than http(s), a host named like a scheme and a ``%``
-    in the host."""
-
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if not text:
-        raise ValueError("must not be blank")
-    if not _SCHEME.match(text):
-        text = f"http://{text}"
-    text = text.rstrip("/")
-    if not text.isascii() or not text.isprintable() or any(c in text for c in ' "\\'):
-        raise ValueError("must be a plain http(s) URL")
-    try:
-        parts = urlsplit(text)
-        _ = parts.port
-    except ValueError as error:
-        raise ValueError("must be a valid URL") from error
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ValueError("must be an http(s) URL with a host")
-    if parts.hostname in ("http", "https") or "%" in parts.netloc:  # typos such as ``http:/api`` or ``api%40evil``
-        raise ValueError("must name a real host")
-    if "@" in parts.netloc or parts.query or parts.fragment or "?" in text or "#" in text:
-        raise ValueError("must have no user information, query or fragment")
-    return text
-
-
-InternalUrl = Annotated[str, BeforeValidator(_internal_url)]
 
 
 class ApiInternalSettings(_MappedSettings):
@@ -796,6 +806,7 @@ class RoleSettings:
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None  # api only; None = feature off
     mcp: McpSettings | None = None  # the mcp role; the api role when MCP_RESOURCE_URL is set (agent routes)
+    gap: Any = None  # graph.gap.GapSettings; api only, with graph_build: the ``GAP_*`` variables (graph.gap)
 
 
 @dataclass(frozen=True)
@@ -827,6 +838,16 @@ def _build[M: _MappedSettings](cls: type[M], env: Mapping[str, str], bad: list[s
     except ValidationError as error:
         for item in error.errors(include_url=False, include_input=False):
             _flag(bad, str(item["loc"][0]))
+        return None
+
+
+def _build_gap(env: Mapping[str, str], bad: list[str]) -> Any:
+    """The gap module's settings from its ``GAP_*`` variables (docs/graph/gap/architecture.md "Settings")."""
+
+    try:
+        return _gap_settings().gap_settings_from_env(env)
+    except GraphConfigurationError as error:
+        _flag(bad, str(error.fields.get("variable", "GAP_ENABLED")))
         return None
 
 
@@ -876,6 +897,7 @@ class _Bindings:
     agent: AgentSettings | None = None
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None
+    gap: Any = None  # graph.gap.GapSettings
     mcp: McpSettings | None = None
     api_internal: ApiInternalSettings | None = None
 
@@ -900,6 +922,7 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
         found.mcp = _build(McpSettings, source, bad)
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
+        found.gap = _build_gap(source, bad)
     if role == "api" or (role == "worker" and "agents" in _worker_queues(source)):
         found.graph_store = _build_graph_store(source, bad, found.database)
         found.agent_run = _build(AgentRunSettings, source, bad)
@@ -1093,6 +1116,7 @@ def load_settings(
         langfuse=found.langfuse,
         graph_build=found.graph_build,
         mcp=found.mcp,
+        gap=found.gap,
     )
 
 

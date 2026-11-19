@@ -14,6 +14,11 @@
 //                                            collaborator, with chosen members and invites; `state` sets people knobs such as allowedDomains or
 //                                            claimsReleased; answers the project; see stub-members.mjs `seed`)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)
+//                                          POST /seed-gaps ({pid, gaps, run, rules, corpus}: the gaps, the latest gap run, the noise rules
+//                                            and the corpus documents of a project; stub-api.mjs `gapRoute`)
+//                                          POST /settle-gaps ({pid}: the build of the applied answers finished; applying gaps resolve)
+//                                          POST /record-gaps ({pid, gaps}: a running gap run records one more site: these gaps, and
+//                                            its step_items_done counts the site; a gap with the same id is replaced)
 //                                          GET /oidc (the issuer's observations, never a token: {endSession, endSessionCalls,
 //                                            endSessionRequests: [{hasIdTokenHint, idTokenHintValid, postLogoutRedirectUri, clientId, ok}],
 //                                            signIns, refreshCount})
@@ -105,6 +110,27 @@ const control = http.createServer(async (req, res) => {
     for await (const c of req) chunks.push(c);
     const { pid, work } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
     api.seedWork(pid, work);
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/seed-gaps") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const { pid, gaps, run, rules, corpus } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    api.seedGaps(pid, { gaps, run, rules, corpus });
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/settle-gaps") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const { pid } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    api.settleGaps(pid);
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/record-gaps") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const { pid, gaps } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    api.recordGaps(pid, gaps ?? []);
     return send(200, { ok: true });
   }
   if (req.method === "POST" && req.url === "/seed-members") {

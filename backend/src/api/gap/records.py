@@ -1,0 +1,321 @@
+"""``GapRecords`` and ``Amendments`` over PostgreSQL (docs/graph/gap/api.md "Ports", data-model.md "Relational store").
+
+The host's adapters of the two relational ports of ``graph.gap``: the rows live in the application database
+(``db.models`` gap tables, migration ``0001_initial``) and the statements in ``db.gap``. Each port call is one
+transaction of its own, opened by the ``transaction`` callable the composition root hands in (``Runtime.transaction``).
+Every call takes the project id first and every statement filters on it, so one project never reads or changes
+another's rows (FR-GOWN-02); the rows are never graph nodes (FR-GOWN-04). Port semantics shared with the in-memory
+fakes (``tests/gap_port_fakes.py``) and proven by ``tests/gap_records_contract.py``:
+
+- ``put_options`` replaces the gap's options; ``options`` returns them by rank. A set with a repeated rank, more
+  than one recommended row or a row of another gap is refused (``ConformanceError("gap_options_invalid")``).
+- ``set_status`` refuses a status outside the amendment vocabulary (``gap_amendment_status_unknown``); a project id
+  that is not a uuid is refused (``gap_project_id_invalid``). A batch naming a key twice keeps its last row.
+- ``start_run`` stores the run (again: replaced); ``finish_run`` marks it finished (``completed`` unless ``status``
+  says ``degraded`` or ``failed``; another status raises ``gap_run_status_invalid``) with ``finished_at``, counts and
+  cost, and raises ``ConformanceError("gap_run_unknown")`` when the project has no such run. ``events`` reads one
+  gap's events by ``at``, then id.
+- ``put_seeds``/``put_sites`` refuse a row of another run (``ConformanceError("gap_rows_of_another_run")``); a site
+  stored again for its run takes the new values. ``put_notes`` files every note under the given run. ``put_notes``
+  and ``log`` append; with ``once`` (a key of the call) the rows written again under the same key and in the same
+  order are stored once (each row's id is derived from the project, the key and its position).
+- ``verdict``, ``relevance``, ``suppress``, ``put_noise_rule``, ``assign`` and amendments ``put`` are keyed upserts;
+  ``unsuppress``, ``delete_noise_rule`` (True when the rule existed), ``unassign`` and amendments ``delete`` remove
+  only the project's rows. ``assignments`` maps each assigned gap of the project to its row; an assignee that is not
+  a uuid is refused (``gap_assignee_invalid``), and the database refuses one that is not a member of the project.
+- ``Amendments.set_status`` changes only the project's amendments among the ids (others are ignored) and moves
+  ``updated_at``; ``for_lineage``/``for_clarification`` return rows by ``created_at`` then id.
+
+Nothing here logs: questions, quotes and answers stay in the database (NFR-GSEC-02).
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager
+from datetime import datetime
+from typing import Any, Final, get_args
+
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from db import gap as repo
+from graph.core.errors import ConformanceError
+from graph.core.identity import NAMESPACE
+from graph.gap.models import (
+    AmendmentRow,
+    AssignmentRow,
+    EventRow,
+    NoiseRuleRow,
+    NoteRow,
+    OptionRow,
+    RelevanceRow,
+    RunRow,
+    SectionKey,
+    SeedRow,
+    SiteRow,
+    SuppressionRow,
+    VerdictRow,
+)
+from graph.gap.names import AmendmentStatus, FinishedRunStatus
+
+RUN_UNKNOWN: Final = "gap_run_unknown"
+RUN_STATUS_INVALID: Final = "gap_run_status_invalid"
+FINISHED_STATUSES: Final = frozenset(get_args(FinishedRunStatus))
+ROWS_OF_ANOTHER_RUN: Final = "gap_rows_of_another_run"
+OPTIONS_INVALID: Final = "gap_options_invalid"
+AMENDMENT_STATUS_UNKNOWN: Final = "gap_amendment_status_unknown"
+PROJECT_ID_INVALID: Final = "gap_project_id_invalid"
+ASSIGNEE_INVALID: Final = "gap_assignee_invalid"
+AMENDMENT_STATUSES: Final = frozenset(get_args(AmendmentStatus))
+
+Transaction = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+
+
+def _project(project_id: str) -> uuid.UUID:
+    """The application database keys projects by uuid; the gap library passes its text form."""
+
+    try:
+        return uuid.UUID(project_id)
+    except ValueError:
+        raise ConformanceError(PROJECT_ID_INVALID) from None
+
+
+def _user(user_id: str) -> uuid.UUID:
+    """An assignee is a user of the application database, keyed by uuid."""
+
+    try:
+        return uuid.UUID(user_id)
+    except ValueError:
+        raise ConformanceError(ASSIGNEE_INVALID) from None
+
+
+def _check_options(gap_id: str, rows: Sequence[OptionRow]) -> None:
+    """Refuse an option set the table would reject, before any statement: the database's refusal text would
+    carry the row (labels, quotes) into error logs (NFR-GSEC-02)."""
+
+    ranks = [row.rank for row in rows]
+    recommended = sum(row.recommended for row in rows)
+    if len(set(ranks)) != len(ranks) or recommended > 1 or any(row.gap_id != gap_id for row in rows):
+        raise ConformanceError(OPTIONS_INVALID, gap_id=gap_id)
+
+
+def _check_status(status: str) -> None:
+    if status not in AMENDMENT_STATUSES:
+        raise ConformanceError(AMENDMENT_STATUS_UNKNOWN, status=status)
+
+
+def _last_per_key[R](rows: Sequence[R], key: Callable[[R], Any]) -> list[R]:
+    """One row per key, the last one given (an upsert statement may not touch a row twice)."""
+
+    return list({key(row): row for row in rows}.values())
+
+
+def _values(row: BaseModel, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:
+    """A row model as column values: timestamps stay datetimes, everything else is JSON-ready (the JSON columns)."""
+
+    plain = row.model_dump(exclude=set(exclude))
+    ready = row.model_dump(mode="json", exclude=set(exclude))
+    return {name: value if isinstance(value, datetime) else ready[name] for name, value in plain.items()}
+
+
+def _keyed(project_id: str, kind: str, once: str | None, values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Appended rows with the ids ``once`` derives (none without it: the table's own)."""
+
+    if once is None:
+        return values
+    return [
+        row | {"id": uuid.uuid5(NAMESPACE, f"{project_id}|{kind}|{once}|{index}")} for index, row in enumerate(values)
+    ]
+
+
+def _row[M: BaseModel](model: type[M], values: Mapping[Any, Any]) -> M:
+    return model.model_validate({name: values[name] for name in model.model_fields})
+
+
+def _same_run(run_id: str, rows: Sequence[SeedRow] | Sequence[SiteRow]) -> None:
+    if any(row.run_id != run_id for row in rows):
+        raise ConformanceError(ROWS_OF_ANOTHER_RUN, run_id=run_id)
+
+
+class PostgresGapRecords:
+    """``GapRecords`` on the application database."""
+
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
+
+    async def options(self, project_id: str, gap_id: str) -> Sequence[OptionRow]:
+        async with self._transaction() as session:
+            rows = await repo.options(session, _project(project_id), gap_id)
+        return tuple(_row(OptionRow, row) for row in rows)
+
+    async def put_options(self, project_id: str, gap_id: str, rows: Sequence[OptionRow]) -> None:
+        _check_options(gap_id, rows)
+        values = [_values(row, exclude=frozenset({"gap_id"})) for row in rows]
+        async with self._transaction() as session:
+            await repo.replace_options(session, _project(project_id), gap_id, values)
+
+    async def start_run(self, project_id: str, run: RunRow) -> None:
+        async with self._transaction() as session:
+            await repo.upsert_run(session, _project(project_id), _values(run))
+
+    async def finish_run(
+        self,
+        project_id: str,
+        run_id: str,
+        counts: Mapping[str, Any],
+        cost: Mapping[str, Any],
+        *,
+        status: FinishedRunStatus = "completed",
+    ) -> None:
+        if status not in FINISHED_STATUSES:
+            raise ConformanceError(RUN_STATUS_INVALID, status=status)
+        async with self._transaction() as session:
+            found = await repo.finish_run(session, _project(project_id), run_id, counts, cost, status=status)
+        if not found:
+            raise ConformanceError(RUN_UNKNOWN, run_id=run_id)
+
+    async def put_seeds(self, project_id: str, run_id: str, seeds: Sequence[SeedRow]) -> None:
+        _same_run(run_id, seeds)
+        async with self._transaction() as session:
+            await repo.insert_seeds(session, _project(project_id), [_values(seed) for seed in seeds])
+
+    async def put_sites(self, project_id: str, run_id: str, sites: Sequence[SiteRow]) -> None:
+        _same_run(run_id, sites)
+        async with self._transaction() as session:
+            unique = _last_per_key(sites, lambda site: site.site_id)
+            await repo.upsert_sites(session, _project(project_id), [_values(site) for site in unique])
+
+    async def verdict(self, project_id: str, input_hash: str) -> VerdictRow | None:
+        async with self._transaction() as session:
+            row = await repo.verdict(session, _project(project_id), input_hash)
+        return None if row is None else _row(VerdictRow, row)
+
+    async def put_verdict(self, project_id: str, row: VerdictRow) -> None:
+        async with self._transaction() as session:
+            await repo.upsert_verdict(session, _project(project_id), _values(row))
+
+    async def relevance(self, project_id: str, keys: Sequence[SectionKey]) -> Mapping[SectionKey, RelevanceRow]:
+        wanted = [(key.lineage, key.heading_path, key.text_hash) for key in keys]
+        async with self._transaction() as session:
+            rows = await repo.relevance(session, _project(project_id), wanted)
+        found = (_row(RelevanceRow, row) for row in rows)
+        return {row.key: row for row in found}
+
+    async def put_relevance(self, project_id: str, rows: Sequence[RelevanceRow]) -> None:
+        async with self._transaction() as session:
+            unique = _last_per_key(rows, lambda row: row.key)
+            await repo.upsert_relevance(session, _project(project_id), [_values(row) for row in unique])
+
+    async def noise_rules(self, project_id: str) -> Sequence[NoiseRuleRow]:
+        async with self._transaction() as session:
+            rows = await repo.noise_rules(session, _project(project_id))
+        return tuple(_row(NoiseRuleRow, row) for row in rows)
+
+    async def put_noise_rule(self, project_id: str, row: NoiseRuleRow) -> None:
+        async with self._transaction() as session:
+            await repo.upsert_noise_rule(session, _project(project_id), _values(row))
+
+    async def delete_noise_rule(self, project_id: str, rule_id: str) -> bool:
+        async with self._transaction() as session:
+            return await repo.delete_noise_rule(session, _project(project_id), rule_id)
+
+    async def suppressed(self, project_id: str, signatures: Sequence[str]) -> frozenset[str]:
+        async with self._transaction() as session:
+            return frozenset(await repo.suppressed(session, _project(project_id), list(signatures)))
+
+    async def suppress(self, project_id: str, row: SuppressionRow) -> None:
+        async with self._transaction() as session:
+            await repo.upsert_suppression(session, _project(project_id), _values(row))
+
+    async def unsuppress(self, project_id: str, signature: str) -> None:
+        async with self._transaction() as session:
+            await repo.delete_suppression(session, _project(project_id), signature)
+
+    async def put_notes(
+        self, project_id: str, run_id: str | None, notes: Sequence[NoteRow], *, once: str | None = None
+    ) -> None:
+        values = _keyed(project_id, "note", once, [_values(note) | {"run_id": run_id} for note in notes])
+        async with self._transaction() as session:
+            await repo.insert_notes(session, _project(project_id), values)
+
+    async def log(self, project_id: str, events: Sequence[EventRow], *, once: str | None = None) -> None:
+        values = _keyed(project_id, "event", once, [_values(event) for event in events])
+        async with self._transaction() as session:
+            await repo.insert_events(session, _project(project_id), values)
+
+    async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]:
+        async with self._transaction() as session:
+            rows = await repo.events(session, _project(project_id), gap_id)
+        return tuple(_row(EventRow, row) for row in rows)
+
+    async def assignments(self, project_id: str) -> Mapping[str, AssignmentRow]:
+        async with self._transaction() as session:
+            rows = await repo.assignments(session, _project(project_id))
+        return {row["gap_id"]: _row(AssignmentRow, {**row, "user_id": str(row["user_id"])}) for row in rows}
+
+    async def assign(self, project_id: str, row: AssignmentRow) -> None:
+        values = _values(row) | {"user_id": _user(row.user_id)}
+        async with self._transaction() as session:
+            await repo.upsert_assignment(session, _project(project_id), values)
+
+    async def unassign(self, project_id: str, gap_id: str) -> None:
+        async with self._transaction() as session:
+            await repo.delete_assignment(session, _project(project_id), gap_id)
+
+
+class PostgresAmendments:
+    """``Amendments`` on the application database, beside the documents."""
+
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
+
+    async def for_lineage(
+        self, project_id: str, lineage: str, *, statuses: Sequence[str] = ("active",)
+    ) -> Sequence[AmendmentRow]:
+        async with self._transaction() as session:
+            rows = await repo.amendments_for_lineage(session, _project(project_id), lineage, list(statuses))
+        return tuple(_row(AmendmentRow, row) for row in rows)
+
+    async def for_clarification(self, project_id: str, clr_id: str) -> Sequence[AmendmentRow]:
+        async with self._transaction() as session:
+            rows = await repo.amendments_for_clarification(session, _project(project_id), clr_id)
+        return tuple(_row(AmendmentRow, row) for row in rows)
+
+    async def put(self, project_id: str, rows: Sequence[AmendmentRow]) -> None:
+        async with self._transaction() as session:
+            unique = _last_per_key(rows, lambda row: row.amendment_id)
+            await repo.upsert_amendments(session, _project(project_id), [_values(row) for row in unique])
+
+    async def set_status(
+        self,
+        project_id: str,
+        amendment_ids: Sequence[str],
+        status: str,
+        *,
+        revision_id: str | None = None,
+    ) -> None:
+        _check_status(status)
+        async with self._transaction() as session:
+            await repo.set_amendment_status(session, _project(project_id), list(amendment_ids), status, revision_id)
+
+    async def delete(self, project_id: str, amendment_ids: Sequence[str]) -> None:
+        async with self._transaction() as session:
+            await repo.delete_amendments(session, _project(project_id), list(amendment_ids))
+
+    async def pending_lineages(self, project_id: str) -> Sequence[str]:
+        async with self._transaction() as session:
+            return tuple(await repo.pending_lineages(session, _project(project_id)))
+
+    async def with_status(self, project_id: str, statuses: Sequence[str]) -> Sequence[AmendmentRow]:
+        async with self._transaction() as session:
+            rows = await repo.amendments_with_status(session, _project(project_id), list(statuses))
+        return tuple(_row(AmendmentRow, row) for row in rows)
+
+
+async def all_project_ids(transaction: Transaction) -> tuple[str, ...]:
+    """Every project's id as the graph store names its partition (the project uuid as text)."""
+
+    async with transaction() as session:
+        return tuple(str(item) for item in await repo.project_ids(session))

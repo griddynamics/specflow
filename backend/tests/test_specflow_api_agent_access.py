@@ -22,7 +22,10 @@ from fastapi.routing import APIRoute
 from agent_contracts import (
     AGENT_PREFIX,
     AGENT_ROUTES,
+    GAP_CARD_ROUTE,
     AddFindingArgs,
+    AnswerGapArgs,
+    BrowseGapsArgs,
     ClaimStoryArgs,
     CompleteStoryArgs,
     ExpandBriefArgs,
@@ -34,9 +37,11 @@ from agent_contracts import (
     ListAreasArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
+    ListGapsArgs,
     ListProjectsArgs,
     ListStoriesArgs,
     ListTasksArgs,
+    OpenGapArgs,
     PathArgs,
     PreviewStoryArgs,
     ReleaseStoryArgs,
@@ -48,12 +53,14 @@ from agent_contracts import (
 from api.deps import agent_principal, agent_project, current_agent_user, current_user
 from api.routers import (
     agent,
+    agent_gaps,
     agent_spec,
     agent_stories,
     agent_writes,
     claims,
     documents,
     findings,
+    gaps,
     graph_build,
     me,
     members,
@@ -84,6 +91,10 @@ TOOL_ARGUMENTS: dict[str, Any] = {
     "get_evidence": GetEvidenceArgs,
     "path": PathArgs,
     "expand_brief": ExpandBriefArgs,
+    "list_gaps": ListGapsArgs,
+    "browse_gaps": BrowseGapsArgs,
+    "open_gap": OpenGapArgs,
+    "answer_gap": AnswerGapArgs,
     "list_areas": ListAreasArgs,
     "list_stories": ListStoriesArgs,
     "preview_story": PreviewStoryArgs,
@@ -93,7 +104,10 @@ TOOL_ARGUMENTS: dict[str, Any] = {
     "report_task": ReportTaskArgs,
     "complete_story": CompleteStoryArgs,
 }
-WRITE_TOOLS = ("claim_story", "release_story", "add_finding", "report_task", "complete_story")  # POST, JSON body
+WRITE_TOOLS = ("claim_story", "release_story", "add_finding", "report_task", "complete_story", "answer_gap")  # POST
+# A tool's second route: answer_gap reads the gap's card (GET) before its dialog, then writes on its own route.
+READ_ROUTES = {GAP_CARD_ROUTE: "answer_gap"}
+AGENT_PATHS = {**{path: tool for tool, path in AGENT_ROUTES.items()}, **READ_ROUTES}  # every agent route, its tool
 AGENT_ONLY = (
     agent_principal,
     current_agent_principal,
@@ -110,6 +124,7 @@ WRITE_BODIES = {
     AGENT_ROUTES["add_finding"]: {"kind": "gap", "text": "x", "about": ["FEAT::API"]},
     AGENT_ROUTES["report_task"]: {"task_id": "TASK::A::API_LOGIC", "claim_token": "t", "progress": "done"},
     AGENT_ROUTES["complete_story"]: {"story_id": "STORY::A::API", "claim_token": "t", "merge_commit": "a" * 40},
+    AGENT_ROUTES["answer_gap"]: {"gap_id": "GAP::X", "option_rank": 1, "updated_at": "2026-11-18T09:00:00+00:00"},
 }
 
 
@@ -123,6 +138,7 @@ ROUTER_MODULES = (
     agent_spec,
     agent_stories,
     agent_writes,
+    agent_gaps,
     projects,
     members,
     users,
@@ -131,6 +147,7 @@ ROUTER_MODULES = (
     plan,
     claims,
     findings,
+    gaps,
     sources,
     source_batches,
     source_removal,
@@ -167,9 +184,11 @@ def test_fr_mcp_acc_06_each_tool_maps_to_exactly_one_agent_route_and_the_table_n
     routes = api_routes()
     assert set(AGENT_ROUTES) == set(TOOL_ARGUMENTS)
     assert all(path.startswith(f"{AGENT_PREFIX}/") for path in AGENT_ROUTES.values())
-    assert {p for p in routes if p.startswith(f"{AGENT_PREFIX}/")} == set(AGENT_ROUTES.values())
+    assert {p for p in routes if p.startswith(f"{AGENT_PREFIX}/")} == set(AGENT_PATHS)
     for tool, path in AGENT_ROUTES.items():
         assert routes[path].methods == ({"POST"} if tool in WRITE_TOOLS else {"GET"}), tool
+    for path in READ_ROUTES:
+        assert routes[path].methods == {"GET"}, path
 
 
 def test_fr_mcp_acc_06_every_project_scoped_tool_maps_to_a_route_that_runs_the_membership_check():
@@ -177,7 +196,7 @@ def test_fr_mcp_acc_06_every_project_scoped_tool_maps_to_a_route_that_runs_the_m
     handler never takes the id itself, and the repository's membership query is named only by ``api.deps``."""
 
     routes = api_routes()
-    for tool, path in AGENT_ROUTES.items():
+    for path, tool in AGENT_PATHS.items():
         route = routes[path]
         tree = calls_of(route.dependant)
         assert (agent_project in tree) == scoped(tool), tool
@@ -236,16 +255,16 @@ async def test_fr_mcp_acc_06_every_project_route_of_the_app_denies_a_foreign_pro
 
     async with serve_agent(monkeypatch, agent_env(valid_env)) as rig:
         routes = {p: r for p, r in api_routes().items() if p.startswith(f"{AGENT_PREFIX}/")}
-        assert len(routes) == len(AGENT_ROUTES)
+        assert len(routes) == len(AGENT_PATHS)
         denied: dict[str, Any] = {}
         for path, route in routes.items():
             names = query_names(route.dependant)
             if "project_id" in names and path in WRITE_PATHS:
                 denied[path] = await rig.post(path, WRITE_BODIES[path], project_id=FOREIGN)
             elif "project_id" in names:
-                extra = dict.fromkeys(names & {"task_id", "feature_id", "story_id"}, "x")  # the other required ones
+                extra = dict.fromkeys(names & {"task_id", "feature_id", "story_id", "gap_id"}, "x")  # the required
                 denied[path] = await rig.get(path, project_id=FOREIGN, **extra)
-    assert len(denied) == sum(scoped(t) for t in TOOL_ARGUMENTS)
+    assert len(denied) == sum(scoped(t) for t in AGENT_PATHS.values())
     for path, response in denied.items():
         assert response.status_code == 404 and response.json()["error"]["code"] == "project_not_found", path
         assert response.headers[USER_HEADER] == rig.alice_id
@@ -267,7 +286,7 @@ async def test_the_openapi_document_serves_exactly_the_agent_paths_read_from_the
     async with serve_agent(monkeypatch, agent_env(valid_env)) as rig:
         document = (await rig.client.get("/openapi.json")).json()
     served = {p for p in document["paths"] if p.startswith(f"{AGENT_PREFIX}/")}
-    assert served == set(AGENT_ROUTES.values()) == {p for p in api_routes() if p.startswith(f"{AGENT_PREFIX}/")}
+    assert served == set(AGENT_PATHS) == {p for p in api_routes() if p.startswith(f"{AGENT_PREFIX}/")}
 
 
 async def test_the_router_modules_cover_every_api_path_the_built_app_serves(monkeypatch, valid_env):

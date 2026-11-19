@@ -3,6 +3,7 @@
 // `plan.state(projectId)` on mount, because `updateTaskBody` fires no event and the prop can be stale after a tab switch
 // (Plan -> Develop -> Plan keeps an edit). Grouping and order come from the port and `groupByArea`; nothing is sorted here. Above the
 // outline, the quality notice says when part of the plan was written by the fallback rules or the review found issues.
+// FR-GWEB-04: the open gaps are read once (plan-gaps.tsx); stories and tasks show "N open gaps" and a task's body links each to its card.
 // The signature is the one P21 pinned: `plan` is declared and not read, so the first paint is a
 // skeleton until the read settles (DECISIONS P24-6).
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -12,6 +13,7 @@ import { groupByArea } from "@/lib/domain/logic/plan";
 import type { PlanSnapshot, PlanTask } from "@/lib/domain/plan";
 import { PlanOutline } from "./PlanOutline";
 import { PlanQualityNotice } from "./PlanQualityNotice";
+import { TaskGapLinks, storyGaps, taskGaps, useOpenGaps } from "./plan-gaps";
 import { TaskBody } from "./TaskBody";
 import { recallOpen, rememberOpen } from "./open-state";
 import { visibleTasks } from "./task-logic";
@@ -19,6 +21,7 @@ import "./tasks.css";
 
 export function PlanTab({ projectId }: Readonly<{ projectId: string; plan: PlanSnapshot }>) {
   const planPort = usePlanPort();
+  const openGaps = useOpenGaps(projectId);
   const [snapshot, setSnapshot] = useState<PlanSnapshot | null>(null);
   const [failed, setFailed] = useState(false);
   // The first area with tasks and its first story start open (FE-PLAN-06.AC5), once, when the first read settles; the user's choices
@@ -126,7 +129,13 @@ export function PlanTab({ projectId }: Readonly<{ projectId: string; plan: PlanS
           settled.current = true;
           setOpenTasks((s) => toggle(s, id));
         }}
-        renderBody={(t) => <TaskBody projectId={projectId} task={t} onSaved={onTaskSaved} />}
+        gapsOf={{ task: (t) => taskGaps(openGaps, t), story: (tasks) => storyGaps(openGaps, tasks) }}
+        renderBody={(t) => (
+          <>
+            <TaskGapLinks projectId={projectId} gaps={taskGaps(openGaps, t)} />
+            <TaskBody projectId={projectId} task={t} onSaved={onTaskSaved} />
+          </>
+        )}
       />
     </div>
   );

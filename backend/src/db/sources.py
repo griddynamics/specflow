@@ -675,6 +675,16 @@ def graph_corpus_statement(project_id: uuid.UUID) -> Select[Any]:
     )
 
 
+async def graph_corpus_document(
+    session: AsyncSession, project_id: uuid.UUID, document_id: uuid.UUID
+) -> list[GraphCorpusRow]:
+    """The ``list_graph_corpus`` rows of one document (one per Drive file that links it); none when it is not in the
+    corpus. ``api.graph_build.corpus.lineage_of`` names its graph lineage."""
+
+    result = await session.execute(graph_corpus_statement(project_id).where(Document.id == document_id))
+    return [GraphCorpusRow(**row._asdict()) for row in result.all()]
+
+
 async def list_graph_corpus(session: AsyncSession, project_id: uuid.UUID) -> list[GraphCorpusRow]:
     """Processed documents of the project whose markdown is not blank, oldest first.
 

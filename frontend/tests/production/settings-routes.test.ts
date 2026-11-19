@@ -28,7 +28,7 @@ test("parseSettingsQuery: a missing or unknown tab is general, never an error", 
 
 test("sidebar: Settings (gear-six) sits after SpecBot and before the Help group; its href is the route; it needs a project", () => {
   const keys = SIDEBAR_SECTIONS.map((s) => s.value);
-  assert.deepEqual(keys, ["missionControl", "decisions", "plan", "specbot", "settings", "guides"]);
+  assert.deepEqual(keys, ["missionControl", "gaps", "plan", "specbot", "settings", "guides"]);
   const settings = SECTIONS.find((s) => s.value === "settings");
   assert.deepEqual(settings, { value: "settings", label: "Settings", icon: "gear-six" });
   assert.equal(sectionHref(routes, "settings", "p1"), "/projects/p1/settings");

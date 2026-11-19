@@ -80,3 +80,40 @@
   width: 0;
   white-space: nowrap;
 }
+
+/* DecisionRow `aside` (FR-GWEB-06): a control laid over the assignee cell, beside the row's button (a button cannot hold another
+   control). The cell is the fourth column of bundle.css `.gdg-drow__btn` (200px), left of the caret column (24px), the column gap and
+   the row's right padding. No transform and no z-index: the aside makes no stacking context, so an open menu (z-index 40) is drawn
+   above the next rows' cells. */
+.gdg-drow.gdg-drow--aside {
+  position: relative;
+}
+.gdg-drow--aside .gdg-drow__aside {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: calc(var(--space-md) + 24px + var(--space-sm));
+  width: 200px;
+  display: flex;
+  align-items: center;
+}
+/* DecisionRow `badge` (FR-GWEB-04): a Tag after the title on its line; the title keeps its ellipsis, the Tag its size. */
+.gdg-drow__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.gdg-drow__line > b {
+  min-width: 0;
+}
+.gdg-drow__line > :not(b) {
+  flex: none;
+}
+/* A list with row controls lets their menus reach past its edge (bundle.css clips `.gdg-dlist`); its last row rounds itself. */
+.gdg-dlist:has(.gdg-drow--aside) {
+  overflow: visible;
+}
+.gdg-dlist:has(.gdg-drow--aside) .gdg-drow:last-child .gdg-drow__btn {
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}

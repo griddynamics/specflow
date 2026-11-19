@@ -1,7 +1,8 @@
 """The contract gate of the MCP tooling tools (MCP-TOOLING D29): ``list_areas``, ``list_stories``, ``preview_story``,
 ``claim_story``, ``release_story``, ``get_story_brief``, ``trace``, ``get_node``, ``search_spec``, ``similar``,
-``get_evidence``, ``path``, ``expand_brief``, ``add_finding``, ``report_task`` and ``complete_story``, frozen as
-golden files NEXT TO the split's (whose files stay as the split froze them, ``tools/list`` aside).
+``get_evidence``, ``path``, ``expand_brief``, ``list_gaps``, ``browse_gaps``, ``open_gap``,
+``add_finding``, ``report_task`` and ``complete_story``, and the open gaps the briefs show (scenario ``gaps``), frozen
+as golden files NEXT TO the split's (whose files stay as the split froze them, ``tools/list`` aside).
 
 Read the way a client reads them, over JSON-RPC and HTTP against the in-process MCP app, whose API is the real app over
 the shop graph (``mcp_golden_tooling_seam``): one success result per tool and shape (structured content and text
@@ -44,7 +45,14 @@ ERROR_CODES = (
     "task_not_found",
     "invalid_commit",
     "finding_limit",
+    "gap_not_found",
+    "gap_wrong_state",
+    "gap_stale",
+    "answer_invalid",
 )
+# Reached only after a person accepted the dialog of answer_gap, which a plain tools/call cannot do: covered by
+# test_mcp_answer_gap.py (gap_wrong_state) and test_api_agent_gaps.py (all three).
+AFTER_A_DIALOG = ("gap_wrong_state", "gap_stale", "answer_invalid")
 STRIPE = "STORY::STRIPE::CORE"
 TASK = "TASK::WEB_SHOP::LOGIC_CHECKOUT"
 COMMIT = "e44f0c1a7b9d3c5e8f2a4b6d8e0f1a2b3c4d5e6f"
@@ -114,6 +122,30 @@ CLAIMED_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     "list_stories_open_with_a_holder": ("list_stories", {"project_id": ALPHA}),
     "preview_story_held": ("preview_story", {"project_id": ALPHA, "story_id": CHECKOUT}),
 }
+# Over the shop gap corpus after a gap run (``gaps``): the open gaps of list_gaps and in the briefs (FR-GWEB-03).
+GAP_STORY = "STORY::A::API"
+GAP_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
+    "list_gaps_story": ("list_gaps", {"project_id": ALPHA, "story_id": GAP_STORY}),
+    "list_gaps_spec_ids_first_page": (
+        "list_gaps",
+        {"project_id": ALPHA, "spec_ids": ["REQ::FR::PLACE_ORDER", "QST::CANCEL_PAID_ORDER"], "limit": 1},
+    ),
+    "browse_gaps_first_page": ("browse_gaps", {"project_id": ALPHA, "limit": 3}),
+    "browse_gaps_unassigned_questions": (
+        "browse_gaps",
+        {"project_id": ALPHA, "kind": ["open_question"], "assigned": "unassigned"},
+    ),
+    "open_gap_question": ("open_gap", {"project_id": ALPHA, "gap_id": "GAP::BDC6ECC57F46"}),
+    # This client speaks an older protocol: no dialog on a stateless server, the web link instead.
+    "answer_gap_without_a_dialog": ("answer_gap", {"project_id": ALPHA, "gap_id": "GAP::4D5B5E912AC8"}),
+    "get_story_brief_with_a_gap": ("get_story_brief", {"project_id": ALPHA, "story_id": GAP_STORY}),
+    "get_task_brief_with_a_gap": ("get_task_brief", {"project_id": ALPHA, "task_id": "TASK::A::API_LOGIC"}),
+    "preview_story_with_a_gap": ("preview_story", {"project_id": ALPHA, "story_id": GAP_STORY}),
+    "get_node_with_a_gap": (
+        "get_node",
+        {"project_id": ALPHA, "spec_id": "REQ::FR::PLACE_ORDER", "include": ["findings"]},
+    ),
+}
 NO_PLAN_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     "get_node_without_a_plan": ("get_node", {"project_id": ALPHA, "spec_id": "MOD::STRIPE"}),
 }
@@ -138,9 +170,9 @@ async def agent_writes(client: Any) -> dict[str, Any]:
     }
     results["add_finding"] = await tool(client, "add_finding", **finding)
     results["add_finding_repeat"] = await tool(client, "add_finding", **finding)
-    results["add_finding_blocking_repeat_without_a_claim"] = await tool(
-        client, "add_finding", **{**finding, "blocking": True}
-    )  # the repeat is answered before the blocking rules
+    results["add_finding_blocking_repeat_with_a_wrong_token"] = await tool(
+        client, "add_finding", **{**finding, "blocking": True, "claim_token": NOBODYS_CLAIM}
+    )  # the repeat is answered before the plan's guard
     report = {"project_id": ALPHA, "task_id": TASK, "claim_token": token}
     results["report_task"] = await tool(client, "report_task", **report, progress="done", note="Built and tested")
     results["report_task_repeat"] = await tool(
@@ -178,7 +210,12 @@ async def test_every_tool_answers_the_golden_success_results(tooling_double):
 
     results: dict[str, Any] = {}
     names: dict[str, str] = {}
-    for scenario, successes in (("ok", SUCCESSES), ("no_plan", NO_PLAN_SUCCESSES), ("claimed", CLAIMED_SUCCESSES)):
+    for scenario, successes in (
+        ("ok", SUCCESSES),
+        ("no_plan", NO_PLAN_SUCCESSES),
+        ("claimed", CLAIMED_SUCCESSES),
+        ("gaps", GAP_SUCCESSES),
+    ):
         async with tooling_double.serve(scenario) as client:
             for key, (name, arguments) in successes.items():
                 results[key], names[key] = await tool(client, name, **arguments), name
@@ -210,7 +247,7 @@ async def test_every_tool_answers_the_golden_success_results(tooling_double):
     names |= {
         "add_finding": "add_finding",
         "add_finding_repeat": "add_finding",
-        "add_finding_blocking_repeat_without_a_claim": "add_finding",
+        "add_finding_blocking_repeat_with_a_wrong_token": "add_finding",
         "report_task": "report_task",
         "report_task_skipped": "report_task",
         "report_task_repeat": "report_task",
@@ -270,6 +307,7 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             "release_story",
             {"project_id": ALPHA, "story_id": CHECKOUT, "claim_token": "not-the-token"},
         ),
+        "gap_not_found": ("gaps", "answer_gap", {"project_id": ALPHA, "gap_id": "GAP::000000000000"}),
         "task_not_found": (
             "free",
             "report_task",
@@ -340,6 +378,23 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             "complete_story",
             {**held, "merge_commit": COMMIT, "pr_url": "https://user:pw@example.com/p/1"},
         ),
+        "invalid_arguments:add_finding_question_too_short": (
+            "free",
+            "add_finding",
+            {"project_id": ALPHA, "kind": "question", "text": "Kept?", "about": ["FEAT::CHECKOUT"]},
+        ),
+        "invalid_arguments:add_finding_blocking_without_a_token": (
+            "free",
+            "add_finding",
+            {
+                "project_id": ALPHA,
+                "kind": "question",
+                "text": "Is a cart kept for a day?",
+                "about": ["FEAT::CHECKOUT"],
+                "story_id": CHECKOUT,
+                "blocking": True,
+            },
+        ),
         "story_not_found:add_finding": (
             "free",
             "add_finding",
@@ -351,7 +406,7 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             {
                 "project_id": ALPHA,
                 "kind": "question",
-                "text": "x",
+                "text": "Is a cart kept for a day?",
                 "about": ["FEAT::CHECKOUT"],
                 "story_id": CHECKOUT,
                 "claim_token": NOBODYS_CLAIM,
@@ -374,7 +429,7 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             {
                 "project_id": ALPHA,
                 "kind": "question",
-                "text": "x",
+                "text": "Is a cart kept for a day?",
                 "about": ["FEAT::CHECKOUT"],
                 "story_id": CHECKOUT,
                 "claim_token": FIRST_CLAIM,
@@ -392,7 +447,7 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             {**held, "merge_commit": COMMIT},
         ),
     }
-    assert set(cases) == set(ERROR_CODES) - {"finding_limit"}, "the cases must be the ErrorCodes these tools return"
+    assert set(cases) == set(ERROR_CODES) - {"finding_limit", *AFTER_A_DIALOG}, "the cases must be these tools' codes"
     errors: dict[str, Any] = {}
     every = {**cases, **extra}
     for scenario in dict.fromkeys(scenario for scenario, _, _ in every.values()):  # one server per scenario

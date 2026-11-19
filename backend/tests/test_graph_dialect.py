@@ -129,7 +129,7 @@ def test_every_canonical_template_file_is_rendered_by_some_query() -> None:
         core_queries.delete_relationship("R"),
         core_queries.delete_keyed_node("Document", "document_id"),
         core_queries.keyed_node_relationship_types("Document", "document_id"),
-        core_queries.upsert_foreign_node("Finding"),
+        core_queries.upsert_foreign_node("Gap"),
         build_queries.read_current_edges("R"),
         build_queries.upsert_edges("R"),
         build_queries.update_edges("R"),

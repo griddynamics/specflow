@@ -31,7 +31,8 @@ from agent_contracts import (
 )
 from api.agent_views import Holders, finding_items
 from api.errors import invalid_cursor
-from graph.gap import Finding
+from api.gap.development import OPEN_GAP_STATUSES
+from graph.gap import GapView
 from graph.plan.names import StoryView
 from graph.plan.story_board import STATE_ORDER
 from graph.plan.story_findings import StoryFindings
@@ -191,7 +192,9 @@ def preview_user_ids(preview: Preview) -> list[str | None]:
     ]
 
 
-def preview_view(project_id: str, preview: Preview, holders: Holders) -> StoryPreview:
+def preview_view(
+    project_id: str, preview: Preview, holders: Holders, severities: Mapping[str, str] | None = None
+) -> StoryPreview:
     return StoryPreview(
         project_id=project_id,
         story=StoryHeader(
@@ -220,7 +223,7 @@ def preview_view(project_id: str, preview: Preview, holders: Holders) -> StoryPr
             for task in preview.tasks
         ],
         blockers=[blocker_item(blocker, holders) for blocker in preview.blockers],
-        findings=finding_items(preview.findings, holders),
+        findings=finding_items(preview.findings, holders, severities),
         unblocks=[ref.story_id for ref in preview.unblocks],
     )
 
@@ -281,12 +284,13 @@ def capped_blockers(blockers: Sequence[StoryBlocker], holders: Holders) -> list[
     return [blocker_item(blocker, holders) for blocker in blockers[:MAX_BLOCKERS]] or None
 
 
-def finding_refs(findings: Iterable[Finding | None]) -> list[FindingRef] | None:
-    """The open blocking findings an error names, with the text cut like a story row's ``question`` (any member of
-    the project reads it there and in preview_story); a resolved or dismissed one is left out. ``None`` for none."""
+def finding_refs(gaps: Iterable[GapView | None]) -> list[FindingRef] | None:
+    """The open gaps that hold the story's tasks, as the findings an error names (FR-GPLN-03: the refusal names the
+    gap), with the question cut like a story row's ``question`` (any member of the project reads it there and in
+    preview_story); a resolved gap is left out. ``None`` for none."""
 
     return [
-        FindingRef(finding_id=item.finding_id, kind=item.kind, text=_cut(item.text))
-        for item in findings
-        if item is not None and item.status == "open"
+        FindingRef(finding_id=item.gap_id, kind=item.kind, text=_cut(item.question))
+        for item in gaps
+        if item is not None and item.status in OPEN_GAP_STATUSES
     ][:MAX_BLOCKERS] or None

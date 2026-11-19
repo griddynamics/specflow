@@ -21,10 +21,16 @@ export interface ErrorEntry {
   type: string;
 }
 
+/** What a failure may carry besides its code: the HTTP status, the API code and, from the envelope's `details`, the cap of a 413, the
+ * `field` and `reason` of a 400 `answer_invalid` and the gap's current `state` of a 409 `gap_wrong_state` (never server text). */
 export interface DataErrorDetail {
   status?: number;
   apiCode?: string;
   maxBytes?: number;
+  field?: string;
+  reason?: string;
+  /** The gap's status now (409 `gap_wrong_state`). */
+  state?: "open" | "answered" | "applying" | "resolved";
   errors?: ErrorEntry[];
 }
 

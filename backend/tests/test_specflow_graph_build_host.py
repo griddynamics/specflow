@@ -16,7 +16,7 @@ from sqlalchemy.dialects import postgresql
 
 from api.graph_build import runner as runner_module
 from api.graph_build.corpus import PostgresCorpusSource, corpus_revisions
-from api.graph_build.runner import GraphBuildRunner, RunnerDependencies
+from api.graph_build.runner import GraphBuildRunner, RunnerClosedError, RunnerDependencies
 from db import sources as sources_repo
 from db.sources import GraphCorpusRow, graph_corpus_statement
 from graph.build import BuildOptions, BuildRecord, BuildResult, SpecChanges, VerificationSummary, open_file_stores
@@ -275,16 +275,10 @@ class StubBuild:
         return result
 
 
-def make_runner(
-    tmp_path, build, *, ensured: list | None = None, stores=None, refreshed: list | None = None, refresh=None
-) -> GraphBuildRunner:
+def make_runner(tmp_path, build, *, ensured: list | None = None, stores=None) -> GraphBuildRunner:
     async def ensure(*args):
         if ensured is not None:
             ensured.append(args)
-
-    async def record_refresh(store, ontology, project_id):
-        if refreshed is not None:
-            refreshed.append(project_id)
 
     return GraphBuildRunner(
         SETTINGS,
@@ -295,7 +289,6 @@ def make_runner(
             stores=stores or open_file_stores(tmp_path),
             ontology=object(),
             ensure=ensure,
-            refresh=refresh or record_refresh,
             gateway_factory=StubGateway,
         ),
     )
@@ -332,6 +325,21 @@ async def test_idle_then_one_task_per_project_then_succeeded(tmp_path):
     await runner.start(PROJECT)
     await finished(runner, PROJECT)
     assert len(build.contexts) == 2 and len(ensured) == 1  # ensure_schema once per process
+
+
+async def test_a_first_build_cuts_sections_and_an_update_keeps_its_frozen_options(tmp_path):
+    build = StubBuild()
+    runner = make_runner(tmp_path, build)
+
+    await runner.start(PROJECT)
+    await finished(runner, PROJECT)
+    await runner.start(PROJECT)
+    await finished(runner, PROJECT)
+
+    first, second = build.contexts
+    assert first.options == runner_module.SECTION_FRAGMENTS  # FR-GCOR-04: one fragment per section
+    assert first.options.fragment_tokens.target == 1
+    assert second.options == BuildOptions()  # the options the (stub) first build froze
 
 
 async def test_projects_wait_for_a_free_slot(tmp_path, monkeypatch):
@@ -498,74 +506,54 @@ async def test_build_logs_carry_ids_and_counts_only(tmp_path, caplog):
         assert "gateway-key" not in str(fields(record))
 
 
-async def test_findings_are_refreshed_after_each_finished_build_of_the_project(tmp_path):
-    # Scenario: two builds of one project, one of another; the refresh runs after each build, with that project's id,
-    # and never before the build function returned.
-    order: list[str] = []
-    refreshed: list[str] = []
-
-    class Ordered(StubBuild):
-        async def __call__(self, ctx):
-            order.append(f"build:{ctx.project_id}")
-            return await super().__call__(ctx)
-
-    async def refresh(store, ontology, project_id):
-        order.append(f"refresh:{project_id}")
-        refreshed.append(project_id)
-
-    runner = make_runner(tmp_path, Ordered(), refresh=refresh)
-
-    await runner.start(PROJECT)
-    await finished(runner, PROJECT)
-    await runner.start(PROJECT)
-    await finished(runner, PROJECT)
-    await runner.start("other")
-    await finished(runner, "other")
-
-    assert refreshed == [PROJECT, PROJECT, "other"]
-    assert order == [f"{step}:{name}" for name in (PROJECT, PROJECT, "other") for step in ("build", "refresh")]
+# Update builds the gap module requests (BuildRequests) -----------------------------------------------------------
 
 
-async def test_a_failing_refresh_never_fails_the_build_and_logs_codes_only(tmp_path, caplog):
-    async def refresh(store, ontology, project_id):
-        raise RuntimeError("secret finding text: do not log")
+async def test_an_update_build_request_starts_a_build_when_none_runs(tmp_path, caplog):
+    build = StubBuild()
+    runner = make_runner(tmp_path, build)
 
-    runner = make_runner(tmp_path, StubBuild(), refresh=refresh)
-
-    with caplog.at_level("WARNING"):
-        await runner.start(PROJECT)
+    with caplog.at_level("INFO"):
+        outcome = await runner.request_update_build(PROJECT, "gap-apply", immediate=False)
         await finished(runner, PROJECT)
 
+    assert outcome == "started"
+    assert len(build.contexts) == 1
     assert (await runner.status(PROJECT)).status == "succeeded"
-    warned = [record for record in caplog.records if record.getMessage() == "api.graph_build.findings_refresh_failed"]
-    assert len(warned) == 1 and warned[0].error_type == "RuntimeError" and warned[0].project_id == PROJECT
-    assert "secret finding text" not in caplog.text
+    [requested] = [record for record in caplog.records if record.getMessage() == "api.graph_build.requested"]
+    assert (requested.reason, requested.immediate, requested.outcome) == ("gap-apply", False, "started")
 
 
-async def test_findings_are_not_refreshed_when_the_build_raises(tmp_path):
-    refreshed: list[str] = []
-    runner = make_runner(tmp_path, StubBuild(fail=ConfigurationError("embedding_dim_mismatch")), refreshed=refreshed)
-
+async def test_requests_during_a_build_start_exactly_one_more_build_when_it_ends(tmp_path):
+    build = StubBuild(block=True)
+    runner = make_runner(tmp_path, build)
     await runner.start(PROJECT)
-    await finished(runner, PROJECT)
+    await asyncio.wait_for(build.waiting.wait(), 5)
+    running = runner._runs[PROJECT].task
 
-    assert (await runner.status(PROJECT)).status == "failed" and refreshed == []
+    first = await runner.request_update_build(PROJECT, "gap-apply", immediate=False)
+    second = await runner.request_update_build(PROJECT, "gap-blocker", immediate=True)
+
+    assert (first, second) == ("queued", "queued")
+    assert len(build.contexts) == 1  # never a second build beside the running one
+    build.release.set()
+    await asyncio.wait_for(running, 5)
+    follow_up = runner._runs[PROJECT].task
+    assert follow_up is not running
+    await asyncio.wait_for(follow_up, 5)
+    for _ in range(25):
+        await asyncio.sleep(0)
+
+    assert len(build.contexts) == 2
+    assert not runner.running(PROJECT)
+    assert runner._runs[PROJECT].task is follow_up
 
 
-async def test_the_default_refresh_runs_the_findings_library(tmp_path, monkeypatch):
-    calls: list[tuple[object, object, str]] = []
+async def test_a_closed_runner_refuses_an_update_build_request(tmp_path):
+    build = StubBuild()
+    runner = make_runner(tmp_path, build)
+    await runner.aclose()
 
-    class FakeFindings:
-        def __init__(self, store, ontology) -> None:
-            calls.append((store, ontology, ""))
-
-        async def refresh(self, project_id: str) -> None:
-            calls.append((None, None, project_id))
-
-    monkeypatch.setattr(runner_module, "Findings", FakeFindings)
-    store: Any = object()
-    ontology: Any = object()
-
-    await runner_module.refresh_findings(store, ontology, "p1")
-
-    assert calls == [(store, ontology, ""), (None, None, "p1")]
+    with pytest.raises(RunnerClosedError):
+        await runner.request_update_build(PROJECT, "gap-apply", immediate=False)
+    assert build.contexts == []

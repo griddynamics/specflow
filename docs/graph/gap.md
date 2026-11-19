@@ -2,10 +2,15 @@
 type: Design
 title: "Graph gap findings"
 description: "graph.gap, first slice: findings written by agents beside the spec graph: ontology file, nodes, identity, limits, dedupe, rebuild, the blocking link and the library API"
-status: stable
+status: deprecated
 tags: [graph, gap]
 ---
 # gap.md: graph.gap, first slice: findings beside the spec graph, their ontology file, rules and library API
+
+> Deprecated. The gap module is specified in [gap/INDEX.md](gap/INDEX.md). A finding becomes a gap with origin
+> `development`, and the `Finding` node is replaced by `Gap` ([gap/lifecycle.md](gap/lifecycle.md) "Migration of
+> first-slice findings"). This file describes the first slice as it was built; its library (`Findings`,
+> `FindingFlow`) is removed and existing findings are migrated by `ensure_gap_schema`.
 
 A coding agent learns things the spec does not say: a gap, two statements that disagree, a question
 only the spec owner can answer, or a fact worth keeping. It records them as **findings**: nodes linked

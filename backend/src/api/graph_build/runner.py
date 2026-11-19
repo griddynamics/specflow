@@ -5,6 +5,14 @@ corpus, the runtime's graph store, ``load_ontology()``, one ``Gateway`` per buil
 dimension check and ``ensure_schema`` once per process, then ``run_build``. The check is one embedding
 call before the schema and any extraction, so a ``GRAPH_EMBEDDING_DIM`` that does not match the
 embedding model fails the build in seconds and never creates vector indexes of the wrong size.
+After a build returns, the gap runner (``api.gap.runner``, when configured) queues its gap run, before any plan run;
+the same runner hands the corpus reader the answers to apply (``CorpusAnswers``: active amendments and the
+clarifications document).
+``request_update_build`` is the gap module's ``BuildRequests`` port (answers.md "Applying answers"): it starts the
+project's build, or, while one runs, notes one request that starts the next build when the running one ends (one
+build at a time per project; any number of requests made during a build share that next build).
+A project's first build segments its documents one fragment per section (``SECTION_FRAGMENTS``); later builds keep the
+options the project's builds froze (an older project keeps the default fragment sizes until a rebuild).
 A project's unfinished build (interrupted by a shutdown, or failed) is resumed by the next start;
 a new build retries the follow-up lineages of the latest finished one. ``status`` combines the
 running task with the build store, so it survives a restart.
@@ -22,13 +30,22 @@ from pathlib import Path
 from typing import Any, Final
 
 from api.contained import Contained
-from api.graph_build.corpus import PostgresCorpusSource
+from api.gap.state import GapHooks
+from api.graph_build.corpus import CorpusAnswers, PostgresCorpusSource
 from api.graph_build.state import BuildState
-from graph.build import BuildContext, BuildResult, BuildStore, FileStores, open_file_stores, run_build
+from graph.build import (
+    BuildContext,
+    BuildOptions,
+    BuildResult,
+    BuildStore,
+    FileStores,
+    FragmentTokens,
+    open_file_stores,
+    run_build,
+)
 from graph.core import GraphError, LLMConfig, Ontology, ensure_schema, load_ontology
 from graph.core.llm import Gateway
 from graph.core.store import GraphStore
-from graph.gap import Findings
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from settings import GraphBuildSettings
 
@@ -37,6 +54,13 @@ logger = get_logger("api.graph_build.runner")
 MAX_CONCURRENT_BUILDS: Final = 1  # projects building at once in this process; the rest wait
 INTERRUPTED: Final = "interrupted"  # a stored build left running by a stopped process
 UNEXPECTED_ERROR: Final = "unexpected_error"
+STARTED: Final = "started"  # request_update_build: a build started now
+QUEUED: Final = "queued"  # request_update_build: the next build starts when the running one ends
+SECTION_FRAGMENTS: Final = BuildOptions(fragment_tokens=FragmentTokens(min=1, target=1, max=3000))
+"""The build options of a project's first build: one fragment per section (``target`` 1 cuts at every heading,
+``min`` 1 merges nothing), so an answer applied to one section re-extracts that section alone (docs/graph/gap
+reconcile.md "Effective revision id", FR-GCOR-04). Extraction windows still group neighbouring fragments
+(``unit_tokens``, ``max_node_windows``), so a full build sees the same context as before."""
 # The text embedded once per process to check that the model's vectors have ``GRAPH_EMBEDDING_DIM`` dimensions.
 DIMENSION_PROBE: Final = "SpecFlow embedding dimension check"
 
@@ -46,13 +70,6 @@ class RunnerClosedError(RuntimeError):
 
 
 BuildFunction = Callable[[BuildContext], Awaitable[BuildResult]]
-RefreshFunction = Callable[[GraphStore, Ontology, str], Awaitable[Any]]
-
-
-async def refresh_findings(store: GraphStore, ontology: Ontology, project_id: str) -> None:
-    """After a build: the open findings of the project follow merged ids and lost nodes (``Findings.refresh``)."""
-
-    await Findings(store, ontology).refresh(project_id)
 
 
 @dataclass(frozen=True)
@@ -63,7 +80,6 @@ class RunnerDependencies:
     stores: FileStores | None = None  # opened lazily under ``GRAPH_STATE_DIR`` when ``None``
     ontology: Ontology | None = None  # ``load_ontology()`` on first use when ``None``
     ensure: Callable[..., Awaitable[Any]] = ensure_schema
-    refresh: RefreshFunction = refresh_findings
     gateway_factory: Callable[[LLMConfig], Any] = Gateway
 
 
@@ -110,20 +126,24 @@ class GraphBuildRunner:
         store: GraphStore,
         session_factory: Callable[[], Any],
         dependencies: RunnerDependencies | None = None,
+        gaps: GapHooks | None = None,
     ) -> None:
         deps = dependencies or RunnerDependencies()
         self._llm: LLMConfig = settings.to_llm_config()
         self._state_dir = Path(settings.state_dir)
         self._store = store
-        self._corpus = PostgresCorpusSource(session_factory)
+        self._gaps = gaps
+        hooks: object = gaps  # the gap runner also hands the corpus reader the answers to apply
+        answers = hooks if isinstance(hooks, CorpusAnswers) else None
+        self._corpus = PostgresCorpusSource(session_factory, answers=answers)
         self._build = deps.build
         self._ensure = deps.ensure
-        self._refresh = deps.refresh
         self._gateway_factory = deps.gateway_factory
         self._lazy = _Lazy(ontology=deps.ontology, stores=deps.stores)
         self._slots = asyncio.Semaphore(MAX_CONCURRENT_BUILDS)
         self._runs: dict[str, _Run] = {}
         self._failures: dict[str, _Failure] = {}
+        self._requested: set[str] = set()  # projects whose next build starts when the running one ends
         self._closed = False
 
     # Public ------------------------------------------------------------------
@@ -138,11 +158,37 @@ class GraphBuildRunner:
         if self._closed:
             raise RunnerClosedError("the graph build runner is closed")
         if not self.running(project_id):
-            run = _Run(started_at=datetime.now(UTC))
-            run.task = asyncio.create_task(self._run(project_id, run), name=f"graph-build-{project_id}")
-            self._runs[project_id] = run
-            self._failures.pop(project_id, None)
+            self._launch(project_id)
         return await self.status(project_id)
+
+    async def request_update_build(self, project_id: str, reason: str, *, immediate: bool) -> str:
+        """``BuildRequests`` of the gap module: start an update build of the project now (``started``), or, while
+        one runs, start the next one when it ends (``queued``); never a second build beside the running one.
+        ``immediate`` only says the caller did not wait for "Resolve gaps": the request is served the same way."""
+
+        if self._closed:
+            raise RunnerClosedError("the graph build runner is closed")
+        outcome = QUEUED if self.running(project_id) else STARTED
+        if outcome == QUEUED:
+            self._requested.add(project_id)
+        else:
+            self._launch(project_id)
+        log_event(
+            logger,
+            INFO,
+            "api.graph_build.requested",
+            project_id=project_id,
+            reason=reason,
+            immediate=immediate,
+            outcome=outcome,
+        )
+        return outcome
+
+    def _launch(self, project_id: str) -> None:
+        run = _Run(started_at=datetime.now(UTC))
+        run.task = asyncio.create_task(self._run(project_id, run), name=f"graph-build-{project_id}")
+        self._runs[project_id] = run
+        self._failures.pop(project_id, None)
 
     async def status(self, project_id: str) -> BuildState:
         """The running build, else the latest stored build (or a failure before one was stored)."""
@@ -216,6 +262,9 @@ class GraphBuildRunner:
             except asyncio.CancelledError:
                 log_event(logger, INFO, "api.graph_build.cancelled", project_id=project_id)
                 raise
+        if project_id in self._requested and not self._closed:  # a request made while this build ran
+            self._requested.discard(project_id)
+            self._launch(project_id)
         if build.error is None:
             return
         error = build.error
@@ -239,24 +288,10 @@ class GraphBuildRunner:
             exc_info=error if unexpected else None,  # the traceback of an unexpected error only
         )
 
-    async def _refresh_findings(self, project_id: str, ontology: Ontology) -> None:
-        """Findings follow the build (aliases, orphaning); a failure here never fails the build."""
-
-        with Contained() as step:
-            await self._refresh(self._store, ontology, project_id)
-        if step.failed:
-            log_event(
-                logger,
-                WARNING,
-                "api.graph_build.findings_refresh_failed",
-                project_id=project_id,
-                error_code=error_code(step.error) if step.error is not None else None,
-                error_type=step.error_type,
-            )
-
     async def _run_one(self, project_id: str, run: _Run) -> None:
         ontology, stores = await self._prepare()
         latest = await stores.builds.latest_build(project_id)
+        options = SECTION_FRAGMENTS if latest is None else latest.options  # an update keeps its frozen options
         resume = latest.build_id if latest is not None and not latest.finished else None
         run.resumed_build_id = resume
         retry = () if resume else await _follow_ups(stores.builds, project_id)
@@ -282,11 +317,11 @@ class GraphBuildRunner:
                 builds=stores.builds,
                 retry_lineages=retry,
                 build_id=resume,
+                options=options,
             )
             result = await self._build(ctx)
         finally:
             await gateway.aclose()
-        await self._refresh_findings(project_id, ontology)
         usage = gateway.usage().total()
         log_event(
             logger,
@@ -303,6 +338,8 @@ class GraphBuildRunner:
             llm_calls=usage.calls,
             duration_s=result.metrics.duration_s,
         )
+        if self._gaps is not None:  # queues the gap run (never raises); the plan run waits for it
+            await self._gaps.after_build(project_id, result.build_id)
 
 
 async def _follow_ups(builds: BuildStore, project_id: str) -> tuple[str, ...]:

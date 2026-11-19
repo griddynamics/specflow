@@ -13,11 +13,15 @@ from typing import Any, Final, cast, get_args
 from pydantic import BaseModel, ValidationError, model_serializer
 
 from agent_contracts import (
+    ANSWER_INVALID,
     AREA_NOT_FOUND,
     CLAIM_MISMATCH,
     DATABASE_UNAVAILABLE,
     FEATURE_NOT_FOUND,
     FINDING_LIMIT,
+    GAP_NOT_FOUND,
+    GAP_STALE,
+    GAP_WRONG_STATE,
     GRAPH_UNAVAILABLE,
     INTERNAL_ERROR,
     INVALID_ARGUMENTS,
@@ -59,6 +63,10 @@ MESSAGES: Final[Mapping[ErrorCode, str]] = {
     INVALID_ARGUMENTS: "The arguments do not fit together. Check the tool description and try again.",
     UNKNOWN_RELATION: "A relation is not in the ontology of the project. Leave relations out to use them all.",
     FINDING_LIMIT: "You have too many open findings here. Ask a person to resolve some first.",
+    GAP_NOT_FOUND: "The gap is not in the project. Call browse_gaps for the gaps of the project.",
+    GAP_WRONG_STATE: "The gap no longer waits for an answer. Call browse_gaps with status open for the open gaps.",
+    GAP_STALE: "The gap changed while the user answered and nothing was recorded. Show its card and ask again.",
+    ANSWER_INVALID: "The answer cannot be recorded from the dialog. The user can answer on the web card of the gap.",
 }
 
 

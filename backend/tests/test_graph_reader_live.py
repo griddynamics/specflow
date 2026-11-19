@@ -43,7 +43,7 @@ FEATURE = "Feature"
 CAPABILITY = "Capability"
 FR = "FunctionalRequirement"
 QR = "QualityRequirement"
-FINDING = "Finding"  # a foreign (non-build) label
+FINDING = "Gap"  # a foreign (non-build) label
 SEARCH_WORD = "zqxsaml"  # a search word no other data holds
 ANSWERS = shop_answers(1)
 
@@ -325,7 +325,7 @@ async def test_search_never_returns_foreign_nodes_documents_or_fragments(graph_p
     await graph_project.create_nodes(
         [
             NodeSpec(
-                ("SpecNode", "Finding"),
+                ("SpecNode", "Gap"),
                 {
                     "uuid": f"{pid}-g",
                     "spec_id": "GAP::G",
@@ -584,8 +584,8 @@ async def scope_graph(project: GraphProject, pid: str) -> None:
     )
     await project.create_nodes(
         [
-            NodeSpec(("SpecNode", "Finding"), {"uuid": f"{pid}-x", "spec_id": "GAP::X", "name": "x"}),
-            NodeSpec(("Finding",), {"spec_id": "GAP::Y"}),
+            NodeSpec(("SpecNode", "Gap"), {"uuid": f"{pid}-x", "spec_id": "GAP::X", "name": "x"}),
+            NodeSpec(("Gap",), {"spec_id": "GAP::Y"}),
             NodeSpec(("Fragment",), {"fragment_id": "f"}),
         ],
         project_id=pid,
@@ -593,8 +593,8 @@ async def scope_graph(project: GraphProject, pid: str) -> None:
     module = select("SpecNode", spec_id="M")
     await project.create_edges(
         [
-            EdgeSpec("PART_OF", select("Finding", spec_id="GAP::X"), module, {"group_id": pid}),
-            EdgeSpec("FLAGS", select("Finding", spec_id="GAP::Y"), module, {"group_id": pid}),
+            EdgeSpec("PART_OF", select("Gap", spec_id="GAP::X"), module, {"group_id": pid}),
+            EdgeSpec("FLAGS", select("Gap", spec_id="GAP::Y"), module, {"group_id": pid}),
             EdgeSpec("REFERENCED_BY", module, select("Fragment", fragment_id="f"), {"line_start": 1, "line_end": 2}),
         ],
         project_id=pid,
@@ -705,7 +705,7 @@ async def test_impact_is_nearest_first_in_both_directions(graph_project: GraphPr
     await graph_project.create_nodes(
         [
             NodeSpec(("Fragment",), {"fragment_id": "f"}),
-            NodeSpec(("SpecNode", "Finding"), {"uuid": f"{pid}-g", "spec_id": "GAP::G", "name": "g"}),
+            NodeSpec(("SpecNode", "Gap"), {"uuid": f"{pid}-g", "spec_id": "GAP::G", "name": "g"}),
         ],
         project_id=pid,
     )
@@ -713,7 +713,7 @@ async def test_impact_is_nearest_first_in_both_directions(graph_project: GraphPr
     await graph_project.create_edges(
         [
             EdgeSpec("REFERENCED_BY", a1, select("Fragment", fragment_id="f")),
-            EdgeSpec("RELATES_TO", select("Finding", spec_id="GAP::G"), a1, {"group_id": pid}),
+            EdgeSpec("RELATES_TO", select("Gap", spec_id="GAP::G"), a1, {"group_id": pid}),
         ],
         project_id=pid,
     )
@@ -765,7 +765,7 @@ async def test_nodes_for_fragment_overlaps_evidence_lines_of_active_fragments(gr
             spec("s", "S", "s"),
             spec("r", "RETIRED", "r"),
             spec("o", "OTHER", "o"),
-            spec("g", "GAP::F", "g", "Finding"),
+            spec("g", "GAP::F", "g", "Gap"),
         ],
         project_id=pid,
     )

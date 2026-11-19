@@ -33,7 +33,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AGENT_MODEL` | api, workers | Model id of the agents on the gateway route. |
 | `GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL` | api, tools | Models of the graph build behind **Build knowledge** in Mission Control, and of the plan runs behind **Create PLAN** on the Plan page. Set all three: one set without the others stops the api at start. With none set the api starts with the graph build and the plan off: it logs `api.graph_build.disabled` at start, each graph build request answers 503 `graph_build_unavailable` and logs `api.graph_build.unavailable`, and each plan request answers 503 `plan_unavailable` and logs `api.plan.unavailable`. Set `GRAPH_EMBEDDING_DIM` together with `GRAPH_EMBEDDING_MODEL`. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | api, mcp | Comma-separated list of allowed e-mail domains. Also decides which addresses the owner may add as a collaborator ([projects](projects/INDEX.md)). |
-| `PUBLIC_URL` | frontend | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. |
+| `PUBLIC_URL` | frontend, api | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. The api (with `MCP_RESOURCE_URL` set) links the gap cards of the MCP tools to it ([apps.md](mcp-server/apps.md#terminal-dialogs)); without it the cards have no web link. Compose gives the api the same value as the frontend. |
 | `API_INTERNAL_URL` | frontend, mcp | URL at which the frontend and the MCP server reach the API, often a bare in-cluster `host[:port]` (it becomes `http://host[:port]`; a trailing `/` is trimmed). The mcp role refuses userinfo, a query, a fragment or a scheme other than `http` and `https`. TLS is not required inside the cluster; `https` works with publicly trusted certificates only. See [architecture](mcp-server/architecture.md#settings). |
 | `OIDC_ISSUER` | api, mcp, frontend | OpenID Connect issuer. Must be `https` when `APP_ENV` is not `local`. Required in every environment: there is no other sign-in. |
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | frontend | OpenID Connect client. Required in every environment. |
@@ -62,6 +62,11 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Vector size of `GRAPH_EMBEDDING_MODEL`; set it together with the model, because the default fits only models with 1536 dimensions (1 to 4096). The first build of each api process checks it with one embedding call, before the schema and any extraction: a mismatch fails that build at once with `embedding_dim_mismatch`, and the `api.graph_build.failed` log gives `expected` and `actual`. To change it after a build, see [Local stack](#local-stack). |
 | `GRAPH_STATE_DIR` | `.graph-build/state` | api | Folder of the graph build file stores, relative to the working directory. |
 | `GRAPH_LLM_CONCURRENCY` | `8` | api, tools | How many graph-build model calls may run at once. |
+| `GAP_ENABLED` | `true` | api | With the graph build configured, runs gap runs and serves the gap routes; `false` makes them answer 503 `gap_unavailable` ([gap settings](graph/gap/architecture.md#settings)). |
+| `GAP_AUTO_RUN_AFTER_BUILD` | `true` | api | Queues an update gap run after each returned build; a plan run waits for it. |
+| `GAP_INVESTIGATOR` | `loop` | api | The gap investigator: `loop` or `agents`. |
+| `GAP_AI_ANSWERS` | `true` | api | Allows AI answers to gaps; when off, every gap is asked. |
+| `GAP_RULES_PATH` | empty | api | A rules file that replaces the shipped gap rules. |
 | `API_PORT`, `WORKER_HEALTH_PORT` | `8000`, `8001` | api, workers | Listen ports. The worker port answers `GET /healthz`. |
 | `DATABASE_PORT` | `5432` | api, workers | PostgreSQL port. |
 | `DATABASE_AGENT_USER` | `specflow_agent` | api, workers | Role for agent tools. It must differ from `DATABASE_USER`. |

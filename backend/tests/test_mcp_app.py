@@ -267,6 +267,7 @@ async def test_the_server_is_built_with_explicit_rebinding_protection_and_no_sdk
     assert security.allowed_origins == ["https://o.example"]
     assert "auth" not in built
     assert "token_verifier" not in built
+    assert built["subscriptions"] is False  # no listen stream that a client holds open across a shutdown
 
 
 # --- lifespan events (architecture.md, Logging) -------------------------------------

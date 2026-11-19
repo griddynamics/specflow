@@ -188,7 +188,7 @@ Port methods are `async`.
 | `SpecIdRegistry` | `taken(project_id)`, `record(project_id, build_id, rows)`; rows are `spec_id`, identity key, uuid, state (`active`, `alias`, `retired`) |
 | `CorpusSource` | `snapshot(project_id, *, dry_run=False)`: every active lineage's current revision (`lineage_id`, `revision_id`, `version`, `path`, `title`, `markdown`) in document order; a dry run never writes; raises `CorpusError` on a broken contract |
 | `ExtractionStore` | `get(kind, key, fingerprint)`, `put(kind, key, fingerprint, payload)`; optionally batch `get_many(kind, keys, fingerprint) -> dict`, `put_many(kind, fingerprint, entries)`; kinds include `vectors` and `decisions` |
-| `BuildStore` | `create_build`, `get_build`, `latest_build(project_id, *, finished_only=False, modes=None)`, `put_progress`, `finish_build(result)`, `get_result`; `put_artifact`, `get_artifact`. A follow-up build's `BuildRecord` holds `follow_up_of` (the chain's first build) and `follow_up_attempt` (1, 2; 0 for any other build) |
+| `BuildStore` | `create_build`, `get_build`, `latest_build(project_id, *, finished_only=False, modes=None)`, `list_builds(project_id)` (every record in build order: start time, then id), `put_progress`, `finish_build(result)`, `get_result`; `put_artifact`, `get_artifact`. A follow-up build's `BuildRecord` holds `follow_up_of` (the chain's first build) and `follow_up_attempt` (1, 2; 0 for any other build) |
 
 `open_file_stores(root, corpus_folder=None) -> FileStores` (sync) returns file implementations of every
 port under a host-given directory, for tests and local runs; `FileStores.corpus` is a `FileCorpusSource`

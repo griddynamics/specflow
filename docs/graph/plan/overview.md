@@ -29,7 +29,7 @@ lifecycle API, and the plan enforces the claim rules for every client.
 |---|---|---|
 | `graph.core` | Store port, ontology, identity, reads, owned writes, LLM gateway | [../overview.md](../overview.md) |
 | `graph.build` | Builds and updates the spec graph | [../build.md](../build.md) |
-| `graph.gap` | Gaps, contradictions, findings | reserved |
+| `graph.gap` | Gaps, investigation, answers, reconcile | [../gap/INDEX.md](../gap/INDEX.md) |
 | `graph.plan` | Implementation plans and task progress | this folder |
 
 `graph.plan` reuses `graph.core` and never imports `graph.build` or `graph.gap`.
@@ -82,7 +82,7 @@ Quality is shown by tests, plan checks and the metrics each plan run reports; no
 | Host | Offers plan runs, `estimate_plan`, the task lifecycle, task briefs, reads, typed results and errors; never decides when to plan and checks nothing about settlement | Triggers, settlement decision, change reports, retries across processes, MCP server, UI |
 | `graph.build` | Reads spec nodes, domain edges (with `basis` and `confidence`), statements and provenance through `GraphReader`; keys everything on `spec_id`; takes the build change reports from the host as plan-side `BuildChangeReport`, which decide what is re-planned; its correctness follows their classification | Keeps `spec_id`s stable; moves or deletes plan relationships on merge and delete (W3, W4 of [../architecture.md](../architecture.md)); `check_frozen` records and compares only build-owned labels and relations, so installing or changing the plan ontology does not block updates |
 | Coding agents (over MCP) | Stores claims, statuses and commits; checks state transitions and readiness | Own the workspace, git, builds and test runs |
-| `graph.gap` (later) | Will read findings to hold tasks back ([later.md](later.md)) | Owns findings and clarifications |
+| `graph.gap` | Shows open gaps in briefs and on stories through its findings port, which the gap service fills; refuses claims of tasks behind an open blocker gap ([../gap/lifecycle.md](../gap/lifecycle.md)) | Owns gaps and clarifications; never writes plan nodes |
 
 ## Constraints
 

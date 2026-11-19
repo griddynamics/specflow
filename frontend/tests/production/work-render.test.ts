@@ -1,5 +1,6 @@
 // MCP-TOOLING session 10: the finding row rendered on the server. A blocking finding says so in words, a closed one shows who answered and the
-// note, references are links only for http(s) URLs (new tab, noopener), the spec nodes are buttons, and an answered finding has no actions.
+// note, references are links only for http(s) URLs (new tab, noopener), the spec nodes are buttons, the row links to its gap card, and an
+// answered finding has no actions.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { createElement } from "react";
@@ -37,8 +38,9 @@ const finding = (over: Partial<Finding> = {}): Finding => ({
   resolutionNote: null,
   ...over,
 });
+const GAP_HREF = "/projects/p1/gaps?gap=GAP%3A%3A1";
 const render = (f: Finding) =>
-  renderToStaticMarkup(createElement(M.FindingRow, { finding: f, onAction: () => undefined, onNode: () => undefined }));
+  renderToStaticMarkup(createElement(M.FindingRow, { finding: f, gapHref: GAP_HREF, onAction: () => undefined, onNode: () => undefined }));
 
 test("an open blocking finding shows Blocking, the kind, the story it blocks, node buttons, safe links and both actions", () => {
   const view = render(finding());
@@ -53,6 +55,7 @@ test("an open blocking finding shows Blocking, the kind, the story it blocks, no
   assert.match(view, /Alice \(you\)/);
   assert.match(view, /data-testid="finding-resolve"/);
   assert.match(view, /data-testid="finding-dismiss"/);
+  assert.match(view, /<a[^>]*data-testid="finding-gap-link"[^>]*href="\/projects\/p1\/gaps\?gap=GAP%3A%3A1">Open gap card</);
 });
 
 test("a plain finding has no Blocking tag; the finding text is escaped", () => {

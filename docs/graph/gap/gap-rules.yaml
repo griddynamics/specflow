@@ -1,0 +1,106 @@
+# gap-rules.yaml: the gap rules graph.gap ships; copy of graph/gap/gap-rules.yaml.
+# Says which detectors run and on which spec types, relations and attributes, how sections are judged
+# relevant, the coverage checklist, the vague-term list, the routing rules and the limits of a gap run.
+# Every spec-side name (type keys, group names, relation names, attribute names and values) refers to the
+# merged ontology; loading fails when one does not resolve (detection.md "Rules file"). Structure is fixed by
+# the spec; patterns, term lists, checklist cues and limits may be tuned on the test corpus.
+
+format_version: 1
+name: gap-rules
+version: "1.0"
+
+relevance:                      # detection.md "Relevance filter"
+  tracking_titles:              # section or document titles that mark project tracking (case-insensitive words)
+    - release plan
+    - release notes
+    - changelog
+    - change log
+    - roadmap
+    - sprint
+    - backlog
+    - iteration
+    - milestone
+    - status update
+    - meeting notes
+    - minutes
+    - retrospective
+  tracking_patterns:            # regular expressions over node names and section text
+    ticket_key: '\b[A-Z][A-Z0-9]{1,9}-\d{1,6}\b'
+    version: '\b[vVrR]?\d+\.\d+(\.\d+)?\b'
+    release_name: '\b(release|sprint|iteration|milestone|R)\s?\d+(\.\d+)*\b'
+    quarter: '\b(Q[1-4]|H[12])(\s?\d{2,4})?\b'
+    date: '\b\d{4}-\d{2}-\d{2}\b'
+  isolated_share: 0.6           # a section where at least this share of nodes is isolated is a tracking candidate
+  obligation_cues: [must, shall, should, will, "can ", may not, never, only, required, "is not allowed"]
+  classify_with_model: true     # one batched model call per section the rules leave uncertain
+
+seeds:                          # detection.md "Seeds and corroboration"
+  corroboration:                # a weak seed needs one of these to become a site
+    - obligation_wording
+    - names_system_part         # the node's text names a module, interface or data entity
+    - planned_dependency        # a plan task implements the node or one it relates to
+  system_parts: [module, interface, data_entity]   # names_system_part: the types whose names count as system parts
+
+detectors:                      # detection.md "Detector catalogue"; one entry per detector
+  MS-OWNER:     {kind: missing,       family: structure, strength: weak,   types: [requirement], rule: no_spine_owner, exclude: {external: ["yes"]}}
+  MS-PROVIDER:  {kind: missing,       family: structure, strength: strong, types: [interface], rule: missing_relation, relation: PROVIDED_BY, direction: out}
+  MS-STORE:     {kind: missing,       family: structure, strength: strong, types: [data_entity], rule: missing_relation, relation: STORED_IN, direction: out}
+  MS-CONTRACT:  {kind: missing,       family: structure, strength: strong, types: [module], rule: integration_without_interface, relations: [INTEGRATES_WITH, RELATES_TO], members: [requirement], interfaces: [interface], provided_by: PROVIDED_BY, consumed_by: CONSUMED_BY, exclude: {external: ["yes"]}}
+  MS-CRITERIA:  {kind: missing,       family: structure, strength: weak,   types: [functional_requirement], rule: empty_attribute, attribute: acceptance_criteria}
+  MS-COVERAGE:  {kind: missing,       family: structure, strength: strong, types: [quality_requirement, constraint], rule: checklist, topics: [security, performance, availability, observability, data_protection, accessibility]}
+  MS-REF:       {kind: missing,       family: text,      strength: strong, rule: dangling_reference}
+  MS-CONSUMER:  {kind: missing,       family: structure, strength: weak,   types: [interface], rule: missing_relation, relation: CONSUMED_BY, direction: out, slice: 2}
+  MS-ERROR:     {kind: missing,       family: structure, strength: weak,   types: [interface, integration_requirement], rule: checklist_topic, topic: failure, slice: 2}
+  MS-LIFECYCLE: {kind: missing,       family: structure, strength: weak,   types: [data_entity], rule: checklist_topic, topic: lifecycle, slice: 2}
+  AM-VAGUE:     {kind: ambiguous,     family: text,      strength: strong, types: [requirement], rule: vague_terms}
+  AM-MEASURE:   {kind: ambiguous,     family: text,      strength: strong, types: [quality_requirement], rule: no_number}
+  AM-IMPLIED:   {kind: ambiguous,     family: structure, strength: weak,   types: [requirement], rule: attribute_value, attribute: source_status, value: implied}
+  CT-VALUE:     {kind: contradiction, family: text,      strength: strong, types: [requirement], rule: refused_merge}
+  CT-CROSS:     {kind: contradiction, family: text,      strength: weak,   types: [requirement], rule: similar_across_documents, slice: 2}
+  CT-RULE:      {kind: contradiction, family: text,      strength: weak,   types: [business_rule], rule: overlapping_conditions, slice: 2}
+  IN-SCOPE:     {kind: inconsistency, family: structure, strength: strong, types: [requirement, feature, interface], rule: in_scope_uses_out_of_scope, attribute: in_scope, value: "no"}
+  IN-CYCLE:     {kind: inconsistency, family: structure, strength: strong, types: [feature, requirement], rule: cycle, relation: DEPENDS_ON}
+  IN-TERM:      {kind: inconsistency, family: text,      strength: weak,   types: [data_entity, interface, module], rule: near_names, slice: 2}
+  IN-PAYLOAD:   {kind: inconsistency, family: text,      strength: weak,   types: [interface], rule: carries_differ, relation: CARRIES, slice: 2}
+  OQ-STATED:    {kind: open_question, family: text,      strength: strong, types: [open_question], rule: present}
+  OQ-TBD:       {kind: open_question, family: text,      strength: strong, types: [open_question], rule: placeholder_markers}
+  AS-FLAG:      {kind: assumption,    family: structure, strength: strong, types: [requirement], rule: attribute_value, attribute: is_assumption, value: "yes"}
+
+placeholder_markers: [TBD, TODO, TBC, "to be defined", "to be decided", "to be confirmed", "???"]
+vague_terms: [fast, quick, simple, easy, user-friendly, intuitive, secure, robust, scalable, flexible, efficient, modern, seamless, appropriate, adequate, as soon as possible, in a timely manner, etc]
+
+checklist:                      # MS-COVERAGE, MS-ERROR, MS-LIFECYCLE: each topic is covered when a node matches a cue
+  security: [authentication, authorisation, authorization, access control, encryption, secret]
+  performance: [latency, response time, throughput, per second, load]
+  availability: [availability, uptime, failover, recovery, backup]
+  observability: [logging, metrics, tracing, monitoring, alert]
+  data_protection: [personal data, gdpr, retention, anonymis, deletion]
+  accessibility: [accessibility, wcag, screen reader]
+  failure: [error, timeout, retry, unavailable, fails, failure]
+  lifecycle: [create, update, delete, retention, archive]
+
+routing:                        # answers.md "Routing"
+  ai_kinds: [missing, ambiguous, inconsistency]     # kinds AI may answer when every gate holds
+  gates:
+    local_max_nodes: 5          # ABOUT and IMPACTS together
+    local_max_areas: 1          # work areas or owning modules touched
+    min_confidence: 0.85        # second check
+  severity_prior:               # used to rank sites before investigation
+    contradiction: 3
+    open_question: 3
+    missing: 2
+    inconsistency: 2
+    assumption: 2
+    ambiguous: 1
+
+limits:                         # detection.md "Limits"
+  sites_update_run: 30
+  sites_full_run: 120
+  rounds_per_site: 4
+  reads_per_round: 4
+  context_tokens: 24000
+  pack_tokens: 3000
+  ai_answers_per_run: 20
+  ai_answers_max_node_share: 0.05
+  options_min: 2
+  options_max: 4

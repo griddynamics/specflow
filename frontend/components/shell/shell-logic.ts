@@ -11,7 +11,7 @@ import { truthy } from "@/components/ui/utils";
  */
 export const SECTIONS: readonly { readonly value: SectionKey; readonly label: string; readonly icon: IconName }[] = [
   { value: "missionControl", label: "Mission Control", icon: "squares-four" },
-  { value: "decisions", label: "Decisions", icon: "list-checks" },
+  { value: "gaps", label: "Gaps", icon: "list-checks" },
   { value: "plan", label: "Plan", icon: "kanban" },
   { value: "specbot", label: "SpecBot", icon: "sparkle" },
   { value: "settings", label: "Settings", icon: "gear-six" },
@@ -19,7 +19,7 @@ export const SECTIONS: readonly { readonly value: SectionKey; readonly label: st
   { value: "guides", label: "Guides", icon: "question" },
 ];
 
-export type SectionKey = "missionControl" | "decisions" | "plan" | "specbot" | "settings" | "connections" | "guides";
+export type SectionKey = "missionControl" | "gaps" | "plan" | "specbot" | "settings" | "connections" | "guides";
 
 /**
  * The sidebar's items (owner decision 2026-10-15): Connections is hidden from the sidebar; its page, route and components stay for reuse
@@ -53,7 +53,7 @@ export function sectionHref(routes: RouteBuilder, key: SectionKey, projectId: st
   if (key === "guides") return routes.guides(); // global: needs no project
   if (!truthy(projectId)) return routes.home();
   if (key === "missionControl") return routes.missionControl(projectId);
-  if (key === "decisions") return routes.decisions(projectId);
+  if (key === "gaps") return routes.gaps(projectId);
   if (key === "settings") return routes.settings(projectId);
   return key === "plan" ? routes.plan(projectId) : routes.specbot(projectId);
 }

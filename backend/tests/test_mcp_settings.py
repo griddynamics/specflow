@@ -107,6 +107,17 @@ def test_the_other_roles_have_no_mcp_binding(valid_env):
     assert load_settings("api", valid_env).mcp is None
 
 
+def test_public_url_is_the_web_app_address_of_the_gap_cards_and_optional(valid_env):
+    """``PUBLIC_URL``: the address the agent routes' gap cards link to (docs/configuration.md); blank is unset."""
+
+    linked = load_settings("api", {**valid_env, "MCP_RESOURCE_URL": MCP_URL, "PUBLIC_URL": "https://app.example.test/"})
+    blank = load_settings("api", {**valid_env, "MCP_RESOURCE_URL": MCP_URL, "PUBLIC_URL": " "})
+
+    assert linked.mcp is not None and linked.mcp.public_url == "https://app.example.test"
+    assert blank.mcp is not None and blank.mcp.public_url is None
+    assert load_settings("mcp", mcp_env(valid_env)).mcp.public_url is None
+
+
 def test_overrides_are_read(valid_env):
     env = mcp_env(
         valid_env,
@@ -147,6 +158,8 @@ REFUSALS = [
     ("whitespace in a host", {"MCP_ALLOWED_HOSTS": "a b"}, ("MCP_ALLOWED_HOSTS",)),
     ("ignored audience", {"MCP_AUDIENCE": "account", "AUTH_IGNORED_AUDIENCES": "account"}, ("AUTH_IGNORED_AUDIENCES",)),
     ("port range", {"MCP_PORT": "0"}, ("MCP_PORT",)),
+    ("web app scheme", {"PUBLIC_URL": "ftp://app.example.test"}, ("PUBLIC_URL",)),
+    ("web app query", {"PUBLIC_URL": "https://app.example.test/?x=1"}, ("PUBLIC_URL",)),
 ]
 
 

@@ -104,6 +104,21 @@
       }
     }
   },
+  "gap_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"gap_not_found\",\"message\":\"The gap is not in the project. Call browse_gaps for the gaps of the project.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "gap_not_found",
+        "message": "The gap is not in the project. Call browse_gaps for the gaps of the project."
+      }
+    }
+  },
   "graph_unavailable": {
     "content": [
       {
@@ -162,6 +177,42 @@
         "code": "invalid_arguments",
         "details": {
           "argument": "kind"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:add_finding_blocking_without_a_token": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"claim_token\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "claim_token"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:add_finding_question_too_short": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"text\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "text"
         },
         "message": "The arguments do not fit together. Check the tool description and try again."
       }

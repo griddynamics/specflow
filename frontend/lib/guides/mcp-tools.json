@@ -19,6 +19,16 @@
       ],
       "name": "start",
       "summary": "Walks you from a project to a claimed story: areas, stories, preview, claim."
+    },
+    {
+      "arguments": [
+        {
+          "name": "gap",
+          "required": false
+        }
+      ],
+      "name": "answer_gaps",
+      "summary": "Walks you through the open gaps of your project; you answer each one in a dialog."
     }
   ],
   "tools": [
@@ -116,6 +126,26 @@
       "name": "expand_brief",
       "read_only": true,
       "summary": "Ranks what to read next beyond a story's brief, within a token budget."
+    },
+    {
+      "name": "list_gaps",
+      "read_only": true,
+      "summary": "Lists the open gaps in the spec about a story or spec nodes: question, severity, status and answer."
+    },
+    {
+      "name": "browse_gaps",
+      "read_only": true,
+      "summary": "Lists a project's gaps as table rows, filtered as on the web Gaps screen: status, kind, severity, assignee, story."
+    },
+    {
+      "name": "open_gap",
+      "read_only": true,
+      "summary": "Shows one gap whole, as its web card does: question, quotes, options, answer, history and reach."
+    },
+    {
+      "name": "answer_gap",
+      "read_only": false,
+      "summary": "Lets you answer one open gap in a dialog of your coding agent; the answer is recorded as yours."
     },
     {
       "name": "add_finding",

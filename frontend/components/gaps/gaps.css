@@ -1,0 +1,423 @@
+/* FR-GWEB-04: layout of the Gaps screen, its question card and noise report. The design system has the filter row, DecisionList, Modal,
+   QuestionBlock and Tag but no screen layout or card section structure around them. Additive, tokens only; no design-system rule is
+   overridden. */
+
+/* The screen is a column: list, "Show more", the live count (the tabs and filters are in the shell's header row). The screen keeps the
+   reader's place itself while the inbox reads again (use-keep-place.ts), so the browser's scroll anchoring stays out. */
+.gaps-screen {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-md);
+  font-family: var(--font-sans);
+  color: var(--ink);
+  overflow-anchor: none;
+}
+/* The tab's content, a wrapper only for keeping the place: its children stay items of the screen's column. */
+.gaps-body {
+  display: contents;
+}
+/* Before Mission Control is Ready the one child is the gate scene; its row takes all the height. */
+.gaps-screen:has(> .gate-scene) {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+.gaps-skel {
+  display: grid;
+  gap: var(--space-xs);
+}
+.gaps-count {
+  margin: 0;
+  color: var(--ink-2);
+} /* with class body-sm */
+.gaps-more {
+  display: flex;
+  justify-content: center;
+}
+
+/* The card: a meta row of chips, then titled sections (Question, Why, Affected nodes, Quotes, Reach, Answer). */
+.gap-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.gap-sec {
+  display: grid;
+  gap: var(--space-xs);
+  align-content: start;
+}
+.gap-sec__title {
+  margin: 0;
+  color: var(--ink-2);
+  text-transform: uppercase;
+} /* with class eyebrow */
+.gap-text {
+  margin: 0;
+}
+.gap-nodes {
+  display: grid;
+  gap: var(--space-2xs);
+}
+.gap-nodes__rel {
+  margin: 0;
+  color: var(--ink-2);
+  text-transform: uppercase;
+} /* with class eyebrow */
+.gap-nodes__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gap-node__name {
+  color: var(--ink-2);
+}
+.gap-quotes {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gap-quote {
+  margin: 0;
+  padding-inline-start: var(--space-sm);
+  border-inline-start: 2px solid var(--hairline);
+}
+.gap-quote__src {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* The noise report: one row per section judged tracking or mixed. */
+.noise {
+  border-radius: var(--radius-lg);
+}
+.noise__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.noise__row {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+}
+.noise__row + .noise__row {
+  border-top: 1px solid var(--hairline);
+}
+.noise__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.noise__title {
+  margin: 0;
+} /* with class headline */
+.noise__meta {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* FR-GWEB-04, FR-GWEB-05: the interactive parts. Messages carry their meaning in words; the colour of the side rule only repeats it. */
+.gap-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.gap-sec__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+.gap-answer {
+  display: grid;
+  gap: var(--space-sm);
+}
+.gap-answer__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.gap-alert,
+.gap-done,
+.gap-stale {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid var(--danger);
+  background: var(--glass-fill-strong);
+  color: var(--ink);
+}
+.gap-done {
+  border-inline-start-color: var(--success);
+}
+.gap-stale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  border-inline-start-color: var(--yellow);
+}
+.gap-preview {
+  display: grid;
+  gap: var(--space-xs);
+}
+.gap-preview__list {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gap-preview__sec {
+  display: grid;
+  gap: var(--space-2xs);
+}
+.gap-preview__where {
+  margin: 0;
+  color: var(--ink-2);
+}
+.gap-preview__cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-xs);
+}
+.gap-preview__col {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--hairline);
+}
+.gap-preview__col--after {
+  border-color: var(--yellow-glass-rim);
+}
+.gap-preview__label {
+  color: var(--ink-2);
+  text-transform: uppercase;
+} /* with class eyebrow */
+.gap-preview__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.gap-placement {
+  display: grid;
+  gap: var(--space-xs);
+}
+.gap-dialog {
+  display: grid;
+  gap: var(--space-sm);
+}
+.gap-dialog__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.gap-follow,
+.gap-events {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gap-event {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2xs) var(--space-sm);
+  padding-block: var(--space-2xs);
+  border-bottom: 1px solid var(--hairline);
+}
+.gap-event__meta {
+  color: var(--ink-2);
+}
+
+/* The header row's actions, right of the tabs: "Raise a gap", then "Resolve gaps" (busy: not dimmed, a small spinner before the label;
+   off and busy are aria-disabled, ui-gaps-app.css dims off). */
+.gaps-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.gaps-actions .gdg-btn {
+  white-space: nowrap;
+}
+.gaps-actions .gdg-btn.gaps-resolve {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.gaps-actions .gdg-btn.gaps-resolve--busy {
+  opacity: 1;
+  cursor: progress;
+}
+.gaps-resolve__spin {
+  width: 14px;
+  height: 14px;
+}
+
+/* The "Resolve gaps" confirmation: one line per staged gap (title), then its answer and who staged it. */
+.gaps-staged {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gaps-staged__item {
+  display: grid;
+  gap: var(--space-2xs);
+  padding-block: var(--space-xs);
+}
+.gaps-staged__item + .gaps-staged__item {
+  border-top: 1px solid var(--hairline);
+}
+.gaps-staged__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.gaps-staged__meta {
+  color: var(--ink-2);
+}
+
+/* "Answered by AI" rows: rows like the noise report's. */
+.ai-answers,
+.noise-tab {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+}
+.ai-row {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+}
+.ai-row + .ai-row {
+  border-top: 1px solid var(--hairline);
+}
+.ai-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.ai-row__title {
+  margin: 0;
+} /* with class headline */
+.ai-row__q,
+.ai-row__meta {
+  margin: 0;
+  color: var(--ink-2);
+}
+/* The noise rules under the report, and the form that adds one. */
+.noise-rules {
+  gap: var(--space-sm);
+}
+.noise__value {
+  flex: 1;
+  min-width: 10rem;
+  overflow-wrap: anywhere;
+}
+.noise-add {
+  display: grid;
+  gap: var(--space-sm);
+  max-width: 48rem;
+}
+
+/* The gap check status line above the tabs' content: whether Specflow is looking for gaps now, and what the last check found. A strong
+   glass strip with a status edge (the phase is also in words, never by colour alone). */
+.gap-check {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid var(--ink-3);
+  background: var(--glass-fill-strong);
+  color: var(--ink);
+}
+.gap-check[data-phase="running"],
+.gap-check[data-phase="queued"],
+.gap-check[data-phase="building"] {
+  border-inline-start-color: var(--yellow);
+}
+.gap-check[data-phase="done"] {
+  border-inline-start-color: var(--success);
+}
+.gap-check[data-phase="degraded"],
+.gap-check[data-phase="failed"] {
+  border-inline-start-color: var(--danger);
+}
+.gap-check__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.gap-check__title {
+  margin: 0;
+  font-weight: 600;
+}
+.gap-check__detail {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* The assignee menu of an inbox row (AssigneeMenu.tsx, FR-GWEB-06): the cell's avatar and name are the trigger. */
+.gaps-assignee {
+  min-width: 0;
+  max-width: 100%;
+}
+.gaps-assignee--fixed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.gaps-assignee__trigger {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.gaps-assignee__trigger:hover {
+  background: var(--glass-tint);
+}
+.gaps-assignee__trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.gaps-assignee__trigger:disabled {
+  cursor: progress;
+}
+.gaps-assignee__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

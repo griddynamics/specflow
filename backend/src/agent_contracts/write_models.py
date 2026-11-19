@@ -9,8 +9,8 @@ from typing import Annotated, Final, Literal
 
 from pydantic import AwareDatetime, BaseModel, Field
 
-from agent_contracts.models import ProjectArguments
-from agent_contracts.spec_models import MAX_ID_CHARS, Holder
+from agent_contracts.models import Holder, ProjectArguments
+from agent_contracts.spec_models import MAX_ID_CHARS
 from agent_contracts.story_models import MAX_NOTE_CHARS, MAX_TOKEN_CHARS
 from graph.plan.models import TaskItem
 from graph.plan.names import TaskProgress
@@ -46,7 +46,9 @@ class AddFindingBody(BaseModel):
         description="gap: the spec does not say; conflict: two parts disagree; question: for the owner; note: learned."
     )
     text: str = Field(
-        min_length=1, max_length=MAX_TEXT_CHARS, description="What you found, in 1 to 2000 characters; no secrets."
+        min_length=1,
+        max_length=MAX_TEXT_CHARS,
+        description="What you found: a question of 10 to 1000 characters (a note: up to 2000); no secrets.",
     )
     about: list[Id] = Field(
         min_length=1, max_length=MAX_ABOUT, description="1 to 20 spec ids the finding is about; aliases resolve."

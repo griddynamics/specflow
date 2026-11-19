@@ -14,11 +14,13 @@ from typing import Any, Final
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError, database_unavailable, graph_unavailable, required
+from api.gap.runner import GapRunner
 from api.graph_build.runner import GraphBuildRunner
 from api.plan.runner import GraphPlanRunner
 from db import session as db_session
 from db.session import is_database_unreachable
 from graph.core import InfrastructureUnavailableError
+from graph.gap import GapSettings
 from graph.stores import build_store
 from health import (
     Readiness,
@@ -29,7 +31,7 @@ from health import (
 )
 from logger.correlation import run_in_context
 from logger.logger import WARNING, get_logger, log_event
-from settings import GRAPH_BUILD_SWITCHES, RoleSettings
+from settings import GRAPH_BUILD_SWITCHES, GraphBuildSettings, RoleSettings
 from storage import factory as storage_factory
 from temporal import client as temporal_client
 
@@ -76,6 +78,8 @@ class Runtime:
     graph_builds: Any = None
     # api.plan.runner.GraphPlanRunner; None = plan not configured (503); set with the graph build
     plans: Any = None
+    # api.gap.runner.GapRunner; None = gap runs not configured (503); set with the graph build when GAP_ENABLED
+    gaps: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
     cleanups: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
@@ -203,21 +207,6 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             }
         )
         session_factory = db_session.build_session_factory(engine)
-        graph_builds = None
-        plans = None
-        if settings.graph_build is None:
-            # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
-            log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))
-        else:
-            graph_builds = GraphBuildRunner(
-                settings.graph_build,
-                store=graph_store,
-                session_factory=session_factory,
-            )
-            plans = GraphPlanRunner(settings.graph_build, store=graph_store)
-            # Pushed last, so they run first: plan runs and builds stop before the store and engine close.
-            stack.push_async_callback(graph_builds.aclose)
-            stack.push_async_callback(plans.aclose)
         runtime = Runtime(
             settings=settings,
             session_factory=session_factory,
@@ -225,8 +214,36 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             temporal=connection.client,
             graph_store=graph_store,
             readiness=readiness,
-            graph_builds=graph_builds,
-            plans=plans,
         )
+        if settings.graph_build is None:
+            # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
+            log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))
+        else:
+            _add_runners(runtime, settings.graph_build, settings.gap or GapSettings(), stack)
         runtime.cleanups.append(stack.pop_all().aclose)
     return runtime
+
+
+def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSettings, stack: AsyncExitStack) -> None:
+    """The graph build, gap and plan runners of the runtime. The gap runner (``GAP_ENABLED``) hears of every returned
+    build and the plan runner waits for its runs; its relational ports use the runtime's transactions, and it applies
+    answers through update builds of the graph build runner (``BuildRequests``)."""
+
+    if gap.enabled:
+        runtime.gaps = GapRunner(graph_build, gap, store=runtime.graph_store, transaction=runtime.transaction)
+        stack.push_async_callback(runtime.gaps.aclose)
+    else:
+        log_event(logger, WARNING, "api.gap.disabled")
+    runtime.graph_builds = GraphBuildRunner(
+        graph_build,
+        store=runtime.graph_store,
+        session_factory=runtime.session_factory,
+        gaps=runtime.gaps,
+    )
+    if runtime.gaps is not None:  # answers are applied by update builds of this runner
+        runtime.gaps.use_builds(runtime.graph_builds)
+        runtime.gaps.start_recovery()  # applies a restart left behind (their update builds)
+    runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps)
+    # Pushed last, so they run first: plan runs, builds and then gap runs stop before the store and engine close.
+    stack.push_async_callback(runtime.graph_builds.aclose)
+    stack.push_async_callback(runtime.plans.aclose)

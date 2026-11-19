@@ -16,9 +16,11 @@ export interface SegmentedControlProps {
   onChange?: (value: string) => void;
   /** Accessible group name. */
   label: string;
+  /** Prefix of the segments' hook ids (`<prefix>-<value>`). */
+  testId?: string;
 }
 
-export function SegmentedControl({ options, value, defaultValue, onChange, label }: Readonly<SegmentedControlProps>) {
+export function SegmentedControl({ options, value, defaultValue, onChange, label, testId }: Readonly<SegmentedControlProps>) {
   const [cur, set] = useControlled<string | undefined>(
     value,
     defaultValue ?? options[0]?.value,
@@ -78,6 +80,7 @@ export function SegmentedControl({ options, value, defaultValue, onChange, label
           key={o.value}
           type="button"
           className="gdg-seg-btn"
+          data-testid={testId === undefined ? undefined : `${testId}-${o.value}`}
           aria-pressed={cur === o.value}
           tabIndex={tabStop === o.value ? 0 : -1}
           ref={(el) => {

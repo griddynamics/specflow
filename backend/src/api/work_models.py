@@ -6,15 +6,17 @@ Holders and authors are names (``Holder``): no user id, email or claim token lea
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from agent_contracts import Holder, RefersTo
 from api.agent_views import Holders
-from graph.gap import Finding
-from graph.gap.names import NOTE_LIMIT
+from api.gap.development import finding_kind, finding_status
+from graph.gap import GapView
 from graph.plan import ClaimRow
+
+NOTE_LIMIT: Final = 500
 
 FindingStatusQuery = Literal["open", "resolved", "dismissed", "all"]
 
@@ -83,23 +85,34 @@ class ReleasedClaimOut(BaseModel):
     released: int
 
 
-def finding_out(finding: Finding, holders: Holders, titles: Mapping[str, str] | None = None) -> FindingOut:
+def finding_out(
+    gap: GapView,
+    holders: Holders,
+    titles: Mapping[str, str] | None = None,
+    *,
+    status: Literal["open", "resolved", "dismissed"] | None = None,
+) -> FindingOut:
+    """A development gap as the findings list shows it (the ``/findings`` routes are aliases of the gaps routes,
+    docs/graph/gap/api.md "Web routes"): its id is the gap id, the question its text; ``status`` overrides the gap's
+    (a dismissed gap is gone, so its answer says ``dismissed``). References stay in the gap's first event."""
+
+    answer = gap.clarification
     return FindingOut(
-        finding_id=finding.finding_id,
-        kind=finding.kind,
-        text=finding.text,
-        status=finding.status,
-        blocking=finding.blocking,
-        about=list(finding.about_spec_ids),
-        refers_to=[RefersTo(type=ref.type, value=ref.value) for ref in finding.refers_to],
-        story_id=finding.story_id,
-        story_title=None if finding.story_id is None or titles is None else titles.get(finding.story_id),
-        author=holders.of(finding.created_by) or Holder(name=None, you=False),
-        created_at=finding.created_at,
-        resolved_by=holders.of(finding.resolved_by),
-        resolved_at=finding.resolved_at,
-        resolution_note=finding.resolution_note,
-        orphaned=finding.orphaned,
+        finding_id=gap.gap_id,
+        kind=finding_kind(gap.kind),
+        text=gap.question,
+        status=status or finding_status(gap.status),
+        blocking=gap.blocking,
+        about=[node.spec_id for node in gap.about],
+        refers_to=[],
+        story_id=gap.story_id,
+        story_title=None if gap.story_id is None or titles is None else titles.get(gap.story_id),
+        author=holders.of(gap.created_by) or Holder(name=None, you=False),
+        created_at=gap.created_at,
+        resolved_by=holders.of(answer.answered_by) if answer is not None and gap.status == "resolved" else None,
+        resolved_at=gap.resolved_at,
+        resolution_note=None,
+        orphaned=not gap.about,
     )
 
 
@@ -116,5 +129,9 @@ def claim_out(row: ClaimRow, holders: Holders) -> ClaimOut:
     )
 
 
-def user_ids(findings: Iterable[Finding]) -> list[str | None]:
-    return [who for finding in findings for who in (finding.created_by, finding.resolved_by)]
+def user_ids(gaps: Iterable[GapView]) -> list[str | None]:
+    return [
+        who
+        for gap in gaps
+        for who in (gap.created_by, gap.clarification.answered_by if gap.clarification is not None else None)
+    ]

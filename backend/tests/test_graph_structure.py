@@ -518,9 +518,14 @@ def plan_literals() -> tuple[set[str], set[str]]:
     return names - DATA_MODEL_VALUES, library_only
 
 
+GAP_LIBRARY_VALUES = frozenset({"pr", "commit", "file", "url"})
+"""Library-only values of ``graph.gap``: the source ref types of a development gap (kept in its first event, never a
+graph value)."""
+
+
 def gap_literals() -> set[str]:
-    """The names the gap ontology file declares: its labels, relations and vocabulary values, which ``graph.gap``
-    may write as literals (gap.md "Rules", like the plan's)."""
+    """The names the gap ontology file declares (its labels, relations and vocabulary values) and the gap's
+    library-only values, which ``graph.gap`` may write as literals (like the plan's)."""
 
     ontology = load_ontology()
     owned = {name for name in (*ontology.labels, *ontology.relations) if ontology.owner_of(name) == "gap"}
@@ -528,7 +533,7 @@ def gap_literals() -> set[str]:
         if ontology.owner_of(node_type.label) == "gap":
             for spec in node_type.attributes.values():
                 owned.update(spec.values)
-    return owned - DATA_MODEL_VALUES
+    return (owned | GAP_LIBRARY_VALUES) - DATA_MODEL_VALUES
 
 
 def test_i4_no_ontology_names_in_code() -> None:
@@ -552,7 +557,7 @@ def test_i4_no_ontology_names_in_code() -> None:
 
 def test_i4_gap_name_literals_are_declared_by_the_gap_ontology() -> None:
     own_gap = gap_literals()
-    assert {"Finding", "ExternalRef", "ABOUT", "REFERS_TO", "open", "question", "commit", "file", "agent"} <= own_gap
+    assert {"Gap", "Clarification", "ABOUT", "CITES", "open", "open_question", "development", "file"} <= own_gap
     violations = [
         f"{module.where(node)} {node.value!r}"
         for module in modules()

@@ -7,14 +7,12 @@ from typing import Any
 
 import pytest
 
-from gap_support import Clock, MemoryGapExecutor
 from graph.core.errors import ConfigurationError
-from graph.core.ontology import load_ontology
-from graph.gap import Findings
 from graph.plan import PlanReadError, PlanService
 from graph.plan.reader import LoadedPlan
 from graph_plan_support import plan_ontology, plan_rules
 from graph_trace_support import shop_graph
+from plan_findings_support import MemoryFindings
 from plan_trace_support import CHECKOUT, COMMIT, PAYMENTS, PROJECT, STRIPE, ShopSpecGraph, offline, shop_plan, task
 
 SEEDS = ["FEAT::CARD_PAYMENT", "REQ::FR::CARD_PAYMENT"]
@@ -99,25 +97,13 @@ async def test_based_on_of_the_worked_example_reports_completed_nodes() -> None:
 
 
 async def test_the_overlay_adds_open_finding_counts_from_the_findings_port_context_nodes_included() -> None:
-    # Scenario: the real Findings library behind the port; two open findings about FEAT::CHECKOUT, one about the module
-    # that owns the seeds, a resolved one about MOD::STRIPE and a finding about a merged-away id.
-    memory = MemoryGapExecutor()
-    for spec_id, label in (
-        ("FEAT::CHECKOUT", "Feature"),
-        ("MOD::STRIPE", "Module"),
-        ("MOD::PAYMENTS_SERVICE", "Module"),
-    ):
-        memory.spec(spec_id, label)
-    findings = Findings(memory, load_ontology(), clock=Clock())
-
-    async def add(text: str, about: list[str], by: str = "u1") -> Any:
-        return await findings.add(PROJECT, created_by=by, kind="gap", text=text, about=about)
-
-    await add("one", ["FEAT::CHECKOUT"])
-    await add("two", ["FEAT::CHECKOUT", "MOD::STRIPE"], by="u2")
-    await add("three", ["MOD::PAYMENTS_SERVICE"])
-    closed = (await add("four", ["MOD::STRIPE"])).finding
-    await findings.resolve(PROJECT, closed.finding_id, by="lead")
+    # Scenario: a memory findings port; two open findings about FEAT::CHECKOUT, one about the module that owns the
+    # seeds and a resolved one about MOD::STRIPE.
+    findings = MemoryFindings()
+    findings.add("gap", "one", ["FEAT::CHECKOUT"])
+    findings.add("gap", "two", ["FEAT::CHECKOUT", "MOD::STRIPE"], created_by="u2")
+    findings.add("gap", "three", ["MOD::PAYMENTS_SERVICE"])
+    findings.close(findings.add("gap", "four", ["MOD::STRIPE"]).finding_id)
 
     trace = await service(findings=findings).trace(PROJECT, spec_ids=SEEDS, direction="affects", depth=2)
 

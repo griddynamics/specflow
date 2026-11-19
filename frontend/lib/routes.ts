@@ -4,7 +4,7 @@ export type AppMode = "production";
 export type MissionControlView = "readme" | "business" | "architecture" | "files" | "sources"; // "sources": Phase 1 sources screen only
 export type PlanView = "plan" | "work" | "develop"; // P20 (Plan page, AUTO-17)
 export type SettingsTab = "general"; // the Settings tabs (docs/projects/ui.md#route-and-sidebar)
-export type RouteKey = "home" | "missionControl" | "decisions" | "plan" | "specbot" | "settings" | "connections" | "guides";
+export type RouteKey = "home" | "missionControl" | "gaps" | "plan" | "specbot" | "settings" | "connections" | "guides";
 /** The Guides topics (MCP-M10): `/guides/{topic}`. Any other topic answers 404. */
 export const GUIDE_TOPICS = ["specflow-101", "best-practices", "mcp-server"] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
@@ -13,7 +13,7 @@ export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMode[] }> = {
   home: { template: "", trees: ["production"] },
   missionControl: { template: "/projects/{projectId}/mission-control", trees: ["production"] },
-  decisions: { template: "/projects/{projectId}/decisions", trees: ["production"] },
+  gaps: { template: "/projects/{projectId}/gaps", trees: ["production"] }, // FR-GWEB-04: the Gaps screen (was Decisions)
   plan: { template: "/projects/{projectId}/plan", trees: ["production"] }, // P20; page files in P21
   specbot: { template: "/projects/{projectId}/specbot", trees: ["production"] },
   settings: { template: "/projects/{projectId}/settings", trees: ["production"] }, // ?tab=general (the only tab)
@@ -27,7 +27,7 @@ export interface RouteBuilder {
   home(): string;
   missionControl(projectId: string, opts?: { view?: MissionControlView }): string;
   file(projectId: string, ref: { path: string; anchor?: string }): string; // view=files&file=...&section=...
-  decisions(projectId: string, opts?: { decisionId?: string }): string;
+  gaps(projectId: string, opts?: { gapId?: string }): string; // `?gap=<id>` opens that gap's card
   plan(projectId: string, opts?: { view?: PlanView }): string; // no `view` → clean path (Stage 2 opens on Plan)
   specbot(projectId: string): string;
   settings(projectId: string, opts?: { tab?: SettingsTab }): string; // no `tab` -> clean path (opens on General)
@@ -59,7 +59,7 @@ export function routesFor(mode: AppMode): RouteBuilder {
     home: () => "/",
     missionControl: (projectId, opts) => withQuery(at("missionControl", { projectId }), { view: opts?.view }),
     file: (projectId, ref) => withQuery(at("missionControl", { projectId }), { view: "files", file: ref.path, section: ref.anchor }),
-    decisions: (projectId, opts) => withQuery(at("decisions", { projectId }), { decision: opts?.decisionId }),
+    gaps: (projectId, opts) => withQuery(at("gaps", { projectId }), { gap: opts?.gapId }),
     plan: (projectId, opts) => withQuery(at("plan", { projectId }), { view: opts?.view }),
     specbot: (projectId) => at("specbot", { projectId }),
     settings: (projectId, opts) => withQuery(at("settings", { projectId }), { tab: opts?.tab }),
@@ -83,8 +83,9 @@ export function parseMissionControlQuery(q: URLSearchParams): {
   };
 }
 
-export function parseDecisionsQuery(q: URLSearchParams): { decisionId: string | null } {
-  return { decisionId: q.get("decision") };
+/** FR-GWEB-04: `gap` of the Gaps route (the open card); missing -> null. */
+export function parseGapsQuery(q: URLSearchParams): { gapId: string | null } {
+  return { gapId: q.get("gap") };
 }
 
 /** FE-PLAN-05 (TECH-SPECS §1.1): `view` of the Plan route; missing or unknown -> null, never an error. */

@@ -1,28 +1,32 @@
 // MCP-TOOLING session 10: Plan › Work on the PRODUCTION routes against the stub API through the real BFF: the findings list (empty, blocking
-// first, the node filter, links), resolve and dismiss with a note, the failure and the "already answered" cases, and the claims board with the
+// first, the node filter, links, the link to the finding's gap card), resolve and dismiss with a note, the failure and the "already answered" cases, and the claims board with the
 // forced release and its confirmation. No paid model call: the stub seeds findings and claims through its control port.
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
+import { gap, node } from "./gaps-fixtures";
 import {
   allowConsoleErrors,
   bff,
+  buildGraphAndPlan,
   createViaNew,
   expect,
   expectUploadReady,
   login,
   pickLocalPdf,
   rail,
+  seedGaps,
   seedWork,
   STUB_TIMING,
   stubTiming,
   test,
 } from "./support";
 
+const CURRENCIES = "Which currencies does the API accept?";
 const person = (name: string, you = false, agentLabel: string | null = null) => ({ name, you, agent_label: agentLabel });
 const finding = (id: string, over: Record<string, unknown> = {}) => ({
   finding_id: id,
   kind: "question",
-  text: "Which currencies does the API accept?",
+  text: CURRENCIES,
   status: "open",
   blocking: true,
   about: ["FEAT::API"],
@@ -94,18 +98,7 @@ test.describe("Plan > Work on production routes", { tag: "@production" }, () => 
     const pid = await createViaNew(page, unique());
     await pickLocalPdf(page, "requirements.pdf");
     await expectUploadReady(page);
-    expect((await bff(page, "POST", `/projects/${pid}/graph_build`, { reasoning_level: 3 })).status).toBe(202);
-    await expect
-      .poll(
-        async () =>
-          ((await bff(page, "GET", `/projects/${pid}/graph_build`)).json as { status: "idle" | "running" | "succeeded" | "failed" }).status,
-        { timeout: 10_000 },
-      )
-      .toBe("succeeded");
-    expect((await bff(page, "POST", `/projects/${pid}/plan`, { replan: false })).status).toBe(202);
-    await expect
-      .poll(async () => ((await bff(page, "GET", `/projects/${pid}/plan`)).json as { has_plan: boolean }).has_plan, { timeout: 15_000 })
-      .toBe(true);
+    await buildGraphAndPlan(page, pid);
     await seedWork(pid, seed);
     await rail(page).getByRole("button", { name: "Plan", exact: true }).click();
     await expect(page.getByTestId("screen-plan")).toHaveAttribute("data-stage", "ready", { timeout: 15_000 });
@@ -144,13 +137,34 @@ test.describe("Plan > Work on production routes", { tag: "@production" }, () => 
     await expect(findings(page).getByRole("heading", { name: "No resolved findings" })).toBeVisible();
   });
 
+  test("each finding links to its gap card on the Gaps screen (a finding is a development gap)", async ({ page }) => {
+    const GAP_ID = "GAP::API_CURRENCY";
+    const pid = await workScreen(page, { findings: [finding(GAP_ID)] });
+    await seedGaps(pid, {
+      gaps: [
+        gap(GAP_ID, {
+          origin: "development",
+          blocking: true,
+          title: CURRENCIES,
+          question: CURRENCIES,
+          about: [node("FEAT::API", "Feature", "Order API")],
+        }),
+      ],
+    });
+    const link = page.getByTestId("finding").getByTestId("finding-gap-link");
+    await expect(link).toHaveAttribute("href", `/projects/${pid}/gaps?gap=${encodeURIComponent(GAP_ID)}`);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/gaps\\?gap=GAP%3A%3AAPI_CURRENCY$`));
+    await expect(page.getByRole("dialog", { name: CURRENCIES })).toBeVisible();
+  });
+
   test("resolving a blocking finding with a note closes it and it shows under Resolved with who answered and the note", async ({
     page,
   }) => {
     await workScreen(page, { findings: [finding("FND::1"), note] });
     await page.getByTestId("finding").first().getByTestId("finding-resolve").click();
     const dialog = page.getByRole("dialog", { name: "Resolve finding" });
-    await expect(dialog).toContainText("Which currencies does the API accept?");
+    await expect(dialog).toContainText(CURRENCIES);
     await expect(dialog).toContainText("Checkout");
     await dialog.getByLabel("Note (optional)").fill("Euro and dollar only.");
     await dialog.getByTestId(CONFIRM).click();

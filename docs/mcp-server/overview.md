@@ -23,7 +23,7 @@ specification, and later its implementation plan. Every deployment and every loc
 | Version | Tools | Status |
 |---|---|---|
 | 1 | `list_projects`, `list_features`, the plan tools `list_tasks`, `list_feature_tasks`, `get_task_path` and `get_task_brief`, and the prompt `select_project` | specified here |
-| story and spec tools | people: `list_areas`, `list_stories`, `preview_story`, `claim_story`, `release_story`; agent reads: `get_story_brief`, `trace`, `get_node`, `search_spec`, `similar`, `get_evidence`, `path`, `expand_brief`; agent writes: `add_finding`, `report_task`, `complete_story`; the prompt `start` | [tools.md](tools.md#story-and-spec-tools) |
+| story and spec tools | people: `list_areas`, `list_stories`, `preview_story`, `claim_story`, `release_story`; agent reads: `get_story_brief`, `trace`, `get_node`, `search_spec`, `similar`, `get_evidence`, `path`, `expand_brief`, `list_gaps`; agent writes: `add_finding`, `report_task`, `complete_story`; the prompt `start` | [tools.md](tools.md#story-and-spec-tools) |
 | later | leases, a merge reported by CI, an MCP Apps view and the rest of [later.md](later.md) | [later.md](later.md) |
 
 ## Goals

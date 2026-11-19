@@ -9,7 +9,7 @@ from typing import Annotated, Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_contracts.models import MAX_NEIGHBOURS, ProjectArguments
+from agent_contracts.models import MAX_NEIGHBOURS, FindingItem, Holder, ProjectArguments
 from graph.plan.models import BriefContract, BriefNeighbour, BriefNode, BriefQuestion, DoneWhen, WorkAreaInfo
 from graph.plan.names import Complexity, Phase, StoryKind, StoryProgress, StoryState, TaskProgress, TaskStatus
 
@@ -38,25 +38,6 @@ SearchMatch = Literal["id", "text", "vector", "both"]
 ExpansionVia = Literal["graph", "similar", "both"]
 PathStepKind = Literal["forward", "backward", "scope"]
 PathReason = Literal["same_node", "no_directed_chain", "not_connected", "search_limit"]
-
-
-class Holder(BaseModel):
-    """The person behind a claim, a task or a finding: no user id, token or email (tools.md "Holders")."""
-
-    name: str | None
-    you: bool
-    agent_label: str | None = None
-
-
-class FindingItem(BaseModel):
-    """An open finding about a node or a story."""
-
-    finding_id: str
-    kind: str
-    text: str
-    blocking: bool
-    about: list[str]
-    author: Holder
 
 
 class TaskRef(BaseModel):

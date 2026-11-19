@@ -515,7 +515,7 @@ async def test_where_none_means_property_absent_and_passes_validation() -> None:
 
 async def test_unknown_label_is_rejected() -> None:
     with pytest.raises(ConfigurationError) as raised:
-        await reader(ScriptedExecutor({})).find_nodes(PROJECT, "x", labels=["Finding"])
+        await reader(ScriptedExecutor({})).find_nodes(PROJECT, "x", labels=["Gap"])
     assert raised.value.code == "unknown_label"
 
 
@@ -989,7 +989,7 @@ async def test_fr_mcp_tool_10_the_limit_bounds_are_accepted(limit: int) -> None:
     assert executor.calls[0][1]["limit"] == limit + 1
 
 
-@pytest.mark.parametrize("labels", [["Finding"], ["Document"], [FR, "Nope"], "SpecNode"])
+@pytest.mark.parametrize("labels", [["Gap"], ["Document"], [FR, "Nope"], "SpecNode"])
 async def test_fr_mcp_tool_10_unknown_and_non_spec_labels_raise_for_both_methods(labels: Any) -> None:
     """FR-MCP-TOOL-10: labels are validated as in ``nodes`` (spec labels only); no query runs."""
 

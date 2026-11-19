@@ -17,8 +17,8 @@ from graph.core.query_files import read_ddl_file
 GAP_DDL_TEXT: Final = """// Schema DDL of the gap test ontology (applied after the shipped DDL).
 CREATE INDEX graph_edge_key_cites IF NOT EXISTS FOR ()-[r:CITES]-() ON (r.group_id, r.edge_key);
 CREATE INDEX graph_edge_key_flags IF NOT EXISTS FOR ()-[r:FLAGS]-() ON (r.group_id, r.edge_key);
-CREATE CONSTRAINT graph_foreign_uuid_finding IF NOT EXISTS
-  FOR (n:Finding) REQUIRE (n.group_id, n.uuid) IS UNIQUE;
+CREATE CONSTRAINT graph_foreign_uuid_gap IF NOT EXISTS
+  FOR (n:Gap) REQUIRE (n.group_id, n.uuid) IS UNIQUE;
 """
 
 
