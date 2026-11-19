@@ -1,6 +1,6 @@
 // FR-GWEB-04 (read part), FR-GRTE-06: the Gaps screen on the PRODUCTION routes against the stub API through the real BFF, with shop-corpus
 // gaps seeded through the stub's control port (no paid model call): the inbox (every open gap a run found, a page at a time with "Show
-// more"), "Raise a gap" and "Resolve gaps" in the header row beside the tabs (off with its reason while nothing is staged), the filters
+// more"; while a run runs, the gaps it records appear without a reload, marked New), "Raise a gap" and "Resolve gaps" in the header row beside the tabs (off with its reason while nothing is staged), the filters
 // going to the server (Status: Open, Staged, Resolved, All; the Assigned filter and column, FR-GWEB-06), the
 // question card with its recommended option preselected, quotes and ABOUT/IMPACTS chips, the noise report tab, the gap check status line
 // and the "not available" state of `503 gap_unavailable`. Opening the screen and a card only reads (GETs); the writes are in
@@ -9,12 +9,15 @@ import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
 import {
   CANCEL_TITLE,
+  FINISHED_RUN,
   foundGaps,
   GUEST_TITLE,
   ME_ID,
   NOISE_RUN,
   PAYMENT_PROVIDER_FINDING,
   PAYMENT_PROVIDER_TITLE,
+  recordedGap,
+  RUNNING_RUN,
   shopGaps,
 } from "./gaps-fixtures";
 import {
@@ -28,6 +31,7 @@ import {
   login,
   pickLocalPdf,
   rail,
+  recordGaps,
   seedGaps,
   STUB_TIMING,
   stubTiming,
@@ -43,6 +47,8 @@ const screen = (page: Page) => page.getByTestId("screen-gaps");
 const inboxRows = (page: Page) => page.getByRole("list", { name: "Gaps" }).getByRole("listitem");
 const row = (page: Page, title: string) => inboxRows(page).filter({ hasText: title });
 const showMore = (page: Page) => screen(page).getByRole("button", { name: "Show more", exact: true });
+const PHASE = "data-phase";
+const ROW_NEW = "gap-row-new";
 
 async function pick(page: Page, filter: string, choice: string) {
   await page.getByTestId(`select-${filter}`).getByRole("button").click();
@@ -114,6 +120,71 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     const pages = calls(requests.slice(reread)).map((r) => r.path + r.search);
     expect(pages).toContain(`${base}status=open&route=ask`);
     expect(pages).toContain(`${base}status=open&route=ask&cursor=50`);
+  });
+
+  test("FR-GWEB-04, FR-GRTE-06: while a gap run runs the inbox shows each gap it records without a reload, marked New on the row and the card; the open card, the focus, the scroll and the loaded pages stay; New stays until the next run starts", async ({
+    page,
+  }) => {
+    const { pid } = await shopProject(page);
+    await seedGaps(pid, { gaps: [...shopGaps(), ...foundGaps(50)], run: RUNNING_RUN });
+    await page.goto(`/projects/${pid}/gaps`);
+    let loads = 0;
+    page.on("load", () => {
+      loads++;
+    });
+    const line = page.getByTestId("gap-check");
+    await expect(line).toHaveAttribute(PHASE, "running");
+    await expect(line.getByRole("progressbar", { name: "Gap check progress" })).toBeVisible();
+    await expect(page.getByTestId("gap-check-detail")).toHaveText("Step 6 of 7: Investigating · 3 of 12 sites");
+    await expect(inboxRows(page)).toHaveCount(50);
+    await showMore(page).click();
+    await expect(inboxRows(page)).toHaveCount(55);
+    await expect(page.getByTestId(ROW_NEW)).toHaveCount(0); // made before the run started
+
+    // The run records a site: its gap appears in its place (above the viewport) without a reload; the focused last row keeps focus and
+    // place.
+    const last = row(page, GUEST_TITLE).getByRole("button").first();
+    await last.focus();
+    const before = defined(await last.boundingBox(), "the last row");
+    await recordGaps(pid, [recordedGap(1)]);
+    await expect(row(page, "Recorded question 1").getByTestId(ROW_NEW)).toHaveText("New", { timeout: 15_000 });
+    await expect(inboxRows(page)).toHaveCount(56);
+    await expect(inboxRows(page).nth(3)).toContainText("Recorded question 1");
+    await expect(page.getByTestId("gap-count")).toHaveText("56 gaps");
+    await expect(last).toBeFocused();
+    const after = defined(await last.boundingBox(), "the last row");
+    expect(Math.abs(after.y - before.y), "the last row did not move").toBeLessThan(2);
+    await expect(page.getByTestId("gap-check-detail")).toHaveText("Step 6 of 7: Investigating · 4 of 12 sites");
+    await expect(page.getByTestId("gap-check-listed")).toHaveText("1 new gap listed so far");
+
+    // An open card stays open while the run records another site.
+    await row(page, CANCEL_TITLE).getByRole("button").first().click();
+    const card = page.getByRole("dialog", { name: CANCEL_TITLE });
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId("gap-new")).toHaveCount(0);
+    await recordGaps(pid, [recordedGap(2)]);
+    await expect(page.getByTestId(ROW_NEW)).toHaveCount(2, { timeout: 15_000 });
+    await expect(card).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(inboxRows(page)).toHaveCount(57);
+    await expect(showMore(page)).toHaveCount(0);
+    await expect(page.getByTestId("gap-check-listed")).toHaveText("2 new gaps listed so far");
+    await row(page, "Recorded question 2").getByRole("button").first().click();
+    await expect(page.getByRole("dialog", { name: "Recorded question 2" }).getByTestId("gap-new")).toHaveText("New");
+    await page.keyboard.press("Escape");
+
+    // The run ends: the rows and the loaded pages stay, and so does New; the next run's start clears it.
+    await seedGaps(pid, { run: FINISHED_RUN });
+    await expect(line).toHaveAttribute(PHASE, "done", { timeout: 15_000 });
+    await expect(inboxRows(page)).toHaveCount(57);
+    await expect(page.getByTestId(ROW_NEW)).toHaveCount(2);
+    await expect(page.getByTestId("gap-check-listed")).toHaveCount(0);
+    expect(loads, "the page was never reloaded").toBe(0);
+    await seedGaps(pid, { run: { ...RUNNING_RUN, run_id: "run-9", started_at: "2026-11-13T09:00:00Z" } });
+    await page.reload();
+    await expect(inboxRows(page)).toHaveCount(50);
+    await expect(line).toHaveAttribute(PHASE, "running");
+    await expect(page.getByTestId(ROW_NEW)).toHaveCount(0);
   });
 
   test("FR-GWEB-04: 'Raise a gap' and 'Resolve gaps' sit in the header row right of the tabs on every tab; with nothing staged Resolve gaps is off and says why", async ({
@@ -324,7 +395,7 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
         status: "running",
         step: "investigate",
         steps_done: 5,
-        steps_total: 9,
+        steps_total: 7,
         step_items_done: 7,
         step_items_total: 21,
         result,
@@ -334,11 +405,11 @@ test.describe("Gaps on production routes", { tag: "@production" }, () => {
     const line = page.getByTestId("gap-check");
     await expect(line).toHaveAttribute("data-phase", "running");
     await expect(line.getByTestId("gap-check-title")).toHaveText("Looking for gaps");
-    await expect(line.getByTestId("gap-check-detail")).toHaveText("Step 6 of 9: Investigating · 7 of 21 sites");
-    await expect(line.getByRole("progressbar", { name: "Gap check progress" })).toHaveAttribute("aria-valuenow", "59");
+    await expect(line.getByTestId("gap-check-detail")).toHaveText("Step 6 of 7: Investigating · 7 of 21 sites");
+    await expect(line.getByRole("progressbar", { name: "Gap check progress" })).toHaveAttribute("aria-valuenow", "76");
 
     // The run ends: the line reads again within seconds, says what the run found, and the inbox reads again.
-    await seedGaps(pid, { run: { ...NOISE_RUN, steps_done: 9, steps_total: 9, finished_at: "2026-11-17T12:28:46Z", result } });
+    await seedGaps(pid, { run: { ...NOISE_RUN, steps_done: 7, steps_total: 7, finished_at: "2026-11-17T12:28:46Z", result } });
     await expect(line).toHaveAttribute("data-phase", "done", { timeout: 10_000 });
     await expect(line.getByTestId("gap-check-title")).toHaveText(/^Gaps checked /);
     await expect(line.getByTestId("gap-check-detail")).toHaveText("2 new gaps, 9 updated, 1 resolved");

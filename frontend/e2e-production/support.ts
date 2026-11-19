@@ -284,6 +284,11 @@ export async function seedGaps(
   await control("POST", "/seed-gaps", { pid, ...seed });
 }
 
+/** A running gap run records one more site (stub): its gaps join the project's (same id replaces) and the run counts the site. */
+export async function recordGaps(pid: string, gaps: Record<string, unknown>[]): Promise<void> {
+  await control("POST", "/record-gaps", { pid, gaps });
+}
+
 /** The update build of the applied answers finished (stub): every applying gap of the project resolves with its answer applied. */
 export async function settleGaps(pid: string): Promise<void> {
   await control("POST", "/settle-gaps", { pid });

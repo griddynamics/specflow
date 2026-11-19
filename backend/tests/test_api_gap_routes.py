@@ -163,9 +163,9 @@ class FakeGapRunner:
             run_id="run-1",
             mode="update",
             build_id="build-1",
-            step="record",
-            steps_done=9,
-            steps_total=9,
+            step="finish",
+            steps_done=7,
+            steps_total=7,
             started_at=NOW,
             finished_at=NOW,
             counts={"gaps_new": 2},
@@ -367,7 +367,7 @@ async def test_the_latest_run_answers_its_status_and_result(harness):
     assert (body["status"], body["run_id"], body["steps_done"], body["counts"]) == (
         "completed",
         "run-1",
-        9,
+        7,
         {"gaps_new": 2},
     )
     assert body["result"]["counts"] == {"gaps_new": 2} and body["finished_at"] == "2026-11-05T09:00:00Z"

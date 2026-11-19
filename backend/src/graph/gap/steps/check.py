@@ -1,6 +1,7 @@
-"""Step ``check``: validate each investigation's report in code before anything is written (docs/graph/gap/
-investigation.md "Checks", "Second check", "Pointer answers"; FR-GINV-05, FR-GINV-06, FR-GINV-07, FR-GRUN-04,
-NFR-GSEC-01).
+"""The check of a site, a phase of the step ``investigate``: validate the investigation's report in code before anything
+is written (docs/graph/gap/investigation.md "Checks", "Second check", "Pointer answers"; FR-GINV-05, FR-GINV-06,
+FR-GINV-07, FR-GRUN-04, NFR-GSEC-01). The run checks each site against the gaps in the graph at that moment, so a
+gap an earlier site of the run recorded is matched like any other.
 
 Per investigated site:
 
@@ -15,7 +16,7 @@ Per investigated site:
   a witness, with too few options or with a text it cannot fit is rejected. An options or edit-anchor failure is
   repairable once: one repair call through ``gap_investigate`` (prompt ``gap.investigate.<rev>.repair``) with the
   failures and the fragments the report names, then the checks again.
-- Duplicates: a signature some open or resolved gap has is that gap (the record step re-checks it); a dismissed
+- Duplicates: a signature some open or resolved gap has is that gap (the site's record re-checks it); a dismissed
   signature (``GapRecords.suppressed``) is dropped; a question whose embedding has cosine at least
   ``DUPLICATE_COSINE`` with the question of an open gap whose ``ABOUT`` set overlaps becomes ``duplicate`` of that gap
   (FR-GINV-06).
@@ -26,12 +27,12 @@ Per investigated site:
 - A new gap that could be answered by AI (``route.ai_candidate``: ``minor``, a kind of ``routing.ai_kinds``, AI answers
   on, a recommended option with a basis quote, the local gate holding) goes to the second check of an AI answer
   (prompt ``AI_ANSWER_PROMPT``), which sees only the witness quotes, the recommended option's basis quotes and its
-  edits (answers.md "Gates"); the route step decides with its answer. A failed call is no answer: the gap is routed
+  edits (answers.md "Gates"); the site's route decides with its answer. A failed call is no answer: the gap is routed
   ``ask`` (``ai_judge_failed``), never deferred.
 
-A rejected report gives the outcome ``not_a_gap`` with the failed checks (``rejected``); the record step logs them
+A rejected report gives the outcome ``not_a_gap`` with the failed checks (``rejected``); the site's record logs them
 and caches the verdict, so the same inputs are not investigated again. A model failure in a repair or a judge call
-defers the site. Only what passed is passed on: the record step writes nothing the checks did not keep (NFR-GSEC-01).
+defers the site. Only what passed is passed on: the record writes nothing the checks did not keep (NFR-GSEC-01).
 """
 
 from __future__ import annotations
@@ -372,7 +373,7 @@ def validate_report(view: SiteView, report: GapReport) -> Validation:
     return Validation(checked if not failures else None, warnings, failures)
 
 
-# Model calls of the check step: the repair call and the second check
+# Model calls of a site's check: the repair call and the second check
 
 
 class JudgeAnswer(BaseModel):
@@ -389,7 +390,7 @@ class JudgeAnswer(BaseModel):
 
 @dataclass
 class Usage:
-    """Model calls and estimated input tokens of the check step, per gateway role."""
+    """Model calls and estimated input tokens of a site's check, per gateway role."""
 
     calls: dict[str, int] = field(default_factory=dict)
     tokens: dict[str, int] = field(default_factory=dict)
@@ -492,7 +493,7 @@ JudgeMessages = Callable[[GapReport, ReadResult | None], list[dict[str, Any]]]
 
 @dataclass(frozen=True)
 class CheckRun:
-    """What the check step needs of the run."""
+    """What the check of a site needs of the run."""
 
     project_id: str
     run_id: str
@@ -504,7 +505,7 @@ class CheckRun:
     gaps: Sequence[StoredGap] = ()
     min_confidence: float = 0.85
     signature: Any = None
-    """``(site, report) -> str``: the report's gap signature (the record step's)."""
+    """``(site, report) -> str``: the report's gap signature (the record's)."""
     gates: Gates | None = None
     """The routing gates; None asks no second check of an AI answer."""
     ai_kinds: Collection[str] = ()

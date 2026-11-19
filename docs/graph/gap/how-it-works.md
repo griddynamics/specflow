@@ -29,10 +29,12 @@ build ──> gap run ──> plan run                      (after every build)
             ├─ relevance    spec, tracking or mixed sections
             ├─ detect       detectors, no model: seeds with witnesses
             ├─ sites        seeds merged and ranked: entry points
-            ├─ investigate  one agent per site: real? about what? options
-            ├─ check        quotes, ids, options, duplicates
-            ├─ route        AI or a person
-            └─ record       Gap nodes and relations; options in the relational store
+            ├─ investigate  site by site, each one finished before the next starts:
+            │    ├─ investigate  one agent per site: real? about what? options
+            │    ├─ check        quotes, ids, options, duplicates (gaps of this run included)
+            │    ├─ route        AI or a person
+            │    └─ record       Gap nodes and relations; options in the relational store
+            └─ finish       noise report, tasks held by blocker gaps
 
 answer ──> Clarification ──> amendment or clarifications document
        ──> update build ──> change report ──> gap run (close) ──> plan update (only the touched stories)
@@ -54,7 +56,7 @@ The shop spec says, under "Place order": "Can a customer cancel a paid order?". 
 5. **Check and route.** Code finds every quote in its fragment, resolves every id and confirms one
    recommended option. AI never answers an open question, so the route is `ask`.
 6. **Record.** One `Gap` node, `GAP::7C2A91E04B3D`, with `ABOUT`, `IMPACTS` and `CITES`. The three options
-   are rows in the relational store. The task that implements the requirement now shows the gap in its brief.
+   are rows in the relational store. The gap is in the inbox at once, while the run investigates the next site. The task that implements the requirement now shows the gap in its brief.
 7. **Answer.** The product owner picks option A in the Gaps inbox. A `Clarification` node `ANSWERS` the gap
    and is `PLACED_IN` orders-spec.md. Its edit, "replace the question line with the answer", is stored as an
    amendment.

@@ -4,7 +4,7 @@ adapter"; FR-GINV-09, GC1).
 The host adapter of the gap library's ``Investigator`` port on the OpenAI Agents SDK runtime, chosen by
 ``GapSettings.investigator = "agents"`` (the structured loop stays the default). It runs in the process of the gap run
 (``Runner.run`` outside a Temporal workflow falls back to the SDK's own runner) because its reads are the run's
-``SiteReads``, which remember every id they showed for the check step.
+``SiteReads``, which remember every id they showed for the site's check.
 
 - The read menu becomes one function tool per read (``node``, ``evidence``, ``neighbours``, ``trace``, ``paths``,
   ``similar``, ``find_nodes``, ``find_fragments``); the tools read through the ``SiteReads`` the run hands over in the
@@ -16,7 +16,7 @@ The host adapter of the gap library's ``Investigator`` port on the OpenAI Agents
   the ``report`` tool (until then any tool is ``required``), so a site costs at most ``rounds + 1`` calls. When
   the conversation would exceed ``context_tokens``, the oldest read results are replaced by one-line summaries.
 - The run ends at the ``report`` tool, whose argument is the loop's strict ``WireReport``; the adapter returns the same
-  ``GapReport`` the loop returns, and the check step checks it the same way.
+  ``GapReport`` the loop returns, and the site's check checks it the same way.
 - Every model call goes to the endpoint, key and ``extraction`` model of the run's gateway configuration (GC1), with
   that call class's timeout and attempts, through the Responses API (``/v1/responses``) with ``store`` off: the
   gateway's reasoning models refuse function tools on Chat Completions unless reasoning is switched off, which the

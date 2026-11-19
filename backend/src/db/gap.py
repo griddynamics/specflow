@@ -120,13 +120,21 @@ async def upsert_sites(session: AsyncSession, project_id: uuid.UUID, rows: Seque
 
 
 async def insert_notes(session: AsyncSession, project_id: uuid.UUID, rows: Sequence[Values]) -> None:
+    """Append notes; a row whose id is stored already is skipped (a keyed append written again)."""
+
     if rows:
-        await session.execute(pg_insert(GapNote), _scoped(project_id, rows))
+        await session.execute(
+            pg_insert(GapNote).on_conflict_do_nothing(index_elements=["id"]), _scoped(project_id, rows)
+        )
 
 
 async def insert_events(session: AsyncSession, project_id: uuid.UUID, rows: Sequence[Values]) -> None:
+    """Append events; a row whose id is stored already is skipped (a keyed append written again)."""
+
     if rows:
-        await session.execute(pg_insert(GapEvent), _scoped(project_id, rows))
+        await session.execute(
+            pg_insert(GapEvent).on_conflict_do_nothing(index_elements=["id"]), _scoped(project_id, rows)
+        )
 
 
 async def events(session: AsyncSession, project_id: uuid.UUID, gap_id: str) -> Sequence[RowMapping]:

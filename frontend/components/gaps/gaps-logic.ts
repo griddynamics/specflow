@@ -1,8 +1,9 @@
 // FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "User interface", answers.md "The question card", "Answering", "Applying answers",
 // "Placement rules", "Review list", "Dismissing", "Who answers"; detection.md "Relevance filter"): pure helpers of the Gaps screen and the
 // Plan's gap links. No React, no fetch: the words of kinds, severities, origins, statuses (Open, Staged, Resolved), assignees, noise
-// sections, placements, history events and failures, the filters' options and the `list_gaps` query they make, the inbox order, the card's
-// answer button and the "Resolve gaps" button, the section noise-rule value, and which open gaps belong to a plan task or story.
+// sections, placements, history events and failures, the filters' options and the `list_gaps` query they make, the inbox order, which
+// gaps the latest run found ("New"), the card's answer button and the "Resolve gaps" button, the section noise-rule value, and which open
+// gaps belong to a plan task or story.
 import type { SeverityLevel } from "@/components/ui/SeverityBadge";
 import { isDataError } from "@/lib/domain/errors";
 import {
@@ -54,6 +55,9 @@ export const STATUS_LABEL: Record<GapStatus, string> = { open: "Open", answered:
 
 /** The tag of a gap whose rebuild runs (`applying`), beside its spinner. */
 export const RESOLVING_LABEL = "Resolving…";
+
+/** The tag of a gap the latest gap run found. */
+export const NEW_LABEL = "New";
 
 const STATUS_FILTERS = ["open", "staged", "resolved", "all"] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -175,6 +179,20 @@ export function countText(shown: number, more: boolean): string {
   const n = `${String(shown)}${more ? "+" : ""}`;
   return `${n} ${shown === 1 && !more ? "gap" : "gaps"}`;
 }
+
+/**
+ * A gap the latest gap run found (FR-GRTE-06): a run's own gap (`analysis`, not one a person or a coding agent raised) created at or after
+ * that run started. It stays New after the run ends, until the next run starts; before any run nothing is New.
+ */
+export function isNewGap(g: Gap, check: GapCheck | null): boolean {
+  if (check?.startedAt === null || check?.startedAt === undefined || g.origin !== "analysis") return false;
+  const started = Date.parse(check.startedAt);
+  const created = Date.parse(g.createdAt);
+  return Number.isFinite(started) && Number.isFinite(created) && created >= started;
+}
+
+/** The running check's line about the New rows the inbox lists: "2 new gaps listed so far". */
+export const newListedText = (n: number): string => `${String(n)} new ${n === 1 ? "gap" : "gaps"} listed so far`;
 
 /**
  * Where a witness line is: "<document title or path> › <section path> · line N" when the gap read named its document, else its fragment
@@ -527,10 +545,17 @@ export const GAP_STEP_LABEL: Readonly<Record<string, string>> = {
   detect: "Looking for signals",
   sites: "Grouping the signals",
   investigate: "Investigating",
-  check: "Checking the findings",
-  route: "Choosing who answers",
-  record: "Saving the gaps",
+  finish: "Finishing",
 };
+
+/**
+ * What changes while a gap run records: its step and the sites done (a site's gaps are in the list once it counts as done). null when no
+ * run runs. The inbox reads its rows again whenever it changes.
+ */
+export function checkPulse(c: GapCheck | null): string | null {
+  if (c?.phase !== "running") return null;
+  return `${String(c.stepsDone)}|${c.step ?? ""}|${String(c.itemsDone ?? "")}`;
+}
 
 /** Whether the line must be read again soon: the build or the gap run is under way. */
 export const checkActive = (c: GapCheck): boolean => c.phase === "building" || c.phase === "queued" || c.phase === "running";
@@ -543,7 +568,7 @@ export function checkProgress(c: GapCheck): number {
 }
 
 /** What the items of a step are (graph.gap reports the sites of these steps); a step not named here shows bare counts. */
-const GAP_STEP_ITEMS: Readonly<Partial<Record<string, string>>> = { investigate: "sites", check: "sites" };
+const GAP_STEP_ITEMS: Readonly<Partial<Record<string, string>>> = { investigate: "sites" };
 
 /** The step the running gap run is on, in words, its items as the plan shows them: "Step 6 of 9: Investigating · 7 of 21 sites". */
 export function checkStepText(c: GapCheck): string {

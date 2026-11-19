@@ -11,7 +11,7 @@ Parts, in ``SitePack.context``:
 - ``nearby``: the core ``expand`` from the anchors, within the pack budget the other parts left
   (``limits.pack_tokens`` minus the other parts, at least ``EXPAND_MIN_TOKENS``; none when they used it up).
 
-Every id the pack shows is marked on the site's reads (``GraphSiteReads.show``), so the check step knows which ids the
+Every id the pack shows is marked on the site's reads (``GraphSiteReads.show``), so the site's check knows which ids the
 investigator saw. A read the store refuses leaves its part empty (logged by code); it never fails the site.
 """
 

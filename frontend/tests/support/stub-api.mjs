@@ -447,7 +447,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   // resolved gap opens a follow-up gap, linked both ways in `history.follow_ups`; a pending one sends the gap back open), the noise rules
   // and `PUT /gaps/{id}/assignee` (a member of the project or null; 400 assignee_not_member, 409 gap_wrong_state for a resolved gap; an
   // `assigned` or `unassigned` event by the caller). `settleGaps` (control) settles the
-  // applying gaps: resolved, clarification applied. `state.gapFail` (an API code) makes every gap route answer 503 with it. An unseeded
+  // applying gaps: resolved, clarification applied. `recordGaps` (control) is a running gap run recording one more site: its gaps join
+  // the list (a gap with the same id is replaced) and a running run's `step_items_done` counts the site. `state.gapFail` (an API code) makes every gap route answer 503 with it. An unseeded
   // project has no gaps and an idle run.
   const gapSets = new Map(); // pid -> {gaps, run, rules, reverted: AiAnswer[], seq}
   const gapsOf = (pid) =>
@@ -1221,6 +1222,12 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       if (seed.rules) mine.rules = seed.rules;
     },
     settleGaps,
+    recordGaps: (pid, gaps) => {
+      const mine = gapsOf(pid);
+      const ids = new Set(gaps.map((g) => g.gap_id));
+      mine.gaps = [...mine.gaps.filter((g) => !ids.has(g.gap_id)), ...gaps];
+      if (mine.run.status === "running") mine.run = { ...mine.run, step_items_done: (mine.run.step_items_done ?? 0) + 1 };
+    },
     setTiming: (t) => Object.assign(state, t),
     close: () => close(server),
   };

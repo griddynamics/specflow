@@ -214,6 +214,35 @@ export function foundGaps(n: number) {
   });
 }
 
+/** When the running gap run below started: after the shop gaps and the found gaps were made, before the gaps it records. */
+export const RUN_STARTED = "2026-11-12T09:00:00Z";
+/** A gap run investigating its sites and recording their gaps (step 6 of 7, 3 of 12 sites recorded). */
+export const RUNNING_RUN = {
+  status: "running",
+  run_id: "run-8",
+  mode: "full",
+  step: "investigate",
+  steps_done: 5,
+  steps_total: 7,
+  step_items_done: 3,
+  step_items_total: 12,
+  started_at: RUN_STARTED,
+  result: null,
+};
+
+/** The `n`th gap the running run records (1..59): a major open question for people, made after the run started. */
+export function recordedGap(n: number) {
+  const at = `2026-11-12T09:${String(n).padStart(2, "0")}:00Z`;
+  return gap(`GAP::RECORDED_${String(n)}`, {
+    kind: "open_question",
+    title: `Recorded question ${String(n)}`,
+    question: `What does site ${String(n)} of the run leave open?`,
+    created_at: at,
+    updated_at: at,
+    run_id: "run-8",
+  });
+}
+
 export const NOISE_RUN = {
   status: "completed",
   run_id: "run-7",
@@ -250,4 +279,16 @@ export const NOISE_RUN = {
     held_tasks: [],
     warnings: [],
   },
+};
+
+/** The running run, finished. */
+export const FINISHED_RUN = {
+  ...RUNNING_RUN,
+  status: "completed",
+  step: "finish",
+  steps_done: 7,
+  step_items_done: null,
+  step_items_total: null,
+  finished_at: "2026-11-12T09:20:00Z",
+  result: { ...NOISE_RUN.result, run_id: "run-8" },
 };

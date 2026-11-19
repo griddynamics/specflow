@@ -1,7 +1,9 @@
-"""Step ``record``: write the run's checked and routed reports (docs/graph/gap/data-model.md "Graph model",
-"Identity"; architecture.md "Write ownership"; FR-GOWN-01, FR-GOWN-02, FR-GDET-09).
+"""The record of a site, the last phase of the step ``investigate``: write its checked and routed report as soon as it
+is routed, before the run takes the next site (docs/graph/gap/data-model.md "Graph model", "Identity"; architecture.md
+"Run steps", "Write ownership"; FR-GOWN-01, FR-GOWN-02, FR-GDET-09). ``merged`` sums the outcomes of the sites into
+the step's totals.
 
-For each investigated site, by its checked outcome:
+For each site recorded, by its checked outcome:
 
 - ``gap`` with a node severity: a ``Gap`` node (``gap_id`` from its signature, origin ``analysis``, status ``open``,
   the run id, created and updated instants) with ``ABOUT`` to every node it is about, ``IMPACTS`` to the nodes an
@@ -35,13 +37,21 @@ Every investigated site with a checked outcome stores its report in the verdict 
 later run with the same inputs makes no call (FR-GRUN-03). The step writes only ``Gap`` nodes and the gap relations:
 never a spec node, a spec relation, a document or a fragment (FR-GOWN-01); spec nodes are found by their current id
 or alias through the core read queries, and only pairs of the gap ontology are written.
+
+A record written again (``RecordRun.replay``: a resumed run, over the gaps as the first attempt read them and from the
+same instant on) comes to the same outcome without writing twice: a new gap the graph holds now, or whose signature a
+person dismissed since, is not written again (a dismissed one gets no options); a re-check or a close as ``not_spec``
+writes nothing over a gap whose status or ``updated_at`` changed since, unless the change is the re-check's own
+write. The rows are upserts, and the events and notes are appended under the key of the run and its sites
+(``once``), so they are stored once.
 """
 
 from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
@@ -52,7 +62,16 @@ from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.writer import FRAGMENT, NodeRef, OwnedWriter
 from graph.gap.answers import AnswerGraph, ClarificationWrite, amendment_rows, clarification_props, place
 from graph.gap.answers import write_clarification as write_answer
-from graph.gap.gaps import StoredGap, answer_key, cite_key, clarification_uuid, gap_uuid, link_key, quote_hash
+from graph.gap.gaps import (
+    StoredGap,
+    answer_key,
+    cite_key,
+    clarification_uuid,
+    gap_uuid,
+    link_key,
+    quote_hash,
+    read_gaps,
+)
 from graph.gap.identity import clr_id, gap_id, gap_signature, normalise_quote, witness_entry
 from graph.gap.models import AmendmentRow, EventRow, GapReport, NoteRow, OptionRow, SiteRow, VerdictRow, Witness
 from graph.gap.names import (
@@ -87,6 +106,8 @@ ANSWERED: Final = "answered"
 POINTER: Final = "pointer"
 NOT_BLOCKING: Final = "no"
 YES: Final = "yes"
+PRESENT: Final = "present"
+DISMISSED: Final = "dismissed"
 BLOCKER: Final = "blocker"
 DEVELOPMENT: Final = "development"
 
@@ -107,12 +128,12 @@ class SiteDecision:
     judge: Mapping[str, Any] | None = None
     gates: Mapping[str, bool] = field(default_factory=dict)
     confidence: float | None = None
-    """The second check's confidence of an AI answer (route step)."""
+    """The second check's confidence of an AI answer (the site's route)."""
 
 
 @dataclass(frozen=True)
 class RecordRun:
-    """What the record step needs of the run: the stores, the ontology, the ids and the clock."""
+    """What the record of a site needs of the run: the stores, the ontology, the ids and the clock."""
 
     source: Any
     executor: Any
@@ -127,6 +148,9 @@ class RecordRun:
     build_id: str | None = None
     amendments: Amendments | None = None
     """Where an AI answer's amendment rows go; without it a gap routed ``ai`` is recorded as a question (``ask``)."""
+    replay: bool = False
+    """The record is written again (a resumed run, over the gaps as they were and at the same instants): a graph write
+    that already landed is not repeated, a gap a person changed or dismissed since is left as it is."""
 
 
 @dataclass
@@ -240,6 +264,8 @@ class Recorder:
         self.notes: list[NoteRow] = []
         self.events: list[EventRow] = []
         self.options: dict[str, list[OptionRow]] = {}
+        self.gone: set[str] = set()
+        """New gaps a replay found dismissed since the first attempt wrote them (their options stay deleted)."""
 
     async def record(self, decisions: Sequence[SiteDecision]) -> RecordOutcome:
         run = self.run
@@ -275,7 +301,7 @@ class Recorder:
                         created_at=run.now(),
                     )
                 )
-        await self._flush()
+        await self._flush([decision.site.site_id for decision in decisions])
         log_event(
             logger,
             INFO,
@@ -289,18 +315,22 @@ class Recorder:
         )
         return self.outcome
 
-    async def _flush(self) -> None:
+    async def _flush(self, sites: Sequence[str]) -> None:
+        """The relational rows: keyed upserts and replacements, then the events and the notes, appended once under the
+        key of the run and its sites (a replay appends nothing twice)."""
+
         run, records = self.run, self.run.records
+        once = "|".join((run.run_id, *sites))
         if self.site_rows:
             await records.put_sites(run.project_id, run.run_id, self.site_rows)
         for gap, rows in sorted(self.options.items()):
             await records.put_options(run.project_id, gap, rows)
         for row in self.verdicts:
             await records.put_verdict(run.project_id, row)
-        if self.notes:
-            await records.put_notes(run.project_id, run.run_id, self.notes)
         if self.events:
-            await records.log(run.project_id, self.events)
+            await records.log(run.project_id, self.events, once=once)
+        if self.notes:
+            await records.put_notes(run.project_id, run.run_id, self.notes, once=once)
 
     def _event(self, gap: str | None, event: str, **detail: Any) -> None:
         self.events.append(
@@ -415,24 +445,27 @@ class Recorder:
         answer = self._ai_answer(StoredGap(gap_id=new_id, props=props), report, decision, instant) if ai else None
         owner = NodeRef(GAP, gap_uuid(run.project_id, new_id))
         clarification: str | None = None
-        if answer is not None and answer.rows and run.amendments is not None:
+        written = await self._written(new_id, signature) if run.replay else None
+        write = written is None
+        if write and answer is not None and answer.rows and run.amendments is not None:
             await run.amendments.put(run.project_id, answer.rows)
         try:
-            async with self._writer().transaction() as tx:
-                await tx.upsert_node(GAP, owner.key, props)
-                await self._links(tx, owner, new_id, ABOUT, nodes=about, keys=set())
-                await self._links(tx, owner, new_id, IMPACTS, nodes=impacts, keys=set())
-                await self._cites(tx, owner, new_id, quotes, set())
+            async with self._transaction(write=write) as tx:
+                if tx is not None:
+                    await tx.upsert_node(GAP, owner.key, props)
+                    await self._relations(tx, owner, new_id, about=about, impacts=impacts, quotes=quotes, keys=set())
                 if pointer:
                     clarification = await self._pointer(
                         tx, owner, new_id, decision=decision, report=report, instant=instant
                     )
-                if answer is not None:
+                if answer is not None and tx is not None:
                     await write_answer(tx, run.project_id, answer.write)
         except BaseException:
-            if answer is not None and answer.rows and run.amendments is not None:
+            if write and answer is not None and answer.rows and run.amendments is not None:
                 await run.amendments.delete(run.project_id, [row.amendment_id for row in answer.rows])
             raise
+        if written is DISMISSED:
+            self.gone.add(new_id)
         self.taken[new_id] = signature
         if props["status"] == OPEN and props["severity"] == BLOCKER:
             self.outcome.holds[new_id] = (str(props["kind"]), tuple(ref.spec_id for ref in about))
@@ -537,7 +570,7 @@ class Recorder:
                     detail={"run_id": run.run_id, **answered[1]},
                 )
             )
-        if pointer is None and report.options:
+        if pointer is None and report.options and new_id not in self.gone:
             self.options[new_id] = self._option_rows(new_id, report)
 
     def _ai_answer(
@@ -568,9 +601,17 @@ class Recorder:
         return _AiAnswer(ClarificationWrite(clr, gap, props, lineages), rows)
 
     async def _pointer(
-        self, tx: OwnedWriter, owner: NodeRef, gap: str, *, decision: SiteDecision, report: GapReport, instant: datetime
+        self,
+        tx: OwnedWriter | None,
+        owner: NodeRef,
+        gap: str,
+        *,
+        decision: SiteDecision,
+        report: GapReport,
+        instant: datetime,
     ) -> str:
-        """The pointer clarification of a new gap, ``ANSWERS`` it and ``GROUNDED_IN`` the answering fragment."""
+        """The pointer clarification of a gap, ``ANSWERS`` it and ``GROUNDED_IN`` the answering fragment; its id alone
+        without ``tx`` (a write that already landed)."""
 
         pointer = report.pointer
         if pointer is None:
@@ -592,6 +633,8 @@ class Recorder:
         }
         if self.run.build_id is not None:
             props["applied_build_id"] = self.run.build_id
+        if tx is None:
+            return clr
         await tx.upsert_node(CLARIFICATION, key, props)
         node = NodeRef(CLARIFICATION, key)
         await tx.upsert_relationship(ANSWERS, node, owner, answer_key(clr, ANSWERS, gap), {})
@@ -606,56 +649,12 @@ class Recorder:
         return clr
 
     async def _recheck(self, known: StoredGap, decision: SiteDecision, report: GapReport) -> None:
+        """Re-check ``known`` with a report (an open gap gets what it lacks, ``_recheck_open``), its options, counts and
+        ``rechecked`` event."""
+
         run = self.run
-        added = 0
-        if known.status == OPEN:
-            about = await self._nodes(report.about, ABOUT)
-            impacts = [
-                ref
-                for ref in await self._nodes(report.impacts, IMPACTS)
-                if ref.spec_id not in {a.spec_id for a in about}
-            ]
-            quotes = [
-                item
-                for item in _quotes(decision.site, report, self.snapshot)
-                if item.fragment_id in self.snapshot.fragments
-            ]
-            keys = {link.edge_key for link in (*known.about, *known.impacts)} | {cite.edge_key for cite in known.cites}
-            owner = NodeRef(GAP, gap_uuid(run.project_id, known.gap_id))
-            pointer = decision.mode == POINTER and report.pointer is not None
-            changed = _raised_changes(known, decision, report)
-            clr: str | None = None
-            async with self._writer().transaction() as tx:
-                added += await self._links(tx, owner, known.gap_id, ABOUT, nodes=about, keys=keys)
-                added += await self._links(tx, owner, known.gap_id, IMPACTS, nodes=impacts, keys=keys)
-                added += await self._cites(tx, owner, known.gap_id, quotes, keys)
-                if added or changed or pointer:
-                    instant = run.now()
-                    now = instant.isoformat(timespec="milliseconds")
-                    resolved = {"status": RESOLVED, "resolution": POINTER, "resolved_at": now} if pointer else {}
-                    await tx.upsert_node(GAP, owner.key, {**changed, **resolved, "updated_at": now})
-                    if pointer:  # a raised gap the spec already answers resolves now (FR-GDEV-04)
-                        clr = await self._pointer(
-                            tx, owner, known.gap_id, decision=decision, report=report, instant=instant
-                        )
-                seeds = more_seed_signatures(known, decision.site)
-                if seeds:  # what a dismissal suppresses; not a change a reader sees (no new ``updated_at``)
-                    await tx.upsert_node(GAP, owner.key, {"seed_signatures": seeds})
-            if clr is not None:
-                self._pointered(known.gap_id, clr)
-            elif (
-                known.props.get("severity") == BLOCKER
-                and changed.get("severity", BLOCKER) != BLOCKER
-                and known.props.get("blocking") != YES
-            ):  # refined below blocker: major and minor gaps hold no task
-                self.outcome.releases.append(known.gap_id)
-            elif str(changed.get("severity") or known.props.get("severity")) == BLOCKER:
-                kind = str(changed.get("kind") or known.props.get("kind") or "")
-                self.outcome.holds[known.gap_id] = (
-                    kind,
-                    tuple(dict.fromkeys([*known.about_ids, *(ref.spec_id for ref in about)])),
-                )
-        if known.status == OPEN and report.options and decision.mode != POINTER:
+        added, ours = await self._recheck_open(known, decision, report) if known.status == OPEN else (0, True)
+        if ours and known.status == OPEN and report.options and decision.mode != POINTER:
             self.options[known.gap_id] = self._option_rows(known.gap_id, report)
         kind = str(known.props.get("kind") or report.kind)
         self.outcome.gaps_updated[(kind, str(known.props.get("severity") or decision.severity))] += 1
@@ -668,6 +667,72 @@ class Recorder:
                 detail={"run_id": run.run_id, "site_id": decision.site.site_id, "added": added},
             )
         )
+
+    async def _recheck_open(self, known: StoredGap, decision: SiteDecision, report: GapReport) -> tuple[int, bool]:
+        """The writes of a re-check of an open gap: the relations it lacks, a raised gap's refinements, a pointer. The
+        relations added, and whether the outcome is the run's: on a replay nothing is written again when the write
+        already landed, and a gap a person changed or dismissed since stays as they left it (False)."""
+
+        run = self.run
+        about = await self._nodes(report.about, ABOUT)
+        impacts = [
+            ref for ref in await self._nodes(report.impacts, IMPACTS) if ref.spec_id not in {a.spec_id for a in about}
+        ]
+        quotes = [
+            item
+            for item in _quotes(decision.site, report, self.snapshot)
+            if item.fragment_id in self.snapshot.fragments
+        ]
+        keys = {link.edge_key for link in (*known.about, *known.impacts)} | {cite.edge_key for cite in known.cites}
+        owner = NodeRef(GAP, gap_uuid(run.project_id, known.gap_id))
+        pointer = decision.mode == POINTER and report.pointer is not None
+        changed = _raised_changes(known, decision, report)
+        added = await self._relations(
+            None, owner, known.gap_id, about=about, impacts=impacts, quotes=quotes, keys=set(keys)
+        )
+        instant = run.now() if added or changed or pointer else None
+        now = None if instant is None else instant.isoformat(timespec="milliseconds")
+        write, ours = _rewrite(await self._current(known.gap_id), known, now) if run.replay else (True, True)
+        if not ours:
+            return 0, False
+        clr: str | None = None
+        async with self._transaction(write=write) as tx:
+            if tx is not None:
+                await self._relations(
+                    tx, owner, known.gap_id, about=about, impacts=impacts, quotes=quotes, keys=set(keys)
+                )
+            if instant is not None:
+                resolved = {"status": RESOLVED, "resolution": POINTER, "resolved_at": now} if pointer else {}
+                if tx is not None:
+                    await tx.upsert_node(GAP, owner.key, {**changed, **resolved, "updated_at": now})
+                if pointer:  # a raised gap the spec already answers resolves now (FR-GDEV-04)
+                    clr = await self._pointer(
+                        tx, owner, known.gap_id, decision=decision, report=report, instant=instant
+                    )
+            seeds = more_seed_signatures(known, decision.site)
+            if seeds and tx is not None:  # what a dismissal suppresses; no change a reader sees (no new ``updated_at``)
+                await tx.upsert_node(GAP, owner.key, {"seed_signatures": seeds})
+        self._settle(known, changed, about, clr)
+        return added, True
+
+    def _settle(self, known: StoredGap, changed: Mapping[str, Any], about: Sequence[SpecRef], clr: str | None) -> None:
+        """The holds a re-check changes: a pointer resolved the gap (its holds end), a blocker refined below blocker
+        releases its tasks, a blocker holds them."""
+
+        if clr is not None:
+            self._pointered(known.gap_id, clr)
+        elif (
+            known.props.get("severity") == BLOCKER
+            and changed.get("severity", BLOCKER) != BLOCKER
+            and known.props.get("blocking") != YES
+        ):  # refined below blocker: major and minor gaps hold no task
+            self.outcome.releases.append(known.gap_id)
+        elif str(changed.get("severity") or known.props.get("severity")) == BLOCKER:
+            kind = str(changed.get("kind") or known.props.get("kind") or "")
+            self.outcome.holds[known.gap_id] = (
+                kind,
+                tuple(dict.fromkeys([*known.about_ids, *(ref.spec_id for ref in about)])),
+            )
 
     def _pointered(self, gap: str, clr: str) -> None:
         """The metrics and events of a gap a confirmed pointer resolved in a re-check; its holds end."""
@@ -690,7 +755,12 @@ class Recorder:
         """A development gap the investigation judged ``not_spec`` (a library bug, a failing test, a tooling issue):
         closed as obsolete with a ``gap_note`` holding the agent's question, its options go and its holds end
         (lifecycle.md "Development gaps", step 7; FR-GDEV-06). Its nodes are not marked as noise: the agent's
-        question says nothing about the sections."""
+        question says nothing about the sections. On a replay a gap a person changed since stays as it is."""
+
+        if self.run.replay:
+            current = await self._current(known.gap_id)
+            if current is not None and _rewrite(current, known, None) == (False, False):
+                return "not_spec", known.gap_id
 
         async with self._writer().transaction() as tx:
             for props in known.clarifications:
@@ -713,22 +783,50 @@ class Recorder:
         self._event(known.gap_id, "obsolete", reason="not_spec", site_id=decision.site.site_id, noted=bool(reason))
         return "not_spec", known.gap_id
 
+    async def _relations(
+        self,
+        tx: OwnedWriter | None,
+        owner: NodeRef,
+        gap: str,
+        *,
+        about: Sequence[SpecRef],
+        impacts: Sequence[SpecRef],
+        quotes: Sequence[Witness],
+        keys: set[str],
+    ) -> int:
+        """Write the ``ABOUT``, ``IMPACTS`` and ``CITES`` relations whose keys are not in ``keys``; how many (only
+        counted without ``tx``)."""
+
+        added = await self._links(tx, owner, gap, ABOUT, nodes=about, keys=keys)
+        added += await self._links(tx, owner, gap, IMPACTS, nodes=impacts, keys=keys)
+        return added + await self._cites(tx, owner, gap, quotes, keys)
+
     async def _links(
-        self, tx: OwnedWriter, owner: NodeRef, gap: str, relation: str, *, nodes: Sequence[SpecRef], keys: set[str]
+        self,
+        tx: OwnedWriter | None,
+        owner: NodeRef,
+        gap: str,
+        relation: str,
+        *,
+        nodes: Sequence[SpecRef],
+        keys: set[str],
     ) -> int:
         added = 0
         for ref in nodes:
             key = link_key(gap, relation, ref.spec_id)
             if key in keys:
                 continue
-            await tx.upsert_relationship(
-                relation, owner, NodeRef(ref.label, ref.uuid), key, {"added_by_run": self.run.run_id}
-            )
+            if tx is not None:
+                await tx.upsert_relationship(
+                    relation, owner, NodeRef(ref.label, ref.uuid), key, {"added_by_run": self.run.run_id}
+                )
             keys.add(key)
             added += 1
         return added
 
-    async def _cites(self, tx: OwnedWriter, owner: NodeRef, gap: str, quotes: Sequence[Witness], keys: set[str]) -> int:
+    async def _cites(
+        self, tx: OwnedWriter | None, owner: NodeRef, gap: str, quotes: Sequence[Witness], keys: set[str]
+    ) -> int:
         added = 0
         for item in quotes:
             fragment, quote = str(item.fragment_id), str(item.quote)
@@ -740,7 +838,8 @@ class Recorder:
             if item.line_start is not None:
                 props["line_start"] = item.line_start
                 props["line_end"] = item.line_end if item.line_end is not None else item.line_start
-            await tx.upsert_relationship(CITES, owner, NodeRef(FRAGMENT, fragment), key, props)
+            if tx is not None:
+                await tx.upsert_relationship(CITES, owner, NodeRef(FRAGMENT, fragment), key, props)
             keys.add(key)
             added += 1
         return added
@@ -748,10 +847,36 @@ class Recorder:
     def _writer(self) -> OwnedWriter:
         return OwnedWriter(self.run.source, self.run.ontology, OWNER, self.run.project_id, database=self.run.database)
 
+    @asynccontextmanager
+    async def _transaction(self, *, write: bool) -> AsyncIterator[OwnedWriter | None]:
+        """A writer transaction, or None when nothing is to be written (a replay over a write that landed)."""
+
+        if not write:
+            yield None
+            return
+        async with self._writer().transaction() as tx:
+            yield tx
+
+    async def _current(self, gap: str) -> StoredGap | None:
+        """The gap as the graph holds it now (a replay compares it with the gap as the first attempt read it)."""
+
+        found = await read_gaps(self.run.executor, self.run.project_id, self.run.ontology, gap_ids=[gap])
+        return found[0] if found else None
+
+    async def _written(self, gap: str, signature: str) -> str | None:
+        """On a replay, whether a new gap's write already landed: ``PRESENT`` (whatever a person did to it since),
+        ``DISMISSED`` (a person dismissed it since: its signature is suppressed), or None (it did not land)."""
+
+        if await self._current(gap) is not None:
+            return PRESENT
+        if signature in await self.run.records.suppressed(self.run.project_id, [signature]):
+            return DISMISSED
+        return None
+
 
 @dataclass(frozen=True)
 class _AiAnswer:
-    """An AI answer as the record step writes it: the clarification and its ``pending`` amendment rows."""
+    """An AI answer as the record writes it: the clarification and its ``pending`` amendment rows."""
 
     write: ClarificationWrite
     rows: tuple[AmendmentRow, ...]
@@ -791,12 +916,69 @@ def _raised_changes(known: StoredGap, decision: SiteDecision, report: GapReport)
     return changed
 
 
+def _rewrite(current: StoredGap | None, known: StoredGap, stamp: str | None) -> tuple[bool, bool]:
+    """On a replay of a re-check: (write, ours). The gap as read before (``known``) unchanged: write again. Its
+    ``updated_at`` the re-check's own ``stamp``: the write landed, keep its outcome. Changed otherwise or gone: a person
+    acted since, write nothing."""
+
+    if current is not None and (current.status, current.props.get("updated_at")) == (
+        known.status,
+        known.props.get("updated_at"),
+    ):
+        return True, True
+    if current is not None and stamp is not None and current.props.get("updated_at") == stamp:
+        return False, True
+    return False, False
+
+
+def reads_of(existing: Sequence[StoredGap], decision: SiteDecision) -> tuple[StoredGap, ...]:
+    """The gaps of ``existing`` the record of ``decision`` reads: its site's gap, the gaps of its report's signature
+    and the open follow-ups continuing them, and the gaps holding an id its new gap could take. Recorded over these
+    alone, a site takes the same path and writes the same, whatever an earlier attempt already wrote."""
+
+    wanted = {decision.site.gap_id} if decision.site.gap_id else set()
+    report = decision.report
+    if decision.outcome == "gap" and report is not None and not decision.rejected:
+        signature = report_signature(decision.site, report)
+        same = {gap.gap_id for gap in existing if gap.signature == signature}
+        wanted |= same | {
+            item.gap_id
+            for gap in existing
+            if gap.gap_id in same
+            for item in gap.follow_ups
+            if item.direction == "continued_by"
+        }
+        base = gap_id(signature)
+        wanted |= {gap.gap_id for gap in existing if gap.gap_id.startswith(base)}
+    return tuple(gap for gap in existing if gap.gap_id in wanted)
+
+
 async def record_sites(
     run: RecordRun, snapshot: GraphSnapshot, existing: Sequence[StoredGap], decisions: Sequence[SiteDecision]
 ) -> RecordOutcome:
     """Write the gaps, site rows, verdicts, notes and events of ``decisions`` (module docstring)."""
 
     return await Recorder(run, snapshot, existing).record(decisions)
+
+
+def merged(payloads: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    """The step's totals over sites recorded one by one: their ``RecordOutcome`` payloads summed."""
+
+    total = RecordOutcome()
+    for payload in payloads:
+        total.outcomes |= {site_id: (value[0], value[1]) for site_id, value in payload["outcomes"].items()}
+        for kind, severity, count in payload["gaps_new"]:
+            total.gaps_new[(kind, severity)] += int(count)
+        for kind, severity, count in payload["gaps_updated"]:
+            total.gaps_updated[(kind, severity)] += int(count)
+        total.routes.update(payload["routes"])
+        for name in ("notes", "skipped_nodes", "pointers", "ai_answered", "rejected"):
+            setattr(total, name, getattr(total, name) + int(payload[name]))
+        total.not_spec |= {site_id: tuple(ids) for site_id, ids in payload["not_spec"].items()}
+        total.holds |= {gap: (item["kind"], tuple(item["about"])) for gap, item in payload["holds"].items()}
+        total.releases += payload["releases"]
+        total.closed += payload["closed"]
+    return total.payload()
 
 
 def counted(rows: Sequence[Sequence[Any]]) -> dict[str, Any]:

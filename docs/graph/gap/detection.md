@@ -240,7 +240,9 @@ The step `sites` groups corroborated seeds into sites, the entry points of inves
 
 A site whose `input_hash` equals that of a site with a cached verdict (`gap_verdict`) reuses the verdict and is
 not investigated (`outcome` `skipped`). Sites are investigated in `rank_score` order up to the mode's limit;
-the rest get `outcome` `deferred` and are first in the next run.
+the rest get `outcome` `deferred` and are first in the next run. Each investigated site is checked, routed and
+recorded before the next one starts, so its gaps show while the run goes on ([architecture.md](architecture.md)
+"Run steps").
 
 ## Limits
 
@@ -254,7 +256,7 @@ From `limits` in the rules file; all are starting values for the test corpus.
 | `reads_per_round` | 4 | Reads one round may request |
 | `context_tokens` | 24,000 | Context of one investigation call |
 | `pack_tokens` | 3,000 | Nearby nodes in the context pack |
-| `ai_answers_per_run` | 20 | AI answers per run |
+| `ai_answers_per_run` | 20 | AI answers per run, counted as the run routes its sites one by one |
 | `ai_answers_max_node_share` | 0.05 | Share of spec nodes AI answers of one run may touch |
 | `options_min`, `options_max` | 2, 4 | Options per gap |
 
@@ -268,7 +270,8 @@ loaded rules; the rules version is recorded on every run and is part of every si
 
 ## Run metrics
 
-Every run records in `gap_run.counts` and returns in `GapRunResult.counts`:
+Every run records in `gap_run.counts` and returns in `GapRunResult.counts` (totals over its sites, which it records
+one by one):
 
 | Metric | Meaning |
 |---|---|

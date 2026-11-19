@@ -4,6 +4,9 @@ FR-GRUN-08)."""
 
 from __future__ import annotations
 
+import asyncio
+from collections import Counter
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -12,17 +15,24 @@ import pytest
 
 from gap_acceptance_support import Planted, RecordedGapGateway, assert_all_recorded
 from gap_detection_support import PROJECT, MiniGraph
-from gap_port_fakes import SEED_STUB_VERSION, MemoryPlanView, ScriptedInvestigator, SeedInvestigator
+from gap_port_fakes import (
+    SEED_STUB_VERSION,
+    MemoryPlanView,
+    MemoryStoryHolds,
+    ScriptedInvestigator,
+    SeedInvestigator,
+    seed_report,
+)
 from gap_run_support import CountingInvestigator, GapWorld, corpus_world, executor_for
 from graph.core import load_ontology
 from graph.core.errors import ConfigurationError, GraphError, InfrastructureUnavailableError
-from graph.gap import RUN_STEPS, MemoryGapRunStore, estimate_gap, run_gap
+from graph.gap import RUN_STEPS, GapService, MemoryGapRunStore, estimate_gap, run_gap
 from graph.gap import run as run_module
 from graph.gap.models import BuildFacts, GapChangeReport, InvestigationResult, SiteBudget, SitePack, TaskRef
 from graph.gap.ports import SiteReads
 from graph.gap.prompts import INVESTIGATE_PROMPT
 from graph.gap.rules import load_gap_rules
-from graph.gap.run import new_run_id, prompt_versions, relevance_from, seed_from, seed_payload
+from graph.gap.run import SITE_ARTIFACT, new_run_id, prompt_versions, relevance_from, seed_from, seed_payload
 from graph.gap.run_store import GapRunRecord
 from graph.gap.settings import GapSettings
 
@@ -85,6 +95,21 @@ class StopAfter(MemoryGapRunStore):
             self.armed = False
             raise InfrastructureUnavailableError("store_stopped", step=step)
         await super().put_progress(project_id, run_id, step, state)
+
+
+class StopAtSite(MemoryGapRunStore):
+    """A run store that stops the run (a shutdown) right after it stored the first site artifact ``when`` holds for."""
+
+    def __init__(self, when: Callable[[Mapping[str, Any]], bool]) -> None:
+        super().__init__()
+        self.when = when
+        self.armed = True
+
+    async def put_artifact(self, project_id: str, run_id: str, step: str, payload: Mapping[str, Any]) -> None:
+        await super().put_artifact(project_id, run_id, step, payload)
+        if self.armed and step.startswith(SITE_ARTIFACT) and self.when(payload):
+            self.armed = False
+            raise InfrastructureUnavailableError("store_stopped", step=step)
 
 
 # Full and update runs
@@ -334,7 +359,7 @@ async def test_a_failing_step_is_marked_failed_and_resumes() -> None:
     with pytest.raises(InfrastructureUnavailableError):
         await run_gap(world.context(), mode="full")
     (record,) = world.store.records.values()
-    assert record.progress["check"] == "pending" and record.progress["investigate"] == "done"
+    assert record.progress["finish"] == "pending" and record.progress["investigate"] == "done"
     calls = len(world.investigator.sites)
 
     result = await run_gap(world.context(run_id=record.run_id))
@@ -355,7 +380,7 @@ class ReportWatcher(CountingInvestigator):
         return await super().investigate(pack, reads, budget)
 
 
-async def test_a_new_run_with_a_given_id_reports_the_sites_of_investigate_and_check() -> None:
+async def test_a_new_run_with_a_given_id_reports_the_sites_of_investigate() -> None:
     world = await mini_world(interfaces(3))
     seen: list[tuple[str, int, int]] = []
     world.investigator = watcher = ReportWatcher(seen)
@@ -364,24 +389,105 @@ async def test_a_new_run_with_a_given_id_reports_the_sites_of_investigate_and_ch
 
     sites = result.counts["sites"]["investigated"]
     assert result.run_id == "gaprun-given" and sites == 3
-    assert seen == [("investigate", done, sites) for done in range(sites + 1)] + [
-        ("check", done, sites) for done in range(sites + 1)
-    ]
+    assert seen == [("investigate", done, sites) for done in range(sites + 1)]
     # While a site is investigated, the sites before it are reported done ("site N of M" on the Gaps screen).
     assert watcher.at_start == [("investigate", done, sites) for done in range(sites)]
 
 
-async def test_a_resumed_run_reports_the_sites_of_its_unfinished_steps_only() -> None:
+async def test_a_run_stopped_between_two_sites_resumes_at_the_site_not_recorded() -> None:
     world = await mini_world(interfaces(2))
-    world.store = StopAfter("investigate")
+    world.store = StopAtSite(lambda payload: payload["state"] == "recorded")
+    with pytest.raises(InfrastructureUnavailableError, match="store_stopped"):
+        await run_gap(world.context(), mode="full")
+    (record,) = world.store.records.values()
+    (first,) = world.investigator.sites
+    assert record.progress["investigate"] == "failed" and len(world.gap_nodes()) == 1
+    seen: list[tuple[str, int, int]] = []
+
+    result = await run_gap(world.context(run_id=record.run_id, on_progress=lambda *report: seen.append(report)))
+
+    assert world.investigator.sites[0] == first and len(set(world.investigator.sites)) == 2
+    assert seen == [("investigate", 1, 2), ("investigate", 2, 2)]
+    assert result.counts["gaps_new"]["total"] == result.counts["outcomes"]["gap"] == len(world.gap_nodes()) == 2
+    assert len(world.records.sites[PROJECT]) == len(world.records.verdicts[PROJECT]) == 2
+    created = [event for event in world.records.event_rows[PROJECT] if event.event == "created"]
+    assert len(created) == 2
+
+
+async def test_a_run_an_earlier_version_left_in_its_check_step_investigates_its_sites_again() -> None:
+    world = await mini_world(interfaces(1))
+    world.store = StopAfter("sites")
     with pytest.raises(InfrastructureUnavailableError):
         await run_gap(world.context(), mode="full")
     (record,) = world.store.records.values()
-    seen: list[tuple[str, int, int]] = []
+    earlier = {**record.progress, "investigate": "done", "check": "running", "route": "pending", "record": "pending"}
+    world.store.records[(PROJECT, record.run_id)] = record.model_copy(update={"progress": earlier})
+    await world.store.put_artifact(PROJECT, record.run_id, "investigate", {"results": {}})
 
-    await run_gap(world.context(run_id=record.run_id, on_progress=lambda *report: seen.append(report)))
+    result = await run_gap(world.context(run_id=record.run_id))
 
-    assert seen == [("check", 0, 2), ("check", 1, 2), ("check", 2, 2)]
+    assert result.status == "completed" and result.counts["gaps_new"]["total"] == 1
+    assert len(world.investigator.sites) == 1
+
+
+class HoldsTheSecondSite(CountingInvestigator):
+    """Holds the investigation of every site after the first until ``release`` is set; ``waiting`` is set then."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiting, self.release = asyncio.Event(), asyncio.Event()
+
+    async def investigate(self, pack: SitePack, reads: SiteReads, budget: SiteBudget) -> InvestigationResult:
+        if self.sites:
+            self.waiting.set()
+            await self.release.wait()
+        return await super().investigate(pack, reads, budget)
+
+
+async def test_a_site_s_gap_is_listed_while_a_later_site_is_investigated() -> None:
+    world = await mini_world(interfaces(2))
+    world.investigator = holding = HoldsTheSecondSite()
+    service = GapService(world.executor, world.reader, world.ontology, world.rules, world.records, world.amendments)
+
+    running = asyncio.create_task(run_gap(world.context(), mode="full"))
+    await holding.waiting.wait()
+    (listed,) = (await service.list_gaps(PROJECT)).gaps
+    options = set(world.records.option_rows[PROJECT])
+    holding.release.set()
+    result = await running
+
+    assert listed.status == "open" and options == {listed.gap_id}
+    assert result.counts["gaps_new"]["total"] == 2 and listed.gap_id in world.gap_nodes()
+
+
+class SameQuestion:
+    """Every site's seeds as a report (``seed_report``) with one question, ``ABOUT`` the first interface as well (read
+    first, so the checks keep it)."""
+
+    prompt_version = "same-question.1"
+
+    async def investigate(self, pack: SitePack, reads: SiteReads, budget: SiteBudget) -> InvestigationResult:
+        del budget
+        await reads.node("IFC::N00")
+        report = seed_report(pack)
+        about = tuple(sorted({*report.about, "IFC::N00"}))
+        return InvestigationResult(report=report.model_copy(update={"question": QUESTION, "about": about}))
+
+
+QUESTION = "Which service provides the interfaces of the order events?"
+
+
+async def test_a_later_site_asking_the_question_of_a_gap_this_run_recorded_is_its_duplicate() -> None:
+    world = await mini_world(interfaces(2))
+    world.investigator = CountingInvestigator(SameQuestion())
+
+    result = await run_gap(world.context(), mode="full")
+
+    (gap,) = world.gap_nodes()
+    assert result.counts["gaps_new"]["total"] == 1 and result.counts["outcomes"]["duplicate"] == 1
+    assert len(world.investigator.sites) == 2
+    duplicates = [event for event in world.records.event_rows[PROJECT] if event.event == "duplicate"]
+    assert [event.gap_id for event in duplicates] == [gap]
 
 
 async def test_a_finished_run_without_its_result_is_a_configuration_error() -> None:
@@ -490,3 +596,138 @@ async def test_a_plan_lowers_nothing_and_reach_counts_tasks() -> None:
     result = await run_gap(world.context(), mode="full")
 
     assert result.status == "completed" and result.counts["gaps_new"]["total"] > 0
+
+
+class LosesTheRecordedArtifact(MemoryGapRunStore):
+    """A run store whose first write of a ``recorded`` site artifact fails: a shutdown right after a site's writes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.armed = True
+
+    async def put_artifact(self, project_id: str, run_id: str, step: str, payload: Mapping[str, Any]) -> None:
+        if self.armed and step.startswith(SITE_ARTIFACT) and payload["state"] == "recorded":
+            self.armed = False
+            raise InfrastructureUnavailableError("store_stopped", step=step)
+        await super().put_artifact(project_id, run_id, step, payload)
+
+
+async def test_a_run_stopped_after_a_site_s_writes_writes_the_same_when_it_resumes() -> None:
+    world = await mini_world(interfaces(2))
+    world.store = LosesTheRecordedArtifact()
+    with pytest.raises(InfrastructureUnavailableError, match="store_stopped"):
+        await run_gap(world.context(), mode="full")
+    (record,) = world.store.records.values()
+    first = {gap: dict(props) for gap, props in world.gap_nodes().items()}
+    (gap,) = first
+
+    result = await run_gap(world.context(run_id=record.run_id))
+
+    assert result.counts["gaps_new"]["total"] == 2 and result.counts["gaps_updated"]["total"] == 0
+    assert world.gap_nodes()[gap] == first[gap] and len(world.investigator.sites) == 2
+    assert Counter(event.event for event in world.records.event_rows[PROJECT]) == {"created": 2, "routed": 2}
+    assert len(world.records.sites[PROJECT]) == len(world.records.verdicts[PROJECT]) == 2
+
+
+class NotSpecFirst(CountingInvestigator):
+    """The first site's seeds as a ``not_spec`` report, every other site's as a gap (``seed_report``)."""
+
+    async def investigate(self, pack: SitePack, reads: SiteReads, budget: SiteBudget) -> InvestigationResult:
+        found = await super().investigate(pack, reads, budget)
+        if len(self.sites) > 1 or found.report is None:
+            return found
+        return found.model_copy(
+            update={"report": found.report.model_copy(update={"verdict": "not_spec", "not_spec_reason": "Notes."})}
+        )
+
+
+async def test_a_run_that_fails_after_a_not_spec_site_has_already_marked_its_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    world = await mini_world(interfaces(2))
+    world.investigator = NotSpecFirst()
+    put_sites = world.records.put_sites
+
+    async def refuses_gaps(project_id: str, run_id: str, sites: Any) -> None:
+        if any(site.outcome == "gap" for site in sites):
+            raise ConfigurationError("refused")
+        await put_sites(project_id, run_id, sites)
+
+    monkeypatch.setattr(world.records, "put_sites", refuses_gaps)
+
+    with pytest.raises(ConfigurationError, match="refused"):
+        await run_gap(world.context(), mode="full")
+
+    (record,) = world.store.records.values()
+    assert record.status == "failed" and record.progress["finish"] == "pending"
+    marked = [row for row in world.records.relevance_rows[PROJECT].values() if "not_spec" in row.signals]
+    assert [row.relevance for row in marked] == ["mixed"]
+
+
+class Blockers(CountingInvestigator):
+    """Every site's seeds as a ``blocker`` report; ``held`` keeps the tasks ``holds`` held when each site started."""
+
+    def __init__(self, holds: MemoryStoryHolds) -> None:
+        super().__init__()
+        self.holds_port = holds
+        self.held: list[list[str]] = []
+
+    async def investigate(self, pack: SitePack, reads: SiteReads, budget: SiteBudget) -> InvestigationResult:
+        self.held.append(sorted({task for tasks in self.holds_port.holds.values() for task in tasks}))
+        found = await super().investigate(pack, reads, budget)
+        report = None if found.report is None else found.report.model_copy(update={"severity": "blocker"})
+        return found.model_copy(update={"report": report})
+
+
+async def test_a_site_s_blocker_holds_its_tasks_before_the_next_site_is_investigated() -> None:
+    world = await mini_world(interfaces(2))
+    holds = MemoryStoryHolds({"IFC::N00": ("TASK::0",), "IFC::N01": ("TASK::1",)})
+    world.investigator = blockers = Blockers(holds)
+
+    result = await run_gap(replace(world.context(), holds=holds), mode="full")
+
+    assert blockers.held[0] == [] and len(blockers.held[1]) == 1
+    assert result.held_tasks == ("TASK::0", "TASK::1")
+
+
+class LosesEachRecordedArtifactOnce(MemoryGapRunStore):
+    """A run store whose first write of each site's ``recorded`` artifact fails: a stop after every site's writes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.lost: set[str] = set()
+
+    async def put_artifact(self, project_id: str, run_id: str, step: str, payload: Mapping[str, Any]) -> None:
+        if step.startswith(SITE_ARTIFACT) and payload["state"] == "recorded" and step not in self.lost:
+            self.lost.add(step)
+            raise InfrastructureUnavailableError("store_stopped", step=step)
+        await super().put_artifact(project_id, run_id, step, payload)
+
+
+class NoteThenRejected(CountingInvestigator):
+    """The first site's seeds as an ``info`` report (a note), the second's as a report the checks reject (its question
+    is no question)."""
+
+    async def investigate(self, pack: SitePack, reads: SiteReads, budget: SiteBudget) -> InvestigationResult:
+        found = await super().investigate(pack, reads, budget)
+        change = {"severity": "info"} if len(self.sites) == 1 else {"question": "Which service provides them."}
+        report = None if found.report is None else found.report.model_copy(update=change)
+        return found.model_copy(update={"report": report})
+
+
+async def test_a_note_and_a_rejected_report_are_stored_once_when_their_sites_are_written_again() -> None:
+    world = await mini_world(interfaces(2))
+    world.investigator = NoteThenRejected()
+    world.store = LosesEachRecordedArtifactOnce()
+    run_id: str | None = None
+    for _ in range(2):
+        with pytest.raises(InfrastructureUnavailableError, match="store_stopped"):
+            await run_gap(world.context(run_id=run_id), mode="full")
+        (record,) = world.store.records.values()
+        run_id = record.run_id
+
+    result = await run_gap(world.context(run_id=run_id), mode="full")
+
+    assert result.counts["notes"] == len(world.records.notes[PROJECT]) == 1
+    rejected = [event for event in world.records.event_rows[PROJECT] if event.event == "report_rejected"]
+    assert result.counts["rejected"] == len(rejected) == 1 and len(world.investigator.sites) == 2

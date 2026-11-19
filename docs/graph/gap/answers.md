@@ -81,22 +81,23 @@ check's `confidence`. The reasons a gap went to a person: `severity`, `kind`, `o
 `gates_off` (no gates were looked at), `amendments_unavailable` (the run had no `Amendments` port to write the
 answer); an AI answer has `gates_hold`, a pointer `pointer_confirmed`.
 
-How the shipped route step decides (`steps/route.py`):
+How the shipped route of a site decides (`steps/route.py`):
 
 | Rule | Detail |
 |---|---|
-| Who gets a second check | The check step asks the second check of an AI answer (prompt `gap.judge.1.ai_answer.1`) only for a new gap (no gap in the graph has its signature, and the site joined none) of severity `minor` whose kind and whose seeds' kinds are all in `routing.ai_kinds` (a report cannot relabel a stated question, an assumption or a contradiction seed into an AI kind; reason `kind`), while `GapSettings.ai_answers` is on, whose recommended option has edits and a basis quote and whose local gate holds; every other gap is routed without a model call. A site with a contradiction seed gets no pointer either |
-| Origin | The origin of a site's primary seed: `person` or `development` for a raised gap's own seed (reason `origin`); such sites always join their gap, and the record step writes an AI answer only for a site that joined no gap |
-| A resumed run | The record step re-reads the route artifact and demotes an AI route to `ask` when `GapSettings.ai_answers` is now off or the kind is no AI kind |
+| Who gets a second check | The check of a site asks the second check of an AI answer (prompt `gap.judge.1.ai_answer.1`) only for a new gap (no gap in the graph has its signature, and the site joined none) of severity `minor` whose kind and whose seeds' kinds are all in `routing.ai_kinds` (a report cannot relabel a stated question, an assumption or a contradiction seed into an AI kind; reason `kind`), while `GapSettings.ai_answers` is on, whose recommended option has edits and a basis quote and whose local gate holds; every other gap is routed without a model call. A site with a contradiction seed gets no pointer either |
+| Origin | The origin of a site's primary seed: `person` or `development` for a raised gap's own seed (reason `origin`); such sites always join their gap, and the record writes an AI answer only for a site that joined no gap |
+| A resumed run | A site that was routed but not recorded is recorded from its stored artifact; an AI route is demoted to `ask` when `GapSettings.ai_answers` is now off or the kind is no AI kind |
 | Entailed | The recommended option has edits and kept at least one basis quote through the checks (a quote not found in its shown, active fragment is dropped) and the second check answered `entailed` |
 | Local | `ABOUT` and `IMPACTS` together at most `local_max_nodes`; their spine owners (the roots of the ontology's spine paths) at most `local_max_areas`; a node with no owner adds no area |
-| Order under the valve | By the site's rank score, then site id; pointers are not counted |
+| Order under the valve | The order the sites are investigated in (deferred sites first, then rank score, then site id), as each is routed; the counters cover the whole run, a resumed run counting the AI answers its stored sites made; pointers are not counted |
 | Share | Checked before each AI answer: the nodes the run's earlier AI answers touch, over the project's spec nodes (the snapshot's), must be below `ai_answers_max_node_share`. The answer that crosses the share is the last; a run's first AI answer is never stopped by the share |
 
 ### The valve
 
 Per run, AI answers at most `ai_answers_per_run` gaps (20), and the nodes those answers touch (`ABOUT` and
-`IMPACTS`) are at most `ai_answers_max_node_share` (5 %) of the project's spec nodes. Gaps over the valve are
+`IMPACTS`) are at most `ai_answers_max_node_share` (5 %) of the project's spec nodes. Both are running counters: the
+run records its sites one by one, and each AI answer counts as its site is routed. Gaps over the valve are
 routed `ask`, with the reason "AI answer limit reached" (`ai_limit`) in their event, and show in the inbox like
 every other new question. The valve protects a project from a run that would rewrite much of its spec without anyone
 looking.
@@ -338,7 +339,7 @@ A gap routed `ai` is answered by the gap run that created it, with the recommend
 3. The gap moves to `answered` (staged, listed under "Answered by AI"), then `applying` with the next "Resolve gaps";
    AI answers never use `immediate`.
 
-As built: the record step writes the gap `answered` with route `ai` and its clarification (status `pending`,
+As built: the record of the site writes the gap `answered` with route `ai` and its clarification (status `pending`,
 placement by the edits as in "Placement rules", `ANSWERS`, `PLACED_IN` each source document it amends) in one
 transaction; the amendment rows (`pending`) go first through `Amendments` and are deleted again when the graph write
 fails. The gap's option rows are stored as for any gap, so a revert hands them to a person. The events are

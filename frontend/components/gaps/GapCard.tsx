@@ -1,9 +1,9 @@
 "use client";
 // FR-GWEB-04 (gap answers.md "The question card", "Answering", "Applying answers", "Revert", "Dismissing"; api.md "User interface"): the
-// question card of one gap in the P04 Modal (focus trap, Esc, focus returns to the opener). Chips (severity, kind, origin, status: Staged
-// with "Resolving…" while its rebuild runs, or Resolved; blocking), the title, the question with its options, why, the ABOUT and IMPACTS
-// nodes, the quoted witness lines with their source (document › section · lines when the read names them), the reach (stories, tasks),
-// the recorded answer (who staged it), and the collapsible history with its follow-ups. With a `control` (the Gaps screen) an open or
+// question card of one gap in the P04 Modal (focus trap, Esc, focus returns to the opener). Chips ("New" for a gap the latest gap run
+// found, severity, kind, origin, status: Staged with "Resolving…" while its rebuild runs, or Resolved; blocking), the title, the question
+// with its options, why, the ABOUT and IMPACTS nodes, the quoted witness lines with their source (document › section · lines when the
+// read names them), the reach (stories, tasks), the recorded answer (who staged it), and the collapsible history with its follow-ups. With a `control` (the Gaps screen) an open or
 // staged gap is answerable (GapAnswer.tsx: options as a radio group, "Other", the edits preview, the placement, stale handling).
 // The footer's primary button stages the answer ("Stage answer"; "Change answer" replaces a staged one); a gap a coding agent waits
 // on is applied at once ("Answer and resolve", with the line that says so). An open gap can be dismissed ("Not a gap", GapDialogs.tsx);
@@ -24,6 +24,7 @@ import { GapHistory } from "./GapHistory";
 import {
   AT_ONCE_TEXT,
   KIND_LABEL,
+  NEW_LABEL,
   ORIGIN_LABEL,
   RESOLVING_LABEL,
   SEVERITY_LABEL,
@@ -281,10 +282,15 @@ function CardDialog({
   );
 }
 
-/** The chips: severity, kind, origin, the status (Staged, with "Resolving…" while its rebuild runs, or Resolved) and "Holds tasks". */
-function CardMeta({ gap }: Readonly<{ gap: Gap }>) {
+/** The chips: "New", severity, kind, origin, the status (Staged, with "Resolving…" while its rebuild runs, or Resolved), "Holds tasks". */
+function CardMeta({ gap, isNew }: Readonly<{ gap: Gap; isNew: boolean }>) {
   return (
     <div className="gap-meta" data-testid="gap-meta">
+      {isNew ? (
+        <span data-testid="gap-new">
+          <Tag tone="info">{NEW_LABEL}</Tag>
+        </span>
+      ) : null}
       <SeverityBadge level={SEVERITY_LEVEL[gap.severity]} label={SEVERITY_LABEL[gap.severity]} />
       <Tag>{KIND_LABEL[gap.kind]}</Tag>
       <Tag>{ORIGIN_LABEL[gap.origin]}</Tag>
@@ -319,7 +325,12 @@ function CardQuestion({ gap, a, editable, atOnceId }: Readonly<{ gap: Gap; a: Ga
   );
 }
 
-export function GapCard({ gap, onClose, control }: Readonly<{ gap: Gap; onClose: () => void; control?: CardControl }>) {
+export function GapCard({
+  gap,
+  isNew = false,
+  onClose,
+  control,
+}: Readonly<{ gap: Gap; isNew?: boolean; onClose: () => void; control?: CardControl }>) {
   const a = useGapAnswer(gap, control);
   const [dialog, setDialog] = useState<"dismiss" | "withdraw" | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -359,7 +370,7 @@ export function GapCard({ gap, onClose, control }: Readonly<{ gap: Gap; onClose:
         />
       }
     >
-      <CardMeta gap={gap} />
+      <CardMeta gap={gap} isNew={isNew} />
       <CardQuestion gap={gap} a={a} editable={editable} atOnceId={describedBy} />
       <AnswerMessages a={a} outcome={outcome} />
       <RecordedAnswer gap={gap} names={names} />

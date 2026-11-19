@@ -12,13 +12,16 @@
 //    (avatar and name, or "Unassigned"), changed in place: a click opens a menu of Unassigned and the members (AssigneeMenu); a failed
 //    assignment is said above the list. The Assigned filter offers All (the default), Unassigned and each member (the members port).
 //    The filters go to the server (`list_gaps`, which orders by severity, reach, then newest): the inbox asks for route `ask` and lists
-//    every gap a run found (FR-GRTE-06), a page at a time ("Show more" while more pages exist).
+//    every gap a run found (FR-GRTE-06), a page at a time ("Show more" while more pages exist). While a gap run runs, each time the
+//    check line shows it recorded another site or moved to its next step, the inbox reads its loaded range again (use-gap-inbox.ts), so
+//    the run's gaps appear in place without a reload; the rows, pages, filters, open card, focus and scroll stay (use-keep-place.ts).
+//    The gaps the latest run found carry "New" (row and card) until the next run starts.
 //  - `?gap=<id>` opens the question card (GapCard, answerable here), also when the filters hide the row; closing removes the
 //    parameter (history.replaceState). After an answer, an assignment, an unstage, a withdrawal, a dismissal or "Resolve gaps" the lists
 //    read again without a loading state.
 //  - "Answered by AI" (AiAnswers) and the noise report with its rules (NoiseReport) are tabs.
-//  - Above every tab: the gap check status line (GapCheckStatus): whether the build or the gap run after it runs now, with the step and
-//    progress, or when the last check finished and what it found; when a run ends the lists read again.
+//  - Above every tab: the gap check status line (GapCheckStatus): whether the build or the gap run after it runs now, with the step,
+//    progress and the New rows listed so far, or when the last check finished and what it found; when a run ends the lists read again.
 //  - `503 gap_unavailable` (gap runs not configured) shows "Gaps are not available", never an error page.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -35,12 +38,12 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Tag } from "@/components/ui/Tag";
 import { PageTitle } from "@/components/ui/TopBar";
 import { usePorts, useRoutes } from "@/lib/data/provider";
-import type { Gap, GapsPort } from "@/lib/domain/gaps";
+import type { Gap, GapCheck } from "@/lib/domain/gaps";
 import type { Member } from "@/lib/domain/members";
 import { parseGapsQuery } from "@/lib/routes";
 import { AiAnswers } from "./AiAnswers";
 import { AssigneeMenu, type AssignControl } from "./AssigneeMenu";
-import { GapCheckStatus } from "./GapCheckStatus";
+import { GapCheckStatus, useGapCheck } from "./GapCheckStatus";
 import { GapCard, type CardControl } from "./GapCard";
 import { RaiseGapDialog } from "./GapDialogs";
 import { GapsUnavailable } from "./GapsUnavailable";
@@ -51,6 +54,7 @@ import {
   DEFAULT_GAP_FILTERS,
   KIND_LABEL,
   KIND_OPTIONS,
+  NEW_LABEL,
   RESOLVING_LABEL,
   SEVERITY_LABEL,
   SEVERITY_LEVEL,
@@ -58,17 +62,19 @@ import {
   STATUS_OPTIONS,
   assignedOptions,
   assigneeText,
+  checkPulse,
   countText,
-  failureOf,
   failureText,
-  gapQuery,
   inboxOrder,
+  isNewGap,
   memberNames,
   patchOf,
   rowSubtitle,
   withAll,
   type GapFilters,
 } from "./gaps-logic";
+import { useGapInbox } from "./use-gap-inbox";
+import { useKeepPlace } from "./use-keep-place";
 import "@/components/shell/ready-gate.css";
 import "./gaps.css";
 
@@ -135,48 +141,6 @@ function Gaps({ projectId }: Readonly<{ projectId: string }>) {
 
 // ---- data ----
 
-interface ListState {
-  gaps: Gap[];
-  next: string | null;
-  phase: "loading" | "ready" | "failed" | "unavailable";
-}
-const LOADING: ListState = { gaps: [], next: null, phase: "loading" };
-
-/**
- * The inbox's `list_gaps` read: the first page on every filter change, then "Show more". `version` reads the first page again after a
- * write and keeps the shown rows until it answers (no loading state).
- */
-function useGapList(gaps: GapsPort, projectId: string, filters: GapFilters, tries: number, version: number) {
-  const [state, setState] = useState<{ key: string; list: ListState }>({ key: "", list: LOADING });
-  const key = `${JSON.stringify(filters)}|${String(tries)}`;
-  useEffect(() => {
-    let alive = true;
-    gaps.list(projectId, gapQuery(filters)).then(
-      (page) => {
-        if (alive) setState({ key, list: { gaps: page.gaps, next: page.next, phase: "ready" } });
-      },
-      (e: unknown) => {
-        if (alive) setState({ key, list: { gaps: [], next: null, phase: failureOf(e) } });
-      },
-    );
-    return () => {
-      alive = false;
-    };
-  }, [gaps, projectId, filters, key, version]);
-  const list = state.key === key ? state.list : LOADING;
-  const more = useCallback(() => {
-    const cursor = list.next;
-    if (cursor === null) return;
-    gaps.list(projectId, { ...gapQuery(filters), cursor }).then(
-      (page) => {
-        setState((s) => (s.key === key ? { key, list: { gaps: [...s.list.gaps, ...page.gaps], next: page.next, phase: "ready" } } : s));
-      },
-      () => undefined, // the button stays; the next click tries again
-    );
-  }, [gaps, projectId, filters, key, list.next]);
-  return { list, more };
-}
-
 /** The Story filter's values (from the plan) and the project's members (the Assigned filter, the column and its menu); a failed read
  * leaves the Story filter out, or names no member (the filter and the menu keep Unassigned). */
 function useFilterSources(projectId: string) {
@@ -235,7 +199,31 @@ function useOpenGap(projectId: string, openId: string | null): { card: Gap | nul
 
 // ---- view ----
 
-function GapRows({ gaps, assign, onOpen }: Readonly<{ gaps: Gap[]; assign: AssignControl; onOpen: (id: string) => void }>) {
+/** The tags on a row's title line: "New" for a gap the latest run found, "Resolving…" while its rebuild runs. */
+function rowBadge(g: Gap, isNew: boolean): ReactNode {
+  if (!isNew && g.status !== "applying") return undefined;
+  return (
+    <>
+      {isNew ? (
+        <span data-testid="gap-row-new">
+          <Tag tone="info">{NEW_LABEL}</Tag>
+        </span>
+      ) : null}
+      {g.status === "applying" ? (
+        <span data-testid="gap-row-resolving">
+          <Tag tone="pending">{RESOLVING_LABEL}</Tag>
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function GapRows({
+  gaps,
+  check,
+  assign,
+  onOpen,
+}: Readonly<{ gaps: Gap[]; check: GapCheck | null; assign: AssignControl; onOpen: (id: string) => void }>) {
   return (
     <DecisionList label="Gaps" columns={["Gap", "Kind", "Severity", "Assigned"]}>
       {gaps.map((g) => (
@@ -247,13 +235,7 @@ function GapRows({ gaps, assign, onOpen }: Readonly<{ gaps: Gap[]; assign: Assig
           severity={SEVERITY_LEVEL[g.severity]}
           severityLabel={SEVERITY_LABEL[g.severity]}
           status={g.status === "open" ? "open" : "answered"}
-          badge={
-            g.status === "applying" ? (
-              <span data-testid="gap-row-resolving">
-                <Tag tone="pending">{RESOLVING_LABEL}</Tag>
-              </span>
-            ) : undefined
-          }
+          badge={rowBadge(g, isNewGap(g, check))}
           assignee={g.assignedTo === null ? undefined : assigneeText(g.assignedTo, assign.people)}
           aside={<AssigneeMenu gap={g} control={assign} />}
           onClick={() => {
@@ -310,13 +292,15 @@ function Filters({
 
 function Inbox({
   inbox,
+  check,
   assign,
   assignError,
   filtered,
   onOpen,
   onRetry,
 }: Readonly<{
-  inbox: ReturnType<typeof useGapList>;
+  inbox: ReturnType<typeof useGapInbox>;
+  check: GapCheck | null;
   assign: AssignControl;
   assignError: string | null;
   filtered: boolean;
@@ -335,7 +319,7 @@ function Inbox({
   }
   const shown = inboxOrder(list.gaps);
   let rows: ReactNode;
-  if (shown.length > 0) rows = <GapRows gaps={shown} assign={assign} onOpen={onOpen} />;
+  if (shown.length > 0) rows = <GapRows gaps={shown} check={check} assign={assign} onOpen={onOpen} />;
   else if (filtered) {
     rows = (
       <div data-testid="gaps-empty">
@@ -378,7 +362,6 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   const [version, setVersion] = useState(0);
   const [raising, setRaising] = useState(false);
   const [resolving, setResolving] = useState(false);
-  const inbox = useGapList(gaps, projectId, filters, tries, version);
   const { stories, people } = useFilterSources(projectId);
   const { card, reload } = useOpenGap(projectId, openId);
   const filtered = useMemo(() => JSON.stringify(filters) !== JSON.stringify(DEFAULT_GAP_FILTERS), [filters]);
@@ -396,6 +379,9 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
   const changed = useCallback(() => {
     setVersion((n) => n + 1);
   }, []);
+  const check = useGapCheck(gaps, projectId, changed);
+  const inbox = useGapInbox(gaps, projectId, filters, tries, version, checkPulse(check));
+  const body = useKeepPlace();
   const staged = useStaged(gaps, projectId, version, changed);
   const [assignError, setAssignError] = useState<string | null>(null);
   const assign = useMemo<AssignControl>(
@@ -436,6 +422,7 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
     content = (
       <Inbox
         inbox={inbox}
+        check={check}
         assign={assign}
         assignError={assignError}
         filtered={filtered}
@@ -491,15 +478,20 @@ function GapsContent({ projectId }: Readonly<{ projectId: string }>) {
               stories={stories}
               people={people}
               onChange={(patch) => {
-                setFilters((f) => ({ ...f, ...patch }));
+                setFilters((f) => {
+                  const next = { ...f, ...patch };
+                  return JSON.stringify(next) === JSON.stringify(f) ? f : next; // the same choice again reads nothing
+                });
               }}
             />
           ) : undefined
         }
       />
-      <GapCheckStatus gaps={gaps} projectId={projectId} onFinished={changed} />
-      {content}
-      {card ? <GapCard key={card.id} gap={card} onClose={close} control={control} /> : null}
+      <GapCheckStatus check={check} listed={view === "inbox" ? inbox.list.gaps.filter((g) => isNewGap(g, check)).length : 0} />
+      <div className="gaps-body" ref={body}>
+        {content}
+      </div>
+      {card ? <GapCard key={card.id} gap={card} isNew={isNewGap(card, check)} onClose={close} control={control} /> : null}
       {resolving ? (
         <ResolveDialog
           gaps={gaps}

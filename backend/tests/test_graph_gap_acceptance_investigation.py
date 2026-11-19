@@ -260,7 +260,7 @@ async def test_fr_ginv_05_check_step_reject_report_whose_quote_found() -> None:
 
         result = await run_gap(world.context(), mode="site", site_ids=[site_id])
 
-        checked = (await world.store.get_artifact(PROJECT, result.run_id, "check"))["checked"][site_id]
+        checked = (await world.store.get_artifact(PROJECT, result.run_id, "investigate"))["sites"][site_id]["checked"]
         assert checked["outcome"] == "not_a_gap" and checked["rejected"], name
         assert reasons <= {*checked["rejected"], *checked["warnings"]}, (name, checked)
         assert world.gap_nodes() == {} and world.records.option_rows.get(PROJECT, {}) == {}, name

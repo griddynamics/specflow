@@ -28,6 +28,7 @@ from gap_development_support import (
     report_blocking,
     task,
 )
+from graph.core.errors import InfrastructureUnavailableError
 from graph.gap import AnswerInput, NewGap, run_gap
 from graph.gap.gaps import gap_uuid
 from graph.gap.models import InvestigationResult
@@ -184,3 +185,40 @@ async def test_the_site_run_of_a_raised_gap_never_shows_the_gap_as_another_open_
     (pack,) = seen
     assert gap_id not in {item["gap_id"] for item in pack.context["gaps"]}
     assert len((await dev.gaps.get_gap(ALPHA, gap_id)).options) == 2
+
+
+async def test_a_not_spec_development_gap_whose_note_failed_is_closed_and_released_when_its_run_resumes(
+    dev, monkeypatch
+) -> None:
+    dev.world.investigator = OneReport(report(verdict="not_spec", not_spec_reason="A library bug.", options=()))
+    records = dev.world.records
+    put_notes, failed = records.put_notes, []
+
+    async def down_once(project_id: str, run_id: str | None, notes: Any, *, once: str | None = None) -> None:
+        if not failed:
+            failed.append(run_id)
+            raise InfrastructureUnavailableError("db_down")
+        await put_notes(project_id, run_id, notes, once=once)
+
+    monkeypatch.setattr(records, "put_notes", down_once)
+    start = dev.runner.start_site
+
+    async def stops(project_id: str, gap_id: str) -> None:
+        with pytest.raises(InfrastructureUnavailableError, match="db_down"):
+            await start(project_id, gap_id)
+
+    monkeypatch.setattr(dev.runner, "start_site", stops)
+    text = "The HTTP client library times out on every retry?"
+    gap_id = (await report_blocking(dev, await claim(dev), kind="gap", text=text))["finding"]["finding_id"]
+    record = await dev.world.store.latest_run(ALPHA)
+    assert record is not None and not record.finished and gap_id not in dev.world.gap_nodes()
+
+    context = dataclasses.replace(dev.world.context(run_id=record.run_id), holds=dev.holds)
+    result = await run_gap(context, mode="site", site_ids=(gap_id,))
+
+    assert result.counts["outcomes"]["not_spec"] == 1
+    assert not [row for row in records.relevance_rows[ALPHA].values() if "not_spec" in row.signals]
+    assert task(dev, API_LOGIC)["status"] == "pending" and task(dev, API_CONTRACT)["status"] == "pending"
+    assert [note.text for note in records.notes[ALPHA]].count(text) == 1
+    closed = [row for row in records.event_rows[ALPHA] if row.gap_id == gap_id and row.event == "obsolete"]
+    assert len(closed) == 1

@@ -2,7 +2,8 @@
    QuestionBlock and Tag but no screen layout or card section structure around them. Additive, tokens only; no design-system rule is
    overridden. */
 
-/* The screen is a column: list, "Show more", the live count (the tabs and filters are in the shell's header row). */
+/* The screen is a column: list, "Show more", the live count (the tabs and filters are in the shell's header row). The screen keeps the
+   reader's place itself while the inbox reads again (use-keep-place.ts), so the browser's scroll anchoring stays out. */
 .gaps-screen {
   flex: 1;
   min-width: 0;
@@ -11,6 +12,11 @@
   gap: var(--space-md);
   font-family: var(--font-sans);
   color: var(--ink);
+  overflow-anchor: none;
+}
+/* The tab's content, a wrapper only for keeping the place: its children stay items of the screen's column. */
+.gaps-body {
+  display: contents;
 }
 /* Before Mission Control is Ready the one child is the gate scene; its row takes all the height. */
 .gaps-screen:has(> .gate-scene) {

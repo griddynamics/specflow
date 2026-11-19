@@ -30,10 +30,10 @@ graph/gap/
     snapshot.py        the graph detection reads once: nodes, edges, documents, active fragments, sections
     pack.py            the context pack of a site (no model call)
     reads.py           GraphSiteReads: the read menu bound to the project, and the ids it showed
-    investigate.py     the investigate step and the default structured loop (LoopInvestigator)
-    check.py           report validation, duplicates, the second check
-    route.py           severity, gates, ask or ai
-    record.py          Gap and Clarification nodes and relations, relational rows, holds
+    investigate.py     the investigation of a site and the default structured loop (LoopInvestigator)
+    check.py           report validation, duplicates, the second check (a site's check)
+    route.py           severity, gates, ask or ai, the valve's running counters (a site's route)
+    record.py          Gap and Clarification nodes and relations, relational rows (a site's record)
   answers.py           answers, edits, placement, apply, revert, AI answers
   corpus.py            amendments applied to a revision, effective revision id, the clarifications document
   reconcile.py         reconcile_document, reconcile_corpus: amendments against a new source revision
@@ -72,8 +72,8 @@ graph/gap/
 
 ## Run steps
 
-A gap run executes these steps in order. Each step writes its output to the run store before the next
-starts; a run interrupted by a shutdown resumes at the first unfinished step with the same run id.
+A gap run executes these steps in order (`RUN_STEPS`). Each step writes its output to the run store before the
+next starts; a run interrupted by a shutdown resumes at the first unfinished step with the same run id.
 
 | Step | Reads | Writes | Model |
 |---|---|---|---|
@@ -82,14 +82,28 @@ starts; a run interrupted by a shutdown resumes at the first unfinished step wit
 | `relevance` | Sections of touched documents (all in `full`), relevance cache, noise rules | Relevance rows, noise report | `gap_relevance`, uncertain sections only |
 | `detect` | Graph snapshot, fragments, rules, build facts, section relevance | Nothing (seeds and info notes go to `sites`) | No |
 | `sites` | Seeds, suppressions, plan view, trace, verdict cache | Seed rows (append-only, with their site), site rows of `skipped` and `deferred` sites, info notes | No |
-| `investigate` | Sites, graph reads | Reports | `gap_investigate` |
-| `check` | Reports, gaps, fragments, suppressions | Checked reports, duplicates | `gap_investigate` repair (once per report), `gap_judge` for pointers and AI candidates, embeddings for similar questions |
-| `route` | Checked reports, rules | Route and severity | No |
-| `record` | Routed reports | Gap and Clarification nodes, relations, option rows, notes, events, holds | No |
+| `investigate` | Sites, graph reads, gaps (the ones this run recorded included), fragments, suppressions, rules | Per site, before the next site starts: Gap and Clarification nodes, relations, option rows, notes, events, released and held tasks, relevance rows of `not_spec` sections, the site's artifact | `gap_investigate` (and its repair, once per report), `gap_judge` for pointers and AI candidates, embeddings for similar questions |
+| `finish` | The sites' outcomes, gaps | Noise report, holds of every open blocker gap | No |
 
-A model failure in `relevance` leaves the section `mixed`; in `investigate` or `check` it defers the site to
-the next run. Neither fails the run. Mode `site` skips `scope` and `close` and runs the rest for the named
-sites only.
+The step `investigate` takes the sites one by one and runs four phases on each before it starts the next:
+
+| Phase | Module | What it does |
+|---|---|---|
+| investigate | `steps/investigate.py` | The context pack, the read menu and one `Investigator` call: the report |
+| check | `steps/check.py` | Validates the report; finds duplicates among the gaps in the graph, so a later site's question that repeats a gap an earlier site of this run recorded is a `duplicate`, and its signature re-checks that gap |
+| route | `steps/route.py` | Severity and route; the valve counts the run's AI answers and their nodes as the sites are routed |
+| record | `steps/record.py` | Writes the gap, its options, its notes and events and caches the verdict; the run then releases the tasks of the gaps the site ended, holds the tasks of the blockers it touched and turns its `not_spec` sections `mixed` |
+
+A site's gaps are therefore in the graph and in the inbox while later sites are still investigated. The site's
+artifact is stored once it is routed, again before its first write (with the gaps its record reads and the instant
+of its writes) and once it is recorded, so a resumed run records a routed site, writes a site it stopped in the
+middle of again over the same gaps from the same instant on (a graph write that landed is not repeated, a person's
+change since stands, notes and events are appended once), leaves a recorded site alone and goes on with the next
+([api.md](api.md) "Gap runs"). The run's counts are the totals over the sites.
+
+A model failure in `relevance` leaves the section `mixed`; in the investigation or the check of a site it defers
+the site to the next run. Neither fails the run. Mode `site` skips `scope` and `close` and runs the rest for the
+named sites only.
 
 ## Import rules
 

@@ -299,6 +299,25 @@ async def notes_take_the_run_and_events_are_logged(backend: Backend) -> None:
     assert tuple(await probe.events(b)) == ()
 
 
+async def keyed_appends_are_stored_once(backend: Backend) -> None:
+    """``put_notes`` and ``log`` with ``once``: the rows written again under the same key are stored once, in their
+    project; another key (or none) appends."""
+
+    records, probe, a, b = backend.records, backend.probe, backend.a, backend.b
+    note = NoteRow(detector="OQ-STATED", spec_ids=("QST::A",), text="An open question is stated.")
+    event = EventRow(gap_id=None, at=NOW, actor="gap-run", event="report_rejected", detail={"run_id": "run-1"})
+
+    for _ in range(2):
+        await records.put_notes(a, "run-1", [note], once="run-1|SITE::1")
+        await records.log(a, [event], once="run-1|SITE::1")
+    await records.put_notes(b, "run-1", [note], once="run-1|SITE::1")
+    await records.log(a, [event], once="run-1|SITE::2")
+    await records.log(a, [event])
+
+    assert len(await probe.notes(a)) == len(await probe.notes(b)) == 1
+    assert len(await probe.events(a)) == 3 and tuple(await probe.events(b)) == ()
+
+
 async def events_are_read_per_gap_in_time_order(backend: Backend) -> None:
     """``events`` (GapView history) returns one gap's events of the project, oldest first."""
 
@@ -514,6 +533,7 @@ CASES: Final[tuple[Case, ...]] = (
     runs_start_and_finish_in_their_project,
     seeds_and_sites_belong_to_their_run,
     notes_take_the_run_and_events_are_logged,
+    keyed_appends_are_stored_once,
     events_are_read_per_gap_in_time_order,
     verdicts_are_cached_per_project,
     relevance_is_read_by_section_key,

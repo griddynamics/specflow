@@ -1,5 +1,5 @@
-"""Step ``route``: severity and who answers (docs/graph/gap/answers.md "Severity", "Routing", "Gates", "The valve";
-FR-GRTE-01 to FR-GRTE-05).
+"""The route of a site, a phase of the step ``investigate``: severity and who answers (docs/graph/gap/answers.md
+"Severity", "Routing", "Gates", "The valve"; FR-GRTE-01 to FR-GRTE-05).
 
 Routing is code: the model only proposes a severity and the evidence (FR-GRTE-01). The severity rules, in order, on the
 severity the report proposes (``severity_of``):
@@ -16,7 +16,7 @@ second check found that a stated line answers the gap) is ``ai`` with mode ``poi
 ``ai`` with mode ``ai`` only when it is a new gap of origin ``analysis``, its kind is in ``routing.ai_kinds``
 (never ``contradiction``, ``open_question`` or ``assumption``), AI answers are on and every gate holds (FR-GRTE-03):
 
-- entailed: the recommended option has a basis quote (the check step kept only quotes found in their fragment) and the
+- entailed: the recommended option has a basis quote (the site's check kept only quotes found in their fragment) and the
   second check (``gap_judge``, prompt ``AI_ANSWER_PROMPT``) found its edits entailed;
 - local: the ``ABOUT`` and ``IMPACTS`` nodes number at most ``gates.local_max_nodes`` and reach at most
   ``gates.local_max_areas`` spine owners (work areas or owning modules);
@@ -26,15 +26,15 @@ second check found that a stated line answers the gap) is ``ai`` with mode ``poi
 ``ai_answerable`` from the report is advisory and never decides. The reasons of each route and every gate result are
 kept for the gap's ``routed`` event.
 
-The valve (``apply_valve``, FR-GRTE-05): the run's ``ai`` gaps are taken in rank order (rank score, then site id);
-before each, when the run already has ``limits.ai_answers_per_run`` AI answers or the nodes its AI answers touch
-(``ABOUT`` and ``IMPACTS``) are already ``limits.ai_answers_max_node_share`` of the project's spec nodes, the gap is
-routed ``ask`` with the reason ``ai_limit``. Pointers decide nothing new and are not counted.
+The valve (``Valve``, FR-GRTE-05) counts over the run as its sites are routed one by one, in the order they are
+investigated: before each ``ai`` gap, when the run already has ``limits.ai_answers_per_run`` AI answers or the nodes
+its AI answers touch (``ABOUT`` and ``IMPACTS``) are already ``limits.ai_answers_max_node_share`` of the project's spec
+nodes, the gap is routed ``ask`` with the reason ``ai_limit``. Pointers decide nothing new and are not counted.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal
 
@@ -217,39 +217,28 @@ def _ask_reasons(report: GapReport, severity: ReportSeverity, given: RouteInputs
     return [reason for failed, reason in checks if failed]
 
 
-@dataclass(frozen=True)
-class ValveItem:
-    """An ``ai`` gap of the run and what orders it under the valve."""
+@dataclass
+class Valve:
+    """The valve's running counters over one run: the AI answers it let through and the nodes they touch."""
 
-    site_id: str
-    rank_score: float
-    nodes: frozenset[str]
+    limit: int
+    max_share: float
+    spec_nodes: int
+    answered: int = 0
+    nodes: set[str] = field(default_factory=set)
 
+    def admit(self, routed: Routed, nodes: Collection[str]) -> Routed:
+        """``routed``, or an ``ai`` answer over the valve routed ``ask`` (reason ``ai_limit``); an answer let through
+        counts (module docstring)."""
 
-def apply_valve(
-    decided: Mapping[str, Routed],
-    items: Sequence[ValveItem],
-    *,
-    limit: int,
-    max_share: float,
-    spec_nodes: int,
-) -> dict[str, Routed]:
-    """The decisions with the ``ai`` gaps over the valve routed ``ask`` (reason ``ai_limit``); module docstring."""
-
-    found = dict(decided)
-    answered = 0
-    nodes: set[str] = set()
-    for item in sorted(items, key=lambda entry: (-entry.rank_score, entry.site_id)):
-        routed = found.get(item.site_id)
-        if routed is None or routed.route != AI or routed.mode != AI_MODE:
-            continue
-        share = len(nodes) / spec_nodes if spec_nodes else 1.0
-        if answered >= limit or share >= max_share:
-            found[item.site_id] = replace(routed, route=ASK, mode=None, reasons=(AI_LIMIT,))
-            continue
-        answered += 1
-        nodes |= item.nodes
-    return found
+        if routed.route != AI or routed.mode != AI_MODE:
+            return routed
+        share = len(self.nodes) / self.spec_nodes if self.spec_nodes else 1.0
+        if self.answered >= self.limit or share >= self.max_share:
+            return replace(routed, route=ASK, mode=None, reasons=(AI_LIMIT,))
+        self.answered += 1
+        self.nodes |= set(nodes)
+        return routed
 
 
 def routed_payload(routed: Routed) -> Mapping[str, object]:

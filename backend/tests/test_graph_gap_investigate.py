@@ -26,7 +26,7 @@ from graph.gap.steps.investigate import (
     LoopInvestigator,
     LoopTurn,
     WireRead,
-    investigate_sites,
+    investigate_site,
     pack_message,
     primary_seed,
     reads_message,
@@ -288,7 +288,7 @@ async def test_the_context_is_compacted_and_the_last_call_reports_only() -> None
     assert failed.error == "llm_malformed" and failed.report is None
 
 
-async def test_investigate_sites_turns_a_raised_error_into_a_deferred_result() -> None:
+async def test_investigate_site_turns_a_raised_error_into_a_deferred_result() -> None:
     graph, fragment = mini()
 
     class Raising:
@@ -302,13 +302,12 @@ async def test_investigate_sites_turns_a_raised_error_into_a_deferred_result() -
     limits = load_gap_rules(ontology=load_ontology()).limits
     config = InvestigateRun(project_id=PROJECT, run_id="run-1", mode="full", limits=limits, reader=graph.reader())
 
-    found = await investigate_sites([site(fragment)], Raising(), graph.snapshot(), config)
-    empty = await investigate_sites([site(fragment)], Empty(), graph.snapshot(), config)
+    found = await investigate_site(site(fragment), Raising(), graph.snapshot(), config)
+    empty = await investigate_site(site(fragment), Empty(), graph.snapshot(), config)
 
-    assert found["SITE::1"].result.error == "llm_exhausted" and "REQ::BR::REVIEW" in found["SITE::1"].shown_spec_ids
-    assert empty["SITE::1"].result.error == "investigator_failed"
-    again = Investigated.from_payload(json.loads(json.dumps(found["SITE::1"].payload())))
-    assert again == found["SITE::1"]
+    assert found.result.error == "llm_exhausted" and "REQ::BR::REVIEW" in found.shown_spec_ids
+    assert empty.result.error == "investigator_failed"
+    assert Investigated.from_payload(json.loads(json.dumps(found.payload()))) == found
     assert primary_seed([seed(fragment, fact="f"), seed(fragment)]).witness[0].fact == "f"
 
 

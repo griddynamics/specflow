@@ -10,9 +10,10 @@ same write. Every read binds and filters the project id (FR-GOWN-02).
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Final
 
 from graph.core.identity import NAMESPACE
@@ -200,6 +201,42 @@ def stored_gap(row: Mapping[str, Any], known_labels: Collection[str]) -> StoredG
         cites=_cites(list(row.get("cites") or ())),
         follow_ups=_follow_ups(list(row.get("follow_ups") or ())),
         clarifications=tuple(dict(item) for item in row.get("clarifications") or () if item),
+    )
+
+
+def gap_payload(gap: StoredGap) -> dict[str, Any]:
+    """A stored gap as JSON (a value the store returned in another type is kept as its text), for a run artifact."""
+
+    payload = {
+        "gap_id": gap.gap_id,
+        "props": dict(gap.props),
+        "about": [asdict(link) for link in gap.about],
+        "impacts": [asdict(link) for link in gap.impacts],
+        "cites": [asdict(cite) for cite in gap.cites],
+        "follow_ups": [item.model_dump(mode="json") for item in gap.follow_ups],
+        "clarifications": [dict(item) for item in gap.clarifications],
+    }
+    loaded: dict[str, Any] = json.loads(json.dumps(payload, default=str))
+    return loaded
+
+
+def _link(item: Mapping[str, Any]) -> StoredLink:
+    return StoredLink(
+        **{**item, "documents": tuple(item.get("documents") or ()), "aliases": tuple(item.get("aliases") or ())}
+    )
+
+
+def gap_from_payload(payload: Mapping[str, Any]) -> StoredGap:
+    """The stored gap of ``gap_payload``."""
+
+    return StoredGap(
+        gap_id=str(payload["gap_id"]),
+        props=dict(payload["props"]),
+        about=tuple(_link(item) for item in payload["about"]),
+        impacts=tuple(_link(item) for item in payload["impacts"]),
+        cites=tuple(StoredCite(**item) for item in payload["cites"]),
+        follow_ups=tuple(FollowUp.model_validate(item) for item in payload["follow_ups"]),
+        clarifications=tuple(dict(item) for item in payload["clarifications"]),
     )
 
 

@@ -6,7 +6,7 @@ refuses, returns an empty result with the reason (never an error to the model). 
 ``READ_TOKENS`` tokens. Reads never write.
 
 The reads remember every spec id and fragment id they showed (``shown_spec_ids``, ``shown_fragment_ids``): the
-check step drops any id a report names that neither the context pack nor a read showed ("No new ids").
+check of the site drops any id a report names that neither the context pack nor a read showed ("No new ids").
 """
 
 from __future__ import annotations

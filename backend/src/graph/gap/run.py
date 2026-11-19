@@ -4,8 +4,10 @@ detection.md "Run modes and scope", "Limits", "Run metrics"; FR-GRUN-02 to FR-GR
 A run executes ``RUN_STEPS`` in order. Each step writes its artifact to the run store (``ctx.store``, a
 ``GapRunStore``) and marks itself ``done`` before the next starts; every step reads what it needs from the artifacts
 of the steps before it, so a fresh run and a resumed one take the same path. A run interrupted by a shutdown or a store
-error resumes at its first unfinished step when the host calls ``run_gap`` again with the same run id (a run stopped
-after ``detect`` does not compute its seeds again; the graph snapshot is read again, FR-GRUN-07).
+error resumes at its first unfinished step, and in ``investigate`` at its first site not recorded, when the host calls
+``run_gap`` again with the same run id (a run stopped after ``detect`` does not compute its seeds again; the graph
+snapshot is read again, FR-GRUN-07). A run an earlier version left unfinished, with the steps ``check``, ``route`` and
+``record``, investigates its sites again.
 
 Modes: ``update`` (the default after a build) scopes investigation to new and changed sites (sites whose input hash
 has a cached verdict are skipped) up to ``limits.sites_update_run``; ``update`` without a finished earlier run behaves
@@ -19,36 +21,46 @@ rules or settings raise ``ConfigurationError``. A ``ConfigurationError`` or ``Co
 finishes the run ``failed`` (so it never blocks later runs) and is raised again; other store errors pass through and
 leave the run resumable.
 
-Investigation (investigation.md): ``investigate`` builds each site's context pack and read menu and calls
-``ctx.investigator`` (the structured loop ``LoopInvestigator`` by default); ``check`` validates every report, finds
-duplicates and runs the second check of pointers and AI answers; ``route`` decides severity and route (the gates and
-the valve of AI answers); ``record`` writes gaps, options, pointer clarifications and AI answers (a ``pending``
-clarification of mode ``ai`` with its amendment rows: staged like a person's answer until "Resolve gaps"). A
-``not_spec`` report turns the sections of its nodes ``mixed`` and lists the nodes in the run's noise report
-(FR-GREL-07). ``close`` is the close check of applied answers, obsolete gaps and stale witnesses (``steps.close``,
-lifecycle.md "Close check"); the follow-up gaps it opens get a site in the same run.
+Investigation (investigation.md): ``investigate`` takes the sites one by one and finishes each before the next starts,
+so its gaps are in the graph (and in the inbox) while the run goes on: it builds the site's context pack and read menu
+and calls ``ctx.investigator`` (the structured loop ``LoopInvestigator`` by default); ``check`` validates the report,
+finds duplicates (of the gaps in the graph, the ones this run recorded included) and runs the second check of a
+pointer or an AI answer; ``route`` decides severity and route (the gates, and the valve of AI answers counting over the
+run); ``record`` writes the gap, its options, a pointer clarification or an AI answer (a ``pending`` clarification of
+mode ``ai`` with its amendment rows: staged like a person's answer until "Resolve gaps"); then the run releases the
+tasks of the gaps the site ended, holds the tasks of the blockers it touched and turns the sections of a ``not_spec``
+report ``mixed`` (FR-GREL-07). The site's artifact (``site-<hex>``) is stored once it is routed (``routed``), before its
+first write (``recording``: the route, the instant of its writes and the gaps its record reads) and once it is recorded
+(``recorded``): a resumed run records a routed site's stored report, writes a ``recording`` site again over its stored
+gaps from its stored instant on (``RecordRun.replay``: a graph write that landed is not repeated, a person's change
+since stands, notes and events are appended once) and leaves a recorded site alone. ``finish`` lists
+the nodes of ``not_spec`` reports in the run's noise report and holds the tasks of every open blocker gap once more.
+``close`` is the close check of applied answers, obsolete gaps and stale witnesses (``steps.close``, lifecycle.md
+"Close check"); the follow-up gaps it opens get a site in the same run.
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 import secrets
 from collections import Counter
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from functools import partial
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal, cast, get_args
 
 from graph.core.errors import ConfigurationError, ConformanceError
 from graph.core.llm.gateway import estimate_tokens
 from graph.core.store import as_executor
 from graph.gap.context import GapContext
-from graph.gap.gaps import StoredGap, read_gaps
+from graph.gap.gaps import StoredGap, gap_from_payload, gap_payload, read_gaps
 from graph.gap.holds import aliases_of, hold_blockers, release
 from graph.gap.models import (
     GapEstimate,
+    GapReport,
     GapRunResult,
+    HoldResult,
     InvestigationResult,
     NoiseReport,
     NoiseSection,
@@ -64,8 +76,17 @@ from graph.gap.settings import GapLimits
 from graph.gap.steps.check import Checked, Checker, CheckRun
 from graph.gap.steps.close import CloseRun, close_gaps
 from graph.gap.steps.detect import DetectOutcome, Seed, detect
-from graph.gap.steps.investigate import Investigated, InvestigateRun, investigate_sites
-from graph.gap.steps.record import RecordRun, SiteDecision, counted, outcome_counts, record_sites, report_signature
+from graph.gap.steps.investigate import Investigated, InvestigateRun, investigate_site
+from graph.gap.steps.record import (
+    RecordRun,
+    SiteDecision,
+    counted,
+    merged,
+    outcome_counts,
+    reads_of,
+    record_sites,
+    report_signature,
+)
 from graph.gap.steps.relevance import (
     BATCH_SECTIONS,
     MIXED,
@@ -77,16 +98,24 @@ from graph.gap.steps.relevance import (
     mark_not_spec,
     noise_report,
 )
-from graph.gap.steps.route import RouteInputs, ValveItem, apply_valve, route_report, routed_payload, touched
+from graph.gap.steps.route import Routed, RouteInputs, Valve, route_report, routed_payload, touched
 from graph.gap.steps.scope import scope
-from graph.gap.steps.sites import RAISED_ORIGINS, ExistingGap, Site, SiteRun, SitesOutcome, form_sites
+from graph.gap.steps.sites import RAISED_ORIGINS, SITE_PREFIX, ExistingGap, Site, SiteRun, SitesOutcome, form_sites
 from graph.gap.steps.snapshot import GraphSnapshot, read_snapshot
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger(__name__)
 
-StepName = Literal["scope", "close", "relevance", "detect", "sites", "investigate", "check", "route", "record"]
+StepName = Literal["scope", "close", "relevance", "detect", "sites", "investigate", "finish"]
 RUN_STEPS: Final[tuple[StepName, ...]] = get_args(StepName)
+SITE_ARTIFACT: Final = "site-"
+"""A site's artifact is ``site-`` and the hex of its site id."""
+ROUTED: Final = "routed"
+"""A site's artifact state once it is investigated, checked and routed: a resumed run records this report."""
+RECORDING: Final = "recording"
+"""A site's artifact state before its first write: a resumed run writes the same again (``RecordRun.replay``)."""
+RECORDED: Final = "recorded"
+"""A site's artifact state once its gaps and rows are written: a resumed run leaves the site alone."""
 RUN_MODES: Final[tuple[str, ...]] = get_args(RunMode)
 ESTIMATE_MODES: Final = ("update", "full")
 RELEVANCE_ROLE: Final = "gap_relevance"
@@ -269,9 +298,7 @@ class _Run:
             "detect": self._detect,
             "sites": self._sites,
             "investigate": self._investigate,
-            "check": self._check,
-            "route": self._route,
-            "record": self._record,
+            "finish": self._finish,
         }
 
     @property
@@ -459,132 +486,145 @@ class _Run:
         return {"sites": [site_payload(site) for site in outcome.sites], "counts": dict(outcome.counts)}
 
     async def _investigate(self) -> Payload:
-        found = await investigate_sites(
-            await self.investigated(),
+        """Each site in turn: investigated, checked, routed and recorded before the next site starts (module
+        docstring); a resumed run goes on from each site's stored state (``routed``, ``recording``, ``recorded``)."""
+
+        sites, earlier = await self.investigated(), await self.gaps()
+        snapshot = await self.snapshot()
+        valve = Valve(self.limits.ai_answers_per_run, self.limits.ai_answers_max_node_share, len(snapshot.nodes))
+        found: dict[str, Payload] = {}
+        for site in sites:
+            stored = await self.store.get_artifact(self.project_id, self.run_id, site_artifact(site.site_id))
+            if stored is not None:
+                found[site.site_id] = dict(stored)
+                _count_ai(valve, stored)
+        done = sum(1 for item in found.values() if item["state"] == RECORDED)
+        self.report_items("investigate", done, len(sites))
+        for site in sites:
+            payload = found.get(site.site_id) or await self._decide(site, earlier, valve)
+            if payload["state"] != RECORDED:
+                payload = await self._record_site(site, payload)
+                done += 1
+                self.report_items("investigate", done, len(sites))
+            found[site.site_id] = payload
+        results = [Investigated.from_payload(item["investigated"]).result for item in found.values()]
+        log_event(
+            logger,
+            INFO,
+            "graph.gap.investigate.finished",
+            project_id=self.project_id,
+            run_id=self.run_id,
+            sites=len(sites),
+            failed=sum(1 for result in results if result.report is None),
+            calls=sum(result.model_calls for result in results),
+        )
+        return {"sites": found, "recorded": merged(item["recorded"] for item in found.values())}
+
+    async def _decide(self, site: Site, earlier: Sequence[StoredGap], valve: Valve) -> Payload:
+        """One site investigated (its pack lists the gaps of ``earlier``, read when the step started), checked against
+        the gaps in the graph now (the ones this run recorded included) and routed; stored as ``routed``."""
+
+        snapshot = await self.snapshot()
+        investigated = await investigate_site(
+            site,
             self.ctx.investigator,
-            await self.snapshot(),
+            snapshot,
             InvestigateRun(
                 project_id=self.project_id,
                 run_id=self.run_id,
                 mode=self.mode,
                 limits=self.limits,
                 reader=self.ctx.reader,
-                gaps=await self.gaps(),
+                gaps=earlier,
                 plan=self.ctx.plan,
-                on_progress=partial(self.report_items, "investigate"),
             ),
         )
-        return {"results": {site_id: item.payload() for site_id, item in found.items()}}
-
-    async def _check(self) -> Payload:
-        results = (await self.artifact("investigate"))["results"]
+        gaps = await self.gaps()
+        routing = self.ctx.rules.routing
         checker = Checker(
             CheckRun(
                 project_id=self.project_id,
                 run_id=self.run_id,
-                snapshot=await self.snapshot(),
+                snapshot=snapshot,
                 limits=self.limits,
                 records=self.ctx.records,
                 gateway=self.ctx.gateway,
                 reader=self.ctx.reader,
-                gaps=await self.gaps(),
-                min_confidence=self.ctx.rules.routing.gates.min_confidence,
+                gaps=gaps,
+                min_confidence=routing.gates.min_confidence,
                 signature=report_signature,
-                gates=self.ctx.rules.routing.gates,
-                ai_kinds=self.ctx.rules.routing.ai_kinds,
+                gates=routing.gates,
+                ai_kinds=routing.ai_kinds,
                 ai_answers=self.ctx.settings.ai_answers,
             )
         )
-        checked: Payload = {}
-        sites = await self.investigated()
-        self.report_items("check", 0, len(sites))
-        for done, site in enumerate(sites, start=1):
-            stored = results.get(site.site_id)
-            investigated = (
-                Investigated(InvestigationResult(error="no_result"))
-                if stored is None
-                else Investigated.from_payload(stored)
-            )
-            checked[site.site_id] = (await checker.check(site, investigated)).payload()
-            self.report_items("check", done, len(sites))
-        usage = {"calls": checker.usage.calls, "tokens": checker.usage.tokens}
-        return {"checked": checked, "usage": usage}
-
-    async def _route(self) -> Payload:
-        checked = {
-            site_id: Checked.from_payload(item) for site_id, item in (await self.artifact("check"))["checked"].items()
+        checked = await checker.check(site, investigated)
+        routed = await self._route(site, checked, gaps, valve)
+        payload: Payload = {
+            "state": ROUTED,
+            "investigated": investigated.payload(),
+            "checked": checked.payload(),
+            "usage": {"calls": checker.usage.calls, "tokens": checker.usage.tokens},
+            "routed": None if routed is None else dict(routed_payload(routed)),
         }
-        gaps = [item for item in checked.values() if item.outcome == "gap" and item.report is not None]
+        await self.store.put_artifact(self.project_id, self.run_id, site_artifact(site.site_id), payload)
+        return payload
+
+    async def _route(self, site: Site, checked: Checked, gaps: Sequence[StoredGap], valve: Valve) -> Routed | None:
+        """The severity and route of a checked gap (``route_report``) through the run's valve; None for a site with no
+        gap to route."""
+
+        report = checked.report
+        if checked.outcome != "gap" or report is None:
+            return None
         planned: frozenset[str] | None = None
-        if self.ctx.plan is not None and gaps:
-            ids = sorted(
-                {spec_id for item in gaps if item.report for spec_id in (*item.report.about, *item.report.impacts)}
-            )
-            tasks = await self.ctx.plan.tasks_for(self.project_id, ids)
+        if self.ctx.plan is not None:
+            ids = sorted(touched(report))
+            tasks = await self.ctx.plan.tasks_for(self.project_id, ids) if ids else {}
             planned = frozenset(spec_id for spec_id, found in tasks.items() if found)
-        snapshot = await self.snapshot()
-        known = {gap.signature for gap in await self.gaps() if gap.signature}
-        sites = {site.site_id: site for site in await self.investigated()}
         routing = self.ctx.rules.routing
         inputs = RouteInputs(
             planned=planned, ai_answers=self.ctx.settings.ai_answers, ai_kinds=routing.ai_kinds, gates=routing.gates
         )
-        decided = {}
-        new: dict[str, bool] = {}
-        for site_id, item in checked.items():
-            if item.outcome != "gap" or item.report is None:
-                continue
-            site = sites[site_id]
-            new[site_id] = site.gap_id is None and report_signature(site, item.report) not in known
-            decided[site_id] = route_report(
-                item.report,
-                snapshot,
-                inputs,
-                pointer=item.pointer,
-                judge=item.ai_judge,
-                judge_failed=item.ai_judge_failed,
-                new=new[site_id] and item.new,
-                origin=_origin(site),
-                seed_kinds=tuple(seed.kind for seed in site.seeds),
-            )
-        decided = apply_valve(
-            decided,
-            [
-                ValveItem(site_id, sites[site_id].rank_score, touched(item.report))
-                for site_id, item in checked.items()
-                if site_id in decided and item.report is not None
-            ],
-            limit=self.limits.ai_answers_per_run,
-            max_share=self.limits.ai_answers_max_node_share,
-            spec_nodes=len(snapshot.nodes),
+        known = {gap.signature for gap in gaps if gap.signature}
+        new = site.gap_id is None and report_signature(site, report) not in known
+        routed = route_report(
+            report,
+            await self.snapshot(),
+            inputs,
+            pointer=checked.pointer,
+            judge=checked.ai_judge,
+            judge_failed=checked.ai_judge_failed,
+            new=new and checked.new,
+            origin=_origin(site),
+            seed_kinds=tuple(seed.kind for seed in site.seeds),
         )
-        routed: Payload = {site_id: dict(routed_payload(decision)) for site_id, decision in decided.items()}
-        return {"routed": routed}
+        return valve.admit(routed, touched(report))
 
-    async def _record(self) -> Payload:
-        checked = (await self.artifact("check"))["checked"]
-        routed = (await self.artifact("route"))["routed"]
-        decisions: list[SiteDecision] = []
-        for site in await self.investigated():
-            item = Checked.from_payload(checked[site.site_id])
-            decided = self._still_ai(dict(routed.get(site.site_id, {})), item)
-            decisions.append(
-                SiteDecision(
-                    site=site,
-                    outcome=item.outcome,
-                    report=item.report,
-                    severity=decided.get("severity"),
-                    route=decided.get("route"),
-                    mode=decided.get("mode"),
-                    reasons=tuple(decided.get("reasons", ())),
-                    gap_id=item.gap_id,
-                    rejected=item.rejected,
-                    judge=item.ai_judge if decided.get("mode") == "ai" else item.judge,
-                    gates=dict(decided.get("gates") or {}),
-                    confidence=decided.get("confidence"),
-                )
-            )
-        aliases = await self._aliases()
+    async def _record_site(self, site: Site, payload: Payload) -> Payload:
+        """Write a routed site and settle what it changed: the tasks its ended gaps held are released, the blockers it
+        touched hold their tasks again and its ``not_spec`` sections turn ``mixed``. Before the first write the site's
+        artifact turns ``recording`` with the decision, the instant and the gaps the write reads (``reads_of``), so a
+        resumed run writes the same again over them; then ``recorded``."""
+
+        if payload["state"] == ROUTED:
+            item = Checked.from_payload(payload["checked"])
+            decided = self._still_ai(dict(payload["routed"] or {}), item)
+            reads = reads_of(await self.gaps(), _decision(site, item, decided))
+            payload = {
+                **payload,
+                "state": RECORDING,
+                "decided": decided,
+                "instant": _now().isoformat(),
+                "reads": [gap_payload(gap) for gap in reads],
+            }
+            await self.store.put_artifact(self.project_id, self.run_id, site_artifact(site.site_id), payload)
+            replay = False
+        else:
+            replay = True
+        decision = _decision(site, Checked.from_payload(payload["checked"]), payload["decided"])
+        reads = tuple(gap_from_payload(item) for item in payload["reads"])
+        instant = datetime.fromisoformat(payload["instant"])
         outcome = await record_sites(
             RecordRun(
                 source=self.ctx.executor,
@@ -593,20 +633,40 @@ class _Run:
                 records=self.ctx.records,
                 project_id=self.project_id,
                 run_id=self.run_id,
-                now=_now,
+                now=_ticking(instant),
                 model=self.versions[INVESTIGATE_ROLE],
                 prompt_version=self.versions[INVESTIGATE_ROLE],
                 build_id=self.record.build_id,
                 amendments=self.ctx.amendments,
+                replay=replay,
             ),
             await self.snapshot(),
-            await self.gaps(),
-            decisions,
+            reads,
+            [decision],
         )
-        payload = outcome.payload()
-        payload["noise"] = await self._not_spec(outcome.not_spec)
-        payload["released"] = await self._release(outcome.releases, aliases)
-        # GD2: every open blocker gap holds its tasks, the ones this step wrote or re-checked and those a plan run
+        released = await self._release(outcome.releases, {gap.gap_id: aliases_of(gap.props) for gap in reads})
+        touched_ids = {spec_id for _, about in outcome.holds.values() for spec_id in about}
+        touched_ids |= {spec_id for gap in reads if gap.gap_id in outcome.releases for spec_id in gap.about_ids}
+        held = HoldResult()
+        if self.ctx.holds is not None and touched_ids:
+            held = await hold_blockers(self.ctx.holds, self.project_id, await self.gaps(), touched_ids)
+        await self._mark_not_spec(outcome.not_spec)
+        recorded: Payload = {
+            **payload,
+            "state": RECORDED,
+            "recorded": outcome.payload(),
+            "released": released,
+            "held": list(held.held),
+        }
+        await self.store.put_artifact(self.project_id, self.run_id, site_artifact(site.site_id), recorded)
+        return recorded
+
+    async def _finish(self) -> Payload:
+        """The noise report of the ``not_spec`` sites (FR-GREL-07) and the holds of every open blocker gap (GD2)."""
+
+        recorded = (await self.artifact("investigate"))["recorded"]
+        payload: Payload = {"noise": await self._noise(recorded["not_spec"])}
+        # GD2: every open blocker gap holds its tasks, the ones this run wrote or re-checked and those a plan run
         # reset, a claim left alone or a follow-up inherited (idempotent: held tasks stay as they are).
         held = await hold_blockers(self.ctx.holds, self.project_id, await self.gaps())
         payload["held_tasks"] = list(held.held)
@@ -623,17 +683,22 @@ class _Run:
             return decided
         return decided | {"route": "ask", "mode": None, "reasons": ["ai_answers_off"]}
 
-    async def _not_spec(self, sites: Mapping[str, Sequence[str]]) -> list[Payload]:
-        """FR-GREL-07: the sections of a ``not_spec`` site's nodes become ``mixed`` (``mark_not_spec``); the nodes are
-        listed in the run's noise report under their sections."""
+    async def _mark_not_spec(self, sites: Mapping[str, Sequence[str]]) -> None:
+        """FR-GREL-07: the sections of a ``not_spec`` site's nodes become ``mixed`` (``mark_not_spec``)."""
 
         ids = sorted({spec_id for found in sites.values() for spec_id in found})
-        if not ids:
-            return []
+        if ids:
+            relevance = await self.relevance()
+            await mark_not_spec(
+                await self.snapshot(), relevance, ids, project_id=self.project_id, records=self.ctx.records
+            )
+
+    async def _noise(self, sites: Mapping[str, Sequence[str]]) -> list[Payload]:
+        """The nodes of the ``not_spec`` sites under their sections, for the run's noise report (FR-GREL-07)."""
+
         snapshot = await self.snapshot()
-        await mark_not_spec(snapshot, await self.relevance(), ids, project_id=self.project_id, records=self.ctx.records)
         by_section: dict[tuple[str, tuple[str, ...]], set[str]] = {}
-        for spec_id in ids:
+        for spec_id in sorted({spec_id for found in sites.values() for spec_id in found}):
             for section in snapshot.node_sections.get(spec_id, ()):
                 by_section.setdefault(section.ident, set()).add(spec_id)
         return [
@@ -649,17 +714,21 @@ class _Run:
             await self.artifact("relevance"),
             await self.artifact("detect"),
         )
-        sites, investigated = await self.artifact("sites"), await self.artifact("investigate")
-        checked, recorded = (await self.artifact("check"))["checked"], await self.artifact("record")
-        results = [Investigated.from_payload(item).result for item in investigated["results"].values()]
+        sites, investigated, finished = (
+            await self.artifact("sites"),
+            await self.artifact("investigate"),
+            await self.artifact("finish"),
+        )
+        found, recorded = list(investigated["sites"].values()), investigated["recorded"]
+        results = [Investigated.from_payload(item["investigated"]).result for item in found]
         failed = sum(1 for result in results if result.report is None or result.error is not None)
         outcomes = recorded["outcomes"]
         deferred = sorted(
             {item["site_id"] for item in sites["sites"] if item["state"] == "deferred"}
             | {site_id for site_id, value in outcomes.items() if value[0] == "deferred"}
         )
-        cost = _cost(relevance, results, (await self.artifact("check")).get("usage", {}))
-        noise = _with_not_spec(NoiseReport.model_validate(detection["noise"]), recorded.get("noise", ()))
+        cost = _cost(relevance, results, _usage(item["usage"] for item in found))
+        noise = _with_not_spec(NoiseReport.model_validate(detection["noise"]), finished.get("noise", ()))
         site_counts = dict(sites["counts"].get("sites", {}))
         counts: Payload = {
             "scope": _scope_counts(scoped),
@@ -687,7 +756,7 @@ class _Run:
         }
         warnings = sorted(
             {f"detector_failed:{code}" for code in detection["failures"]}
-            | {code for item in checked.values() for code in item["warnings"]}
+            | {code for item in found for code in item["checked"]["warnings"]}
         )
         return GapRunResult(
             run_id=self.run_id,
@@ -698,7 +767,7 @@ class _Run:
             cost=cost,
             noise=noise,
             deferred_sites=tuple(deferred),
-            held_tasks=tuple(recorded.get("held_tasks", ())),
+            held_tasks=tuple(finished.get("held_tasks", ())),
             warnings=tuple(warnings),
         )
 
@@ -743,10 +812,62 @@ def _sections_by_relevance(payload: Mapping[str, Any]) -> dict[str, dict[str, in
     return {relevance: dict(sorted(by.items())) for relevance, by in sorted(found.items())}
 
 
+def site_artifact(site_id: str) -> str:
+    """The run store name of a site's artifact (``SITE_ARTIFACT``)."""
+
+    return f"{SITE_ARTIFACT}{site_id.removeprefix(SITE_PREFIX)}"
+
+
+def _ticking(instant: datetime) -> Callable[[], datetime]:
+    """A clock that gives ``instant``, then one microsecond more at each call: a site written again gets the same
+    instants, and its events keep their order."""
+
+    ticks = itertools.count()
+    return lambda: instant + timedelta(microseconds=next(ticks))
+
+
+def _decision(site: Site, item: Checked, decided: Mapping[str, Any]) -> SiteDecision:
+    """What the record of a site takes of its check and its route (``decided``: the stored route, demoted or not)."""
+
+    return SiteDecision(
+        site=site,
+        outcome=item.outcome,
+        report=item.report,
+        severity=decided.get("severity"),
+        route=decided.get("route"),
+        mode=decided.get("mode"),
+        reasons=tuple(decided.get("reasons", ())),
+        gap_id=item.gap_id,
+        rejected=item.rejected,
+        judge=item.ai_judge if decided.get("mode") == "ai" else item.judge,
+        gates=dict(decided.get("gates") or {}),
+        confidence=decided.get("confidence"),
+    )
+
+
+def _count_ai(valve: Valve, payload: Mapping[str, Any]) -> None:
+    """Count a stored site's AI answer in the valve of a resumed run, as its first attempt did."""
+
+    routed, report = payload.get("routed") or {}, payload["checked"].get("report")
+    if routed.get("route") == "ai" and routed.get("mode") == "ai" and report is not None:
+        valve.answered += 1
+        valve.nodes |= touched(GapReport.model_validate(report))
+
+
+def _usage(items: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+    """The model calls and tokens of the sites' checks, per gateway role."""
+
+    total: dict[str, Counter[str]] = {"calls": Counter(), "tokens": Counter()}
+    for item in items:
+        for name, counter in total.items():
+            counter.update(item.get(name, {}))
+    return {name: dict(counter) for name, counter in total.items()}
+
+
 def _cost(
     relevance: Mapping[str, Any], results: Sequence[InvestigationResult], checked: Mapping[str, Any]
 ) -> dict[str, dict[str, int]]:
-    """Calls and tokens per gateway role: the relevance step's calls, the investigations', and the check step's repair
+    """Calls and tokens per gateway role: the relevance step's calls, the investigations', and the sites' checks' repair
     (``gap_investigate``) and second-check (``gap_judge``) calls; ``gap_edits`` is a service call, not a run's."""
 
     cost: dict[str, dict[str, int]] = {role: {"calls": 0, "tokens": 0} for role in GATEWAY_ROLES}
@@ -804,6 +925,8 @@ async def _open(
             stored = await store.get_result(project_id, found.run_id) if found.finished else None
             if found.finished and stored is None:
                 raise ConfigurationError("gap_run_result_missing", run_id=found.run_id)
+            if not found.finished and not set(found.progress) <= set(RUN_STEPS):
+                found = await _investigate_again(store, found)
             return _Run(ctx, store, found, limits), stored
     else:
         latest = await store.latest_run(project_id)
@@ -847,6 +970,14 @@ async def _open(
         builds=len(ctx.changes),
     )
     return run, None
+
+
+async def _investigate_again(store: GapRunStore, record: GapRunRecord) -> GapRunRecord:
+    """An unfinished run an earlier version stored, with the steps ``check``, ``route`` and ``record`` after
+    ``investigate``: its sites are investigated again and recorded one by one."""
+
+    await store.put_progress(record.project_id, record.run_id, "investigate", "pending")
+    return record.model_copy(update={"progress": {**record.progress, "investigate": "pending"}})
 
 
 async def _fail(ctx: GapContext, store: GapRunStore, run: _Run, code: str) -> None:

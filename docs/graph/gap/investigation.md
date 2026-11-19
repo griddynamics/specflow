@@ -7,9 +7,10 @@ tags: [graph, gap]
 ---
 # investigation.md: the Investigator port, the context pack, the read menu, the report, checks and the second check
 
-Investigation is the second half of a gap run: the steps `investigate` and `check` of `run_gap`. One
-investigation reads the graph around one site ([detection.md](detection.md) "Sites") and answers three
-questions: is this a real gap or noise, what is it about (every affected node, across documents), and what
+Investigation is the second half of a gap run: the step `investigate` of `run_gap`, which takes the sites one by
+one and investigates, checks, routes and records each before the next starts ([architecture.md](architecture.md)
+"Run steps"). One investigation reads the graph around one site ([detection.md](detection.md) "Sites") and answers
+three questions: is this a real gap or noise, what is it about (every affected node, across documents), and what
 are the reasonable answers. Code then checks the report before anything is written.
 
 ## Investigator port
@@ -66,7 +67,7 @@ An optional host adapter on the existing agent runtime (`agent_runtime/`: the Op
 document summariser), `agent_runtime/gap_investigator.py` (`AgentsInvestigator`), chosen by
 `GapSettings.investigator = "agents"`; the structured loop stays the default. The read menu becomes function tools,
 and the report is a `report` tool whose argument is the loop's strict report schema (`WireReport`); the adapter
-returns the same report, which the check step checks the same way (FR-GINV-09).
+returns the same report, which the site's check checks the same way (FR-GINV-09).
 
 | Part | As built |
 |---|---|
@@ -195,8 +196,9 @@ and leaves the other unchanged; a naming fix may edit three documents.
 
 ## Checks
 
-The step `check` validates every report in code. A report that fails a check is dropped (the site gets
-`outcome` `not_a_gap` with the failed check in the event log) unless the failure is listed as repairable.
+The check of a site validates its report in code, right after its investigation. A report that fails a check is
+dropped (the site gets `outcome` `not_a_gap` with the failed check in the event log) unless the failure is listed as
+repairable.
 
 | Check | Rule | On failure |
 |---|---|---|
@@ -206,7 +208,7 @@ The step `check` validates every report in code. A report that fails a check is 
 | No new ids | No spec id and no fragment id (witness, basis, pointer, edit target) the context pack or a read did not show; the site's own seed nodes and witness fragments count as shown | The id, quote or edit is dropped |
 | Options | 2 to 4, exactly one `recommended`, labels distinct | Dropped (repairable once: one repair call through `gap_investigate` with the failure) |
 | Edit anchors | Every `amend` edit's `anchor_quote` is a line of its target fragment; `replace` and `insert_after` have an anchor; `document` edits have a heading | The option is dropped; fewer than 2 options left drops the report (repairable once) |
-| Duplicates | Same signature as an existing gap, or question similarity (embedding cosine) at least 0.9 with an open gap whose `ABOUT` set overlaps; a dismissed gap matches by its signature (a suppression keeps no `ABOUT` set) | Same signature: that gap is re-checked by `record`. Similar question: outcome `duplicate` with the existing gap's id (a `duplicate` event on it, nothing else written). A dismissed signature: outcome `duplicate`, nothing written. A site already joined to a gap is not compared with that gap; an embedding failure finds no duplicate |
+| Duplicates | Same signature as an existing gap, or question similarity (embedding cosine) at least 0.9 with an open gap whose `ABOUT` set overlaps (the gaps in the graph when the site is checked: a gap an earlier site of the same run recorded counts); a dismissed gap matches by its signature (a suppression keeps no `ABOUT` set) | Same signature: that gap is re-checked by `record`. Similar question: outcome `duplicate` with the existing gap's id (a `duplicate` event on it, nothing else written). A dismissed signature: outcome `duplicate`, nothing written. A site already joined to a gap is not compared with that gap; an embedding failure finds no duplicate |
 | Lengths | Every field within its limits | Truncated at a sentence boundary when over by at most 10 %, else dropped |
 | Kind and detector | The kind is one of the kinds the site's detectors find, or the report explains a different kind in `why` | Accepted; the event log records the change |
 | Severity | `info` reports become a `gap_note`, not a gap | Not an error |
@@ -257,7 +259,7 @@ the gap stands without an AI answer); a failed pointer check defers the site.
 When the investigator finds a stated line that already answers the gap (the build missed it, or the coding
 agent did not read it), it returns `pointer` with that line (options may then be empty). If the quote snaps and
 the second check confirms it (entailed, consistent, confidence at least `routing.gates.min_confidence`), the
-gap is answered by a `pointer` clarification in the run's `record` step (unless AI answers are off,
+gap is answered by a `pointer` clarification when the run records the site (unless AI answers are off,
 `GapSettings.ai_answers`, or the kind is `contradiction`, which is routed `ask`): no text is placed, `GROUNDED_IN` points at the
 answering fragment, and the gap resolves at once without a build ([answers.md](answers.md) "Pointer
 answers"). For a stated open question, the next build's answered-elsewhere check may still keep the
@@ -272,7 +274,7 @@ on the gap's own site. The agent's question stays the question; the report may r
 it for a person to dismiss. A gap a person raised is investigated the same way (mode `site`, the question stays). No
 detector seed names such a gap, so the sites step seeds its own site: detector `person` or `development`, the
 asker's question as a fact witness (it is shown to the investigator and is part of the input hash), the quoted
-lines and the `ABOUT` nodes. The record step then refines the gap's severity, kind, title and why and stores the
+lines and the `ABOUT` nodes. The site's record then refines the gap's severity, kind, title and why and stores the
 options and `IMPACTS`.
 
 ## Verdict cache

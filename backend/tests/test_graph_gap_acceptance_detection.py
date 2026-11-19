@@ -21,7 +21,7 @@ AT = datetime(2026, 11, 1, tzinfo=UTC)
 
 
 async def test_fr_gdet_01_seed_carry_spec_ids_witness_quoted_line() -> None:
-    """Given a full run, then every `gap_seed` row has a witness that the check step resolves."""
+    """Given a full run, then every `gap_seed` row has a witness that the check of its site resolves."""
 
     found = await run_detection()
 

@@ -13,8 +13,8 @@ from graph.gap.rules import GapRules
 from graph.gap.settings import GapSettings
 
 ProgressCallback = Callable[[str, int, int], None]
-"""Called with a step name, the items of that step done and their total, while a long step runs: ``investigate`` and
-``check`` report their sites (0 before the first site, then after each site)."""
+"""Called with a step name, the items of that step done and their total, while a long step runs: ``investigate``
+reports its sites (the ones recorded before the first site it takes, then after each site is recorded)."""
 
 
 @dataclass(frozen=True)

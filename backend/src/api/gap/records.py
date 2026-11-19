@@ -16,7 +16,9 @@ fakes (``tests/gap_port_fakes.py``) and proven by ``tests/gap_records_contract.p
   cost, and raises ``ConformanceError("gap_run_unknown")`` when the project has no such run. ``events`` reads one
   gap's events by ``at``, then id.
 - ``put_seeds``/``put_sites`` refuse a row of another run (``ConformanceError("gap_rows_of_another_run")``); a site
-  stored again for its run takes the new values. ``put_notes`` files every note under the given run.
+  stored again for its run takes the new values. ``put_notes`` files every note under the given run. ``put_notes``
+  and ``log`` append; with ``once`` (a key of the call) the rows written again under the same key and in the same
+  order are stored once (each row's id is derived from the project, the key and its position).
 - ``verdict``, ``relevance``, ``suppress``, ``put_noise_rule``, ``assign`` and amendments ``put`` are keyed upserts;
   ``unsuppress``, ``delete_noise_rule`` (True when the rule existed), ``unassign`` and amendments ``delete`` remove
   only the project's rows. ``assignments`` maps each assigned gap of the project to its row; an assignee that is not
@@ -40,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import gap as repo
 from graph.core.errors import ConformanceError
+from graph.core.identity import NAMESPACE
 from graph.gap.models import (
     AmendmentRow,
     AssignmentRow,
@@ -115,6 +118,16 @@ def _values(row: BaseModel, *, exclude: frozenset[str] = frozenset()) -> dict[st
     plain = row.model_dump(exclude=set(exclude))
     ready = row.model_dump(mode="json", exclude=set(exclude))
     return {name: value if isinstance(value, datetime) else ready[name] for name, value in plain.items()}
+
+
+def _keyed(project_id: str, kind: str, once: str | None, values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Appended rows with the ids ``once`` derives (none without it: the table's own)."""
+
+    if once is None:
+        return values
+    return [
+        row | {"id": uuid.uuid5(NAMESPACE, f"{project_id}|{kind}|{once}|{index}")} for index, row in enumerate(values)
+    ]
 
 
 def _row[M: BaseModel](model: type[M], values: Mapping[Any, Any]) -> M:
@@ -220,14 +233,17 @@ class PostgresGapRecords:
         async with self._transaction() as session:
             await repo.delete_suppression(session, _project(project_id), signature)
 
-    async def put_notes(self, project_id: str, run_id: str | None, notes: Sequence[NoteRow]) -> None:
-        values = [_values(note) | {"run_id": run_id} for note in notes]
+    async def put_notes(
+        self, project_id: str, run_id: str | None, notes: Sequence[NoteRow], *, once: str | None = None
+    ) -> None:
+        values = _keyed(project_id, "note", once, [_values(note) | {"run_id": run_id} for note in notes])
         async with self._transaction() as session:
             await repo.insert_notes(session, _project(project_id), values)
 
-    async def log(self, project_id: str, events: Sequence[EventRow]) -> None:
+    async def log(self, project_id: str, events: Sequence[EventRow], *, once: str | None = None) -> None:
+        values = _keyed(project_id, "event", once, [_values(event) for event in events])
         async with self._transaction() as session:
-            await repo.insert_events(session, _project(project_id), [_values(event) for event in events])
+            await repo.insert_events(session, _project(project_id), values)
 
     async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]:
         async with self._transaction() as session:

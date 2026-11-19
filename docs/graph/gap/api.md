@@ -58,7 +58,8 @@ class GapRunStore(Protocol):
 ```
 
 `open_gap_run_store(root)` returns the file store (`<root>/<project_id>/gap-runs/<run_id>/run.json.gz`, one
-`<step>.json.gz` per finished step, `result.json.gz`; gzip JSON written atomically); `MemoryGapRunStore` has the
+`<step>.json.gz` per finished step, one `site-<hex>.json.gz` per site the step `investigate` took, `result.json.gz`;
+gzip JSON written atomically); `MemoryGapRunStore` has the
 same semantics in memory. A `GapRunRecord` holds `project_id`, `run_id`, `mode` (the effective mode: `full` for an
 `update` without a finished earlier run), `build_id` (`ctx.build.build_id`, else the last change report's),
 `started_at`, `finished_at`, `status`, `progress` (step to `pending`, `running`, `done` or `failed`) and `site_ids`
@@ -71,7 +72,24 @@ How a run uses it:
   returns its stored result.
 - Each step reads the artifacts of the steps before it and writes its own before it is marked `done`, so a resumed
   run continues at its first step not `done` (the graph snapshot is read again; seeds, sites, reports and routes
-  are not computed again).
+  are not computed again). In `investigate` each site's artifact `site-<hex>` (the hex of its site id) is stored
+  three times: once the site is routed (state `routed`: its investigation, checked report, check usage and route),
+  before its first write (state `recording`: the final route, the instant of its writes and the gaps its record
+  reads, `steps.record.reads_of`, as they were), and once it is recorded (state `recorded`: with the record outcome,
+  the tasks released and held). A resumed run leaves a `recorded` site alone; records a `routed` site's stored report
+  without investigating it again (an AI route is demoted to `ask` when AI answers are now off); and writes a
+  `recording` site again over its stored gaps from its stored instant on (`RecordRun.replay`), so it takes the same
+  path and comes to the same rows, events, notes, releases, holds and counts as a run that was not stopped. A graph
+  write that already landed is not repeated: a new gap the graph holds now (whatever a person did to it since) or
+  whose signature a person dismissed since is not written again (a dismissed gap gets no options again), and a
+  re-check or a close as `not_spec` writes nothing over a gap whose state or `updated_at` changed since (unless it
+  is the re-check's own write); a person's answer, revert or dismissal between the stop and the resume stands. The
+  rows are upserts, and notes and events are appended once (`once`). The resumed run counts the stored sites' AI
+  answers in its valve and goes on with the next site. A run
+  an earlier version left unfinished (its progress names the steps `check`, `route` and `record`) investigates its
+  sites again. That is a one-time edge of the upgrade: when the old run had already written gaps in its `record`
+  step, its sites are investigated again (model calls again), those gaps come back as re-checks of themselves (or
+  duplicates) and the run counts no new gaps.
 - A `ConfigurationError` or `ConformanceError` raised by a step (an invalid rule, a missing artifact, a port's
   refusal) finishes the run `failed` (result, store and `gap_run` row) and is raised again, so it never blocks the
   project's later runs; any other error (a store that is down) leaves the run resumable.
@@ -79,26 +97,38 @@ How a run uses it:
 - The sites the last finished run deferred come first (`deferred_first`); limits are
   `settings.effective_limits(rules.limits)`; `settings.ignore_cache` investigates sites with a cached verdict too.
 - Cost per gateway role comes from the steps: the relevance step's calls and tokens, the investigations' (the
-  `InvestigationResult` counts), and the check step's repair calls (`gap_investigate`) and second-check calls
+  `InvestigationResult` counts), and the checks' repair calls (`gap_investigate`) and second-check calls
   (`gap_judge`); `gap_edits` is a service call, never a run's. Embedding calls of the duplicate check are not a
   gateway role and are not in the cost.
 
-Investigation ([investigation.md](investigation.md)): the step `investigate` builds each site's context pack
-(`steps/pack.py`) and its read menu `GraphSiteReads` (`steps/reads.py`, bound to the project and the run) and calls
-`ctx.investigator`; the host passes `LoopInvestigator(gateway)` (exported), the structured loop over the run's
-gateway, or with `investigator = "agents"` the host's `AgentsInvestigator` on the same gateway configuration
-([investigation.md](investigation.md) "Tool agent adapter"). The step's artifact keeps, per site, the `InvestigationResult` and the spec ids and fragment ids the pack and
-the reads showed (the check step's "No new ids"). `check` validates every report, repairs it once when only its
-options failed, finds duplicates and runs the second check of a pointer and of an AI-answer candidate; `route`
-applies [answers.md](answers.md) "Severity", "Routing", "Gates" and "The valve"; `record` writes the gaps, their option rows, pointer clarifications and AI
-answers (a `pending` clarification of mode `ai` and its `pending` amendment rows, through `ctx.amendments`). The step `close` is the close check ([lifecycle.md](lifecycle.md) "Close check"; `steps/close.py`):
+Investigation ([investigation.md](investigation.md)): the step `investigate` takes the sites one by one, in the order
+of the step `sites`, and finishes each before the next starts, so a site's gap is in the graph (and in `list_gaps`)
+while later sites are still investigated. For each site: `investigate` builds its context pack (`steps/pack.py`; the
+gaps it lists are those in the graph when the step started) and its read menu `GraphSiteReads` (`steps/reads.py`,
+bound to the project and the run) and calls `ctx.investigator`; the host passes `LoopInvestigator(gateway)`
+(exported), the structured loop over the run's gateway, or with `investigator = "agents"` the host's
+`AgentsInvestigator` on the same gateway configuration ([investigation.md](investigation.md) "Tool agent adapter").
+The site's artifact keeps the `InvestigationResult` and the spec ids and fragment ids the pack and the reads showed
+(the check's "No new ids"). `check` (`steps/check.py`) validates the report, repairs it once when only its options
+failed, finds duplicates among the gaps in the graph now (a gap an earlier site of this run recorded included, so a
+later site asking its question is its `duplicate` and a later report with its signature re-checks it) and runs the
+second check of a pointer and of an AI-answer candidate; `route` (`steps/route.py`) applies
+[answers.md](answers.md) "Severity", "Routing", "Gates" and "The valve" (`Valve`, counting the run's AI answers and
+the nodes they touch as the sites are routed); `record` (`steps/record.py`) writes the gap, its option rows, a
+pointer clarification or an AI answer (a `pending` clarification of mode `ai` and its `pending` amendment rows,
+through `ctx.amendments`). Right after a site is recorded the run settles what it changed: it releases the tasks
+held by the gaps the site ended, holds again the tasks of the open blocker gaps about the nodes of those gaps and of
+the blockers the site wrote or re-checked, and turns the sections of a `not_spec` report `mixed` (FR-GREL-07), so a
+run that stops or fails later leaves no site half settled. The step `finish` lists the nodes of the `not_spec`
+reports in the run's noise report and holds the tasks of every open blocker gap once more; the run result's counts
+are the totals over the sites. The step `close` is the close check ([lifecycle.md](lifecycle.md) "Close check"; `steps/close.py`):
 it settles `applying` gaps, takes out obsolete open gaps and deletes stale `CITES`, and the follow-up gaps it opens
 get a site in the same run (`SiteRun.follow_ups`). Its counts are the run metric `close` (`resolved`, `follow_ups`,
 `waiting`, `obsolete`, `cites_removed`). An `info` report is a `gap_note` (site
-outcome `not_a_gap`). Every checked site's report is cached in `gap_verdict` under its input hash by the `record`
-step (a rejected report as its outcome and failed checks), so the next run with the same inputs skips it.
+outcome `not_a_gap`). Every checked site's report is cached in `gap_verdict` under its input hash when the site is
+recorded (a rejected report as its outcome and failed checks), so the next run with the same inputs skips it.
 
-The step `record` writes each gap with `ABOUT`, `IMPACTS` and `CITES` (`quote`, `line_start`, `line_end`,
+`record` writes each gap with `ABOUT`, `IMPACTS` and `CITES` (`quote`, `line_start`, `line_end`,
 `quote_hash`) in one owned-writer transaction; relations carry `added_by_run`. Keys: the gap node's `uuid` is uuid5
 of the project and gap id; edge keys are `<gap_id>|ABOUT|<spec_id>`, `<gap_id>|IMPACTS|<spec_id>` and
 `<gap_id>|CITES|<fragment_id>|<16 hex of the quote hash>`. The gap's signature is that of the report: the primary
@@ -111,7 +141,7 @@ site joined to an existing gap, re-checks that gap: an open gap gets the relatio
 
 | Model | Fields |
 |---|---|
-| `GapContext` | `holds: StoryHolds \| None` (the plan's hold calls: the run holds the tasks of open blocker gaps it records and releases the holds of the gaps it ends; none without a plan), `project_id`, `executor` (core store executor), `reader` (`GraphReader`), `gateway` (core `Gateway`), `ontology`, `rules` (`GapRules`), `records` (`GapRecords`), `amendments` (`Amendments`), `investigator` (`Investigator`), `changes: tuple[GapChangeReport, ...]`, `build: BuildFacts` (the dedup refusals and cycle cuts of the build the run follows), `plan: PlanView \| None`, `settings: GapSettings`, `store` (run artifact store, for resume), `run_id: str \| None`, `on_progress` (optional callback of step name, items done, items total while a long step runs: `investigate` and `check` report their sites, 0 before the first site, then after each site) |
+| `GapContext` | `holds: StoryHolds \| None` (the plan's hold calls: the run holds the tasks of open blocker gaps it records and releases the holds of the gaps it ends; none without a plan), `project_id`, `executor` (core store executor), `reader` (`GraphReader`), `gateway` (core `Gateway`), `ontology`, `rules` (`GapRules`), `records` (`GapRecords`), `amendments` (`Amendments`), `investigator` (`Investigator`), `changes: tuple[GapChangeReport, ...]`, `build: BuildFacts` (the dedup refusals and cycle cuts of the build the run follows), `plan: PlanView \| None`, `settings: GapSettings`, `store` (run artifact store, for resume), `run_id: str \| None`, `on_progress` (optional callback of step name, items done, items total while a long step runs: `investigate` reports its sites, the ones already recorded before the first site it takes, then after each site is recorded) |
 | `GapSettings` | `enabled` (default `True`), `rules_path` (`None`: shipped rules), `investigator` (`"loop"` or `"agents"`, default `"loop"`), `auto_run_after_build` (default `True`), `ai_answers` (default `True`), `limits` (optional overrides of the rules' `limits`, by name), `ignore_cache` (default `False`: a `full` run reuses cached verdicts), `reconcile` (`ReconcileSettings`: `anchor_similarity` 0.7, `section_similarity` 0.6, `judge_min_confidence` 0.7, [reconcile.md](reconcile.md)). `gap_settings_from_env` maps the `GAP_*` variables of [architecture.md](architecture.md) "Settings"; `effective_limits` applies the overrides to the rules' limits |
 | `GapChangeReport` | The gap-side copy of one build change report: `build_id`, `added`, `removed`, `merged` (old id to new id), `rekeyed` (old id to new id), `changed_meaning`, `changed_links`, `changed_evidence` (spec id tuples), `fragments_changed` (fragment ids by lineage), `documents` (lineage to revision id). The host converts the build's report; `graph.gap` never imports `graph.build` |
 | `BuildFacts` | `build_id`, `refused_pairs` (`RefusedPair`: `first_spec_id`, `second_spec_id`, `label`, `guard`: the build result's dedup refusals) and `cut_edges` (`CutEdge`: `relation`, `source_spec_id`, `target_spec_id`, `fragment_ids`: the build result's quarantined `cycle_broken` edges). The host converts them from the build result; CT-VALUE and IN-CYCLE read them ([detection.md](detection.md) "Detector catalogue") |
@@ -234,8 +264,8 @@ class GapRecords(Protocol):
     async def suppressed(self, project_id: str, signatures: Sequence[str]) -> frozenset[str]: ...
     async def suppress(self, project_id: str, row: SuppressionRow) -> None: ...
     async def unsuppress(self, project_id: str, signature: str) -> None: ...
-    async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow]) -> None: ...
-    async def log(self, project_id: str, events: Sequence[EventRow]) -> None: ...
+    async def put_notes(self, project_id: str, run_id: str, notes: Sequence[NoteRow], *, once: str | None = None) -> None: ...
+    async def log(self, project_id: str, events: Sequence[EventRow], *, once: str | None = None) -> None: ...
     async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]: ...
     async def assignments(self, project_id: str) -> Mapping[str, AssignmentRow]: ...  # by gap id
     async def assign(self, project_id: str, row: AssignmentRow) -> None: ...  # one row per gap
@@ -281,7 +311,9 @@ recommended row of an `ask` gap are the `check` step's rule, GI5). `start_run` s
 `finished_at`, counts and cost, and raises `ConformanceError` (`gap_run_unknown`) for a run the project does not
 have. `events` returns one gap's events of the project by `at`, then id. `put_seeds` and `put_sites` raise `ConformanceError` (`gap_rows_of_another_run`) for a row
 of another run; a site put again for its run takes the new values. `put_notes` files every note under the given
-run. Verdicts, relevance rows, suppressions and amendments are upserts on their keys ([data-model.md](data-model.md)
+run. `put_notes` and `log` append; with `once`, a key of the call (the record of a site passes its run and site ids),
+the rows written again under that key in the same order are stored once (each row's id comes from the project, the
+key and its position), so a site written again by a resumed run appends no note and no event twice. Verdicts, relevance rows, suppressions and amendments are upserts on their keys ([data-model.md](data-model.md)
 "Relational store"); so is `put_noise_rule`. `delete_noise_rule` (true when the rule existed), `unsuppress` and
 `Amendments.delete` remove only the project's rows (a failed graph write takes back the rows written before it, and a
 replaced pending answer's amendments go). `set_status` changes only the project's amendments among the ids, ignores the others and
@@ -344,8 +376,9 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
 - **Resume.** A project's unfinished run (interrupted by a shutdown, or failed) is resumed by the project's next
   run, with its own mode, build and sites, before the requested run (which is skipped when the resumed run covers
   it: an update of the same build, or a full run).
-- **Status.** `GET .../gap/runs/latest` answers `idle`, `queued`, `running` (with the step, steps done, the items of
-  the running step: the sites of `investigate` and `check`; the runs waiting) or the latest run's outcome with its
+- **Status.** `GET .../gap/runs/latest` answers `idle`, `queued`, `running` (with the step, steps done of the 7 of
+  `RUN_STEPS`, the items of the running step: the sites `investigate` recorded and its sites in all; the runs
+  waiting) or the latest run's outcome with its
   counts and stored `GapRunResult`; an interrupted run shows `failed` with `interrupted`.
 - **Reads and writes.** The routes use one `GapService` built from the runner's ontology, rules, store, relational
   ports, settings, plan view, the build runner as `BuildRequests` (`use_builds`) and one `Gateway` for `gap_edits`
@@ -435,7 +468,7 @@ answers `409 plan_applying` the same way: `dismiss_gap` releases the holds befor
 
 | Screen or element | Content |
 |---|---|
-| Gaps screen, gap check line | Above every tab: "Waiting for the knowledge build" while the build runs, "Looking for gaps" with the step, its items and a progress bar while the gap run runs, then when the last check finished and what it found (new, updated, resolved gaps), or that it failed |
+| Gaps screen, gap check line | Above every tab: "Waiting for the knowledge build" while the build runs, "Looking for gaps" with the step, its items ("n of m sites" while it investigates and records), the count of New rows listed so far and a progress bar while the gap run runs, then when the last check finished and what it found (new, updated, resolved gaps), or that it failed |
 | Gaps screen, inbox | Gaps with filters (status Open, Staged, Resolved or All; kind, severity, story, assigned) and the columns gap, kind, severity and assigned, sorted by severity and reach; development gaps that hold tasks first. Every new question of a run is listed (FR-GRTE-06), 50 a page with "Show more" for the next. In the header row beside the tabs: "Raise a gap" and "Resolve gaps" (the primary button, with the count of staged answers; disabled when none is staged; it confirms the list of staged answers, everyone's, then applies them in one rebuild). Staged = stored `answered` or `applying` (shown "Resolving…") |
 | Gaps screen, card | Title, question, why, chips for `ABOUT` and `IMPACTS` nodes, quoted witness lines with their source (document, section, lines), reach (stories, tasks), options with the recommended one marked, "Other" with free text and an edits preview, placement choice, "Not a gap" with a reason (open gaps), the history (events, follow-up chain); "Stage answer" (or "Answer and resolve" for a development gap that blocks a coding agent's task), "Change answer" and "Unstage" for a staged gap, a "Resolving…" tag while its rebuild runs, "Withdraw answer" for a resolved gap |
 | Gaps screen, answered by AI | AI answers with their basis and confidence; Revert per row |
@@ -454,7 +487,11 @@ Assigned column and the history also show. The plan
 screens read the open gaps once (status open, answered, applying; any route) and show on a task the gaps whose `ABOUT`
 ids meet the task's implemented spec ids, and on a story those of its tasks, each linking to the card (`?gap=<id>`).
 The gap check line reads `GET .../gap/runs/latest` and `GET .../graph_build` every 3 s while the build or the gap
-run runs and every 30 s otherwise; when a run it saw running ends, the lists read again. "Mark as spec" for a noise section (no route yet) and a control that starts a full run are not on the screen. The old Decisions URL `/projects/{pid}/decisions`
+run runs and every 30 s otherwise. A run records each site's gaps when that site is done, so while it runs the
+inbox reads its loaded rows again each time the line shows another site recorded or a new step, without a reload or a
+loading state, keeping the rows, loaded pages, filters, the open card, focus and scroll; when the run ends the lists
+read again once more. A gap found by analysis since the latest run started carries "New" until the next run starts,
+and the line counts the New rows listed so far. "Mark as spec" for a noise section (no route yet) and a control that starts a full run are not on the screen. The old Decisions URL `/projects/{pid}/decisions`
 redirects to the Gaps screen (query kept). A task's gaps match its implemented ids against each `ABOUT` node's id or
 `aliases`. The Work tab's findings (the `/findings` alias routes) link each row to its gap card; `?gap=` takes a
 gap id or an alias (a migrated `FND::` id).

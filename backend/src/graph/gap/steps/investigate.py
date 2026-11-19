@@ -12,8 +12,8 @@ names and quotes only inside marked untrusted blocks; the model never sees a pro
 one (FR-GINV-03).
 
 A model failure (an ``LLMError`` after the gateway's retries, or invalid JSON) ends the investigation with the error
-code and no report: the check step defers the site to the next run, and nothing is written for it (FR-GINV-08,
-FR-GRUN-04). The report is the model's proposal only; the check step validates it before anything is written
+code and no report: the site's check defers it to the next run, and nothing is written for it (FR-GINV-08,
+FR-GRUN-04). The report is the model's proposal only; the site's check validates it before anything is written
 (NFR-GSEC-01).
 """
 
@@ -45,7 +45,7 @@ from graph.gap.steps.pack import PackRun, build_pack
 from graph.gap.steps.reads import GraphSiteReads
 from graph.gap.steps.sites import Site
 from graph.gap.steps.snapshot import GraphSnapshot
-from logger.logger import INFO, WARNING, get_logger, log_event
+from logger.logger import WARNING, get_logger, log_event
 
 logger = get_logger(__name__)
 
@@ -127,7 +127,7 @@ class WireOption(_Wire):
 
 
 class WireReport(_Wire):
-    """The report (investigation.md "Report"); limits are the check step's, not the schema's."""
+    """The report (investigation.md "Report"); limits are the check's, not the schema's."""
 
     verdict: Verdict
     duplicate_of: str | None = None
@@ -179,7 +179,7 @@ class FinalTurn(_Wire):
 
 
 def report_of(wire: WireReport) -> GapReport:
-    """The library's report model of a wire report (shapes only; the check step enforces limits)."""
+    """The library's report model of a wire report (shapes only; the check enforces limits)."""
 
     return GapReport.model_validate(wire.model_dump(mode="json"))
 
@@ -429,7 +429,7 @@ def site_budget(limits: GapLimits) -> SiteBudget:
 
 @dataclass(frozen=True)
 class Investigated:
-    """One site's investigation result and the ids its pack and reads showed (for the check step)."""
+    """One site's investigation result and the ids its pack and reads showed (for its check)."""
 
     result: InvestigationResult
     shown_spec_ids: tuple[str, ...] = ()
@@ -453,7 +453,7 @@ class Investigated:
 
 @dataclass(frozen=True)
 class InvestigateRun:
-    """What the investigate step needs of the run."""
+    """What the investigation of a site needs of the run."""
 
     project_id: str
     run_id: str
@@ -462,63 +462,41 @@ class InvestigateRun:
     reader: Any
     gaps: Sequence[StoredGap] = ()
     plan: PlanView | None = None
-    on_progress: Callable[[int, int], None] | None = None
-    """Told the sites done and the total: once before the first site, then after each site."""
 
 
-async def investigate_sites(
-    sites: Sequence[Site], investigator: Investigator, snapshot: GraphSnapshot, run: InvestigateRun
-) -> dict[str, Investigated]:
-    """Investigate each site in order: its pack, its own read menu, one ``investigate`` call. A ``GraphError`` raised
-    by the investigator becomes a result with its code (never raised)."""
+async def investigate_site(
+    site: Site, investigator: Investigator, snapshot: GraphSnapshot, run: InvestigateRun
+) -> Investigated:
+    """Investigate one site: its pack, its own read menu, one ``investigate`` call. A ``GraphError`` raised by the
+    investigator becomes a result with its code (never raised)."""
 
-    budget = site_budget(run.limits)
-    found: dict[str, Investigated] = {}
-    if run.on_progress is not None:
-        run.on_progress(0, len(sites))
-    for done, site in enumerate(sites, start=1):
-        reads = GraphSiteReads(run.reader, run.project_id, run_id=run.run_id)
-        try:
-            pack = await build_pack(
-                site,
-                snapshot,
-                reads,
-                PackRun(
-                    reader=run.reader,
-                    project_id=run.project_id,
-                    run_id=run.run_id,
-                    mode=run.mode,
-                    limits=run.limits,
-                    gaps=run.gaps,
-                    plan=run.plan,
-                ),
-            )
-            result = await investigator.investigate(pack, reads, budget)
-        except GraphError as error:
-            result = InvestigationResult(error=error.code or INVESTIGATOR_FAILED)
-        if result.error is not None or result.report is None:
-            log_event(
-                logger,
-                WARNING,
-                "graph.gap.investigate.failed",
+    reads = GraphSiteReads(run.reader, run.project_id, run_id=run.run_id)
+    try:
+        pack = await build_pack(
+            site,
+            snapshot,
+            reads,
+            PackRun(
+                reader=run.reader,
                 project_id=run.project_id,
                 run_id=run.run_id,
-                site_id=site.site_id,
-                code=result.error or "no_report",
-            )
-        found[site.site_id] = Investigated(
-            result, tuple(sorted(reads.shown_spec_ids)), tuple(sorted(reads.shown_fragment_ids))
+                mode=run.mode,
+                limits=run.limits,
+                gaps=run.gaps,
+                plan=run.plan,
+            ),
         )
-        if run.on_progress is not None:
-            run.on_progress(done, len(sites))
-    log_event(
-        logger,
-        INFO,
-        "graph.gap.investigate.finished",
-        project_id=run.project_id,
-        run_id=run.run_id,
-        sites=len(sites),
-        failed=sum(1 for item in found.values() if item.result.report is None),
-        calls=sum(item.result.model_calls for item in found.values()),
-    )
-    return found
+        result = await investigator.investigate(pack, reads, site_budget(run.limits))
+    except GraphError as error:
+        result = InvestigationResult(error=error.code or INVESTIGATOR_FAILED)
+    if result.error is not None or result.report is None:
+        log_event(
+            logger,
+            WARNING,
+            "graph.gap.investigate.failed",
+            project_id=run.project_id,
+            run_id=run.run_id,
+            site_id=site.site_id,
+            code=result.error or "no_report",
+        )
+    return Investigated(result, tuple(sorted(reads.shown_spec_ids)), tuple(sorted(reads.shown_fragment_ids)))

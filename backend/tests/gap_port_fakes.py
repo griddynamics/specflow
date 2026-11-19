@@ -70,6 +70,7 @@ class MemoryGapRecords:
         self.suppressions: dict[str, dict[str, SuppressionRow]] = defaultdict(dict)
         self.notes: dict[str, list[NoteRow]] = defaultdict(list)
         self.event_rows: dict[str, list[EventRow]] = defaultdict(list)
+        self.appended: set[tuple[str, str, str, int]] = set()
         self.assignment_rows: dict[str, dict[str, AssignmentRow]] = defaultdict(dict)
 
     async def options(self, project_id: str, gap_id: str) -> Sequence[OptionRow]:
@@ -150,11 +151,24 @@ class MemoryGapRecords:
     async def unsuppress(self, project_id: str, signature: str) -> None:
         self.suppressions[project_id].pop(signature, None)
 
-    async def put_notes(self, project_id: str, run_id: str | None, notes: Sequence[NoteRow]) -> None:
-        self.notes[project_id].extend(note.model_copy(update={"run_id": run_id}) for note in notes)
+    async def put_notes(
+        self, project_id: str, run_id: str | None, notes: Sequence[NoteRow], *, once: str | None = None
+    ) -> None:
+        kept = self._once(project_id, "note", once, notes)
+        self.notes[project_id].extend(note.model_copy(update={"run_id": run_id}) for note in kept)
 
-    async def log(self, project_id: str, events: Sequence[EventRow]) -> None:
-        self.event_rows[project_id].extend(events)
+    async def log(self, project_id: str, events: Sequence[EventRow], *, once: str | None = None) -> None:
+        self.event_rows[project_id].extend(self._once(project_id, "event", once, events))
+
+    def _once[R](self, project_id: str, kind: str, once: str | None, rows: Sequence[R]) -> list[R]:
+        """The rows of a keyed append not stored yet (the Postgres adapter's ids: key, kind and position)."""
+
+        if once is None:
+            return list(rows)
+        keys = [(project_id, kind, once, index) for index in range(len(rows))]
+        kept = [row for key, row in zip(keys, rows, strict=True) if key not in self.appended]
+        self.appended.update(keys)
+        return kept
 
     async def events(self, project_id: str, gap_id: str) -> Sequence[EventRow]:
         found = (row for row in self.event_rows[project_id] if row.gap_id == gap_id)

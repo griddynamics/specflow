@@ -4,6 +4,7 @@ FR-GRTE-01, FR-GRTE-03, FR-GRTE-05)."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,8 +17,18 @@ from gap_port_fakes import MemoryGapRecords
 from gap_run_support import corpus_world
 from graph.core import load_ontology
 from graph.core.errors import GraphWriteError, InfrastructureUnavailableError, LLMError
-from graph.gap import run_gap
-from graph.gap.models import Edit, EditTarget, GapReport, InvestigationResult, Quote, ReportOption, Witness, WitnessRef
+from graph.gap import GapService, run_gap
+from graph.gap.models import (
+    AnswerInput,
+    Edit,
+    EditTarget,
+    GapReport,
+    InvestigationResult,
+    Quote,
+    ReportOption,
+    Witness,
+    WitnessRef,
+)
 from graph.gap.prompts import AI_ANSWER_PROMPT, JUDGE_PROMPT
 from graph.gap.rules import Gates, load_gap_rules
 from graph.gap.settings import GapSettings
@@ -25,19 +36,12 @@ from graph.gap.steps.check import Checked, Checker, CheckRun, ai_answer_messages
 from graph.gap.steps.detect import Seed
 from graph.gap.steps.investigate import Investigated
 from graph.gap.steps.record import RecordRun, SiteDecision, record_sites, report_signature
-from graph.gap.steps.route import (
-    ValveItem,
-    ai_candidate,
-    apply_valve,
-    gate_results,
-    local,
-    route_report,
-    routed_payload,
-)
+from graph.gap.steps.route import Valve, ai_candidate, gate_results, local, route_report, routed_payload
 from graph.gap.steps.sites import ExistingGap, Site
 from graph.gap.steps.snapshot import GraphSnapshot, read_snapshot
 from graph_support import ScriptedRequest
-from test_graph_gap_run import StopAfter
+from test_graph_gap_acceptance_routing import eligible_world
+from test_graph_gap_run import StopAtSite, interfaces, mini_world
 
 LINE = "Customers can export their orders as CSV."
 RULE = "Orders over 1,000 EUR are reviewed."
@@ -213,26 +217,21 @@ def test_the_route_is_ai_only_when_every_rule_and_gate_holds() -> None:
 # The valve
 
 
-def test_the_valve_stops_at_the_run_limit_and_the_node_share_in_rank_order() -> None:
+def test_the_valve_counts_over_the_run_and_stops_at_the_run_limit_and_the_node_share() -> None:
     mini, export, _ = graph()
     snapshot = mini.snapshot()
     ai = route_report(report(export), snapshot, ai_kinds=KINDS, gates=GATES, judge=SURE)
     pointer = route_report(report(export, kind="open_question"), snapshot, pointer=True)
-    decided = {f"S{index}": ai for index in range(5)} | {"P": pointer}
-    items = [ValveItem(f"S{index}", float(index), frozenset({f"N{index}"})) for index in range(5)]
-    items.append(ValveItem("P", 9.0, frozenset({"N9"})))
 
-    limited = apply_valve(decided, items, limit=2, max_share=1.0, spec_nodes=10)
-    assert [key for key, value in limited.items() if value.route == "ai" and value.mode == "ai"] == ["S3", "S4"]
-    assert limited["S0"].reasons == ("ai_limit",) and limited["S0"].gates == ai.gates
-    assert limited["P"] == pointer
-    shared = apply_valve(decided, items, limit=20, max_share=0.25, spec_nodes=10)
-    assert [key for key, value in shared.items() if value.mode == "ai"] == ["S2", "S3", "S4"]
-    assert all(
-        value.route == "ask"
-        for key, value in apply_valve(decided, items, limit=20, max_share=0.05, spec_nodes=0).items()
-        if key != "P"
-    )
+    limited = Valve(limit=2, max_share=1.0, spec_nodes=10)
+    admitted = [limited.admit(ai, {f"N{index}"}) for index in range(5)]
+    assert [(item.route, item.mode) for item in admitted] == [("ai", "ai")] * 2 + [("ask", None)] * 3
+    assert admitted[2].reasons == ("ai_limit",) and admitted[2].gates == ai.gates
+    assert limited.admit(pointer, {"N9"}) == pointer and (limited.answered, limited.nodes) == (2, {"N0", "N1"})
+    shared = Valve(limit=20, max_share=0.25, spec_nodes=10)
+    assert [shared.admit(ai, {f"N{index}"}).mode for index in range(5)] == ["ai", "ai", "ai", None, None]
+    nothing = Valve(limit=20, max_share=0.05, spec_nodes=0)
+    assert [nothing.admit(ai, {"N0"}).route for _ in range(2)] == ["ask", "ask"]
 
 
 # The second check of an AI answer
@@ -454,15 +453,151 @@ async def test_an_ai_route_on_a_site_joined_to_a_gap_is_never_written_as_an_ai_a
 
 async def test_a_run_resumed_with_ai_answers_off_records_no_ai_answer() -> None:
     world = await loop_world()
-    world.store = StopAfter("route")
+    world.store = StopAtSite(
+        lambda payload: payload["state"] == "routed" and (payload["routed"] or {}).get("mode") == "ai"
+    )
 
     with pytest.raises(InfrastructureUnavailableError, match="store_stopped"):
         await run_gap(world.context(), mode="full")
     (record,) = world.store.records.values()
-    routed = await world.store.get_artifact(PROJECT, record.run_id, "route")
-    assert any(item["mode"] == "ai" for item in routed["routed"].values())
+    assert not world.amendments.rows[PROJECT]
 
     result = await run_gap(world.context(run_id=record.run_id, settings=GapSettings(ai_answers=False)), mode="full")
 
     assert result.counts["ai_answered"] == 0 and not world.amendments.rows[PROJECT]
     assert {props["route"] for props in world.gap_nodes().values()} == {"ask"}
+    assert len(world.investigator.sites) == len(set(world.investigator.sites))
+
+
+def recorded_an_ai_answer(payload: Mapping[str, Any]) -> bool:
+    """A site artifact of a site recorded with an AI answer."""
+
+    return payload["state"] == "recorded" and payload["recorded"]["ai_answered"] == 1
+
+
+async def test_the_valve_of_a_resumed_run_counts_the_ai_answers_its_recorded_sites_made() -> None:
+    world = await eligible_world(5)
+    world.store = StopAtSite(recorded_an_ai_answer)
+    settings = GapSettings(limits={"ai_answers_per_run": 2, "ai_answers_max_node_share": 1.0})
+    with pytest.raises(InfrastructureUnavailableError, match="store_stopped"):
+        await run_gap(world.context(settings=settings), mode="full")
+    (record,) = world.store.records.values()
+    assert [props["route"] for props in world.gap_nodes().values()] == ["ai"]
+
+    result = await run_gap(world.context(run_id=record.run_id, settings=settings), mode="full")
+
+    routes = [props["route"] for props in world.gap_nodes().values()]
+    assert (routes.count("ai"), routes.count("ask")) == (2, 3) and result.counts["ai_answered"] == 2
+    limited = [
+        event
+        for gap, props in world.gap_nodes().items()
+        if props["route"] == "ask"
+        for event in await world.records.events(PROJECT, gap)
+        if event.event == "routed"
+    ]
+    assert [event.detail["reasons"] for event in limited] == [["ai_limit"]] * 3
+
+
+async def test_an_ai_answer_whose_site_row_failed_is_written_once_when_its_run_resumes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    world = await eligible_world(1)
+    put_sites, failed = world.records.put_sites, []
+
+    async def down_once(project_id: str, run_id: str, sites: Any) -> None:
+        if not failed:
+            failed.append(run_id)
+            raise InfrastructureUnavailableError("db_down")
+        await put_sites(project_id, run_id, sites)
+
+    monkeypatch.setattr(world.records, "put_sites", down_once)
+    with pytest.raises(InfrastructureUnavailableError, match="db_down"):
+        await run_gap(world.context(), mode="full")
+    (record,) = world.store.records.values()
+    (gap,) = world.gap_nodes()
+
+    result = await run_gap(world.context(run_id=record.run_id), mode="full")
+
+    assert (world.gap_nodes()[gap]["status"], world.gap_nodes()[gap]["route"]) == ("answered", "ai")
+    counts = result.counts
+    assert (counts["ai_answered"], counts["gaps_new"]["total"], counts["gaps_updated"]["total"]) == (1, 1, 0)
+    assert await world.records.options(PROJECT, gap)
+    assert [event.event for event in await world.records.events(PROJECT, gap)] == ["created", "routed", "answered"]
+    assert len([label for label, _ in world.executor.nodes if label == "Clarification"]) == 1
+    assert len(world.amendments.rows[PROJECT]) == 1
+
+
+async def stopped_in_the_log(world: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Run until the first write of the event log fails (the site's gap and rows are written, its events are not);
+    the unfinished run's record."""
+
+    log, failed = world.records.log, []
+
+    async def down_once(project_id: str, events: Any, *, once: str | None = None) -> None:
+        if not failed:
+            failed.append(project_id)
+            raise InfrastructureUnavailableError("db_down")
+        await log(project_id, events, once=once)
+
+    monkeypatch.setattr(world.records, "log", down_once)
+    with pytest.raises(InfrastructureUnavailableError, match="db_down"):
+        await run_gap(world.context(), mode="full")
+    (record,) = world.store.records.values()
+    return record
+
+
+def service_of(world: Any) -> GapService:
+    return GapService(world.executor, world.reader, world.ontology, world.rules, world.records, world.amendments)
+
+
+def clarifications(world: Any) -> list[dict[str, Any]]:
+    return [dict(props) for (label, _), props in world.executor.nodes.items() if label == "Clarification"]
+
+
+async def test_a_gap_a_person_answers_before_its_stopped_run_resumes_stays_answered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    world = await mini_world(interfaces(1))
+    record = await stopped_in_the_log(world, monkeypatch)
+    ((gap, _),) = world.gap_nodes().items()
+    await service_of(world).answer_gap(PROJECT, AnswerInput(gap_id=gap, option_rank=1, answered_by="u1"))
+    answered, staged = dict(world.gap_nodes()[gap]), clarifications(world)
+
+    result = await run_gap(world.context(run_id=record.run_id))
+
+    assert world.gap_nodes()[gap] == answered and answered["status"] == "answered"
+    assert clarifications(world) == staged and result.counts["gaps_new"]["total"] == 1
+    events = [event.event for event in await world.records.events(PROJECT, gap)]
+    assert (events.count("created"), events.count("routed"), events.count("answered")) == (1, 1, 1)
+
+
+async def test_an_ai_answer_a_person_reverts_before_its_stopped_run_resumes_stays_reverted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    world = await eligible_world(1)
+    record = await stopped_in_the_log(world, monkeypatch)
+    ((gap, _),) = world.gap_nodes().items()
+    (answer,) = clarifications(world)
+    await service_of(world).revert_clarification(PROJECT, answer["clr_id"], by="u1", reason="Not what we do.")
+    reverted, kept = dict(world.gap_nodes()[gap]), clarifications(world)
+    rows = {row.amendment_id: row.status for row in world.amendments.rows[PROJECT].values()}
+
+    result = await run_gap(world.context(run_id=record.run_id), mode="full")
+
+    assert world.gap_nodes()[gap] == reverted and clarifications(world) == kept
+    assert {row.amendment_id: row.status for row in world.amendments.rows[PROJECT].values()} == rows
+    assert set(rows.values()) == {"reverted"} and result.counts["ai_answered"] == 1
+
+
+async def test_a_gap_a_person_dismisses_before_its_stopped_run_resumes_stays_dismissed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    world = await mini_world(interfaces(1))
+    record = await stopped_in_the_log(world, monkeypatch)
+    ((gap, _),) = world.gap_nodes().items()
+    await service_of(world).dismiss_gap(PROJECT, gap, reason="not_a_gap", by="u1")
+
+    result = await run_gap(world.context(run_id=record.run_id))
+
+    assert gap not in world.gap_nodes() and await world.records.options(PROJECT, gap) == ()
+    assert result.counts["gaps_new"]["total"] == 1

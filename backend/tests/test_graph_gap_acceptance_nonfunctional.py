@@ -236,7 +236,7 @@ async def test_nfr_gport_01_graph_gap_run_graph_store_core_supports() -> None:
 
     Offline: a full run renders every statement through the Cypher and PostgreSQL dialects (the in-memory executor
     plans each one), and every gap query has a plan on ArcadeDB too. Live: ``test_graph_gap_run_live.py`` runs the
-    run, the record step and the reads on the store ``SPECFLOW_TEST_GRAPH_STORE`` selects.
+    run, the record of its sites and the reads on the store ``SPECFLOW_TEST_GRAPH_STORE`` selects.
     """
 
     world = await corpus_world()

@@ -129,7 +129,7 @@ deletes the `Gap` node and its relations and writes `gap_suppression` rows: for 
 its `seed_signatures` (the seeds of its detector that formed or re-checked it, [data-model.md](data-model.md)
 "Identity"), each with the gap id, the question, the reason and who dismissed it. A later run drops a seed with a
 suppressed signature before it forms a site (counted `suppressed`) and asks nothing; a report whose signature is
-suppressed is dropped by the check step. A changed signature (other nodes, another witness line) is a new gap. Seeds
+suppressed is dropped by the check of its site. A changed signature (other nodes, another witness line) is a new gap. Seeds
 of other detectors that shared the gap's site are not suppressed: their problem may still be one.
 
 A dismissal with reason category "not spec" also offers to add a noise rule for the section
@@ -196,17 +196,19 @@ of `spec_ids` (merged ids resolved) becomes `blocked` with the reason of the gap
 the gap id; `in_progress` tasks are left alone. The plan ontology does not change. Holding is idempotent and is
 repeated (`graph.gap.holds.hold_blockers`, every open gap of severity `blocker`, development gaps included: GD2 holds
 the tasks of a blocker's nodes whatever its origin, while a development gap below blocker holds only its reporting
-story through the block call): when a person raises a gap with severity `blocker`, at the end of every gap run's
-`record` step (the run result's `held_tasks`), and before every `claim_story` (the agent route holds the open
+story through the block call): when a person raises a gap with severity `blocker`; in a gap run right after each
+site is recorded (the blockers the site wrote or re-checked, and the open blockers about the nodes of the gaps it
+ended, so a task the site's release freed is held again before a claim can take it) and once more for every open
+blocker in the run's last step `finish` (the run result's `held_tasks`); and before every `claim_story` (the agent route holds the open
 blockers about the story's nodes first). So a task a plan run reset (its nodes changed), a task that was
 `in_progress` when the hold came and was released later, and the follow-up that inherits a blocker's severity are
 held again before anyone claims them. A claim of a story with a held task is refused `not_available` (the plan's
 `blocked` state) and the refusal's `details.findings` name the gap; the plan's own `claim_task` and `claim_next`
 (no agent route) refuse a blocked task without naming it. Releases (`graph.gap.holds.release`, for the gap id and
 every alias the gap keeps, read before the step that deletes the gap): the close step's resolved and obsolete
-gaps, a gap the `record` step resolved by a pointer, closed as not spec or refined below `blocker` (a raised
-blocker the investigation rates `major`), and `dismiss_gap`. A hold or release the plan refuses (`plan_applying`
-during a persist) or a store error is logged and left; the next repetition holds again, a release is repeated by the
+gaps, a gap a site's record resolved by a pointer, closed as not spec or refined below `blocker` (a raised blocker
+the investigation rates `major`; released right after that site is recorded), and `dismiss_gap`. A hold or release
+the plan refuses (`plan_applying` during a persist) or a store error is logged and left; the next repetition holds again, a release is repeated by the
 next end of the gap or a person's unblock in the plan.
 
 **Change reports.** When the update build that applied an answer returns, its change report reaches the plan
@@ -259,7 +261,7 @@ As built (`GapService.raise_gap` with origin `development`, the MCP route `POST 
 | Hold | `blocking`: `StoryHolds.check_block` before anything is written, then the gap, then `block_story` with `finding_id` the gap id; a failed block deletes the gap again and its error passes; `RaisedGap.held` lists the blocked tasks |
 | Refs | The checked `refers_to` go into the `detail` of the gap's `created` event |
 | Investigate | The route queues the `site` run at the head of the project's queue (`GapRunner.start_site`); the run refines kind, severity, title and why, adds `ABOUT`, `IMPACTS` and options and keeps the agent's question; the route is always `ask` (routing never answers a gap of origin other than `analysis` by AI) |
-| Pointer | A confirmed pointer on the raised gap (the `record` step's re-check): the gap resolves (resolution `pointer`) with a `pointer` clarification `GROUNDED_IN` the answering fragment; its holds are released; `list_gaps` shows the answering lines as its `answer` |
+| Pointer | A confirmed pointer on the raised gap (the re-check when the run records its site): the gap resolves (resolution `pointer`) with a `pointer` clarification `GROUNDED_IN` the answering fragment; its holds are released; `list_gaps` shows the answering lines as its `answer` |
 | Not spec | A `not_spec` verdict on an open development gap: the gap is deleted, a `gap_note` keeps its question, its holds are released (event `obsolete`, reason `not_spec`); its nodes are not marked as noise |
 | Answer | An answer to a development gap with `blocking` `yes` is applied at once (`AnswerResult.immediate`); the close check after the update build resolves it and releases the story |
 

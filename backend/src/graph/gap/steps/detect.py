@@ -737,7 +737,7 @@ def question_text(snapshot: GraphSnapshot, seed: Seed) -> str | None:
 
 def same_question(first: str, second: str) -> bool:
     """Two normalised questions ask the same when their words are equal (punctuation and spacing aside); questions
-    worded differently are caught by the check step's duplicate check (investigation.md "Checks")."""
+    worded differently are caught by the duplicate check of a site (investigation.md "Checks")."""
 
     return _NOT_WORD.sub(" ", first).strip() == _NOT_WORD.sub(" ", second).strip()
 
