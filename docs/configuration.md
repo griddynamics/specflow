@@ -450,6 +450,33 @@ stack](#try-it-on-the-local-stack)). `WITH=keycloak` is refused: Keycloak always
 `make logs` always cover every profile. Set `TEMPORAL_ADDRESS` to an address the containers can reach (not `localhost`). The host
 tools (`make api`, `make worker`) use `TEMPORAL_ADDRESS`, default `localhost:7233`.
 
+### Behind a TLS-inspecting proxy
+
+A proxy that inspects TLS, such as a corporate proxy or the agent proxy of a Claude Code cloud session, signs HTTPS
+connections with its own CA. The image builds (pip, uv, the Hugging Face download, npm) and the calls of the containers
+to the LLM gateway then fail the certificate check. `EXTRA_CA` names a PEM bundle that a client of the proxy must trust:
+
+```shell
+make up EXTRA_CA=/path/to/proxy-ca-bundle.pem      # also: make images EXTRA_CA=...
+```
+
+The Makefile stops when the file does not exist. Otherwise it copies the file to `.extra-ca/ca-bundle.pem`
+(git-ignored; a compose build reads no file outside the project) and adds the overlay `config/compose.extra-ca.yaml`:
+
+- **Builds**: the five images get the bundle as the build secret `extra_ca`. The first stage of each image writes
+  `/etc/ssl/build-ca.pem`, the image's own bundle plus the secret, and points `SSL_CERT_FILE`, `PIP_CERT` and
+  `REQUESTS_CA_BUNDLE` (backend) or `NODE_EXTRA_CA_CERTS` (frontend) at it. The runtime stage starts from the base
+  image again, so no image keeps the bundle or these variables. Without the secret, `/etc/ssl/build-ca.pem` is the
+  image's own bundle. A plain `docker build` takes the same secret: `--secret id=extra_ca,src=<file>`.
+- **Run time**: api, worker-parse and worker-agents mount the bundle at `/etc/specflow/extra-ca.pem` and set
+  `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to it. They trust exactly this bundle, so it must also hold the public roots
+  of the hosts that the proxy does not inspect.
+
+Without `EXTRA_CA` nothing changes. In a Claude Code cloud session the bundle is `/root/.ccr/ca-bundle.crt` (it also
+holds the public roots). There, Docker Hub can refuse anonymous pulls (`429 Too Many Requests`) because many sessions
+share one address: set `{ "registry-mirrors": ["https://mirror.gcr.io"] }` in `/etc/docker/daemon.json` before
+`dockerd` starts.
+
 ### Graph store of the stack
 
 `WITH` also picks the graph store (one of `neo4j`, `arcadedb`, `postgres`; none means neo4j). It starts the

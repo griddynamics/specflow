@@ -51,3 +51,5 @@ docs/**/CHANGES.md
 
 # Local certificates of `make up WITH=tls` (scripts/postgres-tls.sh)
 .postgres-tls/
+# The proxy CA bundle that `make up EXTRA_CA=<file>` copies for the image builds and the containers
+.extra-ca/

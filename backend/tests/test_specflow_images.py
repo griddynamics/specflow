@@ -1045,7 +1045,7 @@ STORE_SELECTIONS = {
 
 
 def make_dry_run(target: str, **variables: str) -> subprocess.CompletedProcess[str]:
-    environment = {name: value for name, value in os.environ.items() if name not in ("GRAPH_STORE", "WITH")}
+    environment = {name: value for name, value in os.environ.items() if name not in ("GRAPH_STORE", "WITH", "EXTRA_CA")}
     return subprocess.run(
         [str(shutil.which("make")), "-n", target, *(f"{k}={v}" for k, v in variables.items())],
         cwd=ROOT,
@@ -1098,10 +1098,8 @@ def test_the_postgres_override_leaves_the_graph_connection_to_the_database_setti
     assert text.count("!reset null") == 2 * len(reset)
 
 
-@needs_compose_cli
-@pytest.mark.parametrize("selection", ["", "arcadedb", "postgres"])
-def test_compose_config_resolves_for_each_store_with_synthetic_values(selection: str, tmp_path: Path) -> None:
-    """The stack resolves on neo4j (default), ArcadeDB and PostgreSQL; the PostgreSQL one carries no graph login."""
+def resolved_stack(tmp_path: Path, **variables: str) -> tuple[str, dict]:
+    """The compose command `make -n up` prints for synthetic env-file values, and `docker compose config` of it."""
 
     env_file = tmp_path / "stack.env"
     env_file.write_text(
@@ -1120,7 +1118,7 @@ def test_compose_config_resolves_for_each_store_with_synthetic_values(selection:
         )
         + "\nGRAPH_STORE_URI=bolt://localhost:7687\n"  # a host address in the env file never reaches the containers
     )
-    dry_run = make_dry_run("up", WITH=selection, ENV_FILE=str(env_file)).stdout
+    dry_run = make_dry_run("up", ENV_FILE=str(env_file), **variables).stdout
     command = re.search(r"^(env .*docker compose .*) up", dry_run, re.MULTILINE)
     assert command is not None, dry_run
     shell = subprocess.run(
@@ -1131,7 +1129,15 @@ def test_compose_config_resolves_for_each_store_with_synthetic_values(selection:
         check=False,
     )
     assert shell.returncode == 0, shell.stderr
-    resolved = json.loads(shell.stdout)["services"]
+    return command.group(1), json.loads(shell.stdout)
+
+
+@needs_compose_cli
+@pytest.mark.parametrize("selection", ["", "arcadedb", "postgres"])
+def test_compose_config_resolves_for_each_store_with_synthetic_values(selection: str, tmp_path: Path) -> None:
+    """The stack resolves on neo4j (default), ArcadeDB and PostgreSQL; the PostgreSQL one carries no graph login."""
+
+    resolved = resolved_stack(tmp_path, WITH=selection)[1]["services"]
     store, _, uri = STORE_SELECTIONS[selection]
     assert ("neo4j" in resolved) is (store == "neo4j") and ("arcadedb" in resolved) is (store == "arcadedb")
     for name in ("api", "worker-agents"):
@@ -1139,3 +1145,50 @@ def test_compose_config_resolves_for_each_store_with_synthetic_values(selection:
         assert env["GRAPH_STORE"] == store, name
         assert env.get("GRAPH_STORE_URI") == uri, name
         assert ("GRAPH_STORE_PASSWORD" in env) is (store != "postgres"), name
+
+
+BUILD_CA = "/etc/ssl/build-ca.pem"
+
+
+def test_the_build_stages_trust_the_optional_extra_ca_and_the_runtime_stage_does_not():
+    """`make up EXTRA_CA=<file>` (docs/configuration.md "Behind a TLS-inspecting proxy"): the first stage of each image
+    writes the build bundle from the image's own bundle and the optional secret extra_ca, and points the download tools
+    at it; the runtime stage starts from the base image again and keeps neither."""
+
+    tools = {"./backend": ("SSL_CERT_FILE", "PIP_CERT", "REQUESTS_CA_BUNDLE"), "./frontend": ("NODE_EXTRA_CA_CERTS",)}
+    for context, dockerfile in sorted(set(BUILT.values())):
+        stages = re.split(r"^FROM ", (ROOT / context / dockerfile).read_text(), flags=re.MULTILINE)
+        first, runtime = stages[1], stages[-1]
+        for name in tools[context]:
+            assert f"{name}={BUILD_CA}" in first, (dockerfile, name)
+        assert "RUN --mount=type=secret,id=extra_ca" in first, dockerfile
+        assert f"cat /etc/ssl/certs/ca-certificates.crt > {BUILD_CA}" in first, dockerfile
+        assert f"cat /run/secrets/extra_ca >> {BUILD_CA}" in first, dockerfile
+        assert "extra_ca" not in runtime and BUILD_CA not in runtime, dockerfile
+
+
+@needs_compose_cli
+def test_extra_ca_adds_the_build_secret_and_the_runtime_trust(tmp_path: Path) -> None:
+    """Unset, no overlay. Set, each image build gets the secret extra_ca; api and the two workers trust the bundle."""
+
+    assert "compose.extra-ca.yaml" not in make_dry_run("up", EXTRA_CA="").stdout
+    bundle = tmp_path / "proxy-ca.pem"
+    bundle.write_text("synthetic: compose config does not parse it\n")
+    dry_run = make_dry_run("up", EXTRA_CA=str(bundle)).stdout
+    assert re.search(r"install -m 0644 \S+proxy-ca\.pem\S* \S+/\.extra-ca/ca-bundle\.pem", dry_run), dry_run
+    command, resolved = resolved_stack(tmp_path, EXTRA_CA=str(bundle))
+    assert command.endswith("-f config/compose.extra-ca.yaml"), command
+    copy = str(ROOT / ".extra-ca" / "ca-bundle.pem")
+    assert resolved["secrets"]["extra_ca"]["file"] == copy
+    services = resolved["services"]
+    for name, (_context, dockerfile) in BUILT.items():
+        build = services[name]["build"]
+        assert build["dockerfile"] == dockerfile, name
+        assert [secret["source"] for secret in build["secrets"]] == ["extra_ca"], name
+    for name in BACKEND_SERVICES:
+        env = env_of(services[name])
+        assert env["SSL_CERT_FILE"] == env["REQUESTS_CA_BUNDLE"] == "/etc/specflow/extra-ca.pem", name
+        mounts = [(m["source"], m["target"], m.get("read_only")) for m in services[name]["volumes"]]
+        assert (copy, "/etc/specflow/extra-ca.pem", True) in mounts, name
+    for name in ("mcp", "frontend"):
+        assert "SSL_CERT_FILE" not in env_of(services[name]), name

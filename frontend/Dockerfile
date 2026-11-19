@@ -4,8 +4,16 @@
 
 # deps: the locked dependencies.
 FROM node:24.21.0-alpine AS deps
-ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NODE_EXTRA_CA_CERTS=/etc/ssl/build-ca.pem
 WORKDIR /app
+# The extra CAs of npm (and of the build stage, which starts from this one): the image's own bundle plus, when the
+# build gets the secret extra_ca, the CA of a proxy that inspects TLS (`make up EXTRA_CA=<file>`,
+# docs/configuration.md "Behind a TLS-inspecting proxy"). The runtime stage starts from the base image again, so the
+# image has neither this bundle nor the variable.
+RUN --mount=type=secret,id=extra_ca \
+    cat /etc/ssl/certs/ca-certificates.crt > /etc/ssl/build-ca.pem \
+    && if [ -s /run/secrets/extra_ca ]; then cat /run/secrets/extra_ca >> /etc/ssl/build-ca.pem; fi
 RUN chown node:node /app
 USER node
 COPY --chown=node:node package.json package-lock.json ./
