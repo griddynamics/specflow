@@ -67,6 +67,14 @@ from agent_contracts.gap_models import (
     ListGapsQuery,
     OpenGapArgs,
 )
+from agent_contracts.jira_models import (
+    JiraSyncArgs,
+    JiraSyncCounts,
+    JiraSyncItem,
+    JiraSyncReport,
+    JiraSyncStatus,
+    JiraSyncStatusArgs,
+)
 from agent_contracts.models import (
     DEFAULT_LIMIT,
     MAX_CURSOR_CHARS,
@@ -338,6 +346,12 @@ __all__ = [
     "GetTaskBriefArgs",
     "GetTaskPathArgs",
     "Holder",
+    "JiraSyncArgs",
+    "JiraSyncCounts",
+    "JiraSyncItem",
+    "JiraSyncReport",
+    "JiraSyncStatus",
+    "JiraSyncStatusArgs",
     "Limit",
     "ListAreasArgs",
     "ListFeatureTasksArgs",

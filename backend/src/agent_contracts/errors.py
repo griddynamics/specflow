@@ -29,6 +29,8 @@ ErrorCode = Literal[
     "gap_wrong_state",
     "gap_stale",
     "answer_invalid",
+    "jira_unavailable",
+    "jira_not_configured",
 ]
 
 PROJECT_NOT_FOUND: Final = "project_not_found"
@@ -55,3 +57,5 @@ GAP_NOT_FOUND: Final = "gap_not_found"
 GAP_WRONG_STATE: Final = "gap_wrong_state"
 GAP_STALE: Final = "gap_stale"
 ANSWER_INVALID: Final = "answer_invalid"
+JIRA_UNAVAILABLE: Final = "jira_unavailable"
+JIRA_NOT_CONFIGURED: Final = "jira_not_configured"

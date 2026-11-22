@@ -1,5 +1,5 @@
 "use client";
-// FR-PRJ-UI-02 (docs/projects/ui.md#header): the Settings screen. The tab bar ("General", the only tab) goes into the shell header row
+// FR-PRJ-UI-02 (docs/projects/ui.md#header): the Settings screen. The tab bar ("General", "Jira") goes into the shell header row
 // through <ShellHeader tabs>, level with the project picker; the body has no H1, no title and no tab row. `?tab=` is pushed like the Plan
 // switch (native history API, which Next.js syncs with `useSearchParams`); a missing or unknown tab shows General.
 import { useSearchParams } from "next/navigation";
@@ -9,10 +9,14 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { COPY } from "@/lib/copy";
 import { parseSettingsQuery, type SettingsTab } from "@/lib/routes";
 import { GeneralTab } from "./GeneralTab";
+import { JiraTab } from "./JiraTab";
 import { useSettingsRoutes } from "./use-settings-ports";
 import "./settings.css";
 
-const TAB_OPTIONS: { value: SettingsTab; label: string }[] = [{ value: "general", label: COPY.settingsTabGeneral }];
+const TAB_OPTIONS: { value: SettingsTab; label: string }[] = [
+  { value: "general", label: COPY.settingsTabGeneral },
+  { value: "jira", label: COPY.settingsTabJira },
+];
 
 /** `key={projectId}`: another project starts with a fresh tab state. */
 export function SettingsScreen({ projectId, projectName }: Readonly<{ projectId: string; projectName: string | null }>) {
@@ -38,7 +42,11 @@ function Settings({ projectId, projectName }: Readonly<{ projectId: string; proj
         }
       />
       <div className="settings" data-testid="screen-settings" data-tab={tab}>
-        <GeneralTab projectId={projectId} projectName={projectName} /> {/* the only tab; `tab` is read for the segment and the URL */}
+        {tab === "jira" ? (
+          <JiraTab projectId={projectId} projectName={projectName} />
+        ) : (
+          <GeneralTab projectId={projectId} projectName={projectName} />
+        )}
       </div>
     </>
   );

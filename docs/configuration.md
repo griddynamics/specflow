@@ -33,7 +33,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AGENT_MODEL` | api, workers | Model id of the agents on the gateway route. |
 | `GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL` | api, tools | Models of the graph build behind **Build knowledge** in Mission Control, and of the plan runs behind **Create PLAN** on the Plan page. Set all three: one set without the others stops the api at start. With none set the api starts with the graph build and the plan off: it logs `api.graph_build.disabled` at start, each graph build request answers 503 `graph_build_unavailable` and logs `api.graph_build.unavailable`, and each plan request answers 503 `plan_unavailable` and logs `api.plan.unavailable`. Set `GRAPH_EMBEDDING_DIM` together with `GRAPH_EMBEDDING_MODEL`. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | api, mcp | Comma-separated list of allowed e-mail domains. Also decides which addresses the owner may add as a collaborator ([projects](projects/INDEX.md)). |
-| `PUBLIC_URL` | frontend, api | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. The api (with `MCP_RESOURCE_URL` set) links the gap cards of the MCP tools to it ([apps.md](mcp-server/apps.md#terminal-dialogs)); without it the cards have no web link. Compose gives the api the same value as the frontend. |
+| `PUBLIC_URL` | frontend, api | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. The api (with `MCP_RESOURCE_URL` set) links the gap cards of the MCP tools to it ([apps.md](mcp-server/apps.md#terminal-dialogs)) and gives the issues the [Jira sync](#jira-sync) creates a link back to the plan; without it the cards and the issues have no web link. Compose gives the api the same value as the frontend. |
 | `API_INTERNAL_URL` | frontend, mcp | URL at which the frontend and the MCP server reach the API, often a bare in-cluster `host[:port]` (it becomes `http://host[:port]`; a trailing `/` is trimmed). The mcp role refuses userinfo, a query, a fragment or a scheme other than `http` and `https`. TLS is not required inside the cluster; `https` works with publicly trusted certificates only. See [architecture](mcp-server/architecture.md#settings). |
 | `OIDC_ISSUER` | api, mcp, frontend | OpenID Connect issuer. Must be `https` when `APP_ENV` is not `local`. Required in every environment: there is no other sign-in. |
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | frontend | OpenID Connect client. Required in every environment. |
@@ -49,6 +49,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `GRAPH_STORE_NAME`, `GRAPH_STORE_ADMIN_URI`, `GRAPH_STORE_POOL_SIZE` | api, workers, tools | Database, schema or graph name (default per backend, see below); a second admin endpoint for backends that have one; a cap on the store adapter's own connection pool. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | api, workers | Tracing. Unset = no tracing. `LANGFUSE_HOST` is read when `LANGFUSE_BASE_URL` is unset. |
 | `SPECFLOW_CONFIG_FILE` | api, workers, tools | Path of the cloud profile file. Unset = environment only. |
+| `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | api | The one Atlassian account of the [Jira sync](#jira-sync). Set all three or none. |
 
 ## Settings with a default (D)
 
@@ -565,6 +566,24 @@ End-to-end test helpers also read `E2E_DEMO_BASE_URL`, `E2E_PRODUCTION_BASE_URL`
 folders. Share each folder with this address. If it is unset or blank, document
 source calls fail with `setup_error` and the log event `drive.identity.missing`; there is
 no fallback to other credentials. The app still starts.
+
+## Jira sync
+
+The [Jira sync](jira-sync/INDEX.md) pushes each project's plan to Jira with one Atlassian account for the whole
+deployment. The api reads three settings:
+
+- `ATLASSIAN_SITE_URL`: the Jira Cloud site, for example `https://example.atlassian.net`, `https` and no path.
+- `ATLASSIAN_EMAIL`: the account's e-mail address.
+- `ATLASSIAN_API_TOKEN`: an API token of that account. It is a secret: keep it in the cluster's secret store; it never
+  reaches the database, a response or a log.
+
+Set all three or none: a partial set stops the api at start and names the missing variables. With none set the api
+starts with the sync off: the Jira tab says so and the Jira routes answer 503 `jira_unavailable`. Locally, put them in
+`.env.local`; compose passes them to the api only. The api must reach the Jira site directly: its Jira client ignores
+`HTTPS_PROXY` and the other proxy variables (and `.netrc`), so a network whose only way out is a proxy shows
+`jira_unreachable` on the access check and on every pass. The account needs, in each target Jira project, the permissions to
+browse, create, edit, comment on, link and rank issues; it never deletes or transitions issues. When the api also
+reads `PUBLIC_URL` (with `MCP_RESOURCE_URL` set), each issue the sync creates links back to the project's plan page.
 
 ## Document parsing
 

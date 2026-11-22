@@ -54,7 +54,8 @@ AGENT_GRANT = "GRANT SELECT (id, project_id, original_filename, version, status,
 FIRST = "0001_initial"  # frozen: the 2.0.0 schema
 COLLABORATORS = "0002_project_collaborators"
 GAP_MODULE = "0003_gap_module"
-HEAD = "0004_gap_assignment"
+HEAD_0004 = "0004_gap_assignment"
+HEAD = "0005_jira_sync"
 # SHA-256 of versions/0001_initial.py as 2.0.0 shipped it; a mismatch means a frozen revision was edited.
 FROZEN_0001_SHA256 = "ebc6d2e0f6ca8eef9bcbc5acde990ed151fe17fbc1945c75e5d6289a455948dc"
 INITIAL_TABLES = (
@@ -81,14 +82,16 @@ GAP_TABLES = (
 )
 # The member who resolves a gap, added by 0004.
 ASSIGNMENT = "gap_assignment"
-APP_TABLES = (*INITIAL_TABLES, "project_invites", *GAP_TABLES, ASSIGNMENT)
+# The Jira target and the node-to-issue map, added by 0005.
+JIRA_TABLES = ("jira_targets", "jira_issues")
+APP_TABLES = (*INITIAL_TABLES, "project_invites", *GAP_TABLES, ASSIGNMENT, *JIRA_TABLES)
 SCOPED_TABLES = (
     ("projects", "id"),
     ("project_members", "project_id"),
     ("documents", "project_id"),
     ("connections", "project_id"),
     ("connection_items", "project_id"),
-    *((table, "project_id") for table in (*GAP_TABLES, ASSIGNMENT)),
+    *((table, "project_id") for table in (*GAP_TABLES, ASSIGNMENT, *JIRA_TABLES)),
 )
 INVITES = ("project_invites", "project_id")
 
@@ -115,11 +118,18 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
 
     assert script.get_heads() == [HEAD]
     assert script.get_bases() == [FIRST]
-    assert [revision.revision for revision in script.walk_revisions()] == [HEAD, GAP_MODULE, COLLABORATORS, FIRST]
+    assert [revision.revision for revision in script.walk_revisions()] == [
+        HEAD,
+        HEAD_0004,
+        GAP_MODULE,
+        COLLABORATORS,
+        FIRST,
+    ]
     assert script.get_revision(FIRST).down_revision is None
     assert script.get_revision(COLLABORATORS).down_revision == FIRST
     assert script.get_revision(GAP_MODULE).down_revision == COLLABORATORS
-    assert script.get_revision(HEAD).down_revision == GAP_MODULE
+    assert script.get_revision(HEAD_0004).down_revision == GAP_MODULE
+    assert script.get_revision(HEAD).down_revision == HEAD_0004
 
 
 # T9 ------------------------------------------------------------------------
@@ -521,7 +531,7 @@ def assignment_sql() -> str:
     """The SQL of revision 0004 alone."""
 
     cfg, buffer = offline_config()
-    command.upgrade(cfg, f"{GAP_MODULE}:{HEAD}", sql=True)
+    command.upgrade(cfg, f"{GAP_MODULE}:{HEAD_0004}", sql=True)
     return buffer.getvalue()
 
 
@@ -560,7 +570,7 @@ def test_0004_checks_the_role_and_scopes_the_table_to_the_agent_role_without_a_g
 def test_the_downgrade_of_0004_drops_only_the_assignment_table_and_says_what_is_lost() -> None:
     cfg, buffer = offline_config()
 
-    command.downgrade(cfg, f"{HEAD}:{GAP_MODULE}", sql=True)
+    command.downgrade(cfg, f"{HEAD_0004}:{GAP_MODULE}", sql=True)
 
     sql = buffer.getvalue()
     assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == [ASSIGNMENT]
@@ -569,3 +579,64 @@ def test_the_downgrade_of_0004_drops_only_the_assignment_table_and_says_what_is_
     assert SKIP_COMMENT not in sql  # the downgrade needs no agent role
     doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0004_gap_assignment.py").read_text("utf-8")
     assert "Every assignment is lost" in doc
+
+
+# The Jira sync tables, added by revision 0005 on top of 0004 -------------------------------
+
+
+def jira_sql() -> str:
+    """The SQL of revision 0005 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{HEAD_0004}:{HEAD}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0005_creates_only_the_two_jira_tables_with_named_constraints_and_the_partial_key_index() -> None:
+    sql = jira_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == list(JIRA_TABLES)
+    assert "CONSTRAINT pk_jira_targets PRIMARY KEY (project_id)" in sql
+    assert "CONSTRAINT pk_jira_issues PRIMARY KEY (project_id, node_id)" in sql
+    assert "CONSTRAINT fk_jira_targets_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in sql
+    assert "CONSTRAINT fk_jira_issues_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in sql
+    assert "CONSTRAINT ck_jira_targets_last_status CHECK (last_status IN ('running', 'succeeded'" in sql
+    assert "CONSTRAINT ck_jira_targets_last_trigger CHECK (last_trigger IN ('plan_run', 'mcp'" in sql
+    assert "CONSTRAINT ck_jira_issues_kind CHECK (kind IN ('epic', 'story', 'subtask'))" in sql
+    assert (
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_jira_issues_jira_key ON jira_issues (project_id, jira_key) "
+        "WHERE jira_key IS NOT NULL;"
+    ) in sql
+    assert "CASCADE" not in sql.upper()
+    assert "UPDATE alembic_version SET version_num='0005_jira_sync'" in sql
+    assert sql.count("ALTER TABLE") == 2  # row-level security on the new tables; no existing table changes
+    assert "DROP" not in sql.upper()
+
+
+def test_0005_checks_the_role_and_scopes_both_tables_to_the_agent_role_without_a_grant() -> None:
+    sql = jira_sql()
+
+    scope = "nullif(current_setting('app.project_id', true), '')::uuid"
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("CREATE TABLE jira_targets")
+    assert sql.index(SKIP_COMMENT) < sql.index("CREATE TABLE jira_targets")
+    for table in JIRA_TABLES:
+        assert sql.index(f"CREATE TABLE {table}") < sql.index(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;")
+        assert (
+            f'CREATE POLICY agent_project_scope ON {table} TO "specflow_agent" '
+            f"USING (project_id = {scope}) WITH CHECK (project_id = {scope});"
+        ) in sql
+    assert "GRANT" not in sql.upper()
+
+
+def test_the_downgrade_of_0005_drops_only_the_jira_tables_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD}:{HEAD_0004}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == list(reversed(JIRA_TABLES))
+    assert "UPDATE alembic_version SET version_num='0004_gap_assignment'" in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("DROP TABLE")
+    assert SKIP_COMMENT not in sql  # the downgrade needs no agent role
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0005_jira_sync.py").read_text("utf-8")
+    assert "whole node-to-issue map is lost" in doc

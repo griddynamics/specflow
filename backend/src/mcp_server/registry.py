@@ -57,6 +57,10 @@ from agent_contracts import (
     GetStoryBriefArgs,
     GetTaskBriefArgs,
     GetTaskPathArgs,
+    JiraSyncArgs,
+    JiraSyncReport,
+    JiraSyncStatus,
+    JiraSyncStatusArgs,
     ListAreasArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
@@ -108,6 +112,12 @@ READ_ONLY: Final = ToolAnnotations(
 # annotations make its API call a ``POST``.
 WRITE: Final = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
+# ``sync_to_jira`` writes to Jira, outside Specflow: not read-only, not destructive (nothing is deleted or moved
+# through the Jira workflow), idempotent (repeats converge Jira to the same
+# state; repeats during a pass merge into one more pass), open-world (D27).
+WRITE_OPEN_WORLD: Final = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
 )
 
 
@@ -387,6 +397,25 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         route=AGENT_ROUTES["complete_story"],
         project_scoped=True,
         annotations=WRITE,
+    ),
+    ToolDeclaration(
+        name="sync_to_jira",
+        summary="Pushes the project's plan to its Jira Epic now; To Do issues are updated, others get a comment.",
+        description=descriptions.SYNC_TO_JIRA_DESCRIPTION,
+        arguments=JiraSyncArgs,
+        output=JiraSyncStatus,
+        route=AGENT_ROUTES["sync_to_jira"],
+        project_scoped=True,
+        annotations=WRITE_OPEN_WORLD,
+    ),
+    ToolDeclaration(
+        name="jira_sync_status",
+        summary="Shows the last Jira sync: status, counts, errors and the Jira key of each story and task.",
+        description=descriptions.JIRA_SYNC_STATUS_DESCRIPTION,
+        arguments=JiraSyncStatusArgs,
+        output=JiraSyncReport,
+        route=AGENT_ROUTES["jira_sync_status"],
+        project_scoped=True,
     ),
 )
 

@@ -314,6 +314,18 @@ Every new code is listed with its status in the API's error-code registry (`back
 routes' own (`gap_not_found` 404, `answer_invalid` 400, `gap_wrong_state` and `gap_stale` 409). The MCP role maps a 409 with a known code
 like any other known code: the code, its fixed message and the validated details.
 
+### Jira sync routes
+
+The two Jira tools ([tools.md](tools.md#sync_to_jira)) share the prefix, the auth, the dependency chain, the headers and
+the common errors above. Any member may call both ([../jira-sync/api.md](../jira-sync/api.md#agent-routes)).
+
+| Tool | Method, path | Arguments | 200 body | Route errors (code → status) |
+|---|---|---|---|---|
+| `sync_to_jira` | `POST /jira-sync` | `project_id` (query); body `{}` | `JiraSyncStatus` | `project_not_found` → 404; `jira_not_configured` → 409; `jira_unavailable` → 503 |
+| `jira_sync_status` | `GET /jira-sync-status` | `project_id`, `limit` 1–100 (50), `cursor` ≤ 512 | `JiraSyncReport` | `project_not_found` → 404; `invalid_cursor` → 400; `jira_not_configured` → 409; `jira_unavailable` → 503 |
+
+Both new codes are agent error codes with their status in the API's error-code registry (`backend/archkit.toml`).
+
 ## Import rules
 
 | # | Rule |

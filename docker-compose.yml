@@ -448,6 +448,10 @@ services:
       LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-}"
       LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
       LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      # Jira sync: the one Atlassian account, all three or none (docs/configuration.md "Jira sync").
+      ATLASSIAN_SITE_URL: "${ATLASSIAN_SITE_URL:-}"
+      ATLASSIAN_EMAIL: "${ATLASSIAN_EMAIL:-}"
+      ATLASSIAN_API_TOKEN: "${ATLASSIAN_API_TOKEN:-}"
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     volumes:

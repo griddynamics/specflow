@@ -1,7 +1,9 @@
 // COLLABORATORS: the project Settings screen (tab General) on the PRODUCTION routes in a real browser, against the stub API through
 // the real BFF. The stub keeps the people of each project (tests/support/stub-members.mjs); a case seeds its own project through the
-// control port, so the shared stub never decides an outcome. Proves FR-PRJ-UI-01..08 (docs/projects/requirements.md).
+// control port, so the shared stub never decides an outcome. Proves FR-PRJ-UI-01..08 (docs/projects/requirements.md) and, for the tab
+// Jira, FR-JIRA-UI-01, UI-03, UI-05 (docs/jira-sync/requirements.md).
 import { randomBytes } from "node:crypto";
+import type { Locator, Page } from "@playwright/test";
 import {
   allowConsoleErrors,
   expect,
@@ -9,7 +11,9 @@ import {
   projectSwitcher,
   rail,
   resetPeopleState,
+  seedJira,
   seedMembers,
+  stubLog,
   test,
   topbarProjectName,
 } from "./support";
@@ -19,10 +23,15 @@ const ROW_X = "settings-row-x";
 const ADD_ROW = "settings-add";
 const bodyOf = (r: { postData: string | null }): unknown => JSON.parse(r.postData ?? "{}");
 const SETTINGS = (pid: string) => new RegExp(`/projects/${pid}/settings$`);
+const JIRA_PATH = (pid: string) => `/api/backend/projects/${pid}/jira`;
+const projectField = (page: Page): Locator => page.getByRole("textbox", { name: "Jira project key" });
+const epicField = (page: Page): Locator => page.getByRole("textbox", { name: "Epic key" });
+const syncSwitch = (page: Page): Locator => page.getByRole("switch", { name: "Sync to Jira" });
 
 test.describe("Project Settings on production routes", { tag: "@production" }, () => {
   test.afterEach(async () => {
     await resetPeopleState();
+    await seedJira({ pid: "none", available: true }); // the Jira switch is global in the stub: put it back
   });
 
   test("FR-PRJ-UI-01, UI-02: the sidebar opens Settings; the General tab sits in the shell header row, not in the body", async ({
@@ -187,5 +196,104 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     const menu = page.getByRole("menu", { name: "Switch project" });
     await expect(menu.getByRole("menuitemradio", { name, exact: true })).toHaveCount(0);
     await expect(menu.getByRole("menuitemradio", { name: other.name, exact: true })).toHaveCount(1);
+  });
+
+  test("FR-JIRA-UI-01: the shell header offers General and Jira; ?tab=jira selects Jira", async ({ page }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Jira tab") });
+    await seedJira({ pid: id, target: null });
+    await page.goto(`/projects/${id}/settings?tab=jira`);
+    const head = page.getByTestId("shell-head");
+    await expect(head.getByRole("button", { name: "General" })).toBeVisible();
+    await expect(head.getByRole("button", { name: "Jira" })).toHaveAttribute("aria-pressed", "true");
+    await expect(head.getByRole("button", { name: "General" })).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("jira-form")).toBeVisible();
+    await head.getByRole("button", { name: "General" }).click();
+    await expect(page.getByTestId("settings-name")).toBeVisible();
+    await expect(page.getByTestId("jira-form")).toHaveCount(0);
+    await page.goto(`/projects/${id}/settings?tab=nonsense`); // an unknown tab still opens General
+    await expect(head.getByRole("button", { name: "General" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("FR-JIRA-UI-02, UI-03: the owner types the keys, checks access, saves, then the switch turns on and sends one PUT with enabled true", async ({
+    page,
+    requests,
+  }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Jira owner") });
+    await seedJira({ pid: id, target: null, access: "ok" });
+    await page.goto(`/projects/${id}/settings?tab=jira`);
+    const primary = page.getByTestId("jira-primary");
+    const sync = syncSwitch(page);
+    const puts = () => requests.filter((r) => r.method === "PUT" && r.path === JIRA_PATH(id));
+    await expect(primary).toHaveText("Check access");
+    await expect(sync).toBeDisabled(); // no saved target yet
+    await projectField(page).fill("abc");
+    await epicField(page).fill("ABC-12");
+    await primary.click();
+    await expect(page.getByTestId("jira-check")).toContainText("Jira project");
+    await expect(primary).toHaveText("Save");
+    expect(puts()).toHaveLength(0); // the check saves nothing
+    await primary.click();
+    await expect(page.getByText("Jira target saved")).toBeVisible();
+    await expect(primary).toBeDisabled(); // the typed keys are the saved target
+    await expect(sync).toBeEnabled();
+    await expect(sync).not.toBeChecked();
+    expect(puts().map(bodyOf)).toEqual([{ jira_project: "ABC", epic_key: "ABC-12", enabled: false }]);
+
+    await sync.click();
+    await expect(sync).toBeChecked();
+    expect(puts().map(bodyOf)).toEqual([
+      { jira_project: "ABC", epic_key: "ABC-12", enabled: false },
+      { jira_project: "ABC", epic_key: "ABC-12", enabled: true },
+    ]);
+    const log = await stubLog();
+    expect(log.filter((e) => e.method === "PUT" && e.path === `/api/v1/projects/${id}/jira`)).toHaveLength(2); // the stub saw the same two
+    expect(log.filter((e) => e.method === "POST" && e.path === `/api/v1/projects/${id}/jira/access-check`)).toHaveLength(1);
+    // Editing a key brings the check back.
+    await projectField(page).fill("XYZ");
+    await expect(primary).toHaveText("Check access");
+    await expect(primary).toBeEnabled();
+  });
+
+  test("FR-JIRA-UI-02: a failed check shows its reason under the field it names and keeps the button on Check access", async ({ page }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Jira failed") });
+    await seedJira({ pid: id, target: null, access: { reason: "jira_not_found", field: "jira_project" } });
+    await page.goto(`/projects/${id}/settings?tab=jira`);
+    await projectField(page).fill("NOPE");
+    await page.getByTestId("jira-primary").click();
+    await expect(page.getByText("No Jira project with this key, or the account cannot see it.")).toBeVisible();
+    await expect(page.getByTestId("jira-primary")).toHaveText("Check access");
+  });
+
+  test("FR-JIRA-UI-05: a collaborator sees the saved target with every control disabled and no primary button", async ({
+    page,
+    requests,
+  }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Jira collaborator"), role: "collaborator" });
+    await seedJira({ pid: id, target: { jira_project: "ABC", epic_key: null, enabled: true } });
+    await page.goto(`/projects/${id}/settings?tab=jira`);
+    await expect(page.getByTestId("jira-form")).toBeVisible();
+    await expect(projectField(page)).toHaveValue("ABC");
+    await expect(projectField(page)).toBeDisabled();
+    await expect(epicField(page)).toBeDisabled();
+    await expect(syncSwitch(page)).toBeDisabled();
+    await expect(syncSwitch(page)).toBeChecked();
+    await expect(page.getByTestId("jira-primary")).toHaveCount(0);
+    await expect(page.getByTestId("jira-unavailable")).toHaveCount(0);
+    expect(requests.filter((r) => r.method === "PUT" || r.method === "POST").filter((r) => r.path === JIRA_PATH(id))).toHaveLength(0);
+  });
+
+  test("FR-JIRA-UI-05: when the server has no Atlassian account the notice shows and the form is disabled", async ({ page }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Jira unavailable") });
+    await seedJira({ pid: id, available: false, target: null });
+    await page.goto(`/projects/${id}/settings?tab=jira`);
+    await expect(page.getByTestId("jira-unavailable")).toContainText("Jira is not connected to this Specflow server.");
+    await expect(projectField(page)).toBeDisabled();
+    await expect(epicField(page)).toBeDisabled();
+    await expect(syncSwitch(page)).toBeDisabled();
   });
 });

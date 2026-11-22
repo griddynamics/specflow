@@ -3,7 +3,7 @@
 // `/api/backend/*` URLs to the stub as `/api/v1/*` and to record every request (method, path, body). No BFF, no browser.
 // Layer U: the wire parsers and the error mapping. Layer P: every route's request and response mapping, and the error rows.
 // Port 3295 (stub API, no issuer).
-import { test, before, after, beforeEach } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHttpMembers, toAdded, toClaimsOutcome, toInvite, toMember, toMembersState, toSuggestions } from "@/lib/data/http/members";
 import { createHttpProjects } from "@/lib/data/http/projects";
@@ -11,61 +11,24 @@ import { toDataError } from "@/lib/data/http/errors";
 import { ApiError } from "@/lib/api";
 import { DataError, isDataError } from "@/lib/domain/errors";
 import type { AddedPerson, Member } from "@/lib/domain/members";
-import { startStubApi } from "../support/stub-api.mjs";
+import { rejectsWith as rejects, serveStub } from "../support/stub-fetch";
 
 const PORT = 3295;
 const ALICE = "alice.anders@example.test";
-function urlOf(input: RequestInfo | URL): string {
-  if (typeof input === "string") return input;
-  return input instanceof URL ? input.href : input.url;
-}
-interface Sent {
-  method: string;
-  path: string;
-  body: string | null;
-}
-type Stub = Awaited<ReturnType<typeof startStubApi>>;
-let api: Stub;
-let sent: Sent[] = [];
-const realFetch = globalThis.fetch;
-
-before(async () => {
-  api = await startStubApi({ port: PORT });
-  Object.defineProperty(globalThis, "window", { value: new EventTarget(), configurable: true, writable: true });
-  globalThis.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
-    const raw = urlOf(input);
-    if (!raw.startsWith("/api/backend/")) return realFetch(input, init);
-    sent.push({ method: (init.method ?? "GET").toUpperCase(), path: raw, body: typeof init.body === "string" ? init.body : null });
-    const headers = new Headers(init.headers);
-    headers.set("authorization", "Bearer test");
-    return realFetch(`${api.url}/api/v1/${raw.slice("/api/backend/".length)}`, { ...init, headers });
-  };
-});
-after(async () => {
-  globalThis.fetch = realFetch;
-  Reflect.deleteProperty(globalThis, "window");
-  await api.close();
-});
-beforeEach(() => {
-  sent = [];
+const ctx = serveStub(PORT, (api) => {
   api.people.state.claimsReleased = 0;
   api.people.state.claimsFailed = false;
 });
+const { sent } = ctx;
 
 const members = createHttpMembers();
 const { projects, createProject } = createHttpProjects();
-const rejects = (p: Promise<unknown>, code: string, apiCode?: string) =>
-  assert.rejects(
-    p,
-    (e) => isDataError(e) && e.code === code && (apiCode === undefined || e.detail?.apiCode === apiCode),
-    `${code} ${apiCode ?? ""}`,
-  );
 const last = () => sent[sent.length - 1];
 const OTHER = "22222222-2222-4222-8222-222222222222";
 
 async function newProject(name = "P") {
   const p = await createProject.create({ name });
-  sent = [];
+  sent.length = 0;
   return p.id;
 }
 
@@ -222,14 +185,14 @@ test("add errors: invalid_email and email_domain_not_allowed (validation), alrea
 test("DELETE /projects/{pid}/members/{user_id}: ClaimsOutcome with the released count and the failure flag", async () => {
   const pid = await newProject();
   const userId = memberOf(await members.add(pid, ALICE)).userId;
-  api.people.state.claimsReleased = 2;
+  ctx.api.people.state.claimsReleased = 2;
   const out = await members.remove(pid, userId);
   assert.deepEqual(
     { method: last().method, path: last().path, body: last().body },
     { method: "DELETE", path: `/api/backend/projects/${pid}/members/${userId}`, body: null },
   );
   assert.deepEqual(out, { claimsReleased: 2, claimsReleaseFailed: false });
-  api.people.state.claimsFailed = true;
+  ctx.api.people.state.claimsFailed = true;
   const again = memberOf(await members.add(pid, ALICE));
   const out2 = await members.remove(pid, again.userId);
   assert.equal(out2.claimsReleaseFailed, true);
@@ -260,7 +223,7 @@ test("DELETE /projects/{pid}/invites/{invite_id}: 204 cancels; an unknown or mal
 
 test("a collaborator: 403 owner_required (forbidden) on every owner route, reads allowed, POST /leave frees the way out", async () => {
   const pid = await newProject();
-  api.people.seed(pid, {
+  ctx.api.people.seed(pid, {
     role: "collaborator",
     members: [{ email: "peer@example.test", name: "Pat Peer" }],
     invites: ["wait@example.test"],
@@ -302,7 +265,7 @@ test("a non-member gets project_not_found on every route", async () => {
 test("POST /users/suggestions: {q} for Create Project, {q, project_id} for Settings; the typed text and emails stay out of the URL", async () => {
   const pid = await newProject();
   await rejects(members.suggest("al"), "validation", "validation_failed"); // below 3 characters
-  sent = [];
+  sent.length = 0;
   const items = await members.suggest("ali");
   assert.deepEqual(
     { method: last().method, path: last().path, body: last().body },
@@ -310,7 +273,7 @@ test("POST /users/suggestions: {q} for Create Project, {q, project_id} for Setti
   );
   assert.deepEqual(items, [{ name: "Alice Anders", email: ALICE }]);
   await members.add(pid, ALICE);
-  sent = [];
+  sent.length = 0;
   assert.deepEqual(await members.suggest("ali", pid), [], "members are left out");
   assert.equal(last().body, JSON.stringify({ q: "ali", project_id: pid }));
   assert.deepEqual(
@@ -340,7 +303,7 @@ test("PATCH /projects/{pid} {name}: renames, answers the project and tells the s
   assert.equal(renamed.name, "After");
   assert.equal((await projects.get(pid)).name, "After");
   assert.equal(notified, 1);
-  sent = [];
+  sent.length = 0;
   await assert.rejects(projects.rename(pid, "   "), (e) => e instanceof DataError && e.code === "validation");
   await assert.rejects(projects.rename(pid, "x".repeat(201)), (e) => e instanceof DataError && e.code === "validation");
   assert.equal(sent.length, 0, "the name rule is checked before any request");
@@ -390,7 +353,7 @@ test("create with bad emails: 422 validation with details.errors[{loc, type}] an
 test("the leaver's project is gone from the list; the others stay", async () => {
   const keep = await newProject("Keep");
   const gone = await newProject("Gone");
-  api.people.seed(gone, { role: "collaborator" });
+  ctx.api.people.seed(gone, { role: "collaborator" });
   await members.leave(gone);
   const ids = (await projects.list()).map((p) => p.id);
   assert.ok(ids.includes(keep));

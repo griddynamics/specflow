@@ -9,7 +9,7 @@ from sqlalchemy import CheckConstraint, Table, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from db.models import PROJECT_ROLES, Document, Project, ProjectInvite, ProjectMember, User
+from db.models import PROJECT_ROLES, Document, JiraIssue, JiraTarget, Project, ProjectInvite, ProjectMember, User
 
 
 def ddl(table: Table) -> str:
@@ -152,3 +152,41 @@ def test_project_invites_columns_constraints_and_indexes() -> None:
     assert "CONSTRAINT fk_project_invites_invited_by_users FOREIGN KEY(invited_by) REFERENCES users (id)" in text
     assert "ON DELETE" not in text  # projects are never deleted: no cascade
     assert index_ddl(table) == {"CREATE INDEX ix_project_invites_email_norm ON project_invites (email_norm)"}
+
+
+def test_jira_targets_are_keyed_by_project_with_checked_run_columns_and_no_credential() -> None:
+    table: Table = JiraTarget.__table__
+
+    assert [c.name for c in table.columns] == [
+        "project_id",
+        "jira_project",
+        "epic_key",
+        "enabled",
+        "updated_at",
+        "last_status",
+        "last_trigger",
+        "last_started_at",
+        "last_finished_at",
+        "last_error_code",
+        "last_counts",
+    ]
+    assert {c.name for c in table.columns if not c.nullable} == {"project_id", "jira_project", "enabled", "updated_at"}
+    assert set(checks(table)) == {"ck_jira_targets_last_status", "ck_jira_targets_last_trigger"}
+    assert "'partial'" in checks(table)["ck_jira_targets_last_status"]
+    text = ddl(table)
+    assert "CONSTRAINT pk_jira_targets PRIMARY KEY (project_id)" in text
+    assert "CONSTRAINT fk_jira_targets_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in text
+    assert "ON DELETE" not in text  # projects are never deleted: no cascade
+
+
+def test_jira_issues_have_a_composite_key_a_kind_check_and_a_partial_unique_key_index() -> None:
+    table: Table = JiraIssue.__table__
+
+    assert {c.name for c in table.columns if not c.nullable} == {"project_id", "node_id", "kind", "requested_at"}
+    assert checks(table) == {"ck_jira_issues_kind": "kind IN ('epic', 'story', 'subtask')"}
+    text = ddl(table)
+    assert "CONSTRAINT pk_jira_issues PRIMARY KEY (project_id, node_id)" in text
+    assert "ON DELETE" not in text
+    assert index_ddl(table) == {
+        "CREATE UNIQUE INDEX ux_jira_issues_jira_key ON jira_issues (project_id, jira_key) WHERE jira_key IS NOT NULL"
+    }

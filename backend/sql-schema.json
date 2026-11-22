@@ -282,6 +282,27 @@
         "target_id"
       ]
     },
+    "gap_assignment": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "project_members.project_id"
+        },
+        "gap_id": {
+          "type": "text"
+        },
+        "user_id": {
+          "type": "uuid",
+          "fk": "project_members.user_id"
+        },
+        "assigned_by": {
+          "type": "text"
+        },
+        "assigned_at": {
+          "type": "timestamp"
+        }
+      }
+    },
     "gap_event": {
       "columns": {
         "id": {
@@ -563,6 +584,82 @@
         },
         "created_at": {
           "type": "timestamp"
+        }
+      }
+    },
+    "jira_issues": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "node_id": {
+          "type": "text"
+        },
+        "kind": {
+          "type": "text"
+        },
+        "jira_key": {
+          "type": "text"
+        },
+        "requested_at": {
+          "type": "timestamp"
+        },
+        "content": {
+          "type": "json"
+        },
+        "content_hash": {
+          "type": "text"
+        },
+        "position": {
+          "type": "int"
+        },
+        "removed_at": {
+          "type": "timestamp"
+        },
+        "error_code": {
+          "type": "text"
+        },
+        "synced_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "jira_targets": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "jira_project": {
+          "type": "text"
+        },
+        "epic_key": {
+          "type": "text"
+        },
+        "enabled": {
+          "type": "bool"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        },
+        "last_status": {
+          "type": "text"
+        },
+        "last_trigger": {
+          "type": "text"
+        },
+        "last_started_at": {
+          "type": "timestamp"
+        },
+        "last_finished_at": {
+          "type": "timestamp"
+        },
+        "last_error_code": {
+          "type": "text"
+        },
+        "last_counts": {
+          "type": "json"
         }
       }
     },

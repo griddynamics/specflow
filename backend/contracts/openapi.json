@@ -4690,6 +4690,586 @@
         "title": "InviteOut",
         "type": "object"
       },
+      "JiraAccessCheckIn": {
+        "additionalProperties": false,
+        "description": "The typed Jira target before it is saved: trimmed and upper-cased, a blank Epic is null; the Epic key carries\nthe prefix of ``jira_project``.",
+        "properties": {
+          "epic_key": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epic Key"
+          },
+          "jira_project": {
+            "pattern": "^[A-Z][A-Z0-9_]{1,9}$",
+            "title": "Jira Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jira_project"
+        ],
+        "title": "JiraAccessCheckIn",
+        "type": "object"
+      },
+      "JiraAccessFailed": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "enum": [
+                  "jira_project",
+                  "epic_key"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "reason": {
+            "enum": [
+              "jira_auth_failed",
+              "jira_not_found",
+              "jira_issue_types_missing",
+              "jira_forbidden",
+              "jira_epic_invalid",
+              "jira_unreachable",
+              "jira_unexpected"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "result": {
+            "const": "failed",
+            "default": "failed",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "field"
+        ],
+        "title": "JiraAccessFailed",
+        "type": "object"
+      },
+      "JiraAccessOk": {
+        "properties": {
+          "epic_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epic Summary"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "result": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_name",
+          "epic_summary"
+        ],
+        "title": "JiraAccessOk",
+        "type": "object"
+      },
+      "JiraSettingsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "epic_key": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epic Key"
+          },
+          "jira_project": {
+            "pattern": "^[A-Z][A-Z0-9_]{1,9}$",
+            "title": "Jira Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jira_project",
+          "enabled"
+        ],
+        "title": "JiraSettingsIn",
+        "type": "object"
+      },
+      "JiraSettingsOut": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "created_epic_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created Epic Key"
+          },
+          "editable": {
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "epic_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epic Key"
+          },
+          "jira_project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jira Project"
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JiraSyncStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "editable",
+          "site_url",
+          "jira_project",
+          "epic_key",
+          "created_epic_key",
+          "enabled",
+          "sync"
+        ],
+        "title": "JiraSettingsOut",
+        "type": "object"
+      },
+      "JiraSyncCounts": {
+        "properties": {
+          "commented": {
+            "default": 0,
+            "title": "Commented",
+            "type": "integer"
+          },
+          "created": {
+            "default": 0,
+            "title": "Created",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "links_added": {
+            "default": 0,
+            "title": "Links Added",
+            "type": "integer"
+          },
+          "links_removed": {
+            "default": 0,
+            "title": "Links Removed",
+            "type": "integer"
+          },
+          "ranked": {
+            "default": 0,
+            "title": "Ranked",
+            "type": "integer"
+          },
+          "removed": {
+            "default": 0,
+            "title": "Removed",
+            "type": "integer"
+          },
+          "unchanged": {
+            "default": 0,
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "default": 0,
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "title": "JiraSyncCounts",
+        "type": "object"
+      },
+      "JiraSyncItem": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "jira_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jira Key"
+          },
+          "kind": {
+            "enum": [
+              "epic",
+              "story",
+              "subtask"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "boolean"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "node_id",
+          "kind",
+          "jira_key",
+          "url",
+          "removed",
+          "error_code"
+        ],
+        "title": "JiraSyncItem",
+        "type": "object"
+      },
+      "JiraSyncReport": {
+        "properties": {
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JiraSyncCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "epic_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epic Key"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JiraSyncItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "jira_project": {
+            "title": "Jira Project",
+            "type": "string"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "running",
+              "succeeded",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "project_id",
+          "enabled",
+          "status",
+          "queued",
+          "trigger",
+          "started_at",
+          "finished_at",
+          "error_code",
+          "counts",
+          "jira_project",
+          "epic_key",
+          "items",
+          "next_cursor"
+        ],
+        "title": "JiraSyncReport",
+        "type": "object"
+      },
+      "JiraSyncStatus": {
+        "properties": {
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JiraSyncCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "epic_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epic Key"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "jira_project": {
+            "title": "Jira Project",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "running",
+              "succeeded",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "project_id",
+          "enabled",
+          "status",
+          "queued",
+          "trigger",
+          "started_at",
+          "finished_at",
+          "error_code",
+          "counts",
+          "jira_project",
+          "epic_key"
+        ],
+        "title": "JiraSyncStatus",
+        "type": "object"
+      },
       "MeOut": {
         "properties": {
           "actor_id": {
@@ -10653,6 +11233,120 @@
         ]
       }
     },
+    "/api/v1/agent/jira-sync": {
+      "post": {
+        "description": "Queue a pass now (``queued`` when it merges into one); no enabled target is 409 ``jira_not_configured``;\na runner that is closing is 503 ``jira_unavailable``.",
+        "operationId": "start_jira_sync_api_v1_agent_jira_sync_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraSyncStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Jira Sync",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/jira-sync-status": {
+      "get": {
+        "description": "The last run and one page of the map items; a disabled target is shown, no target is 409.",
+        "operationId": "read_jira_sync_status_api_v1_agent_jira_sync_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraSyncReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Jira Sync Status",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/v1/agent/node": {
       "get": {
         "description": "One node with the parts asked for: edges (a hub's summarised past ``edge_limit``), plan, provenance, findings.",
@@ -14035,6 +14729,165 @@
         "summary": "Cancel Invite",
         "tags": [
           "members"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/jira": {
+      "get": {
+        "operationId": "get_jira_settings_api_v1_projects__pid__jira_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Jira Settings",
+        "tags": [
+          "jira"
+        ]
+      },
+      "put": {
+        "operationId": "put_jira_settings_api_v1_projects__pid__jira_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraSettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Jira Settings",
+        "tags": [
+          "jira"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/jira/access-check": {
+      "post": {
+        "operationId": "check_jira_access_api_v1_projects__pid__jira_access_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraAccessCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "failed": "#/components/schemas/JiraAccessFailed",
+                      "ok": "#/components/schemas/JiraAccessOk"
+                    },
+                    "propertyName": "result"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/JiraAccessOk"
+                    },
+                    {
+                      "$ref": "#/components/schemas/JiraAccessFailed"
+                    }
+                  ],
+                  "title": "Response Check Jira Access Api V1 Projects  Pid  Jira Access Check Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Jira Access",
+        "tags": [
+          "jira"
         ]
       }
     },

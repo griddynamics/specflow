@@ -36,9 +36,10 @@ def test_the_manifest_lists_the_declarations_in_order() -> None:
     manifest = render_manifest()
     assert [t["name"] for t in manifest["tools"]] == [t.name for t in TOOLS]
     assert [p["name"] for p in manifest["prompts"]] == [p.name for p in PROMPTS]
-    # read-only exactly for the tools that do not write: the six write tools are claim_story, release_story,
-    # add_finding, report_task, complete_story and answer_gap
+    # read-only exactly for the tools that do not write: the seven write tools are claim_story, release_story,
+    # add_finding, report_task, complete_story, answer_gap and sync_to_jira
     writes = {"claim_story", "release_story", "add_finding", "report_task", "complete_story", "answer_gap"}
+    writes.add("sync_to_jira")
     assert all(t["read_only"] is (t["name"] not in writes) for t in manifest["tools"])
     assert {t["name"] for t in manifest["tools"] if not t["read_only"]} == writes
     assert [(p["name"], p["arguments"]) for p in manifest["prompts"]] == [

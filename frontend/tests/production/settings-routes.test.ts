@@ -16,13 +16,15 @@ test("route key settings: template, builder with and without a tab", () => {
   assert.deepEqual(ROUTES.settings.trees, ["production"]);
   assert.equal(routes.settings("p1"), "/projects/p1/settings");
   assert.equal(routes.settings("p1", { tab: "general" }), "/projects/p1/settings?tab=general");
+  assert.equal(routes.settings("p1", { tab: "jira" }), "/projects/p1/settings?tab=jira");
   assert.equal(routes.settings("a b/c"), "/projects/a%20b%2Fc/settings", "the project id is encoded");
 });
 
 test("parseSettingsQuery: a missing or unknown tab is general, never an error", () => {
   assert.deepEqual(parseSettingsQuery(new URLSearchParams("")), { tab: "general" });
   assert.deepEqual(parseSettingsQuery(new URLSearchParams("tab=general")), { tab: "general" });
-  for (const t of ["nope", "", "GENERAL", "constructor", "__proto__"])
+  assert.deepEqual(parseSettingsQuery(new URLSearchParams("tab=jira")), { tab: "jira" });
+  for (const t of ["nope", "", "GENERAL", "JIRA", "constructor", "__proto__"])
     assert.deepEqual(parseSettingsQuery(new URLSearchParams({ tab: t })), { tab: "general" }, t);
 });
 

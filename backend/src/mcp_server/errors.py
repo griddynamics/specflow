@@ -40,6 +40,7 @@ from agent_contracts import (
     ErrorCode,
     ErrorDetails,
 )
+from agent_contracts.errors import JIRA_NOT_CONFIGURED, JIRA_UNAVAILABLE
 from mcp_server.api_client import API_PROTOCOL_ERROR, ApiResult
 
 MESSAGES: Final[Mapping[ErrorCode, str]] = {
@@ -67,6 +68,12 @@ MESSAGES: Final[Mapping[ErrorCode, str]] = {
     GAP_WRONG_STATE: "The gap no longer waits for an answer. Call browse_gaps with status open for the open gaps.",
     GAP_STALE: "The gap changed while the user answered and nothing was recorded. Show its card and ask again.",
     ANSWER_INVALID: "The answer cannot be recorded from the dialog. The user can answer on the web card of the gap.",
+    JIRA_UNAVAILABLE: (
+        "Jira sync is not set up on this Specflow server. Ask an administrator to connect an Atlassian account."
+    ),
+    JIRA_NOT_CONFIGURED: (
+        "This project does not sync to Jira. Its owner sets the Jira target in the project Settings, tab Jira."
+    ),
 }
 
 

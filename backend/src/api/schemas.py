@@ -6,7 +6,9 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationInfo, field_validator
+
+from agent_contracts import JiraSyncStatus
 
 NAME_MAX = 200
 COLLABORATORS_MAX = 49
@@ -19,6 +21,10 @@ class InvalidNameError(ValueError):
 
 class InvalidSuggestionTextError(ValueError):
     """The suggestion text is shorter than 3 or longer than 254 characters."""
+
+
+class JiraEpicPrefixError(ValueError):
+    """The Epic key does not start with the Jira project key."""
 
 
 class Page[T](BaseModel):
@@ -567,3 +573,82 @@ class SuggestionOut(BaseModel):
 
 class SuggestionsOut(BaseModel):
     items: list[SuggestionOut]
+
+
+# --- Jira settings and access check (docs/jira-sync/api.md "Web routes", "Access check", "Shapes") ---------------
+
+JIRA_PROJECT_PATTERN = r"^[A-Z][A-Z0-9_]{1,9}$"
+JIRA_EPIC_PATTERN = r"^[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]*$"
+
+
+class JiraAccessCheckIn(BaseModel):
+    """The typed Jira target before it is saved: trimmed and upper-cased, a blank Epic is null; the Epic key carries
+    the prefix of ``jira_project``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    jira_project: str = Field(pattern=JIRA_PROJECT_PATTERN)
+    epic_key: str | None = Field(default=None, pattern=JIRA_EPIC_PATTERN)
+
+    @field_validator("jira_project", mode="before")
+    @classmethod
+    def _normalise_project(cls, value: object) -> object:
+        return value.strip().upper() if isinstance(value, str) else value
+
+    @field_validator("epic_key", mode="before")
+    @classmethod
+    def _normalise_epic(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        text = value.strip().upper()
+        return text or None
+
+    @field_validator("epic_key")
+    @classmethod
+    def _epic_in_project(cls, value: str | None, info: ValidationInfo) -> str | None:
+        project = info.data.get("jira_project")
+        if value is not None and project is not None and not value.startswith(f"{project}-"):
+            raise JiraEpicPrefixError("the Epic key must start with the Jira project key")
+        return value
+
+
+class JiraSettingsIn(JiraAccessCheckIn):
+    enabled: StrictBool
+
+
+class JiraSettingsOut(BaseModel):
+    available: bool
+    editable: bool
+    site_url: str | None
+    jira_project: str | None
+    epic_key: str | None
+    created_epic_key: str | None
+    enabled: bool
+    sync: JiraSyncStatus | None
+
+
+JiraAccessReason = Literal[
+    "jira_auth_failed",
+    "jira_not_found",
+    "jira_issue_types_missing",
+    "jira_forbidden",
+    "jira_epic_invalid",
+    "jira_unreachable",
+    "jira_unexpected",
+]
+JiraAccessField = Literal["jira_project", "epic_key"]
+
+
+class JiraAccessOk(BaseModel):
+    result: Literal["ok"] = "ok"
+    project_name: str
+    epic_summary: str | None
+
+
+class JiraAccessFailed(BaseModel):
+    result: Literal["failed"] = "failed"
+    reason: JiraAccessReason
+    field: JiraAccessField | None
+
+
+JiraAccessResult = Annotated[JiraAccessOk | JiraAccessFailed, Field(discriminator="result")]

@@ -161,6 +161,16 @@
       "name": "complete_story",
       "read_only": false,
       "summary": "Closes your claimed story with the merge commit and the pull request."
+    },
+    {
+      "name": "sync_to_jira",
+      "read_only": false,
+      "summary": "Pushes the project's plan to its Jira Epic now; To Do issues are updated, others get a comment."
+    },
+    {
+      "name": "jira_sync_status",
+      "read_only": true,
+      "summary": "Shows the last Jira sync: status, counts, errors and the Jira key of each story and task."
     }
   ]
 }

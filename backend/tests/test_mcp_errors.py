@@ -100,7 +100,7 @@ def test_fr_mcp_tool_08_the_messages_equal_the_tools_md_error_codes_table() -> N
     table = text.split("## Error codes\n", 1)[1].split("\n### ", 1)[0].split("\n## ", 1)[0]
     rows = re.findall(r"^\| `(\w+)` \|.*\| (.+?) \|$", table, re.MULTILINE)
     assert dict(rows) == dict(MESSAGES)
-    assert len(rows) == 24
+    assert len(rows) == 26
 
 
 def test_fr_mcp_tool_08_no_message_carries_variable_text() -> None:

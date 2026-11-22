@@ -210,6 +210,7 @@ Common optional pass-through settings are grouped below. They are ordinary
   `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `STORAGE_S3_ADDRESSING`.
 - Temporal: `TEMPORAL_API_KEY`, `TEMPORAL_TLS_CERT`, `TEMPORAL_TLS_KEY`,
   `TEMPORAL_QUEUE_PARSE`, `TEMPORAL_QUEUE_AGENTS`.
+- Jira sync: `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` (the API only; all three or none).
 - Graph store: `GRAPH_STORE`, `GRAPH_STORE_NAME`, `GRAPH_STORE_ADMIN_URI`,
   `GRAPH_STORE_POOL_SIZE`.
 - Authentication: `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE`,

@@ -70,6 +70,7 @@ commands are in [**QUICKSTART.md**](QUICKSTART.md).
 - [docs/configuration.md](docs/configuration.md): every setting
 - [docs/graph/](docs/graph/INDEX.md): how the knowledge graph is built; [docs/graph/plan/](docs/graph/plan/INDEX.md): implementation plans on the graph
 - [docs/projects/](docs/projects/INDEX.md): project collaborators and the Settings screen
+- [docs/jira-sync/](docs/jira-sync/INDEX.md): the automatic export of a project's plan to Jira
 - [docs/file-parsers/](docs/file-parsers/INDEX.md): how uploads and Drive files become Markdown
 - [Rosetta](https://github.com/griddynamics/rosetta): the harness that turns plan steps into reviewed code
 

@@ -247,11 +247,11 @@ export function ConfirmDialog({
   );
 }
 
-/** Shown when the list could not be read; "Try again" reads it again. */
-export function LoadFailed({ onRetry }: Readonly<{ onRetry: () => void }>) {
+/** Shown when the tab could not be read (the list by default); "Try again" reads it again. */
+export function LoadFailed({ onRetry, text = SETTINGS_COPY.loadFailed }: Readonly<{ onRetry: () => void; text?: string }>) {
   return (
     <div className="settings-note" role="alert" data-testid="settings-failed">
-      <span>{SETTINGS_COPY.loadFailed}</span>
+      <span>{text}</span>
       <Button variant="glass" size="sm" onClick={onRetry}>
         {SETTINGS_COPY.tryAgain}
       </Button>

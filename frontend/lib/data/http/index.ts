@@ -3,6 +3,7 @@
 // (`lib/data/compose.ts`). All calls go through `lib/api.ts` (browser -> `/api/backend/*` -> API `/api/v1/*`), except `GET /me`
 // (`client.ts`, G01-10). No fixture is imported here (R7).
 import type { GapsPort } from "@/lib/domain/gaps";
+import type { JiraPort } from "@/lib/domain/jira";
 import type { CreateProjectPort } from "@/lib/domain/create-project";
 import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
@@ -12,6 +13,7 @@ import type { ProjectsPort } from "@/lib/domain/projects";
 import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
 import { createHttpGaps } from "./gaps";
+import { createHttpJira } from "./jira";
 import { createHttpKnowledge } from "./knowledge";
 import { createHttpMembers } from "./members";
 import { createHttpPeople } from "./me";
@@ -32,6 +34,7 @@ export interface HttpPorts {
   work: WorkPort;
   gaps: GapsPort;
   members: MembersPort;
+  jira: JiraPort;
 }
 
 /** TECH-SPECS §3.1. `pollMs` and `idleMs` are constructor options for the stub-API tests; production uses the defaults. */
@@ -53,5 +56,6 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     work: createHttpWork(),
     gaps: createHttpGaps(),
     members: createHttpMembers(),
+    jira: createHttpJira(),
   };
 }

@@ -313,6 +313,23 @@ export async function seedMembers(spec: SeedMembers): Promise<{ id: string; name
   return (await control("POST", "/seed-members", spec)) as { id: string; name: string };
 }
 
+/** The Jira settings of one seeded project in the stub (`POST /seed-jira`, tests/support/stub-jira.mjs `seed`). `available: false` = no Atlassian account; `target: null` removes the target; `access` scripts the next access checks. */
+export interface SeedJira extends Record<string, unknown> {
+  pid: string;
+  available?: boolean;
+  target?: {
+    jira_project: string;
+    epic_key: string | null;
+    enabled: boolean;
+    created_epic_key?: string | null;
+    sync?: Record<string, unknown>;
+  } | null;
+  access?: "ok" | { reason: string; field?: string | null };
+}
+export async function seedJira(spec: SeedJira): Promise<void> {
+  await control("POST", "/seed-jira", spec);
+}
+
 /** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */
 export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> {
   expect((await bff(page, "POST", `/projects/${pid}/graph_build`, { reasoning_level: 3 })).status).toBe(202);

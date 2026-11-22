@@ -13,14 +13,23 @@ import httpx
 
 from agent_contracts import AGENT_ROUTES, GAP_CARD_ROUTE
 from mcp_server import descriptions
-from mcp_server.registry import READ_ONLY, TOOLS, WRITE, install
+from mcp_server.registry import READ_ONLY, TOOLS, WRITE, WRITE_OPEN_WORLD, install
 from mcp_support import ALICE, BACKEND, build_app, call, mcp_env, ready_api, sdk_session
 
 SOURCE = BACKEND / "src" / "mcp_server"
 TOOLS_DOC = BACKEND.parent / "docs" / "mcp-server" / "tools.md"
 ANNOTATIONS = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
 WRITE_ANNOTATIONS = {**ANNOTATIONS, "readOnlyHint": False}
-WRITE_TOOLS = {"claim_story", "release_story", "add_finding", "report_task", "complete_story", "answer_gap"}
+OPEN_WORLD_WRITE_ANNOTATIONS = {**WRITE_ANNOTATIONS, "openWorldHint": True}  # D27: it writes to Jira
+WRITE_TOOLS = {
+    "claim_story",
+    "release_story",
+    "add_finding",
+    "report_task",
+    "complete_story",
+    "answer_gap",
+    "sync_to_jira",
+}
 
 
 def tools_app(valid_env):
@@ -99,10 +108,12 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
         "add_finding",
         "report_task",
         "complete_story",
+        "sync_to_jira",
+        "jira_sync_status",
     ]
     for tool in TOOLS:
         assert ("project_id" in tool.arguments.model_fields) == tool.project_scoped, tool.name
-    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 25)]
+    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 27)]
 
 
 async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_which_owns_the_membership(valid_env):
@@ -141,6 +152,8 @@ async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_w
         "add_finding": {"kind": "gap", "text": "x", "about": ["FEAT::X"]},
         "report_task": {"task_id": "TASK::X", "claim_token": "t", "progress": "done"},
         "complete_story": {"story_id": "STORY::X", "claim_token": "t", "merge_commit": "a" * 40},
+        "sync_to_jira": {},
+        "jira_sync_status": {},
         "answer_gap": {"gap_id": "GAP::X"},
         "open_gap": {"gap_id": "GAP::X"},
     }
@@ -202,6 +215,7 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         "get_story_brief",
         "get_task_brief",
         "get_task_path",
+        "jira_sync_status",
         "list_areas",
         "list_feature_tasks",
         "list_features",
@@ -216,11 +230,14 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         "report_task",
         "search_spec",
         "similar",
+        "sync_to_jira",
         "trace",
     ]
     for tool in listed:
         assert tool.annotations is not None
         wanted = WRITE_ANNOTATIONS if tool.name in WRITE_TOOLS else ANNOTATIONS
+        if tool.name == "sync_to_jira":
+            wanted = OPEN_WORLD_WRITE_ANNOTATIONS
         assert tool.annotations.model_dump(mode="json", by_alias=True, exclude_none=True) == wanted, tool.name
         assert tool.output_schema is not None, tool.name
     by_name = {t.name: t for t in listed}
@@ -252,10 +269,13 @@ async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_
         ("add_finding", descriptions.ADD_FINDING_DESCRIPTION),
         ("report_task", descriptions.REPORT_TASK_DESCRIPTION),
         ("complete_story", descriptions.COMPLETE_STORY_DESCRIPTION),
+        ("sync_to_jira", descriptions.SYNC_TO_JIRA_DESCRIPTION),
+        ("jira_sync_status", descriptions.JIRA_SYNC_STATUS_DESCRIPTION),
     ):
         assert by_name[tool].description == doc_description(tool) == text, tool
     assert READ_ONLY.model_dump(mode="json", by_alias=True, exclude_none=True) == ANNOTATIONS
     assert WRITE.model_dump(mode="json", by_alias=True, exclude_none=True) == WRITE_ANNOTATIONS
+    assert WRITE_OPEN_WORLD.model_dump(mode="json", by_alias=True, exclude_none=True) == OPEN_WORLD_WRITE_ANNOTATIONS
 
 
 async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_ids_plain(valid_env):
@@ -285,6 +305,7 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
         "complete_story",
         "answer_gap",
         "open_gap",
+        "sync_to_jira",
     }
     paged = {name: schema for name, schema in schemas.items() if name not in spec_tools}
     assert set(paged) == {
@@ -296,6 +317,7 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
         "list_stories",
         "list_gaps",
         "browse_gaps",
+        "jira_sync_status",
     }
     for name, schema in paged.items():
         properties = schema["properties"]

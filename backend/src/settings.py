@@ -789,6 +789,45 @@ class LangfuseSettings(_MappedSettings):
         return self.public_key is not None and self.secret_key is not None
 
 
+def _site_url(value: Any) -> Any:
+    """``ATLASSIAN_SITE_URL``: an https origin with no path, query or fragment; a trailing ``/`` goes."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip().rstrip("/")
+    if not text.isascii() or not text.isprintable() or any(c in text for c in ' "\\?#@'):
+        raise ValueError("must be a plain https URL")
+    try:
+        parts = urlsplit(text)
+        _ = parts.port
+    except ValueError as error:
+        raise ValueError("must be a valid URL") from error
+    if parts.scheme != "https" or not parts.hostname or parts.path:
+        raise ValueError("must be an https URL with a host and no path")
+    return text
+
+
+class JiraSettings(_MappedSettings):
+    """The one Atlassian account of the Jira sync (api role): all three variables or none (FR-JIRA-CFG-08)."""
+
+    site_url: Annotated[str, BeforeValidator(_site_url)] = Field(validation_alias="ATLASSIAN_SITE_URL")
+    email: Text = Field(validation_alias="ATLASSIAN_EMAIL")
+    api_token: SecretStr = Field(validation_alias="ATLASSIAN_API_TOKEN")
+
+    @field_validator("api_token")
+    @classmethod
+    def _token_not_blank(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value().strip():
+            raise ValueError("must not be blank")
+        return value
+
+    @classmethod
+    def configured_in(cls, env: Mapping[str, str]) -> bool:
+        """True when any of the three variables is non-blank (a partial set is then refused by the build)."""
+
+        return any(env.get(name, "").strip() for name in cls.variables())
+
+
 @dataclass(frozen=True)
 class RoleSettings:
     """The bindings one role needs; the others are ``None``."""
@@ -807,6 +846,7 @@ class RoleSettings:
     graph_build: GraphBuildSettings | None = None  # api only; None = feature off
     mcp: McpSettings | None = None  # the mcp role; the api role when MCP_RESOURCE_URL is set (agent routes)
     gap: Any = None  # graph.gap.GapSettings; api only, with graph_build: the ``GAP_*`` variables (graph.gap)
+    jira: JiraSettings | None = None  # api only; None = Jira sync off (none of the ``ATLASSIAN_*`` set)
 
 
 @dataclass(frozen=True)
@@ -898,8 +938,17 @@ class _Bindings:
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None
     gap: Any = None  # graph.gap.GapSettings
+    jira: JiraSettings | None = None
     mcp: McpSettings | None = None
     api_internal: ApiInternalSettings | None = None
+
+
+def _build_jira(role: str, source: Mapping[str, str], bad: list[str]) -> JiraSettings | None:
+    """The Atlassian account of the api role; none set means ``None`` (the Jira routes answer 503)."""
+
+    if role != "api" or not JiraSettings.configured_in(source):
+        return None
+    return _build(JiraSettings, source, bad)
 
 
 def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bindings:
@@ -920,6 +969,7 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
         found.api_internal = _build(ApiInternalSettings, source, bad)
     if role == "api" and source.get("MCP_RESOURCE_URL", "").strip():  # unset: the agent routes answer 503
         found.mcp = _build(McpSettings, source, bad)
+    found.jira = _build_jira(role, source, bad)
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
         found.gap = _build_gap(source, bad)
@@ -1117,6 +1167,7 @@ def load_settings(
         graph_build=found.graph_build,
         mcp=found.mcp,
         gap=found.gap,
+        jira=found.jira,
     )
 
 

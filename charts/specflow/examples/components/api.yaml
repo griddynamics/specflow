@@ -35,6 +35,24 @@ env:
       secretKeyRef:
         name: specflow-api
         key: DRIVE_IDENTITY_EMAIL
+  - name: ATLASSIAN_SITE_URL
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: ATLASSIAN_SITE_URL
+        optional: true
+  - name: ATLASSIAN_EMAIL
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: ATLASSIAN_EMAIL
+        optional: true
+  - name: ATLASSIAN_API_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: ATLASSIAN_API_TOKEN
+        optional: true
   - name: AUTH_API_AUDIENCE
     valueFrom:
       secretKeyRef:

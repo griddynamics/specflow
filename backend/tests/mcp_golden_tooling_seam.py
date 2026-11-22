@@ -9,11 +9,15 @@ executor so the story calls can write: ``free`` (as it is), ``claimed`` (Checkou
 persist running), ``held_applying`` (Checkout held by Alice, token 1, and a plan persist running); ``gaps``: the API
 over the shop gap corpus after a gap run and the mini plan of ``gap_agent_support`` (open gaps in briefs,
 ``list_gaps``, the rows of ``browse_gaps`` and the card of ``open_gap``, which link
-to the web app at ``https://app.example.test``).
+to the web app at ``https://app.example.test``); ``jira`` (the shop API with a real ``JiraSyncRunner`` over the fake
+Jira, the fake Jira tables and a stub ``sync_once`` that never ends: Alpha has an enabled target and one finished pass
+with six items, Beta has no target) and ``jira_off`` (``runtime.jira`` is ``None``).
 """
 
 from __future__ import annotations
 
+import asyncio
+import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
@@ -24,8 +28,14 @@ import httpx
 import pytest
 from mcp.server.mcpserver import MCPServer
 
+from api.jira.runner import JiraRunnerDependencies, JiraSyncRunner
+from api.jira.sync import SyncResult
+from db.jira import JiraTargetView
+from db.models import JiraIssue
 from gap_agent_support import serve_gaps
 from graph.core import ConfigurationError, InfrastructureUnavailableError
+from jira_db_fakes import FakeJiraDb
+from jira_fake_support import FakeJiraGateway
 from mcp_golden_seam import ALPHA, UNKNOWN_PROJECT
 from mcp_server.registry import install
 from mcp_support import MCP_URL, build_app, mcp_env, serving
@@ -35,6 +45,16 @@ from specflow_api_agent_support import agent_env, refuse_database
 __all__ = ["ALPHA", "CHECKOUT", "SCENARIOS", "UNKNOWN_PROJECT", "BackendDouble", "tooling_double"]
 
 GAP_RUN_INSTANT = datetime(2026, 11, 18, 9, 0, tzinfo=UTC)
+JIRA_INSTANT = datetime(2026, 11, 22, 10, 0, tzinfo=UTC)
+JIRA_SITE = "https://example.atlassian.net"
+JIRA_ITEMS = (  # node id, kind, Jira key, removed, error code
+    ("EPIC", "epic", "ABC-1", False, None),
+    ("STORY::PAYMENTS_SERVICE::CARD_PAYMENT", "story", "ABC-2", False, None),
+    ("STORY::WEB_SHOP::CHECKOUT", "story", "ABC-3", False, "jira_invalid_field"),
+    ("TASK::WEB_SHOP::CONTRACT_CHECKOUT", "subtask", "ABC-4", False, None),
+    ("TASK::WEB_SHOP::LOGIC_CHECKOUT", "subtask", "ABC-5", True, None),
+    ("TASK::WEB_SHOP::UI_CHECKOUT", "subtask", None, False, None),
+)
 
 SCENARIOS = (
     "ok",
@@ -47,6 +67,8 @@ SCENARIOS = (
     "applying",
     "held_applying",
     "gaps",
+    "jira",
+    "jira_off",
 )
 FAILURES: dict[str, Exception] = {
     "graph_down": InfrastructureUnavailableError("neo4j_unreachable"),
@@ -86,6 +108,14 @@ def tooling_double(monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str]) -
             fail=FAILURES.get(scenario),
             writable=WRITABLE.get(scenario),
         ) as spec:
+            if scenario == "jira":
+                runner = _jira_runner(spec.rig.runtime, monkeypatch)
+                try:
+                    async with serving(_mcp_app(valid_env, spec.rig.app)) as client:
+                        yield client
+                finally:
+                    await runner.aclose()
+                return
             if scenario == "database_down":  # after the rig installed its FakeRepo, which it would replace
                 refuse_database(monkeypatch)
             async with serving(_mcp_app(valid_env, spec.rig.app)) as client:
@@ -103,3 +133,51 @@ def _mcp_app(valid_env: dict[str, str], api: Any) -> Any:
         install(server, resource_url=MCP_URL)
 
     return build_app(mcp_env(valid_env), transport=transport, tools=tools)
+
+
+def _jira_runner(runtime: Any, monkeypatch: pytest.MonkeyPatch) -> JiraSyncRunner:
+    """Alpha: an enabled target ``ABC`` and one finished pass with the six ``JIRA_ITEMS``; a pass started now never
+    ends (the stub waits), so the answer of ``sync_to_jira`` is the same every run. Beta has no target."""
+
+    project_id = uuid.UUID(ALPHA)
+    db = FakeJiraDb()
+    db.install(monkeypatch)
+    db.targets[project_id] = JiraTargetView(
+        project_id=project_id,
+        project_name="Alpha",
+        jira_project="ABC",
+        epic_key=None,
+        enabled=True,
+        updated_at=JIRA_INSTANT,
+        last_status="succeeded",
+        last_trigger="plan_run",
+        last_started_at=JIRA_INSTANT,
+        last_finished_at=JIRA_INSTANT,
+        last_error_code=None,
+        last_counts={"created": 6, "links_added": 2},
+    )
+    for node_id, kind, key, removed, error_code in JIRA_ITEMS:
+        db.issues[project_id, node_id] = JiraIssue(
+            project_id=project_id,
+            node_id=node_id,
+            kind=kind,
+            jira_key=key,
+            requested_at=JIRA_INSTANT,
+            removed_at=JIRA_INSTANT if removed else None,
+            error_code=error_code,
+        )
+
+    async def never_ends(_project_id: str, _deps: Any) -> SyncResult:
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    runner = JiraSyncRunner(
+        FakeJiraGateway(),
+        transaction=runtime.transaction,
+        store=None,
+        public_url=None,
+        site_url=JIRA_SITE,
+        dependencies=JiraRunnerDependencies(sync_once=never_ends, now=lambda: JIRA_INSTANT),
+    )
+    runtime.jira = runner
+    return runner

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.errors import ApiError, database_unavailable, graph_unavailable, required
 from api.gap.runner import GapRunner
 from api.graph_build.runner import GraphBuildRunner
+from api.jira.runner import JiraSyncRunner
 from api.plan.runner import GraphPlanRunner
 from db import session as db_session
 from db.session import is_database_unreachable
@@ -29,9 +30,10 @@ from health import (
     storage_probe,
     temporal_probe,
 )
+from jira.http import HttpJiraGateway
 from logger.correlation import run_in_context
 from logger.logger import WARNING, get_logger, log_event
-from settings import GRAPH_BUILD_SWITCHES, GraphBuildSettings, RoleSettings
+from settings import GRAPH_BUILD_SWITCHES, GraphBuildSettings, JiraSettings, RoleSettings
 from storage import factory as storage_factory
 from temporal import client as temporal_client
 
@@ -80,6 +82,8 @@ class Runtime:
     plans: Any = None
     # api.gap.runner.GapRunner; None = gap runs not configured (503); set with the graph build when GAP_ENABLED
     gaps: Any = None
+    # api.jira.runner.JiraSyncRunner; None = Jira sync not configured (503); set when the ATLASSIAN_* variables are
+    jira: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
     cleanups: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
@@ -215,6 +219,8 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             graph_store=graph_store,
             readiness=readiness,
         )
+        if settings.jira is not None:
+            _add_jira(runtime, settings.jira, settings, stack)
         if settings.graph_build is None:
             # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
             log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))
@@ -222,6 +228,22 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             _add_runners(runtime, settings.graph_build, settings.gap or GapSettings(), stack)
         runtime.cleanups.append(stack.pop_all().aclose)
     return runtime
+
+
+def _add_jira(runtime: Runtime, jira: JiraSettings, settings: RoleSettings, stack: AsyncExitStack) -> None:
+    """The Jira sync runner of the one Atlassian account. It does not need the graph build; ``public_url`` is the
+    gap cards' rule (``PUBLIC_URL`` of the MCP settings, none without them). Startup recovery runs in the background."""
+
+    gateway = HttpJiraGateway(jira.site_url, jira.email, jira.api_token)
+    runtime.jira = JiraSyncRunner(
+        gateway,
+        transaction=runtime.transaction,
+        store=runtime.graph_store,
+        public_url=settings.mcp.public_url if settings.mcp else None,
+        site_url=jira.site_url,
+    )
+    stack.push_async_callback(runtime.jira.aclose)
+    runtime.jira.start_recovery()
 
 
 def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSettings, stack: AsyncExitStack) -> None:
@@ -243,7 +265,7 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
     if runtime.gaps is not None:  # answers are applied by update builds of this runner
         runtime.gaps.use_builds(runtime.graph_builds)
         runtime.gaps.start_recovery()  # applies a restart left behind (their update builds)
-    runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps)
+    runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps, jira=runtime.jira)
     # Pushed last, so they run first: plan runs, builds and then gap runs stop before the store and engine close.
     stack.push_async_callback(runtime.graph_builds.aclose)
     stack.push_async_callback(runtime.plans.aclose)

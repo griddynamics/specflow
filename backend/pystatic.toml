@@ -28,6 +28,8 @@ values = [
     "setup_error", "too_slow", "unknown_error", "convert_failed", "parse_failed",
     "store_failed", "import_failed", "no_result", "stored_only", "resume_exhausted",
     "crash_exhausted", "terminal_failure",
+    "jira_auth_failed", "jira_forbidden", "jira_not_found", "jira_invalid_field", "jira_unreachable", "jira_unexpected",
+    "jira_issue_types_missing", "jira_epic_invalid",
 ]
 import-roots = ["src", "."]
 

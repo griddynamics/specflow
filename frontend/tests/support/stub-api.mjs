@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
+import { createJiraModel } from "./stub-jira.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
 const LEEWAY_SECONDS = 60; // as backend/src/auth/claims.py
@@ -99,6 +100,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const model = createSourcesModel({ docs, sourcesOf });
   /** Project collaborators (docs/projects/api.md): members, invites, leave, rename, suggestions, create with collaborators. */
   const people = createMembersModel();
+  /** Jira settings (docs/jira-sync/api.md#web-routes): the target of a project, the owner rule, scripted access checks. */
+  const jira = createJiraModel((pid) => people.list(pid).role);
   const readJson = async (req) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -1024,6 +1027,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/projects/{pid}/jira` and `/projects/{pid}/jira/access-check` (api.md#web-routes). */
+  async function jiraRoute({ req, res, pid, did }) {
+    const m = req.method;
+    if (!did && m === "GET") return json(res, 200, jira.get(pid));
+    if (!did && m === "PUT") return json(res, 200, jira.put(pid, await readJson(req)));
+    if (did === "access-check" && m === "POST") return json(res, 200, jira.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   async function authOk(req) {
     const header = req.headers.authorization ?? "";
     if (!header.startsWith("Bearer ")) return false;
@@ -1127,6 +1140,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     }
     if (!b) return json(res, 200, project);
     if (b === "members" || b === "invites" || b === "leave") return membersRoute({ req, res, pid, b, did });
+    if (b === "jira") return jiraRoute({ req, res, pid, did });
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
     if (b === "graph_build") return graphRoute({ req, res, pid, entry });
     if (b === "findings" || (b === "plan" && did === "claims"))
@@ -1203,6 +1217,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     drive,
     /** Project collaborators: `people.state` (allowedDomains, directory, claimsReleased, claimsFailed) and `people.seed(pid, ...)`. */
     people,
+    /** Jira settings: `jira.state` (available) and `jira.seed({pid, available, target, access})`. */
+    jira,
     /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */
     seedProject: (name, spec) => {
       const project = { id: crypto.randomUUID(), name, created_at: new Date().toISOString() };

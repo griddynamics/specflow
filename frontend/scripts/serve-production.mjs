@@ -13,6 +13,11 @@
 //                                          POST /seed-members ({name?, role?, members?, invites?, state?}: a project where the caller is owner or
 //                                            collaborator, with chosen members and invites; `state` sets people knobs such as allowedDomains or
 //                                            claimsReleased; answers the project; see stub-members.mjs `seed`)
+//                                          POST /seed-jira ({pid, available?, target?, access?}: the Jira settings of a project. `available`
+//                                            false = the server has no Atlassian account (503 jira_unavailable); `target` = {jira_project,
+//                                            epic_key, enabled, created_epic_key?, sync?: JiraSyncStatus} or null (no target); `access` = "ok" or
+//                                            {reason, field}, the answer of the next access checks; answers {}; the PUTs show in GET /log;
+//                                            see stub-jira.mjs)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)
 //                                          POST /seed-gaps ({pid, gaps, run, rules, corpus}: the gaps, the latest gap run, the noise rules
 //                                            and the corpus documents of a project; stub-api.mjs `gapRoute`)
@@ -146,6 +151,18 @@ const control = http.createServer(async (req, res) => {
     if (state) Object.assign(api.people.state, state);
     if (name === undefined) return send(200, { ok: true }); // knobs only: no project
     return send(200, api.seedProject(String(name ?? "Seeded project"), rest));
+  }
+  if (req.method === "POST" && req.url === "/seed-jira") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.jira.seed(spec);
+    return send(200, {});
   }
   if (req.method === "POST" && (req.url === "/seed-source" || req.url === "/remove-source")) {
     const chunks = [];
