@@ -184,6 +184,20 @@ async def test_a_refused_code_exchange_is_one_closed_code_without_atlassian_text
     assert str(raised.value) == code and "Bad code" not in repr(raised.value)
 
 
+async def test_a_refresh_waits_10_seconds_for_atlassian_and_the_connect_flow_30() -> None:
+    """A refresh holds the connection row's lock: a hung token endpoint must not hold it for long."""
+
+    atlassian = Atlassian({GRANTS: [httpx.Response(200, json=GRANT), httpx.Response(200, json=GRANT)]})
+    client = atlassian.client()
+
+    await client.refresh(SecretStr("refresh-0"))
+    await client.exchange("code-1")
+    await client.aclose()
+
+    refresh, exchange = (request.extensions["timeout"] for request in atlassian.requests)
+    assert set(refresh.values()) == {10} and set(exchange.values()) == {30}
+
+
 @pytest.mark.parametrize("status", [400, 403])
 async def test_invalid_grant_on_a_refresh_is_grant_invalid_whatever_the_status(status: int) -> None:
     client = Atlassian({GRANTS: httpx.Response(status, json={"error": "invalid_grant"})}).client()

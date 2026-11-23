@@ -68,19 +68,26 @@ const SYNC_TEXT: Record<string, string> = {
   jira_reconnect_required: COPY.jiraSyncReconnect,
 };
 
-/** The text of an access-check reason or a sync `error_code`; `field` tells the two `jira_not_found` apart. */
-export function reasonText(code: string, field: JiraAccessField | null = null): string {
+/**
+ * The text of an access-check reason or a sync `error_code`; `field` tells the two `jira_not_found` apart. `oauth`: the server's Jira
+ * mode is `oauth`, where `jira_auth_failed` is the user's Atlassian connection, not the deployment's token.
+ */
+export function reasonText(code: string, field: JiraAccessField | null = null, oauth = false): string {
   if (code === "jira_not_found") return field === "epic_key" ? COPY.jiraEpicNotFound : COPY.jiraProjectNotFound;
+  if (code === "jira_auth_failed" && oauth) return COPY.jiraAuthFailedOAuth;
   return Object.hasOwn(REASON_TEXT, code) ? REASON_TEXT[code] : COPY.jiraUnexpectedError;
 }
 
-/** The text of a sync `error_code` on the status line. */
-export const syncErrorText = (code: string): string => (Object.hasOwn(SYNC_TEXT, code) ? SYNC_TEXT[code] : reasonText(code));
+/** The text of a sync `error_code` on the status line; in the `oauth` mode `jira_auth_failed` names the target's owner. */
+export function syncErrorText(code: string, oauth = false): string {
+  if (code === "jira_auth_failed" && oauth) return COPY.jiraSyncAuthFailedOAuth;
+  return Object.hasOwn(SYNC_TEXT, code) ? SYNC_TEXT[code] : reasonText(code);
+}
 
 /** A check answer as the form's outcome: the reason sits under the field it names, or is the alert line. */
-export function outcomeOf(access: JiraAccess): Outcome {
+export function outcomeOf(access: JiraAccess, oauth = false): Outcome {
   if (access.result === "ok") return { kind: "ok", projectName: access.projectName, epicSummary: access.epicSummary };
-  const text = reasonText(access.reason, access.field);
+  const text = reasonText(access.reason, access.field, oauth);
   if (access.field === "jira_project") return { kind: "problem", texts: { project: text } };
   return { kind: "problem", texts: access.field === "epic_key" ? { epic: text } : { alert: text } };
 }
@@ -239,7 +246,11 @@ export function tabReducer(st: TabState, a: TabAction): TabState {
     case "start":
       return { ...st, busy: a.kind, run: a.run };
     case "checked":
-      return { ...st, busy: done("check", a.run), outcome: a.run === st.run ? outcomeOf(a.access) : st.outcome };
+      return {
+        ...st,
+        busy: done("check", a.run),
+        outcome: a.run === st.run ? outcomeOf(a.access, st.atlassian?.mode === "oauth") : st.outcome,
+      };
     case "saved": {
       const fresh = a.run === st.run;
       return {

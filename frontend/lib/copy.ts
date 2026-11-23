@@ -24,7 +24,7 @@ export const COPY = {
   nameEmpty: "Enter a project name.", // the Create Project name messages, shared with the Settings name field
   nameTooLong: "Use 200 characters or fewer.",
   // Settings > Jira (docs/jira-sync/ui.md#errors-shown): the texts of the access-check reasons and of the sync status codes.
-  jiraAuthFailed: "Jira refused the Specflow account. An administrator checks the Atlassian token.",
+  jiraAuthFailed: "Jira refused the Specflow account. An administrator checks the Atlassian token.", // `token` mode
   jiraProjectNotFound: "No Jira space with this key, or the account cannot see it.",
   jiraIssueTypesMissing: "This Jira space has no Epic, Story or Sub-task issue type.",
   jiraForbidden: "The Specflow account may not create, edit, link or rank issues in this space.",
@@ -45,6 +45,8 @@ export const COPY = {
   jiraReconnectRequired: "Your Atlassian connection expired. Reconnect Atlassian.", // access check `jira_reconnect_required`
   jiraSyncNotConnected: "No Atlassian account to sync as. An owner connects Atlassian and saves the target.", // sync `jira_not_connected`
   jiraSyncReconnect: "The Atlassian connection this target syncs as expired. Its owner reconnects Atlassian.", // sync `jira_reconnect_required`
+  jiraAuthFailedOAuth: "Atlassian refused the connection. Reconnect Atlassian in Settings → Jira.", // access check `jira_auth_failed`
+  jiraSyncAuthFailedOAuth: "Atlassian refused the connection this target syncs as. Its owner reconnects Atlassian.", // sync `jira_auth_failed`
   atlassianConnected: "Atlassian connected",
   atlassianConsentDenied: "Atlassian access was not granted.",
   atlassianStateInvalid: "The Atlassian sign-in expired. Try again.",

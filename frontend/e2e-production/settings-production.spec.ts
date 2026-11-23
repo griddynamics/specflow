@@ -366,6 +366,23 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     await expect(page.getByTestId("atlassian-row")).toHaveAttribute("data-state", "none");
   });
 
+  test("Atlassian: a return_to with dot segments never redirects off the site, after a refusal or a connect", async ({ page, baseURL }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Atlassian redirect") });
+    await seedJira({ pid: id, target: null, mode: "oauth", connection: null, callbackError: null });
+    const origin = new URL(baseURL ?? "").origin;
+    for (const r of ["/.//evil.example", "/..//evil.example", "/%2e%2e//evil.example"]) {
+      const state = `n.${Buffer.from(JSON.stringify({ u: "u1", r, e: 1 })).toString("base64url")}.stub-signature`;
+      for (const query of [`error=access_denied&state=${state}`, `code=c&state=${state}`]) {
+        const res = await page.request.get(`/api/integrations/atlassian/callback?${query}`, { maxRedirects: 0 });
+        expect(res.status()).toBe(302);
+        const location = new URL(res.headers().location);
+        expect(location.origin, `${r} ${query.slice(0, 5)}`).toBe(origin);
+        expect(location.pathname).toBe("/");
+      }
+    }
+  });
+
   test("Atlassian: Disconnect asks first, then forgets the connection; the acting line warns to save the target again", async ({
     page,
     requests,

@@ -47,6 +47,7 @@ SCOPES: Final = (
 )
 STATE_TTL_SECONDS: Final = 600
 TIMEOUT_SECONDS: Final = 30
+REFRESH_TIMEOUT_SECONDS: Final = 10  # shorter: a refresh holds the row lock and a pass waits on it
 INVALID_GRANT: Final = "invalid_grant"
 _STATE_CONTEXT: Final = b"specflow atlassian oauth state"
 _NONCE_BYTES: Final = 16
@@ -231,9 +232,9 @@ class AtlassianOAuthClient:
             raise OAuthError(OAuthCode.UNREACHABLE)
         return response
 
-    async def _grant(self, form: Mapping[str, str], refused: OAuthCode) -> TokenGrant:
+    async def _grant(self, form: Mapping[str, str], refused: OAuthCode, seconds: float = TIMEOUT_SECONDS) -> TokenGrant:
         body = {"client_id": self._client_id, "client_secret": self._secret.get_secret_value(), **form}
-        response = await self._call("POST", GRANT_URL, json=body)
+        response = await self._call("POST", GRANT_URL, json=body, timeout=seconds)
         answer = _body(response)
         if not response.is_success:
             # Atlassian answers a dead grant with 403 or 400 and ``{"error": "invalid_grant"}``
@@ -264,7 +265,7 @@ class AtlassianOAuthClient:
         """A new access token and the rotated refresh token; a dead refresh token is ``GRANT_INVALID``."""
 
         form = {"grant_type": "refresh_token", "refresh_token": refresh_token.get_secret_value()}
-        return await self._grant(form, OAuthCode.GRANT_INVALID)
+        return await self._grant(form, OAuthCode.GRANT_INVALID, REFRESH_TIMEOUT_SECONDS)
 
     async def cloud_id(self, access_token: SecretStr, site_url: str) -> str:
         """The id of the granted cloud whose ``url`` is ``site_url``; ``SITE_NOT_GRANTED`` when the grant lacks it."""

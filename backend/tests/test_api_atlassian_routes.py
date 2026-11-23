@@ -190,12 +190,39 @@ async def test_a_refused_callback_answers_its_code_logs_it_and_keeps_nothing(rig
 
 
 @pytest.mark.parametrize(
-    "return_to", ["https://evil.example.com/x", "//evil.example.com/x", "/\\evil.example.com", "projects/p", "", "/a b"]
+    "return_to",
+    [
+        "https://evil.example.com/x",
+        "//evil.example.com/x",
+        "/\\evil.example.com",
+        "projects/p",
+        "",
+        "/a b",
+        "/.//evil.example.com",
+        "/..//evil.example.com",
+        "/%2e%2e//evil.example.com",
+        "/%2E//evil.example.com",
+        "/.%2e//evil.example.com",
+        "/p/../..//evil.example.com",
+        "/p/.",
+        "/%2f/evil.example.com",
+        "/%2F%2Fevil.example.com",
+        "/%5c%5cevil.example.com",
+    ],
 )
 async def test_authorize_refuses_a_return_to_that_is_not_a_path_of_this_site(rig, return_to) -> None:
     answer = await call(rig, "POST", "integrations/atlassian/authorize", body={"return_to": return_to})
 
     assert error_of(answer) == (422, "validation_failed")
+
+
+@pytest.mark.parametrize(
+    "return_to", ["/projects/p/settings?tab=jira", "/a.b/c..d/.e", "/p?next=/../x", "/p#/..//x", "/a%20b"]
+)
+async def test_authorize_accepts_a_path_of_this_site(rig, return_to) -> None:
+    answer = await call(rig, "POST", "integrations/atlassian/authorize", body={"return_to": return_to})
+
+    assert answer.status_code == 200
 
 
 async def test_the_authorize_url_is_atlassians_with_a_state_bound_to_the_caller(rig) -> None:
@@ -339,6 +366,26 @@ async def test_a_member_started_pass_acts_as_the_owner_the_target_names(rig) -> 
 
     assert rig.stub.gateways == [await rig.connections.gateway(rig.alice.id)]
     assert rig.stub.gateways[0] is not await rig.connections.gateway(rig.ben.id)
+
+
+async def test_a_pass_waiting_for_the_slot_acts_as_the_account_saved_while_it_waited(rig) -> None:
+    """The acting account is read once the pass holds the slot: a takeover saved while it waits is the one used."""
+
+    rig.jira_db.targets[rig.alpha] = target_view(rig.alpha, jira_project="PRJ", connected_user_id=rig.alice.id)
+    rig.db.add(rig.alice.id)
+    rig.db.add(rig.ben.id)
+    await rig.runner._slots.acquire()  # another project's pass holds the only slot
+    try:
+        await rig.runner.start(ALPHA, "settings")
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert rig.jira_db.targets[rig.alpha].last_status == "running" and rig.stub.gateways == []
+        rig.jira_db.set_target(rig.alpha, connected_user_id=rig.ben.id)  # a takeover saved while the pass waits
+    finally:
+        rig.runner._slots.release()
+    await settle(rig)
+
+    assert rig.stub.gateways == [await rig.connections.gateway(rig.ben.id)]
 
 
 # The access check per mode -----------------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { callbackDestination, type CallbackAnswer } from "@/lib/atlassian-callback";
+import { callbackDestination, locationOn, type CallbackAnswer } from "@/lib/atlassian-callback";
 import { appConfig } from "@/lib/config";
 import { accessTokenFor } from "@/lib/session-token";
 
@@ -37,10 +37,10 @@ const guarded = auth(async (req) => {
   const path = await callbackDestination(new URL(req.url).searchParams, signedIn, (code, state) =>
     postCallback(cfg.apiInternalUrl, token ?? "", code, state),
   );
-  // Absolute URL on PUBLIC_URL: req.url can carry the internal bind address (0.0.0.0).
+  // Absolute URL on PUBLIC_URL: req.url can carry the internal bind address (0.0.0.0). Never another origin (locationOn).
   return new Response(null, {
     status: 302,
-    headers: { location: new URL(path, cfg.publicOrigin).href, "cache-control": "no-store", "referrer-policy": "no-referrer" },
+    headers: { location: locationOn(path, cfg.publicOrigin), "cache-control": "no-store", "referrer-policy": "no-referrer" },
   });
 });
 

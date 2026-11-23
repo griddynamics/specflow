@@ -573,7 +573,8 @@ no fallback to other credentials. The app still starts.
 
 The [Jira sync](jira-sync/INDEX.md) pushes each project's plan to Jira. It calls Jira in one of two modes
 ([jira-sync/oauth.md](jira-sync/oauth.md#modes)); both need `ATLASSIAN_SITE_URL`, the Jira Cloud site, for example
-`https://example.atlassian.net`, `https` and no path.
+`https://example.atlassian.net`, `https` and no path. In `oauth` mode each connection keeps the cloud of the site it
+was made for: after a change of `ATLASSIAN_SITE_URL` every user must reconnect in the Jira tab.
 
 | Mode | Set | Jira calls act as |
 |---|---|---|

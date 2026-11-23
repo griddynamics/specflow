@@ -18,7 +18,11 @@ export type AtlassianCode = (typeof ATLASSIAN_CODES)[number];
 /** Where the callback goes without a session: sign-in (it has no return target, so the user starts the connect again afterwards). */
 export const SIGN_IN_PATH = "/login";
 
-/** A same-site path: starts with `/`, not `//`, no backslash, no whitespace or control character, ASCII only; at most 2048 characters. */
+/**
+ * A same-site path: starts with `/`, not `//`, no backslash, no whitespace or control character, ASCII only; at most 2048 characters.
+ * Its path part has no `.` or `..` segment (`%2e` counts as `.`) and no encoded `/` or `\` (`%2f`, `%5c`): a URL parser resolves
+ * `/.//evil.com` to `//evil.com`, another host. The API checks `return_to` the same way (api/schemas.py `AtlassianAuthorizeIn`).
+ */
 export function isSameSitePath(r: unknown): r is string {
   if (typeof r !== "string" || r.length === 0 || r.length > 2048) return false;
   if (!r.startsWith("/") || r.startsWith("//") || r.includes("\\")) return false;
@@ -26,7 +30,12 @@ export function isSameSitePath(r: unknown): r is string {
     const c = ch.codePointAt(0) ?? 0;
     if (c <= 0x20 || c >= 0x7f) return false;
   }
-  return true;
+  const beforeQuery = r.split(/[?#]/, 1)[0].toLowerCase();
+  if (beforeQuery.includes("%2f") || beforeQuery.includes("%5c")) return false;
+  return !beforeQuery.split("/").some((segment) => {
+    const s = segment.replaceAll("%2e", ".");
+    return s === "." || s === "..";
+  });
 }
 
 /** base64url to text; null when the input is not base64url or not UTF-8. */
@@ -57,11 +66,24 @@ export function returnToOf(state: string | null): string {
   }
 }
 
-/** `path` with `?atlassian=<code>` set (other query parameters kept, a fragment dropped). */
+/** `path` with `?atlassian=<code>` set (other query parameters kept, a fragment dropped); `/` when the result is not a same-site path. */
 export function withCode(path: string, code: AtlassianCode): string {
   const url = new URL(path, "https://same.site");
   url.searchParams.set("atlassian", code);
-  return `${url.pathname}${url.search}`;
+  const result = `${url.pathname}${url.search}`;
+  return url.origin === "https://same.site" && isSameSitePath(result) ? result : `/?atlassian=${code}`;
+}
+
+/** The absolute redirect for `path` on `publicOrigin`; `{publicOrigin}/` when `path` would resolve to another origin. */
+export function locationOn(path: string, publicOrigin: string): string {
+  const origin = new URL(publicOrigin).origin;
+  try {
+    const location = new URL(path, origin);
+    if (location.origin === origin) return location.href;
+  } catch {
+    // not a URL: the fallback below
+  }
+  return `${origin}/`;
 }
 
 /** The code of an API error answer: a known route code, else `atlassian_unexpected`. */

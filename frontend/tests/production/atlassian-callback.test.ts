@@ -4,11 +4,25 @@
 // PUBLIC_URL) runs in the production e2e (settings-production.spec.ts). No server here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callbackDestination, isSameSitePath, returnToOf, type CallbackAnswer } from "@/lib/atlassian-callback";
+import { callbackDestination, isSameSitePath, locationOn, returnToOf, withCode, type CallbackAnswer } from "@/lib/atlassian-callback";
 
 const BACK = "/projects/p1/settings?tab=jira";
 const stateFor = (r: unknown) => `nonce.${Buffer.from(JSON.stringify({ u: "u1", r, e: 1 })).toString("base64url")}.sig`;
 const query = (q: Record<string, string>) => new URLSearchParams(q);
+const PUBLIC = "https://app.example"; // the public origin of the redirects
+/** Paths a URL parser normalizes to `//evil.example` (another host): dot segments, plain or percent-encoded, and encoded separators. */
+const DOT_PATHS = [
+  "/.//evil.example",
+  "/..//evil.example",
+  "/%2e%2e//evil.example",
+  "/%2E//evil.example",
+  "/.%2e//evil.example",
+  "/p/../..//evil.example",
+  "/p/.",
+  "/%2f/evil.example",
+  "/%2F%2Fevil.example",
+  "/%5c%5cevil.example",
+];
 
 /** A fake API: records each call and answers `answer`. */
 function api(answer: CallbackAnswer | Error) {
@@ -76,8 +90,40 @@ test("a malicious return_to in the state is refused: the browser goes to / (neve
 });
 
 test("isSameSitePath: a path on this site only", () => {
-  for (const ok of ["/", BACK, "/projects/a%20b/settings"]) assert.ok(isSameSitePath(ok), ok);
-  for (const bad of ["", "x", "//x", "/\\x", "/\tx", "/\u0000", "https://x"]) assert.ok(!isSameSitePath(bad), bad);
+  for (const ok of ["/", BACK, "/projects/a%20b/settings", "/a.b/c..d/.e", "/p?next=/../x"]) assert.ok(isSameSitePath(ok), ok);
+  for (const bad of ["", "x", "//x", "/\\x", "/\tx", "/\u0000", "https://x", ...DOT_PATHS]) assert.ok(!isSameSitePath(bad), bad);
+});
+
+test("withCode never yields a path a URL parser reads as another host; locationOn never leaves the public origin", () => {
+  for (const r of ["/.//evil.example", "/..//evil.example", "/%2e%2e//evil.example"]) {
+    assert.equal(withCode(r, "connected"), "/?atlassian=connected", r);
+  }
+  for (const r of DOT_PATHS) {
+    const to = withCode(r, "connected");
+    assert.ok(isSameSitePath(to), `${r} -> ${to}`);
+    assert.equal(new URL(locationOn(to, PUBLIC)).origin, PUBLIC, r);
+  }
+  assert.equal(locationOn(`${BACK}&atlassian=connected`, `${PUBLIC}/`), `${PUBLIC}${BACK}&atlassian=connected`);
+  for (const path of ["//evil.example/x", "https://evil.example/x", "/\\evil.example", "http://app.example/x"]) {
+    assert.equal(locationOn(path, PUBLIC), `${PUBLIC}/`, path);
+  }
+});
+
+test("a dot-segment return_to never sends the browser off the site, on the error path (unsigned state) or the success path", async () => {
+  for (const r of DOT_PATHS) {
+    const state = stateFor(r);
+    const denied = await callbackDestination(query({ error: "access_denied", state }), true, api({ status: 200, body: {} }).post);
+    assert.equal(denied, "/?atlassian=atlassian_consent_denied", r);
+    const refused = await callbackDestination(
+      query({ code: "c", state }),
+      true,
+      api({ status: 400, body: { error: { code: "atlassian_code_invalid" } } }).post,
+    );
+    assert.equal(refused, "/?atlassian=atlassian_code_invalid", r);
+    const connected = await callbackDestination(query({ code: "c", state }), true, api({ status: 200, body: { return_to: r } }).post);
+    assert.equal(connected, "/?atlassian=connected", r);
+    for (const to of [denied, refused, connected]) assert.equal(new URL(locationOn(to, PUBLIC)).origin, PUBLIC);
+  }
 });
 
 test("each API error code lands on the state's return_to with that code; any other answer is atlassian_unexpected", async () => {

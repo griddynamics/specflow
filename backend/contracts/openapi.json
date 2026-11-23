@@ -493,7 +493,7 @@
       },
       "AtlassianAuthorizeIn": {
         "additionalProperties": false,
-        "description": "Where the browser returns after the consent: a same-origin path (``/``, not ``//``, so no scheme or host; no\nbackslash, which a browser reads as ``/``).",
+        "description": "Where the browser returns after the consent: a same-origin path (``/``, not ``//``, so no scheme or host; no\nbackslash, which a browser reads as ``/``; no dot segment or encoded separator, which a URL parser can turn into\n``//``).",
         "properties": {
           "return_to": {
             "maxLength": 2048,

@@ -36,12 +36,24 @@ const NONE: JiraSettings = {
   connection: null,
 };
 const TOKEN = { mode: "token", connected: false, status: null, accountName: null, connectedAt: null, lastUsedAt: null } as const;
+const OAUTH = { ...TOKEN, mode: "oauth" } as const;
 const SAVED: JiraSettings = { ...NONE, jiraProject: "PAY", sync: { status: "idle", finishedAt: null, errorCode: null, progress: null } };
 const OK = { result: "ok", projectName: "Payments platform", epicSummary: null } as const;
 const apply = (st: TabState, ...actions: TabAction[]): TabState => actions.reduce(tabReducer, st);
 const loaded = (s: JiraSettings = NONE): TabState => apply(INITIAL_TAB, { type: "loaded", settings: s, atlassian: TOKEN });
 const phase = (st: TabState) => phaseOf(st.outcome, st.busy === "switch" ? null : st.busy);
 const target = targetOf("pay", "");
+
+test("a refused check (jira_auth_failed) names the deployment's token in the token mode and the user's connection in the oauth mode", () => {
+  const refused = { result: "failed", reason: "jira_auth_failed", field: null } as const;
+  const alertOf = (atlassian: typeof TOKEN | typeof OAUTH) => {
+    const st = apply(INITIAL_TAB, { type: "loaded", settings: NONE, atlassian }, { type: "start", kind: "check", run: 1 });
+    const outcome = apply(st, { type: "checked", run: 1, access: refused }).outcome;
+    return outcome?.kind === "problem" ? outcome.texts.alert : undefined;
+  };
+  assert.equal(alertOf(TOKEN), "Jira refused the Specflow account. An administrator checks the Atlassian token.");
+  assert.equal(alertOf(OAUTH), "Atlassian refused the connection. Reconnect Atlassian in Settings → Jira.");
+});
 
 test("flow: check -> save -> switch; the typed keys seed once, each answer is applied and busy ends clear", () => {
   let st = loaded();

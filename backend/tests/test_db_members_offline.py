@@ -147,6 +147,33 @@ async def test_adoption_logs_ids_only(caplog: pytest.LogCaptureFixture) -> None:
     assert all("@" not in str(fields(r)) and fields(r)["user_id"] == str(USER) for r in records)
 
 
+# Remove and leave --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("function", [members.remove_member, members.leave_project])
+async def test_a_member_who_goes_stops_being_the_jira_acting_account_in_the_same_transaction(function) -> None:
+    recorder = Recorder([PROJECT], ["collaborator"])
+
+    await function(cast(Any, recorder), PROJECT, USER)
+
+    lock, _role, delete_member, clear = (" ".join(text.split()) for text in recorder.sql)
+    assert lock.endswith("FOR UPDATE") and delete_member.startswith("DELETE FROM project_members")
+    assert clear == (
+        "UPDATE jira_targets SET connected_user_id=$1::UUID WHERE jira_targets.project_id = $2::UUID "
+        "AND jira_targets.connected_user_id = $3::UUID"
+    )
+
+
+@pytest.mark.parametrize("function", [members.remove_member, members.leave_project])
+async def test_the_owner_cannot_go_so_the_acting_account_is_kept(function) -> None:
+    recorder = Recorder([PROJECT], ["owner"])
+
+    with pytest.raises(members.MemberError):
+        await function(cast(Any, recorder), PROJECT, USER)
+
+    assert not any("jira_targets" in text for text in recorder.sql)
+
+
 # Typed errors ----------------------------------------------------------------------
 
 

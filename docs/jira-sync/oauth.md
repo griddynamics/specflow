@@ -77,13 +77,17 @@ Rules:
   minutes); the signature is an HMAC-SHA256 with a key derived from `ATLASSIAN_TOKEN_KEY`. No table holds it (D42). The
   callback refuses a bad signature, an expired state or a state of another user (`atlassian_state_invalid`).
 - `return_to` is a path of this site: it starts with `/`, not `//`, and has no backslash, whitespace, control or
-  non-ASCII character; at most 2048 characters; else 422 `validation_failed` (D52).
+  non-ASCII character; its path part has no `.` or `..` segment (`%2e` counts as `.`) and no encoded `/` or `\`
+  (`%2f`, `%5c`), which a URL parser could resolve to `//host`; at most 2048 characters; else 422 `validation_failed`
+  (D52). The web app's callback route applies the same rule to the `return_to` it reads from `state` and to the API's
+  answer, and never redirects to another origin than `PUBLIC_URL` (it falls back to `/`).
 - The code exchange: a used, expired or unknown code, or any other refusal of the token endpoint, is
   `atlassian_code_invalid`; `429`, `5xx`, a timeout or a transport error is `atlassian_unreachable`.
 - The connection is kept only when the granted resources include the cloud whose `url` equals `ATLASSIAN_SITE_URL`
   (`atlassian_site_not_granted` otherwise). A refused `accessible-resources` call is `atlassian_code_invalid`; a refused
   `/myself` is `atlassian_site_not_granted` (D49). The cloud id, the account id and the display name (`/myself`) are
-  stored.
+  stored. The stored cloud id is not checked against `ATLASSIAN_SITE_URL` again: after a change of
+  `ATLASSIAN_SITE_URL` every user must reconnect.
 - Atlassian's own `?error=` on the callback (consent denied, the site admin block) never reaches the API: the web app's
   callback route maps it to `?atlassian=atlassian_consent_denied` itself (D49). No Atlassian text is shown or logged.
 - Connecting again replaces the row (new grant, new refresh token, `active`).
@@ -93,14 +97,14 @@ Rules:
 | Rule | Why |
 |---|---|
 | The refresh token is stored encrypted (Fernet) in `atlassian_connections`; the access token lives in the api process's memory only, per user, until 60 s before `expires_in` | no plaintext token at rest |
-| A refresh runs under a per-user `asyncio.Lock` and a `FOR UPDATE` lock on the row; the rotated refresh token (and `last_used_at`) is committed before the new access token is used. Callers that waited for the lock get the token the first one fetched | Atlassian disables the old refresh token on every rotation; losing the new one logs the user out |
+| A refresh runs under a per-user `asyncio.Lock` and a `FOR UPDATE` lock on the row; the rotated refresh token (and `last_used_at`) is committed before the new access token is used. Callers that waited for the lock get the token the first one fetched. The token call and its commit run in their own task, which a cancelled caller (a pass stopped by a shutdown or a target change) does not cancel; shutdown waits for it. The token endpoint gets 10 s on a refresh (30 s in the connect flow) | Atlassian disables the old refresh token on every rotation; losing the new one logs the user out |
 | A Jira `401` refreshes once and sends the call once more; a second `401` is `jira_auth_failed` | an access token can be revoked early |
 | `invalid_grant` from the token endpoint (unused for 90 days, password changed, consent revoked) sets `status` `expired` and is `jira_reconnect_required`; an expired connection is never refreshed again until the user reconnects | no retry storm, a clear action for the user |
 | A refresh token that no longer decrypts (a rotated `ATLASSIAN_TOKEN_KEY`) counts as `invalid_grant`: `expired`, reconnect (D48) | a key rotation expires every connection |
 | Any other refresh failure keeps the connection `active`: `429`, `5xx`, a timeout or a transport error is `jira_unreachable`; any other refusal (a wrong client secret) is `jira_auth_failed` (D48) | a passing outage or a bad deployment setting must not log every user out |
 | No background keep-alive refreshes; each refresh resets Atlassian's 90-day inactivity window | a token stays alive only while it is used |
 | Access tokens are cached per process: several api replicas each refresh on their own, and the row's `FOR UPDATE` serializes the rotation (D53) | no shared cache to run |
-| Disconnect deletes the row and drops the cached access token; a gateway a running pass holds then fails its next call with `jira_not_connected` (D53). Atlassian has no revoke endpoint for 3LO; the Jira tab links to `https://id.atlassian.com/manage-profile/apps` | the user can also remove the grant on Atlassian's side |
+| Disconnect deletes the row and drops the cached access token of the api process that served it; a gateway a running pass holds in that process then fails its next call with `jira_not_connected` (D53). Another api replica keeps its cached access token until it expires (about an hour) and its passes go on until then. Atlassian has no revoke endpoint for 3LO; the Jira tab links to `https://id.atlassian.com/manage-profile/apps` | the user can also remove the grant on Atlassian's side |
 
 ## Acting account of a target
 
@@ -115,6 +119,10 @@ In `oauth` mode every Jira call of a project's sync uses the connection of the t
   MCP, settings, recovery) uses the target's account: a member who runs `sync_to_jira` acts through the owner the
   target names.
 - A refresh that fails during a pass ends the pass with the refresh's code ([Tokens](#tokens)).
+- The pass reads the acting account when it holds the sync slot, right before its first Jira call, so a takeover saved
+  while it waited for the slot is the account it acts as.
+- A member removed from the project, or who leaves it, stops being its acting account in the same transaction
+  (`connected_user_id` becomes null), so the target is `missing` until an owner saves it again.
 - In `token` mode `connected_user_id` is stored but ignored, and the deployment account is used (unchanged).
 
 ## Data

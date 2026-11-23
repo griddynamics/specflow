@@ -155,6 +155,47 @@ async def test_concurrent_callers_share_one_refresh(rig) -> None:
     assert rig.client.refreshes == ["refresh-0"]
 
 
+async def test_a_caller_cancelled_during_the_refresh_still_leaves_the_rotated_token_committed(rig) -> None:
+    """Atlassian disables the old refresh token on every rotation: a cancelled caller (a pass stopped by a shutdown or
+    a target change) must not roll the rotated one back."""
+
+    rig.db.add(USER, refresh="refresh-0")
+    rig.client.gate = asyncio.Event()
+    caller = asyncio.create_task(rig.connections.access_token(USER))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert rig.client.refreshes == ["refresh-0"]  # the token call is under way at Atlassian
+
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    rig.client.gate.set()
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    assert rig.db.refresh_token(USER) == "refresh-1"
+    assert ("rollback", None) not in rig.db.events and rig.db.events[-2:] == [("rotate", USER), ("commit", None)]
+    assert await rig.connections.access_token(USER) == "access-1"  # remembered: no second token call
+    assert rig.client.refreshes == ["refresh-0"]
+
+
+async def test_close_waits_for_a_refresh_whose_caller_was_cancelled(rig) -> None:
+    rig.db.add(USER, refresh="refresh-0")
+    rig.client.gate = asyncio.Event()
+    caller = asyncio.create_task(rig.connections.access_token(USER))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    caller.cancel()
+    closing = asyncio.create_task(rig.connections.aclose())
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    assert not closing.done() and not rig.client.closed
+    rig.client.gate.set()
+    await asyncio.wait_for(closing, timeout=2)
+    assert rig.db.refresh_token(USER) == "refresh-1" and rig.client.closed
+
+
 async def test_the_access_token_is_reused_until_a_minute_before_it_expires(rig) -> None:
     rig.db.add(USER)
     assert await rig.connections.access_token(USER) == "access-1"

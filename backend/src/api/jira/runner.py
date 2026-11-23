@@ -318,10 +318,9 @@ class JiraSyncRunner:
         with Contained() as ran:  # a failed pass never stops the project's later ones
             async with self._transaction() as session:
                 await jira_db.record_start(session, pid, trigger=trigger, queued_at=project.queued_at)
-                target = await jira_db.get_target(session, pid) if self._connections is not None else None
             async with self._slots:
                 log_event(logger, INFO, "api.jira.sync.started", project_id=project_id, trigger=trigger)
-                result = await self._run(project_id, target)
+                result = await self._run(project_id, pid)
             async with self._transaction() as session:
                 await jira_db.record_end(
                     session,
@@ -351,12 +350,15 @@ class JiraSyncRunner:
                 error_type=ran.error_type,
             )
 
-    async def _run(self, project_id: str, target: JiraTargetView | None) -> SyncResult:
+    async def _run(self, project_id: str, pid: uuid.UUID) -> SyncResult:
         """One pass with the gateway of its acting account (``oauth``), which may refuse: the pass then ends
-        ``failed`` with ``jira_not_connected`` or ``jira_reconnect_required`` and no Jira call."""
+        ``failed`` with ``jira_not_connected`` or ``jira_reconnect_required`` and no Jira call. The acting account is
+        read here, with the slot held, so a takeover saved while the pass waited for the slot is the one it acts as."""
 
         deps = self._deps
         if self._connections is not None:
+            async with self._transaction() as session:
+                target = await jira_db.get_target(session, pid)
             try:
                 gateway = await self._connections.gateway(target.connected_user_id if target is not None else None)
             except JiraError as error:

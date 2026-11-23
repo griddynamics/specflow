@@ -115,7 +115,9 @@ removes it from the URL:
 
 | Cause | Where | Text (copy in `lib/copy.ts`) |
 |---|---|---|
-| `jira_auth_failed` | alert line | "Jira refused the Specflow account. An administrator checks the Atlassian token." |
+| `jira_auth_failed` (`token` mode) | alert line | "Jira refused the Specflow account. An administrator checks the Atlassian token." |
+| `jira_auth_failed` (`oauth` mode, access check) | alert line | "Atlassian refused the connection. Reconnect Atlassian in Settings → Jira." |
+| `jira_auth_failed` (`oauth` mode, status `error_code`) | status line | "Atlassian refused the connection this target syncs as. Its owner reconnects Atlassian." |
 | `jira_not_found` on `jira_project` | under the space field | "No Jira space with this key, or the account cannot see it." |
 | `jira_issue_types_missing` | under the space field | "This Jira space has no Epic, Story or Sub-task issue type." |
 | `jira_forbidden` | under the field `field` names (`jira_project`, or `epic_key` when the Epic itself is refused) | "The Specflow account may not create, edit, link or rank issues in this space." |

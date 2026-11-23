@@ -688,9 +688,19 @@ class AtlassianConnectionOut(BaseModel):
     last_used_at: datetime | None
 
 
+def _dot_segment_or_encoded_separator(value: str) -> bool:
+    """Whether the path part of ``value`` has a ``.`` or ``..`` segment (``%2e`` counts as ``.``) or an encoded ``/`` or
+    ``\\``: a URL parser resolves ``/.//evil.com`` to ``//evil.com``, another host."""
+    path = value.split("?", 1)[0].split("#", 1)[0].lower()
+    if "%2f" in path or "%5c" in path:
+        return True
+    return any(segment.replace("%2e", ".") in {".", ".."} for segment in path.split("/"))
+
+
 class AtlassianAuthorizeIn(BaseModel):
     """Where the browser returns after the consent: a same-origin path (``/``, not ``//``, so no scheme or host; no
-    backslash, which a browser reads as ``/``)."""
+    backslash, which a browser reads as ``/``; no dot segment or encoded separator, which a URL parser can turn into
+    ``//``)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -706,6 +716,7 @@ class AtlassianAuthorizeIn(BaseModel):
             or not value.isascii()
             or not value.isprintable()
             or any(c.isspace() for c in value)
+            or _dot_segment_or_encoded_separator(value)
         ):
             raise ReturnToError("return_to must be a path of this site")
         return value

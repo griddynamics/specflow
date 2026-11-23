@@ -3,8 +3,9 @@
 One ``AtlassianConnections`` per process, held on ``Runtime.atlassian``. It signs and checks ``state``, connects a
 user (code exchange, the site's cloud, ``/myself``), keeps each user's access token in memory until 60 s before it
 expires, and refreshes under a per-user ``asyncio.Lock`` and the row's ``FOR UPDATE`` lock: the rotated refresh token
-is committed before the new access token is used. ``invalid_grant`` marks the connection ``expired``; it is never
-refreshed again until the user reconnects. Logs carry the user id and codes only.
+is committed before the new access token is used, even when the caller is cancelled meanwhile. ``invalid_grant``
+marks the connection ``expired``; it is never refreshed again until the user reconnects. Logs carry the user id and
+codes only.
 """
 
 from __future__ import annotations
@@ -101,6 +102,7 @@ class AtlassianConnections:
         self._locks: dict[uuid.UUID, asyncio.Lock] = {}
         self._tokens: dict[uuid.UUID, _Token] = {}
         self._gateways: dict[tuple[uuid.UUID, str], JiraGateway] = {}  # closed only by ``aclose``: a pass may hold one
+        self._rotations: set[asyncio.Future[tuple[str | None, Reason]]] = set()  # in flight; ``aclose`` awaits them
 
     # The connect flow ----------------------------------------------------------------------------------------------
 
@@ -181,12 +183,17 @@ class AtlassianConnections:
             if cached is not None and cached.value != used and cached.good_until > self._monotonic():
                 return cached.value
             self._tokens.pop(user_id, None)
-            grant, refused = await self._rotate(user_id)
-            if grant is None:
+            # Its own task: a cancelled caller cannot roll back a rotation Atlassian already made; ``aclose`` waits.
+            rotation = asyncio.ensure_future(self._rotate_and_remember(user_id))
+            self._rotations.add(rotation)
+            rotation.add_done_callback(self._rotations.discard)
+            token, refused = await asyncio.shield(rotation)
+            if token is None:
                 raise JiraError(refused)
-            return self._remember(user_id, grant)
+            return token
 
     async def aclose(self) -> None:
+        await asyncio.gather(*self._rotations, return_exceptions=True)
         gateways, self._gateways = list(self._gateways.values()), {}
         for gateway in gateways:
             await gateway.aclose()
@@ -201,6 +208,10 @@ class AtlassianConnections:
         value = grant.access_token.get_secret_value()
         self._tokens[user_id] = _Token(value, self._monotonic() + grant.expires_in - EARLY_EXPIRY_SECONDS)
         return value
+
+    async def _rotate_and_remember(self, user_id: uuid.UUID) -> tuple[str | None, Reason]:
+        grant, refused = await self._rotate(user_id)
+        return (None if grant is None else self._remember(user_id, grant)), refused
 
     async def _rotate(self, user_id: uuid.UUID) -> tuple[TokenGrant | None, Reason]:
         """One refresh with the row locked ``FOR UPDATE``; the transaction commits the rotated refresh token (or the

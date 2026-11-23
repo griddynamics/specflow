@@ -66,7 +66,7 @@ is a later planning decision that the owner reviews in the pull request.
 | D50 | `GET /integrations/atlassian` answers in every mode (`connected` false in `token` mode and off). `JiraSettingsOut.connection` is null outside `oauth` mode and when the project has no target; `connected_by_name` is the Atlassian display name of the acting connection, null when `missing`. | agent |
 | D51 | A settings `PUT` with the owner's own connection `expired` is 409 `jira_not_connected` too (refines D40). | agent |
 | D52 | `return_to` also refuses a backslash, whitespace, control and non-ASCII characters, and is at most 2048 characters. | agent |
-| D53 | Access tokens are cached per api process; several replicas refresh on their own and the row's `FOR UPDATE` serializes the rotation. A gateway per user and cloud lives until shutdown, so a running pass keeps its client; a disconnect drops the token and the next call fails `jira_not_connected`. | agent |
+| D53 | Access tokens are cached per api process; several replicas refresh on their own and the row's `FOR UPDATE` serializes the rotation. A gateway per user and cloud lives until shutdown, so a running pass keeps its client; a disconnect drops the token and the next call fails `jira_not_connected`, in the process that served it only: another replica keeps its cached access token until it expires (about an hour). | agent |
 | D54 | `cryptography` is declared in the api dependency extra (it was only transitive). | agent |
 
 ## Design choices

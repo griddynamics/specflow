@@ -54,7 +54,7 @@ function CheckOk({
 }
 
 /** The status word, when the pass ended and why it did not succeed; while it runs and has started, its step and count with a bar. */
-function StatusLine({ sync }: Readonly<{ sync: JiraSync | null }>) {
+function StatusLine({ sync, oauth }: Readonly<{ sync: JiraSync | null; oauth: boolean }>) {
   // The live region stays mounted (empty without a sync) so a polled change of the word is announced.
   return (
     <section className="settings-status" role="status" aria-label={SETTINGS_COPY.statusLabel} data-testid="jira-status">
@@ -62,7 +62,7 @@ function StatusLine({ sync }: Readonly<{ sync: JiraSync | null }>) {
         <>
           <Tag tone={statusTone(sync.status)}>{statusWord(sync.status)}</Tag>
           {sync.finishedAt === null ? null : <span className="settings-hint">{whenText(sync.finishedAt)}</span>}
-          {sync.errorCode === null ? null : <span className="settings-hint">{syncErrorText(sync.errorCode)}</span>}
+          {sync.errorCode === null ? null : <span className="settings-hint">{syncErrorText(sync.errorCode, oauth)}</span>}
           {sync.status === "running" && sync.progress !== null ? <JiraProgress progress={sync.progress} /> : null}
         </>
       )}
@@ -312,7 +312,7 @@ export function JiraView(p: Readonly<JiraViewProps>) {
           )}
         </p>
       ) : null}
-      <StatusLine sync={s.sync} />
+      <StatusLine sync={s.sync} oauth={p.atlassian?.mode === "oauth"} />
     </>
   );
 }
