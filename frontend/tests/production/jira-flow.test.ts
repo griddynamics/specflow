@@ -33,11 +33,13 @@ const NONE: JiraSettings = {
   createdEpicKey: null,
   enabled: false,
   sync: null,
+  connection: null,
 };
+const TOKEN = { mode: "token", connected: false, status: null, accountName: null, connectedAt: null, lastUsedAt: null } as const;
 const SAVED: JiraSettings = { ...NONE, jiraProject: "PAY", sync: { status: "idle", finishedAt: null, errorCode: null, progress: null } };
 const OK = { result: "ok", projectName: "Payments platform", epicSummary: null } as const;
 const apply = (st: TabState, ...actions: TabAction[]): TabState => actions.reduce(tabReducer, st);
-const loaded = (s: JiraSettings = NONE): TabState => apply(INITIAL_TAB, { type: "loaded", settings: s });
+const loaded = (s: JiraSettings = NONE): TabState => apply(INITIAL_TAB, { type: "loaded", settings: s, atlassian: TOKEN });
 const phase = (st: TabState) => phaseOf(st.outcome, st.busy === "switch" ? null : st.busy);
 const target = targetOf("pay", "");
 
@@ -65,7 +67,7 @@ test("flow: check -> save -> switch; the typed keys seed once, each answer is ap
   assert.equal(st.busy, null);
   assert.equal(typeof st.settings === "object" && st.settings?.enabled, true);
   // a later load keeps what the owner typed: the form is seeded only once
-  st = apply(st, { type: "edit", field: "project", value: "XYZ", run: 5 }, { type: "loaded", settings: SAVED });
+  st = apply(st, { type: "edit", field: "project", value: "XYZ", run: 5 }, { type: "loaded", settings: SAVED, atlassian: TOKEN });
   assert.equal(st.project, "XYZ");
 });
 

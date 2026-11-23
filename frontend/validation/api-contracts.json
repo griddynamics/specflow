@@ -274,6 +274,26 @@
       "path": "/projects/{pid}/jira/access-check"
     },
     {
+      "id": "get_atlassian_connection_api_v1_integrations_atlassian_get",
+      "method": "GET",
+      "path": "/integrations/atlassian"
+    },
+    {
+      "id": "authorize_atlassian_api_v1_integrations_atlassian_authorize_post",
+      "method": "POST",
+      "path": "/integrations/atlassian/authorize"
+    },
+    {
+      "id": "atlassian_callback_api_v1_integrations_atlassian_callback_post",
+      "method": "POST",
+      "path": "/integrations/atlassian/callback"
+    },
+    {
+      "id": "disconnect_atlassian_api_v1_integrations_atlassian_delete",
+      "method": "DELETE",
+      "path": "/integrations/atlassian"
+    },
+    {
       "id": "answer_gap_api_v1_projects__pid__gaps__gap_id__answer_post",
       "method": "POST",
       "path": "/projects/{pid}/gaps/{gap_id}/answer"

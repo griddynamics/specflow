@@ -175,6 +175,14 @@ export const checkJiraAccess = (pid: string, jiraProject: string, epicKey: strin
     (r) => r.body,
   );
 
+// The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
+// app/api/integrations/atlassian/callback calls the API on the server.
+export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);
+export const authorizeAtlassian = (returnTo: string) =>
+  httpPost("/integrations/atlassian/authorize", json({ return_to: returnTo })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const disconnectAtlassian = () => httpDelete("/integrations/atlassian").then((r) => r.status);
+
 // Sources (GDRIVE plan 04, architecture-notes B4). Bodies are returned as `unknown`: the http adapter (lib/data/http/sources.ts)
 // checks their shape. POSTs go through `call`, so they carry the CSRF header.
 export const getDriveIdentity = () => httpGet("/drive/identity").then((r) => r.body);

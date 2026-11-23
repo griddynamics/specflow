@@ -13,7 +13,7 @@ import { rejectsWith as rejects, serveStub } from "../support/stub-fetch";
 
 const PORT = 3296;
 const ctx = serveStub(PORT, (api) => {
-  api.jira.state.available = true;
+  Object.assign(api.jira.state, { available: true, mode: "token", connection: null, callbackError: null });
 });
 const { sent } = ctx;
 
@@ -59,6 +59,7 @@ test("toJiraSettings reads the settings and the sync status; any other shape is 
     createdEpicKey: "PAY-9",
     enabled: true,
     sync: { status: "succeeded", finishedAt: "2026-01-01T00:00:00Z", errorCode: null, progress: null },
+    connection: null,
   });
   assert.equal(toJiraSettings(wireSettings({ sync: null, jira_project: null, enabled: false })).sync, null);
   invalid(() => toJiraSettings(wireSettings({ available: "yes" })));
@@ -142,6 +143,7 @@ test("GET /projects/{pid}/jira: a project without a target is empty, editable fo
     createdEpicKey: null,
     enabled: false,
     sync: null,
+    connection: null,
   });
 });
 

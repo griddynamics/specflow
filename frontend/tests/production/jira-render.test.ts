@@ -33,6 +33,7 @@ const SETTINGS: JiraSettings = {
   createdEpicKey: null,
   enabled: false,
   sync: null,
+  connection: null,
 };
 const saved = (over: Partial<JiraSettings> = {}): JiraSettings => ({
   ...SETTINGS,

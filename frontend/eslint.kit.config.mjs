@@ -88,10 +88,12 @@ const RUNNER_EXEMPT_RULES = [
 // - lib/config.ts is the one module that reads the server environment (the proxy, Auth.js, the BFF and the server
 //   layouts read it through serverEnv() / appConfig());
 // - lib/oidc-refresh.ts is the server's OIDC back channel (token refresh and Auth.js's customFetch): it calls the issuer,
-//   which the browser's same-origin BFF client cannot do.
+//   which the browser's same-origin BFF client cannot do;
+// - app/api/integrations/atlassian/callback/route.ts forwards the Atlassian consent's code and state to the API on the server
+//   (docs/jira-sync/oauth.md#connect-flow): a browser navigation, not a BFF call, so lib/api.ts cannot make it.
 const SERVER_EXEMPT_FILES = {
   "restrict/syntax-test-probes": ["instrumentation.ts", "lib/config.ts"],
-  "restrict/globals-network": ["lib/oidc-refresh.ts"],
+  "restrict/globals-network": ["lib/oidc-refresh.ts", "app/api/integrations/atlassian/callback/route.ts"],
 };
 
 // project: `playwright/no-raw-locators` only reports a string literal argument, so a CSS selector held in a constant,

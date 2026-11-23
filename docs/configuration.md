@@ -590,8 +590,8 @@ missing variables. Locally, put the values in `.env.local`; compose passes them 
 - `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`: the client ID and secret of an OAuth 2.0 (3LO) app in
   the Atlassian developer console. The secret is a secret: keep it in the cluster's secret store.
 - `ATLASSIAN_TOKEN_KEY`: a Fernet key that encrypts the users' refresh tokens in the database and signs the OAuth
-  `state`. Generate one with
-  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and keep it in the
+  `state`: 32 random bytes in URL-safe base64. Generate one with
+  `python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"` and keep it in the
   secret store. A value that is not a Fernet key stops the api at start. Rotating the key expires every connection:
   each user reconnects in the Jira tab.
 - `PUBLIC_URL`: the web app's public address. The callback URL is
