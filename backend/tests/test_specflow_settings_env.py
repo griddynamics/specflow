@@ -52,7 +52,7 @@ SETTINGS_CLASSES = (
 ROOT = Path(__file__).resolve().parents[2]
 DOC = (ROOT / "docs" / "configuration.md").read_text()
 
-# SPL-ENV-01: the 23 required, 22 optional and 6 local-stack keys, nothing else.
+# SPL-ENV-01: the 23 required, 25 optional and 6 local-stack keys, nothing else.
 REQUIRED_KEYS = frozenset(
     {
         "APP_ENV",
@@ -104,6 +104,9 @@ OPTIONAL_KEYS = frozenset(
         "ATLASSIAN_SITE_URL",
         "ATLASSIAN_EMAIL",
         "ATLASSIAN_API_TOKEN",
+        "ATLASSIAN_OAUTH_CLIENT_ID",
+        "ATLASSIAN_OAUTH_CLIENT_SECRET",
+        "ATLASSIAN_TOKEN_KEY",
     }
 )
 # Names only the local stack reads (`make env-local` writes them, docker-compose.yml and the Keycloak realm use them).
@@ -168,7 +171,7 @@ def _env_names_read_in_code() -> set[str]:
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS | STACK_KEYS
     assert len(REQUIRED_KEYS) == 23
-    assert len(OPTIONAL_KEYS) == 22
+    assert len(OPTIONAL_KEYS) == 25
     assert len(STACK_KEYS) == 6
 
 

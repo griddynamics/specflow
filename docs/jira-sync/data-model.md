@@ -1,14 +1,15 @@
 ---
 type: DataModel
 title: "Jira sync data model"
-description: "The tables jira_targets and jira_issues, the canonical content Specflow stores per issue, the migration 0005_jira_sync and row-level security"
+description: "The tables jira_targets, jira_issues and atlassian_connections, the canonical content Specflow stores per issue, the migrations 0005_jira_sync and 0006_atlassian_connections and row-level security"
 status: stable
 tags: [jira]
 ---
-# data-model.md: jira_targets, jira_issues, canonical content, migration 0005, row-level security
+# data-model.md: jira_targets, jira_issues, atlassian_connections, canonical content, migrations 0005 and 0006, row-level security
 
-No table holds a credential: the Atlassian account lives in the environment only
-([../configuration.md](../configuration.md#jira-sync)).
+In `token` mode no table holds a credential: the one Atlassian account lives in the environment only
+([../configuration.md](../configuration.md#jira-sync)). In `oauth` mode `atlassian_connections` holds each user's refresh
+token, Fernet-encrypted with `ATLASSIAN_TOKEN_KEY`; access tokens are never stored ([oauth.md](oauth.md#data)).
 
 ## Targets
 
@@ -26,6 +27,7 @@ No table holds a credential: the Atlassian account lives in the environment only
 | `last_started_at`, `last_finished_at` | timestamptz | null until a pass is queued or ends (`last_started_at` is set when the pass is queued) |
 | `last_error_code` | text | a code of [api.md](api.md#sync-codes), else null |
 | `last_counts` | jsonb | null until a pass ends; the counts object of [sync.md](sync.md#triggers-and-runs) |
+| `connected_user_id` | uuid | null; foreign key to `users.id` on delete set null; the owner who last saved the target, whose Atlassian connection the sync acts as in `oauth` mode (ignored in `token` mode); added by 0006 |
 
 The key formats are checked by the API ([api.md](api.md#web-routes)); the table keeps them as text.
 
@@ -91,7 +93,21 @@ Revision `0005_jira_sync`, `down_revision` `0004_gap_assignment`, hand-written l
 `downgrade()` drops both tables (data loss: every Jira target and the whole map; the issues in Jira stay). No existing
 table changes.
 
+Revision `0006_atlassian_connections`, `down_revision` `0005_jira_sync`:
+
+| # | Step |
+|---|---|
+| M5 | `SET LOCAL lock_timeout = '10s'` first |
+| M6 | create `atlassian_connections` ([oauth.md](oauth.md#data)): primary key `user_id` (foreign key `users.id` on delete cascade), the check constraint on `status` |
+| M7 | row-level security on `atlassian_connections` with no policy (the 0003 statement file); no grant to the agent role |
+| M8 | add `jira_targets.connected_user_id` with its foreign key to `users.id` on delete set null |
+
+`downgrade()` drops the column and the table: every connection is lost (each user connects again) and so is the acting
+account of every target (the owners save their targets again).
+
 ## Row-level security
 
-As every project table since 0003: both tables enable row-level security with the `agent_project_scope` policy for the
-agent role, and the agent role gets no grant. The API reads and writes them with the application role only.
+As every project table since 0003: `jira_targets` and `jira_issues` enable row-level security with the
+`agent_project_scope` policy for the agent role, and the agent role gets no grant. `atlassian_connections` enables
+row-level security with no policy at all, so the agent role reads none of it. The API reads and writes all three with
+the application role only.

@@ -105,9 +105,9 @@ rows state behaviour and link the section that defines it; values live only ther
 
 | ID | Requirement | Acceptance |
 |---|---|---|
-| NFR-JIRA-01 | The Atlassian token shall live in the environment only: never in the database, a response, a log or an exception text (D1). | Inspection: no token column; a test with a canary token finds it in no log record, error text or `repr` of the gateway, of the Jira settings or of the role settings. |
+| NFR-JIRA-01 | The Atlassian token shall live in the environment only: never in the database, a response, a log or an exception text (D1). In `oauth` mode only the Fernet-encrypted refresh tokens are stored ([oauth.md](oauth.md#tokens)). | Inspection: no token column; a test with a canary token finds it in no log record, error text or `repr` of the gateway, of the Jira settings or of the role settings. |
 | NFR-JIRA-02 | Jira sync log events shall carry ids, codes and counts only ([api.md](api.md#log-events)). | Tests capture the events of a pass and find no summary, description or Jira body. |
-| NFR-JIRA-03 | The feature shall add no configuration beyond `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL` and `ATLASSIAN_API_TOKEN` (D16). | The settings environment test lists exactly those three new optional names. |
+| NFR-JIRA-03 | The feature shall add no configuration beyond `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL` and `ATLASSIAN_API_TOKEN` (D16), and for the `oauth` mode `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET` and `ATLASSIAN_TOKEN_KEY` with the existing `PUBLIC_URL` (D47). | The settings environment test lists exactly those six new optional names. |
 | NFR-JIRA-04 | No database transaction shall be open while a Jira call runs. | A fake gateway asserts on each call that no transaction of the fake session is open. |
 | NFR-JIRA-05 | The repository gates shall pass. | `make check`, `make validate`, `make frontend-build`, `make e2e-production` pass. |
 | NFR-JIRA-06 | The sync shall assume one API replica, as the plan and gap runs do. | [overview.md](overview.md#boundaries) states it; the chart's own tests refuse an api with more than one replica or without the `Recreate` strategy. |

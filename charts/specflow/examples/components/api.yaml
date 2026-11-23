@@ -53,6 +53,32 @@ env:
         name: specflow-api
         key: ATLASSIAN_API_TOKEN
         optional: true
+  # Jira sync per-user OAuth: the client ID turns it on (it wins over the account above) and needs the secret, a
+  # Fernet key and PUBLIC_URL, the web app's address that the Atlassian callback is built from.
+  - name: ATLASSIAN_OAUTH_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: ATLASSIAN_OAUTH_CLIENT_ID
+        optional: true
+  - name: ATLASSIAN_OAUTH_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: ATLASSIAN_OAUTH_CLIENT_SECRET
+        optional: true
+  - name: ATLASSIAN_TOKEN_KEY
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: ATLASSIAN_TOKEN_KEY
+        optional: true
+  - name: PUBLIC_URL
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: PUBLIC_URL
+        optional: true
   - name: AUTH_API_AUDIENCE
     valueFrom:
       secretKeyRef:

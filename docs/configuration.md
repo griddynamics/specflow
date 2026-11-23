@@ -33,7 +33,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AGENT_MODEL` | api, workers | Model id of the agents on the gateway route. |
 | `GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL` | api, tools | Models of the graph build behind **Build knowledge** in Mission Control, and of the plan runs behind **Create PLAN** on the Plan page. Set all three: one set without the others stops the api at start. With none set the api starts with the graph build and the plan off: it logs `api.graph_build.disabled` at start, each graph build request answers 503 `graph_build_unavailable` and logs `api.graph_build.unavailable`, and each plan request answers 503 `plan_unavailable` and logs `api.plan.unavailable`. Set `GRAPH_EMBEDDING_DIM` together with `GRAPH_EMBEDDING_MODEL`. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | api, mcp | Comma-separated list of allowed e-mail domains. Also decides which addresses the owner may add as a collaborator ([projects](projects/INDEX.md)). |
-| `PUBLIC_URL` | frontend, api | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. The api (with `MCP_RESOURCE_URL` set) links the gap cards of the MCP tools to it ([apps.md](mcp-server/apps.md#terminal-dialogs)) and gives the issues the [Jira sync](#jira-sync) creates a link back to the plan; without it the cards and the issues have no web link. Compose gives the api the same value as the frontend. |
+| `PUBLIC_URL` | frontend, api | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. The api (with `MCP_RESOURCE_URL` set) links the gap cards of the MCP tools to it ([apps.md](mcp-server/apps.md#terminal-dialogs)) and gives the issues the [Jira sync](#jira-sync) creates a link back to the plan; without it the cards and the issues have no web link. In the Jira sync's `oauth` mode the api builds the Atlassian callback URL from it and needs it. Compose gives the api the same value as the frontend. |
 | `API_INTERNAL_URL` | frontend, mcp | URL at which the frontend and the MCP server reach the API, often a bare in-cluster `host[:port]` (it becomes `http://host[:port]`; a trailing `/` is trimmed). The mcp role refuses userinfo, a query, a fragment or a scheme other than `http` and `https`. TLS is not required inside the cluster; `https` works with publicly trusted certificates only. See [architecture](mcp-server/architecture.md#settings). |
 | `OIDC_ISSUER` | api, mcp, frontend | OpenID Connect issuer. Must be `https` when `APP_ENV` is not `local`. Required in every environment: there is no other sign-in. |
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | frontend | OpenID Connect client. Required in every environment. |
@@ -49,8 +49,9 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `GRAPH_STORE_NAME`, `GRAPH_STORE_ADMIN_URI`, `GRAPH_STORE_POOL_SIZE` | api, workers, tools | Database, schema or graph name (default per backend, see below); a second admin endpoint for backends that have one; a cap on the store adapter's own connection pool. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | api, workers | Tracing. Unset = no tracing. `LANGFUSE_HOST` is read when `LANGFUSE_BASE_URL` is unset. |
 | `SPECFLOW_CONFIG_FILE` | api, workers, tools | Path of the cloud profile file. Unset = environment only. |
-| `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | api | The one Atlassian account of the [Jira sync](#jira-sync). Set all three or none. |
-| `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](jira-sync/oauth.md) (`oauth` mode, which wins over the one account). The client ID turns it on and needs the secret, a Fernet key and `PUBLIC_URL` with `ATLASSIAN_SITE_URL`. |
+| `ATLASSIAN_SITE_URL` | api | The Jira Cloud site of the [Jira sync](#jira-sync), needed in both modes. |
+| `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | api | The one Atlassian account of the [Jira sync](#jira-sync) (`token` mode). Set both with `ATLASSIAN_SITE_URL`, or none. Not read when `ATLASSIAN_OAUTH_CLIENT_ID` is set. |
+| `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](#jira-sync) (`oauth` mode, which wins over the one account). The client ID turns it on and then needs the secret, a Fernet key, `ATLASSIAN_SITE_URL` and `PUBLIC_URL`. |
 
 ## Settings with a default (D)
 
@@ -570,21 +571,53 @@ no fallback to other credentials. The app still starts.
 
 ## Jira sync
 
-The [Jira sync](jira-sync/INDEX.md) pushes each project's plan to Jira with one Atlassian account for the whole
-deployment. The api reads three settings:
+The [Jira sync](jira-sync/INDEX.md) pushes each project's plan to Jira. It calls Jira in one of two modes
+([jira-sync/oauth.md](jira-sync/oauth.md#modes)); both need `ATLASSIAN_SITE_URL`, the Jira Cloud site, for example
+`https://example.atlassian.net`, `https` and no path.
 
-- `ATLASSIAN_SITE_URL`: the Jira Cloud site, for example `https://example.atlassian.net`, `https` and no path.
+| Mode | Set | Jira calls act as |
+|---|---|---|
+| `oauth` | `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY`, `PUBLIC_URL` | each project owner's own Atlassian account, connected once in the Jira tab |
+| `token` | `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | one Atlassian account for the whole deployment |
+
+A non-blank `ATLASSIAN_OAUTH_CLIENT_ID` selects `oauth`; the token variables are then not read. The api logs
+`api.jira.mode` with the mode at start. With neither set the api starts with the sync off: the Jira tab says so and the
+Jira routes answer 503 `jira_unavailable`. A partial set of the chosen mode stops the api at start and names the
+missing variables. Locally, put the values in `.env.local`; compose passes them to the api only.
+
+### OAuth mode
+
+- `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`: the client ID and secret of an OAuth 2.0 (3LO) app in
+  the Atlassian developer console. The secret is a secret: keep it in the cluster's secret store.
+- `ATLASSIAN_TOKEN_KEY`: a Fernet key that encrypts the users' refresh tokens in the database and signs the OAuth
+  `state`. Generate one with
+  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and keep it in the
+  secret store. A value that is not a Fernet key stops the api at start. Rotating the key expires every connection:
+  each user reconnects in the Jira tab.
+- `PUBLIC_URL`: the web app's public address. The callback URL is
+  `{PUBLIC_URL}/api/integrations/atlassian/callback`, for example
+  `http://localhost:3001/api/integrations/atlassian/callback` on the local stack.
+
+One client ID serves every deployment: register each deployment's callback URL on the same app in the developer
+console. The app asks for a fixed set of scopes (Jira read and write, Jira Software boards and sprints, Confluence read,
+`offline_access`), listed in [jira-sync/oauth.md](jira-sync/oauth.md#settings); a change of the scopes makes every user
+consent again. A site admin of the Jira site must authorize the app once; until then the consent fails and the Jira tab
+shows that access was not granted. Each user's Jira permissions then bound what the sync does for the targets that
+user saved.
+
+### Token mode
+
 - `ATLASSIAN_EMAIL`: the account's e-mail address.
 - `ATLASSIAN_API_TOKEN`: an API token of that account. It is a secret: keep it in the cluster's secret store; it never
   reaches the database, a response or a log.
 
-Set all three or none: a partial set stops the api at start and names the missing variables. With none set the api
-starts with the sync off: the Jira tab says so and the Jira routes answer 503 `jira_unavailable`. Locally, put them in
-`.env.local`; compose passes them to the api only. The api must reach the Jira site directly: its Jira client ignores
-`HTTPS_PROXY` and the other proxy variables (and `.netrc`), so a network whose only way out is a proxy shows
-`jira_unreachable` on the access check and on every pass. The account needs, in each target Jira project, the permissions to
-browse, create, edit, comment on, link and rank issues; it never deletes or transitions issues. When the api also
-reads `PUBLIC_URL` (with `MCP_RESOURCE_URL` set), each issue the sync creates links back to the project's plan page.
+### Both modes
+
+The api must reach Atlassian directly: its Jira and OAuth clients ignore `HTTPS_PROXY` and the other proxy variables
+(and `.netrc`), so a network whose only way out is a proxy shows `jira_unreachable` on the access check and on every
+pass. The account (in `oauth` mode the acting owner's account) needs, in each target Jira project, the permissions to
+browse, create, edit, comment on, link and rank issues; the sync never deletes or transitions issues. When the api also
+reads `PUBLIC_URL` with `MCP_RESOURCE_URL` set, each issue the sync creates links back to the project's plan page.
 
 ## Document parsing
 

@@ -1,11 +1,11 @@
 ---
 type: Design
 title: "Jira tab of project Settings"
-description: "The Jira tab of the per-project Settings screen: route, header tab, owner and collaborator views, the access check then Save flow, the Sync switch, the status line, errors shown, the Plan line and the frontend ports"
+description: "The Jira tab of the per-project Settings screen: route, header tab, owner and collaborator views, the Atlassian connection row, the access check then Save flow, the Sync switch, the status line, errors shown, the Plan line and the frontend ports"
 status: stable
 tags: [jira, frontend]
 ---
-# ui.md: Settings tab "Jira": route, views, check-then-save flow, switch, status line, errors, ports
+# ui.md: Settings tab "Jira": route, views, Atlassian connection, check-then-save flow, switch, status line, errors, ports
 
 The web app only configures the sync; there is no "Sync now" button and no preview (D24). The design system rules of
 [../design-system/USAGE.md](../design-system/USAGE.md) apply; the screen header rule of the frontend applies (no H1, no
@@ -56,11 +56,60 @@ Layout: one column, like General. Top to bottom:
    (`role="progressbar"`, DS `gdg-progress`). `done` is clamped to `total`; the total can grow once during the first
    step. A total of 0 shows the step alone. `progress` null, or missing from an older server, shows only the word.
 
+In `oauth` mode the [Atlassian connection](#atlassian-connection) row sits between the notice and the target form, and the
+acting account line under the switch.
+
 Owner versus collaborator: `editable` from `GET` decides. A collaborator sees the same blocks with every control
 disabled and no primary button.
 
 Loading shows a `Skeleton` block; a failed load shows the General tab's "Try again" alert; a `project_not_found` sends the
 user home as the General tab does.
+
+## Atlassian connection
+
+Only in `oauth` mode (`GET /integrations/atlassian` answers `mode` `oauth`); in `token` mode the tab is unchanged. The
+rules behind it are in [oauth.md](oauth.md).
+
+Connection row (owners only, above the target form), from the caller's `AtlassianConnectionOut`:
+
+| State | Text | Action |
+|---|---|---|
+| not connected | "Not connected to Atlassian" | **Connect Atlassian** |
+| `active` | "Connected to Atlassian as *account_name*" | **Disconnect**, and a link "Connected apps" to `https://id.atlassian.com/manage-profile/apps` to remove the grant on Atlassian's side |
+| `expired` | "Your Atlassian connection expired" | **Reconnect** |
+
+**Connect Atlassian** and **Reconnect** send `POST /integrations/atlassian/authorize` with the tab's own path as
+`return_to` and navigate to the `url` it answers. **Disconnect** asks first ("Disconnect Atlassian?": the targets the
+owner saved stop syncing until an owner connects and saves them again), then sends `DELETE /integrations/atlassian`,
+shows the toast "Atlassian disconnected" and reloads the connection. Check access and Save stay disabled until the
+owner's connection is `active`, with the hint "Connect Atlassian to check access and save." (for an expired one
+"Reconnect Atlassian to check access and save.").
+
+Acting account line (under the switch, any member, while `JiraSettingsOut.connection` is not null):
+
+| `connection` | Line |
+|---|---|
+| `active`, `connected_by_me` | "Syncs to Jira as you" |
+| `active` | "Syncs to Jira as *connected_by_name*" |
+| `expired` | a warning that the acting owner must reconnect Atlassian ("Reconnect Atlassian to keep syncing." when it is the caller) |
+| `missing` | "Syncs to Jira as nobody yet" and a warning: an owner connects Atlassian and saves the target |
+
+Callback: the route handler `frontend/app/api/integrations/atlassian/callback/route.ts` needs a signed-in session (none
+goes to sign-in). It forwards `code` and `state` to `POST /integrations/atlassian/callback` and redirects to `return_to`
+with `?atlassian=connected`, or `?atlassian=<code>` for a refused callback; Atlassian's own `?error=` (consent denied,
+the site admin block) becomes `?atlassian=atlassian_consent_denied`. The tab shows one toast for `?atlassian=` and then
+removes it from the URL:
+
+| `?atlassian=` | Toast |
+|---|---|
+| `connected` | "Atlassian connected" |
+| `atlassian_consent_denied` | "Atlassian access was not granted." |
+| `atlassian_state_invalid` | "The Atlassian sign-in expired. Try again." |
+| `atlassian_code_invalid` | "Atlassian did not accept the sign-in. Try again." |
+| `atlassian_site_not_granted` | "Your Atlassian account has no access to this Jira site." |
+| `atlassian_unreachable` | "Atlassian could not be reached. Try again later." |
+| `atlassian_oauth_unavailable` | "Atlassian connections are not set up on this Specflow server." |
+| any other value | "Could not connect Atlassian. Try again." |
 
 ## Errors shown
 
@@ -73,6 +122,10 @@ user home as the General tab does.
 | `jira_not_found` on `epic_key` | under the Epic field | "No issue with this key." |
 | `jira_epic_invalid` | under the Epic field | "This issue is not an Epic of the Jira space." |
 | `jira_unreachable`, `jira_unexpected` | alert line | "Jira did not answer. Try again." |
+| `jira_not_connected` (access check, 409 on `PUT`) | alert line | "Connect your Atlassian account first." |
+| `jira_reconnect_required` (access check) | alert line | "Your Atlassian connection expired. Reconnect Atlassian." |
+| `jira_not_connected` (status `error_code`) | status line | "No Atlassian account to sync as. An owner connects Atlassian and saves the target." |
+| `jira_reconnect_required` (status `error_code`) | status line | "The Atlassian connection this target syncs as expired. Its owner reconnects Atlassian." |
 | `validation_failed` | under the field of `details.errors[].loc[1]` | "Use a Jira key such as ABC or ABC-123." |
 | `jira_unavailable` (503) | the not available notice | as above |
 | `owner_required`, network, other | toast | "Could not save. Try again." (existing) |
@@ -99,6 +152,7 @@ member sees it.
 | Port | Members |
 |---|---|
 | `JiraPort` (new, `lib/domain/jira.ts`) | `get(projectId) -> JiraSettings`, `save(projectId, {jiraProject, epicKey, enabled}) -> JiraSettings`, `checkAccess(projectId, {jiraProject, epicKey}) -> JiraAccess` |
+| Atlassian connection (`oauth` mode) | read the caller's connection, ask for the consent URL with a `return_to`, disconnect; `JiraSettings.connection` is `{connectedByName, connectedByMe, status} \| null` |
 
 The http adapter (`lib/data/http/jira.ts`) checks every body's shape; `lib/api.ts` gets three calls. The API codes of
 [api.md](api.md#errors) map to `DataErrorCode`s (`jira_unavailable` → `unavailable`); screens branch on
