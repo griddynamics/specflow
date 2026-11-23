@@ -679,7 +679,7 @@ class GapService:
             found, fallback = await draft_edits(self.gateway, graph, text, placement)
             drafted = found is not None
             edits = found if found is not None else (document_edit(gap, text),)
-        checked, chosen = place(gap, check_edits(graph, edits), placement)
+        checked, chosen = place(gap, check_edits(graph, edits), placement, own=own_text is not None)
         checked = check_edits(graph, checked)
         log_event(
             logger,
@@ -719,7 +719,7 @@ class GapService:
         mode, label, edits = await self._answer_edits(project_id, gap, answer)
         if settles_at_once(gap, mode, edits):
             return await self._settle(project_id, gap, answer, label)
-        checked, placement = place(gap, check_edits(graph, edits), answer.placement)
+        checked, placement = place(gap, check_edits(graph, edits), answer.placement, own=mode == "own")
         checked = check_edits(graph, checked)
         now = self._clock()
         body = "\n\n".join(edit.text for edit in checked)

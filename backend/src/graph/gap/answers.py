@@ -34,6 +34,7 @@ from graph.core.ontology import Ontology
 from graph.core.reader import GraphDocument, GraphFragment, GraphNode
 from graph.core.writer import DOCUMENT, NodeRef, OwnedWriter
 from graph.gap.errors import AnswerInvalidError
+from graph.gap.follow_ups import reconcile_reason
 from graph.gap.gaps import StoredGap, answer_key, clarification_uuid, gap_uuid
 from graph.gap.identity import normalise_quote, sha256_hex
 from graph.gap.models import AmendmentRow, Edit, EditTarget, OptionRow, SectionPreview
@@ -181,18 +182,23 @@ def document_edit(gap: StoredGap, text: str) -> Edit:
 
 
 def place(
-    gap: StoredGap, edits: Sequence[Edit], placement: EditPlacement | None
+    gap: StoredGap, edits: Sequence[Edit], placement: EditPlacement | None, *, own: bool = False
 ) -> tuple[tuple[Edit, ...], EditPlacement]:
     """The edits under the asked placement and the clarification's placement (answers.md "Placement rules").
 
-    ``document`` turns amend edits into one clarifications-document section with their texts (a contradiction cannot
-    be switched: both lines would stay); ``amend`` needs at least one anchored edit. Without an asked placement the
-    clarification is ``amend`` when any edit amends a source section, else ``document``."""
+    ``document`` turns amend edits into one clarifications-document section with their texts; ``amend`` needs at
+    least one anchored edit. Without an asked placement the clarification is ``amend`` when any edit amends a source
+    section, else ``document``. A contradiction amends: with the document placement both lines would stay, so its
+    amend edits cannot be switched, and an ``own`` answer to it without an amend edit (an own text without edits too)
+    is refused. An option of the gap run keeps the placement of its edits, and an own answer to a reconcile follow-up
+    is placed as any own answer (reconcile.md "Conflict follow-up")."""
 
     amend = [edit for edit in edits if edit.placement == "amend"]
-    if placement == "document" and amend:
-        if gap.props.get("kind") == CONTRADICTION:
+    if gap.props.get("kind") == CONTRADICTION:
+        unanchored = own and not amend and reconcile_reason(gap) is None
+        if (placement == "document" and amend) or unanchored:
             raise AnswerInvalidError(field="placement", reason="contradiction_amends", gap_id=gap.gap_id)
+    if placement == "document" and amend:
         text = "\n\n".join(edit.text.strip() for edit in edits)
         return (document_edit(gap, text),), "document"
     if placement == "amend" and not amend:
@@ -345,7 +351,7 @@ async def draft_edits(
         return None, error.code if isinstance(error, GraphError) else "gap_edits_invalid"
     edits = tuple(Edit.model_validate(edit.model_dump(mode="json")) for edit in answer.edits[:DRAFT_EDITS_MAX])
     try:
-        return place(graph.gap, check_edits(graph, edits), placement)[0], None
+        return place(graph.gap, check_edits(graph, edits), placement, own=True)[0], None
     except AnswerInvalidError as error:
         return None, error.reason
 

@@ -139,7 +139,7 @@ whether it is applied at once). `AnswerInput`:
 | `gap_id` | The gap |
 | `option_rank` | The chosen option (mode `option`); exactly one of `option_rank` and `own_text` |
 | `own_text` | The person's own text (mode `own`); `ai` and `pointer` are set only by a gap run |
-| `edits` | Optional: the edits confirmed in the preview; an option's own edits when absent; an own text without edits goes to the clarifications document as written |
+| `edits` | Optional: the edits confirmed in the preview; an option's own edits when absent; an own text without edits goes to the clarifications document as written (not for a `contradiction`: "Placement rules") |
 | `placement` | Optional override: `amend` or `document` |
 | `answered_by` | The user id, from the host's session; `ai` for AI answers |
 | `updated_at` | The gap's `updated_at` as the caller read it; a gap changed since then raises `StaleGapError` (the web route requires it) |
@@ -158,6 +158,7 @@ Checks; nothing is written when one fails:
 | An option without edits is answerable only on a reconcile follow-up ("Keep the upload", "Drop it"), where it resolves the gap at once without a build ([reconcile.md](reconcile.md) "Conflict follow-up", "Orphaned follow-up") | Elsewhere `AnswerInvalidError` (`edits`, `edits_count`) |
 | An answer to a follow-up replaces the answer it follows up when that one is `conflict`, `orphaned`, or `pending` and never grounded (`not_fixed`): when it is applied (or settled) the old clarification becomes `superseded` and its amendments `reverted` ([lifecycle.md](lifecycle.md) "Clarification transitions") | — |
 | A placement override fits ("Placement rules") | `AnswerInvalidError` (`placement`, `contradiction_amends` or `no_anchor`) |
+| An own answer to a `contradiction` has at least one `amend` edit: an own text without edits, or with only clarifications-document edits, is refused for every caller (web, MCP dialog). A reconcile follow-up takes an own answer as any gap ([reconcile.md](reconcile.md) "Conflict follow-up"); an option keeps the placement of its edits | `AnswerInvalidError` (`placement`, `contradiction_amends`) |
 | The caller is a member of the project (host check) | host error |
 
 ### Clarification
@@ -233,7 +234,9 @@ Checks on every edit, from an option, from `gap_edits` or from AI:
 | A pointer | `none` | No edit |
 
 A person may switch an `amend` answer to `document`. A `contradiction` cannot be switched: with the
-document placement both statements would stay in the graph.
+document placement both statements would stay in the graph. For the same reason an own answer to a `contradiction`
+must amend: when its text cannot be turned into an `amend` edit (the preview's fallback), the answer is refused
+(`contradiction_amends`), not placed in the clarifications document.
 
 ### One answer, several edits
 

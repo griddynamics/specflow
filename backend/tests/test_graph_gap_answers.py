@@ -170,6 +170,35 @@ async def test_a_contradiction_cannot_move_to_the_document_and_amend_needs_an_an
     assert (error.field, error.reason) == ("placement", "no_anchor")
 
 
+@pytest.mark.parametrize(
+    "answer",
+    [{"own_text": "500 EUR everywhere."}, {"own_text": "500 EUR everywhere.", "edits": (document(),)}],
+    ids=["own text without edits", "own text with a document edit"],
+)
+async def test_a_contradiction_answer_without_an_amend_edit_is_refused(answer: dict[str, Any]) -> None:
+    """Both lines would stay with a clarifications-document answer (answers.md "Placement rules"), for every caller."""
+
+    rig = await answer_world()
+    review = await rig.review_gap()
+
+    error = await refused(rig, review.gap_id, **answer)
+
+    assert (error.field, error.reason) == ("placement", "contradiction_amends")
+    after = await rig.service.get_gap(rig.project_id, review.gap_id)
+    assert after.status == "open" and after.clarification is None
+    assert not rig.world.amendments.rows.get(rig.project_id)
+
+
+async def test_a_contradiction_preview_that_falls_back_to_the_document_is_refused() -> None:
+    rig = await answer_world()  # no gateway: the own text cannot become edits
+    review = await rig.review_gap()
+
+    with pytest.raises(AnswerInvalidError) as caught:
+        await rig.service.preview_edits(rig.project_id, review.gap_id, own_text="500 EUR everywhere.")
+
+    assert (caught.value.field, caught.value.reason) == ("placement", "contradiction_amends")
+
+
 async def test_option_edits_of_another_document_keep_the_other_document_untouched() -> None:
     rig = await answer_world()
     review = await rig.review_gap()

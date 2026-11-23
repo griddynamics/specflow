@@ -87,6 +87,11 @@ class GapRig:
             if props["kind"] == "open_question" and Planted.PLACE_ORDER in self.world.about(gap_id)
         )
 
+    def contradiction_gap(self) -> str:
+        """The id of the corpus's contradiction gap (the order review limit: 1,000 EUR or 500 EUR)."""
+
+        return next(gap_id for gap_id, props in self.world.gap_nodes().items() if props["kind"] == "contradiction")
+
 
 @asynccontextmanager
 async def serve_gaps(

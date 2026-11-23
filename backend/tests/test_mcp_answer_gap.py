@@ -24,7 +24,7 @@ from starlette.applications import Starlette
 
 from gap_agent_support import ALPHA, QUESTION
 from mcp_gap_support import WEB, Served, serve_mcp_gaps
-from mcp_server.registry import NOT_SHOWN, STAGED
+from mcp_server.registry import CONTRADICTION_OWN, NOT_SHOWN, STAGED
 from mcp_support import ALICE, MCP_HOST, MCP_URL, call, sdk_session
 from specflow_api_agent_support import FOREIGN
 
@@ -265,6 +265,24 @@ async def test_browse_gaps_lists_only_the_callers_open_gaps_when_asked(served) -
     items = mine.structured_content["items"]
     assert [item["gap_id"] for item in items] == [gap_id]
     assert items[0]["assignee"]["you"] is True and "card" not in items[0]
+
+
+async def test_an_own_answer_to_a_contradiction_records_nothing_and_points_to_an_option_or_the_web_card(
+    served,
+) -> None:
+    """The service refuses it (a contradiction always amends); the tool says what to do instead of an error."""
+
+    gap_id = served.gaps.contradiction_gap()
+
+    async with modern(served.app) as session:
+        asked = await ask(session, gap_id)
+        result = await reply(session, gap_id, asked, accept(other=True, own_text="500 EUR everywhere."))
+
+    outcome = result.structured_content
+    assert not result.is_error and outcome is not None
+    assert (outcome["answered"], outcome["action"], outcome["note"]) == (False, "accept", CONTRADICTION_OWN)
+    assert outcome["web_url"].endswith(f"gaps?gap={gap_id}")
+    assert (await served.gaps.gaps.get_gap(ALPHA, gap_id)).status == "open"
 
 
 async def test_accepting_the_preset_choice_of_a_major_gap_records_its_recommended_option(served) -> None:

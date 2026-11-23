@@ -988,7 +988,9 @@ How a call runs:
    the gap's version (`updated_at`), so any change of the gap since the person saw it asks again.
 4. One ticked option, or `other` (or no box) with an own answer, is an answer; two ticked boxes are refused with a note: `POST /agent/gap-answer` records it
    with the gap's `updated_at` from the card and `via` `elicitation`. An option keeps the placement of its edits; an own
-   answer goes to the clarifications document as written. The answer is staged, as on the web card: it reaches the
+   answer goes to the clarifications document as written, except for a `contradiction`, which always amends the
+   losing line ([../graph/gap/answers.md](../graph/gap/answers.md) "Placement rules"): the service refuses that own
+   answer and nothing is recorded (see the table below). The answer is staged, as on the web card: it reaches the
    spec when someone presses "Resolve gaps" on the web Gaps screen.
 
 The answer is `{"project_id", "gap_id", "answered", "action", "choice", "placement", "clr_id", "apply_at", "note",
@@ -1000,6 +1002,7 @@ The answer is `{"project_id", "gap_id", "answered", "action", "choice", "placeme
 | The client speaks a protocol older than 2026-07-28 (a stateless server cannot send a request during the call) or declares no form elicitation | `no_dialog` | names the reason; give the user `web_url` |
 | The person declined or cancelled; the Claude Desktop Code tab and the VS Code extension cancel or decline without showing the dialog | `decline`, `cancel` | give the user `web_url` if they saw no dialog |
 | Two ticked boxes, an option and own text, `other` without text, or no box | `accept` | says what to change; call `answer_gap` again |
+| An own answer to a `contradiction` (refused by the service: `answer_invalid`, reason `contradiction_amends`) | `accept` | call `answer_gap` again so that the user ticks an option, or give the user `web_url` to answer in their own words on the web card, which turns the text into edits of the losing line |
 
 When an answer is recorded, `note` says it is staged: it reaches the spec when someone presses "Resolve gaps" on the web
 Gaps screen, and `apply_at` is null. Only an answer to a development gap that blocks a story is applied at once
