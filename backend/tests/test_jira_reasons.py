@@ -16,6 +16,8 @@ CODES = {
     "jira_unexpected",
     "jira_issue_types_missing",
     "jira_epic_invalid",
+    "jira_not_connected",
+    "jira_reconnect_required",
 }
 
 

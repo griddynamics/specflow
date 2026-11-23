@@ -18,6 +18,8 @@ class Reason(StrEnum):
     UNEXPECTED = "jira_unexpected"
     ISSUE_TYPES_MISSING = "jira_issue_types_missing"
     EPIC_INVALID = "jira_epic_invalid"
+    NOT_CONNECTED = "jira_not_connected"  # oauth: the acting user has no Atlassian connection
+    RECONNECT_REQUIRED = "jira_reconnect_required"  # oauth: the acting connection expired; its owner reconnects
 
 
 _SERVER_ERRORS: Final = range(HTTPStatus.INTERNAL_SERVER_ERROR, 600)

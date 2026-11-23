@@ -9,7 +9,17 @@ from sqlalchemy import CheckConstraint, Table, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from db.models import PROJECT_ROLES, Document, JiraIssue, JiraTarget, Project, ProjectInvite, ProjectMember, User
+from db.models import (
+    PROJECT_ROLES,
+    AtlassianConnection,
+    Document,
+    JiraIssue,
+    JiraTarget,
+    Project,
+    ProjectInvite,
+    ProjectMember,
+    User,
+)
 
 
 def ddl(table: Table) -> str:
@@ -169,6 +179,7 @@ def test_jira_targets_are_keyed_by_project_with_checked_run_columns_and_no_crede
         "last_finished_at",
         "last_error_code",
         "last_counts",
+        "connected_user_id",
     ]
     assert {c.name for c in table.columns if not c.nullable} == {"project_id", "jira_project", "enabled", "updated_at"}
     assert set(checks(table)) == {"ck_jira_targets_last_status", "ck_jira_targets_last_trigger"}
@@ -176,7 +187,34 @@ def test_jira_targets_are_keyed_by_project_with_checked_run_columns_and_no_crede
     text = ddl(table)
     assert "CONSTRAINT pk_jira_targets PRIMARY KEY (project_id)" in text
     assert "CONSTRAINT fk_jira_targets_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in text
-    assert "ON DELETE" not in text  # projects are never deleted: no cascade
+    # projects are never deleted: no cascade; a deleted user leaves the target without an acting account
+    assert "FOREIGN KEY(connected_user_id) REFERENCES users (id) ON DELETE SET NULL" in text
+    assert text.count("ON DELETE") == 1
+
+
+def test_atlassian_connections_are_keyed_by_user_with_a_checked_status_and_a_binary_refresh_token() -> None:
+    table: Table = AtlassianConnection.__table__
+
+    assert [c.name for c in table.columns] == [
+        "user_id",
+        "cloud_id",
+        "account_id",
+        "account_name",
+        "scopes",
+        "refresh_token",
+        "status",
+        "connected_at",
+        "last_used_at",
+        "expired_at",
+    ]
+    assert {c.name for c in table.columns if c.nullable} == {"expired_at"}
+    assert checks(table) == {"ck_atlassian_connections_status": "status IN ('active', 'expired')"}
+    text = ddl(table)
+    assert "CONSTRAINT pk_atlassian_connections PRIMARY KEY (user_id)" in text
+    assert "refresh_token BYTEA NOT NULL" in text
+    assert (
+        "CONSTRAINT fk_atlassian_connections_user_id_users FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE"
+    ) in text
 
 
 def test_jira_issues_have_a_composite_key_a_kind_check_and_a_partial_unique_key_index() -> None:

@@ -1,4 +1,5 @@
-"""Jira Cloud over httpx: basic auth, closed errors, retries of sync.md#failure-handling.
+"""Jira Cloud over httpx: basic auth (``token`` mode) or a user's OAuth bearer token (``oauth`` mode), closed errors,
+retries of sync.md#failure-handling.
 
 The token stays a ``SecretStr`` until the client's auth is built; no log line, error or ``repr`` holds it, a URL
 query, a body or a header. Jira's text is never kept.
@@ -8,16 +9,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Mapping, Sequence
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any, Final, override
+from typing import Any, Final, Protocol, Self, override
 from urllib.parse import quote
 
 import httpx
 from pydantic import SecretStr
 
 from jira.gateway import IssueState, IssueSummary, JiraError, JiraProject
+from jira.oauth import api_url
 from jira.reasons import Reason, reason_for_http
 from logger.logger import WARNING, get_logger, log_event
 
@@ -92,23 +94,63 @@ def _state(issue: Mapping[str, Any]) -> IssueState:
     )
 
 
+class TokenSource(Protocol):
+    """The access tokens of one user's Atlassian connection (``oauth`` mode)."""
+
+    async def access_token(self) -> str:
+        """A valid access token (refreshed when the cached one is about to expire)."""
+
+    async def refreshed(self, used: str) -> str:
+        """A new access token after Jira refused ``used`` (one refresh, shared by concurrent callers)."""
+
+
+class BearerAuth(httpx.Auth):
+    """``Authorization: Bearer`` from a ``TokenSource``; a ``401`` refreshes once and sends the request once more, so a
+    second ``401`` reaches the gateway (``jira_auth_failed``)."""
+
+    def __init__(self, tokens: TokenSource) -> None:
+        self._tokens = tokens
+
+    @override
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}()"
+
+    @override
+    def sync_auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response]:
+        raise RuntimeError("BearerAuth works with an async client only")
+
+    @override
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        token = await self._tokens.access_token()
+        request.headers["Authorization"] = f"Bearer {token}"
+        response = yield request
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            request.headers["Authorization"] = f"Bearer {await self._tokens.refreshed(token)}"
+            yield request
+
+
 class HttpJiraGateway:
     """The ``JiraGateway`` over Jira Cloud REST v3 (and the agile rank endpoint)."""
 
     def __init__(
         self,
         site_url: str,
-        email: str,
-        token: SecretStr,
+        email: str | None = None,
+        token: SecretStr | None = None,
         *,
+        auth: httpx.Auth | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Sleep = asyncio.sleep,
     ) -> None:
         if httpx.URL(site_url).scheme != "https":
             raise ValueError("the Jira site URL must use https")
+        if auth is None:
+            if email is None or token is None:
+                raise ValueError("the Jira gateway needs an email and a token, or an auth")
+            auth = httpx.BasicAuth(email, token.get_secret_value())
         self._client = httpx.AsyncClient(
             base_url=site_url.rstrip("/"),
-            auth=httpx.BasicAuth(email, token.get_secret_value()),
+            auth=auth,
             headers={"Accept": "application/json"},
             timeout=TIMEOUT_SECONDS,
             transport=transport,
@@ -117,6 +159,19 @@ class HttpJiraGateway:
         )
         self._sleep = sleep
         self._points: object = _UNSET
+
+    @classmethod
+    def oauth(
+        cls,
+        cloud_id: str,
+        tokens: TokenSource,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        sleep: Sleep = asyncio.sleep,
+    ) -> Self:
+        """The gateway of one user's connection: ``https://api.atlassian.com/ex/jira/{cloudId}`` with a bearer auth."""
+
+        return cls(api_url(cloud_id), auth=BearerAuth(tokens), transport=transport, sleep=sleep)
 
     @override
     def __repr__(self) -> str:

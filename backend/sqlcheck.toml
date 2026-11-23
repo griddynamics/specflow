@@ -109,6 +109,7 @@ bool = ["Boolean"]
 json = ["JSON", "sqlalchemy.dialects.postgresql:JSONB"]
 enum = ["Enum"]
 timestamp = ["DateTime"]
+bytes = ["LargeBinary"]
 date = ["Date"]
 
 # [migrations] and [sqlite_pragmas] are left out: the migration round trip needs a throwaway

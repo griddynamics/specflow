@@ -491,6 +491,160 @@
         "title": "AreaRef",
         "type": "object"
       },
+      "AtlassianAuthorizeIn": {
+        "additionalProperties": false,
+        "description": "Where the browser returns after the consent: a same-origin path (``/``, not ``//``, so no scheme or host; no\nbackslash, which a browser reads as ``/``).",
+        "properties": {
+          "return_to": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "return_to"
+        ],
+        "title": "AtlassianAuthorizeIn",
+        "type": "object"
+      },
+      "AtlassianAuthorizeOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "AtlassianAuthorizeOut",
+        "type": "object"
+      },
+      "AtlassianCallbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "state"
+        ],
+        "title": "AtlassianCallbackIn",
+        "type": "object"
+      },
+      "AtlassianCallbackOut": {
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/AtlassianConnectionOut"
+          },
+          "return_to": {
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "return_to"
+        ],
+        "title": "AtlassianCallbackOut",
+        "type": "object"
+      },
+      "AtlassianConnectionOut": {
+        "description": "The caller's Atlassian connection: ``mode`` is the server's Jira mode (null = Jira off).",
+        "properties": {
+          "account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Name"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "oauth",
+                  "token"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "expired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "mode",
+          "connected",
+          "status",
+          "account_name",
+          "connected_at",
+          "last_used_at"
+        ],
+        "title": "AtlassianConnectionOut",
+        "type": "object"
+      },
       "BatchFileOut": {
         "properties": {
           "file": {
@@ -4743,7 +4897,9 @@
               "jira_forbidden",
               "jira_epic_invalid",
               "jira_unreachable",
-              "jira_unexpected"
+              "jira_unexpected",
+              "jira_not_connected",
+              "jira_reconnect_required"
             ],
             "title": "Reason",
             "type": "string"
@@ -4793,6 +4949,42 @@
         "title": "JiraAccessOk",
         "type": "object"
       },
+      "JiraConnectionOut": {
+        "description": "The acting account of the target (``oauth`` mode, docs/jira-sync/oauth.md): whose Atlassian connection the\nsync uses and its state; ``missing`` when the row is gone (or no owner saved the target since ``oauth``).",
+        "properties": {
+          "connected_by_me": {
+            "title": "Connected By Me",
+            "type": "boolean"
+          },
+          "connected_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected By Name"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "expired",
+              "missing"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connected_by_name",
+          "connected_by_me",
+          "status"
+        ],
+        "title": "JiraConnectionOut",
+        "type": "object"
+      },
       "JiraSettingsIn": {
         "additionalProperties": false,
         "properties": {
@@ -4830,6 +5022,17 @@
           "available": {
             "title": "Available",
             "type": "boolean"
+          },
+          "connection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JiraConnectionOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null outside the oauth mode and when the project has no target."
           },
           "created_epic_key": {
             "anyOf": [
@@ -12801,6 +13004,124 @@
         "summary": "Drive Identity",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/integrations/atlassian": {
+      "delete": {
+        "description": "Delete the caller's connection; Atlassian's own grant is removed at id.atlassian.com/manage-profile/apps.",
+        "operationId": "disconnect_atlassian_api_v1_integrations_atlassian_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Disconnect Atlassian",
+        "tags": [
+          "atlassian"
+        ]
+      },
+      "get": {
+        "operationId": "get_atlassian_connection_api_v1_integrations_atlassian_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlassianConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Atlassian Connection",
+        "tags": [
+          "atlassian"
+        ]
+      }
+    },
+    "/api/v1/integrations/atlassian/authorize": {
+      "post": {
+        "description": "The Atlassian consent URL; its ``state`` holds the user, ``return_to`` and a 10-minute expiry.",
+        "operationId": "authorize_atlassian_api_v1_integrations_atlassian_authorize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AtlassianAuthorizeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlassianAuthorizeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Authorize Atlassian",
+        "tags": [
+          "atlassian"
+        ]
+      }
+    },
+    "/api/v1/integrations/atlassian/callback": {
+      "post": {
+        "description": "Check ``state``, exchange ``code`` and keep the connection when the grant includes this Jira site.",
+        "operationId": "atlassian_callback_api_v1_integrations_atlassian_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AtlassianCallbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlassianCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Atlassian Callback",
+        "tags": [
+          "atlassian"
         ]
       }
     },

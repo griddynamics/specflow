@@ -27,6 +27,10 @@ class JiraEpicPrefixError(ValueError):
     """The Epic key does not start with the Jira project key."""
 
 
+class ReturnToError(ValueError):
+    """``return_to`` is not a path of this site."""
+
+
 class Page[T](BaseModel):
     items: list[T]
     next_cursor: str | None = None
@@ -616,6 +620,15 @@ class JiraSettingsIn(JiraAccessCheckIn):
     enabled: StrictBool
 
 
+class JiraConnectionOut(BaseModel):
+    """The acting account of the target (``oauth`` mode, docs/jira-sync/oauth.md): whose Atlassian connection the
+    sync uses and its state; ``missing`` when the row is gone (or no owner saved the target since ``oauth``)."""
+
+    connected_by_name: str | None
+    connected_by_me: bool
+    status: Literal["active", "expired", "missing"]
+
+
 class JiraSettingsOut(BaseModel):
     available: bool
     editable: bool
@@ -625,6 +638,9 @@ class JiraSettingsOut(BaseModel):
     created_epic_key: str | None
     enabled: bool
     sync: JiraSyncStatus | None
+    connection: JiraConnectionOut | None = Field(
+        default=None, description="Null outside the oauth mode and when the project has no target."
+    )
 
 
 JiraAccessReason = Literal[
@@ -635,6 +651,8 @@ JiraAccessReason = Literal[
     "jira_epic_invalid",
     "jira_unreachable",
     "jira_unexpected",
+    "jira_not_connected",
+    "jira_reconnect_required",
 ]
 JiraAccessField = Literal["jira_project", "epic_key"]
 
@@ -652,3 +670,58 @@ class JiraAccessFailed(BaseModel):
 
 
 JiraAccessResult = Annotated[JiraAccessOk | JiraAccessFailed, Field(discriminator="result")]
+
+
+# --- Atlassian connections (docs/jira-sync/oauth.md "Routes") ------------------------------------------------------
+
+RETURN_TO_MAX = 2048
+
+
+class AtlassianConnectionOut(BaseModel):
+    """The caller's Atlassian connection: ``mode`` is the server's Jira mode (null = Jira off)."""
+
+    mode: Literal["oauth", "token"] | None
+    connected: bool
+    status: Literal["active", "expired"] | None
+    account_name: str | None
+    connected_at: datetime | None
+    last_used_at: datetime | None
+
+
+class AtlassianAuthorizeIn(BaseModel):
+    """Where the browser returns after the consent: a same-origin path (``/``, not ``//``, so no scheme or host; no
+    backslash, which a browser reads as ``/``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    return_to: str = Field(min_length=1, max_length=RETURN_TO_MAX)
+
+    @field_validator("return_to")
+    @classmethod
+    def _same_origin_path(cls, value: str) -> str:
+        if (
+            not value.startswith("/")
+            or value.startswith("//")
+            or "\\" in value
+            or not value.isascii()
+            or not value.isprintable()
+            or any(c.isspace() for c in value)
+        ):
+            raise ReturnToError("return_to must be a path of this site")
+        return value
+
+
+class AtlassianAuthorizeOut(BaseModel):
+    url: str
+
+
+class AtlassianCallbackIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=4096)
+    state: str = Field(min_length=1, max_length=4096)
+
+
+class AtlassianCallbackOut(BaseModel):
+    connection: AtlassianConnectionOut
+    return_to: str

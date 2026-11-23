@@ -27,6 +27,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     PrimaryKeyConstraint,
     Text,
     UniqueConstraint,
@@ -377,6 +378,7 @@ GAP_OPTIONS_MAX: Final = 4
 JIRA_RUN_STATUSES: Final = ("running", "succeeded", "partial", "failed", "skipped")
 JIRA_TRIGGERS: Final = ("plan_run", "mcp", "settings", "recovery")
 JIRA_ISSUE_KINDS: Final = ("epic", "story", "subtask")
+ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 
 
 def _project_id() -> Mapped[uuid.UUID]:
@@ -647,6 +649,10 @@ class JiraTarget(Base):
     last_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_counts: Mapped[Any] = _json(nullable=True)
+    # oauth mode: the owner whose Atlassian connection the sync acts as (migration ``0006_atlassian_connections``)
+    connected_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class JiraIssue(Base):
@@ -676,3 +682,25 @@ class JiraIssue(Base):
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AtlassianConnection(Base):
+    """One user's Atlassian OAuth connection (migration ``0006_atlassian_connections``, docs/jira-sync/oauth.md
+    "Data"): the refresh token is Fernet ciphertext; the access token is never stored. Not project-scoped: row-level
+    security is on with no policy and no grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "atlassian_connections"
+    __table_args__ = (CheckConstraint(_one_of("status", ATLASSIAN_CONNECTION_STATUSES), name="status"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    cloud_id: Mapped[str] = mapped_column(Text, nullable=False)
+    account_id: Mapped[str] = mapped_column(Text, nullable=False)
+    account_name: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

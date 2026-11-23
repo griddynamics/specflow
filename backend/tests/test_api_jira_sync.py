@@ -744,6 +744,8 @@ async def test_the_created_epic_deleted_in_jira_is_a_run_error(h):
         (Reason.UNREACHABLE, "jira_unreachable"),
         (Reason.UNEXPECTED, "jira_unexpected"),
         (Reason.INVALID_FIELD, "jira_invalid_field"),
+        (Reason.NOT_CONNECTED, "jira_not_connected"),  # oauth: the acting connection was deleted during the pass
+        (Reason.RECONNECT_REQUIRED, "jira_reconnect_required"),  # oauth: its refresh token died during the pass
     ],
 )
 async def test_a_run_error_stops_the_pass_with_its_code_and_no_further_call(h, reason, code):

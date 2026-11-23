@@ -16,9 +16,11 @@ from typing import Any
 import pytest
 
 from api import runtime as runtime_module
+from api.jira.connections import AtlassianConnections
 from api.jira.runner import JiraRunnerClosedError, JiraRunnerDependencies, JiraSyncRunner
 from api.jira.state import items_of, status_of
 from api.jira.sync import SyncCounts, SyncResult, sync_once
+from atlassian_support import oauth_env
 from db.jira import TargetSaved
 from db.models import JiraIssue
 from jira.http import HttpJiraGateway
@@ -612,3 +614,35 @@ async def test_a_recovery_database_error_leaves_build_runtime_returning(monkeypa
     (logged,) = events(caplog, "api.jira.sync.start_failed")
     assert fields(logged)["project_id"] is None and fields(logged)["trigger"] == "recovery"
     assert "token-canary-5d1f" not in caplog.text
+
+
+async def test_build_runtime_in_oauth_mode_wires_the_connections_logs_the_mode_and_closes_them(
+    monkeypatch, valid_env, caplog
+):
+    """With the OAuth variables (and the token account too) the runner acts through the users' connections."""
+    caplog.set_level("INFO")
+    stub_runtime_services(monkeypatch)
+
+    runtime = await runtime_module.build_runtime(load_settings("api", {**valid_env, **JIRA_ENV, **oauth_env()}))
+    await asyncio.wait_for(runtime.jira._recovery, timeout=2)
+    connections = runtime.jira.connections
+    client = connections._client._http
+    await runtime.aclose()
+
+    assert isinstance(connections, AtlassianConnections) and runtime.jira.gateway is None
+    assert runtime.jira._closed and client.is_closed
+    (mode,) = events(caplog, "api.jira.mode")
+    assert fields(mode)["mode"] == "oauth"
+    assert "token-canary-5d1f" not in caplog.text
+
+
+async def test_build_runtime_in_token_mode_logs_the_mode(monkeypatch, valid_env, caplog):
+    caplog.set_level("INFO")
+    stub_runtime_services(monkeypatch)
+
+    runtime = await runtime_module.build_runtime(load_settings("api", {**valid_env, **JIRA_ENV}))
+    await asyncio.wait_for(runtime.jira._recovery, timeout=2)
+    await runtime.aclose()
+
+    (mode,) = events(caplog, "api.jira.mode")
+    assert fields(mode)["mode"] == "token" and runtime.jira.connections is None

@@ -50,6 +50,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | api, workers | Tracing. Unset = no tracing. `LANGFUSE_HOST` is read when `LANGFUSE_BASE_URL` is unset. |
 | `SPECFLOW_CONFIG_FILE` | api, workers, tools | Path of the cloud profile file. Unset = environment only. |
 | `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | api | The one Atlassian account of the [Jira sync](#jira-sync). Set all three or none. |
+| `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](jira-sync/oauth.md) (`oauth` mode, which wins over the one account). The client ID turns it on and needs the secret, a Fernet key and `PUBLIC_URL` with `ATLASSIAN_SITE_URL`. |
 
 ## Settings with a default (D)
 
