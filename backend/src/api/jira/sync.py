@@ -38,7 +38,15 @@ SUCCEEDED, PARTIAL, FAILED, SKIPPED = "succeeded", "partial", "failed", "skipped
 NOT_CONFIGURED, NO_PLAN, PLAN_APPLYING = "jira_not_configured", "no_plan", "plan_applying"
 TARGET_CHANGED, UNEXPECTED_ERROR = "target_changed", "unexpected_error"
 _RUN_REASONS: Final = frozenset(
-    {Reason.AUTH_FAILED, Reason.FORBIDDEN, Reason.NOT_FOUND, Reason.UNREACHABLE, Reason.UNEXPECTED}
+    {
+        Reason.AUTH_FAILED,
+        Reason.FORBIDDEN,
+        Reason.NOT_FOUND,
+        Reason.UNREACHABLE,
+        Reason.UNEXPECTED,
+        Reason.NOT_CONNECTED,
+        Reason.RECONNECT_REQUIRED,
+    }
 )
 _DESCRIPTION_INPUTS: Final = ("v", "text", "release", "phase", "done_when", "specs", "task_id")
 _KIND_TYPE: Final = {"epic": "epic_type_id", "story": "story_type_id", "subtask": "subtask_type_id"}

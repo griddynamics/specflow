@@ -33,6 +33,7 @@ const SETTINGS: JiraSettings = {
   createdEpicKey: null,
   enabled: false,
   sync: null,
+  connection: null,
 };
 const saved = (over: Partial<JiraSettings> = {}): JiraSettings => ({
   ...SETTINGS,
@@ -243,6 +244,29 @@ test("UI-04: every sync error code has its text; an unknown code says something 
   ];
   for (const [code, text] of texts) assert.equal(L.reasonText(code), text, code);
   assert.equal(L.reasonText("jira_not_found", "epic_key"), "No issue with this key.");
+});
+
+test("oauth mode: jira_auth_failed names the Atlassian connection, never an administrator's token", () => {
+  const OAUTH = { mode: "oauth", connected: true, status: "active", accountName: "Ann Lee", connectedAt: null, lastUsedAt: null } as const;
+  const TOKEN = { ...OAUTH, mode: "token", connected: false, status: null, accountName: null } as const;
+  assert.equal(L.reasonText("jira_auth_failed", null, true), "Atlassian refused the connection. Reconnect Atlassian in Settings → Jira.");
+  assert.equal(
+    L.syncErrorText("jira_auth_failed", true),
+    "Atlassian refused the connection this target syncs as. Its owner reconnects Atlassian.",
+  );
+  assert.equal(L.syncErrorText("jira_auth_failed"), "Jira refused the Specflow account. An administrator checks the Atlassian token.");
+  const failed = saved({ sync: { status: "failed", finishedAt: "2026-02-01T10:00:00Z", errorCode: "jira_auth_failed", progress: null } });
+  for (const editable of [true, false]) {
+    const view = markup({ settings: { ...failed, editable }, atlassian: OAUTH, project: "PAY" });
+    assert.match(view, /Atlassian refused the connection this target syncs as\. Its owner reconnects Atlassian\./);
+    assert.doesNotMatch(view, /administrator/);
+  }
+  assert.match(markup({ settings: failed, atlassian: TOKEN, project: "PAY" }), /An administrator checks the Atlassian token\./);
+  const outcome = L.outcomeOf({ result: "failed", reason: "jira_auth_failed", field: null }, true);
+  assert.match(
+    markup({ project: "PAY", outcome, atlassian: OAUTH }),
+    /data-testid="jira-alert"[^>]*>[^<]*Reconnect Atlassian in Settings → Jira\./,
+  );
 });
 
 test("UI-05: a collaborator sees the saved values and the status with every control disabled and no primary button", () => {

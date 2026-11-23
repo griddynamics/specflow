@@ -14,7 +14,7 @@ is a later planning decision that the owner reviews in the pull request.
 
 | # | Decision | By |
 |---|---|---|
-| D1 | One Atlassian account for the deployment: `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` from the environment (a secret store in a cluster). No token in the database. OAuth replaces it later. | owner |
+| D1 | One Atlassian account for the deployment: `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` from the environment (a secret store in a cluster). No token in the database. Refined: per-user OAuth connections (`oauth` mode, [oauth.md](oauth.md)) are added next to it; the one account stays as the `token` mode (D41), and in `oauth` mode the database holds encrypted refresh tokens (D43). | owner |
 | D2 | A Specflow project is one Epic; a story is a Story under it; a task is a Sub-task under its Story. | owner |
 | D3 | A work area is the label `area-<slug>` (owner). Every synced issue also has the label `specflow`, which the crash recovery search needs (agent, approved with the plan). | owner; agent (approved with the plan) |
 | D4 | Owned fields: summary, description, story points, labels, `Blocks` links, rank, a remote link back to Specflow ([sync.md](sync.md#owned-fields)). | agent (approved with the plan) |
@@ -53,6 +53,21 @@ is a later planning decision that the owner reviews in the pull request.
 | D37 | A `Blocks` link a person made before Specflow wanted the same wait is stored in `blocked_by` like a Specflow link and is deleted when the plan drops the wait; links never in `blocked_by` are never deleted (refines D5). | agent |
 | D38 | The Jira tab confirms a save with the toast "Jira target saved", and its primary button stays disabled while the typed keys equal the saved target (refines D22). | agent |
 | D39 | An Epic read that Jira refuses with 403 during the access check is `jira_forbidden` with `field` `epic_key` (refines D29). | agent |
+| D40 | The acting account of a target is the owner who last saved it; any owner takes it over by connecting and saving. | agent (approved with the plan) |
+| D41 | The one-account `token` mode stays as a fallback; `oauth` wins when both are configured (refines D1, D16). | agent (approved with the plan) |
+| D42 | The OAuth `state` is HMAC-signed, with no table; it expires after 10 minutes and is bound to the user who asked. | agent (approved with the plan) |
+| D43 | One Fernet key, `ATLASSIAN_TOKEN_KEY`, encrypts the refresh tokens and derives the `state` signing key. | agent (approved with the plan) |
+| D44 | No keep-alive refresh; `invalid_grant` marks the connection `expired`, never refreshed again until the user reconnects. | agent (approved with the plan) |
+| D45 | Confluence as a source stays out of this change; the connection already holds the Confluence scopes. | agent (approved with the plan) |
+| D46 | Every settings `PUT` sets `connected_user_id` to the saving owner, in both modes (`token` ignores it), so a switch to `oauth` keeps the last saver as the acting account. | agent |
+| D47 | Only `ATLASSIAN_OAUTH_CLIENT_ID` turns `oauth` on; the token variables are then not read (a partial token set is not refused), and a secret or key without the client ID is ignored. `api.jira.mode` is logged at every start, in both modes. | agent |
+| D48 | A refresh failure other than `invalid_grant` keeps the connection `active`: `429`, `5xx` and network errors are `jira_unreachable`, any other refusal (a wrong client secret) `jira_auth_failed`. A refresh token that no longer decrypts (a rotated `ATLASSIAN_TOKEN_KEY`) counts as `invalid_grant` (refines D44). | agent |
+| D49 | Callback errors: a refused `accessible-resources` call is `atlassian_code_invalid`, a refused `/myself` is `atlassian_site_not_granted`. The callback body stays `{code, state}`: Atlassian's `?error=` never reaches the API; the web app maps it to `atlassian_consent_denied`. | agent |
+| D50 | `GET /integrations/atlassian` answers in every mode (`connected` false in `token` mode and off). `JiraSettingsOut.connection` is null outside `oauth` mode and when the project has no target; `connected_by_name` is the Atlassian display name of the acting connection, null when `missing`. | agent |
+| D51 | A settings `PUT` with the owner's own connection `expired` is 409 `jira_not_connected` too (refines D40). | agent |
+| D52 | `return_to` also refuses a backslash, whitespace, control and non-ASCII characters, and is at most 2048 characters. | agent |
+| D53 | Access tokens are cached per api process; several replicas refresh on their own and the row's `FOR UPDATE` serializes the rotation. A gateway per user and cloud lives until shutdown, so a running pass keeps its client; a disconnect drops the token and the next call fails `jira_not_connected`, in the process that served it only: another replica keeps its cached access token until it expires (about an hour). | agent |
+| D54 | `cryptography` is declared in the api dependency extra (it was only transitive). | agent |
 
 ## Design choices
 
@@ -68,11 +83,13 @@ is a later planning decision that the owner reviews in the pull request.
 | Crash safety (D23) | pending row and property search, adopting only issues whose property names the same Specflow project | search by summary before every create: a call per create and fuzzy |
 | Target change during a pass (D31) | the pass checks the target under a row lock before each write and stops | the save waits for the pass: a pass can take minutes (rate limits), longer than a web request should; refuse the save while a pass runs: the owner retries by hand |
 | Issue deleted in Jira (D32) | mark removed, no more calls | create it again: undoes a person's decision; keep failing: the status shows errors on every later pass |
+| Whose Atlassian account a sync uses (D40) | the owner who last saved the target | the user who started the pass: plan runs and recovery have no user, and a member could act beyond the owner's choice; a shared technical account: the reason for OAuth |
+| `state` storage (D42) | signed, no table | a table of pending states: one more table and a cleanup for a 10-minute value |
+| Expired grant (D44) | `expired` until a reconnect | retry the refresh on every pass: a dead grant never comes back, and each retry is a token call that fails |
 
 ## Follow-ups
 
-- OAuth (3LO) per site instead of one API token, once the Atlassian admins approve the app.
 - An allow-list of Jira projects per deployment.
 - A new Sub-task instead of a comment when a task past To Do is redone, if teams ask for it.
 - Slack commands reuse the agent routes.
-- Confluence as a source shares the Atlassian account.
+- Confluence as a source reuses the Atlassian connection, which already holds the Confluence scopes (D45).

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from auth.emails import InvalidCollaboratorsError, check_collaborators
 from db import members
 from db import repositories as repo
-from db.models import Project, ProjectInvite, ProjectMember, User
+from db.models import JiraTarget, Project, ProjectInvite, ProjectMember, User
 from db.session import build_engine, build_session_factory
 from logger_harness import events, fields
 from settings import DatabaseSettings
@@ -274,6 +274,37 @@ async def test_list_members_orders_owner_first_then_joined_and_names_follow_the_
     async with factory() as session:  # the same names as ``member_names``
         names = await repo.member_names(session, project, [m.user_id for m in as_bob.members])
     assert [names[m.user_id] for m in as_bob.members] == [m.name for m in as_bob.members]
+
+
+async def acting_accounts(factory, *project_ids: uuid.UUID) -> list[uuid.UUID | None]:
+    async with factory() as session:
+        query = select(JiraTarget.connected_user_id)
+        return [await session.scalar(query.where(JiraTarget.project_id == p)) for p in project_ids]
+
+
+async def test_a_removed_or_departed_member_stops_being_the_jira_acting_account_of_that_project_only(factory):
+    owner = await signed_in(factory, "owner@example.com")
+    bob = await signed_in(factory, "bob@example.com")
+    cy = await signed_in(factory, "cy@example.com")
+    alpha, beta, gamma = [await new_project(factory, owner, name) for name in ("Alpha", "Beta", "Gamma")]
+    for project in (alpha, beta, gamma):
+        await add(factory, project, owner, "bob@example.com")
+        await add(factory, project, owner, "cy@example.com")
+    async with factory() as session, session.begin():
+        for project, acting in ((alpha, bob.id), (beta, cy.id), (gamma, bob.id)):
+            target = JiraTarget(project_id=project, jira_project="PRJ", enabled=True, updated_at=func.now())
+            target.connected_user_id = acting
+            session.add(target)
+
+    async with factory() as session, session.begin():
+        await members.remove_member(session, alpha, bob.id)
+        await members.leave_project(session, beta, cy.id)
+        await members.leave_project(session, gamma, cy.id)  # cy is not gamma's acting account: bob stays
+    with pytest.raises(members.CannotRemoveOwnerError):
+        async with factory() as session, session.begin():
+            await members.remove_member(session, gamma, owner.id)
+
+    assert await acting_accounts(factory, alpha, beta, gamma) == [None, None, bob.id]
 
 
 async def test_remove_leave_cancel_and_rename(factory):

@@ -29,15 +29,16 @@ overwritten, they get one comment per change instead.
 | Overwrite in To Do, comment otherwise; removed items labelled, never deleted | [sync.md](sync.md#update-rules) |
 | Map of plan node to Jira key with the last applied content | [data-model.md](data-model.md) |
 | Crash safety: no duplicate issue after a restart | [sync.md](sync.md#failure-handling) |
+| Per-user Atlassian connections (OAuth 2.0 3LO), or one account for the deployment | [oauth.md](oauth.md) |
 
 ## Actors
 
 | Actor | Who | Can |
 |---|---|---|
-| Owner | the Specflow project's owner | set, check and change the target; turn the sync on and off; everything a member can |
+| Owner | the Specflow project's owner | set, check and change the target; turn the sync on and off; in `oauth` mode connect their own Atlassian account, which the target's sync then acts as ([oauth.md](oauth.md#acting-account-of-a-target)); everything a member can |
 | Member | owner or collaborator | see the Jira tab read-only; run `sync_to_jira` and `jira_sync_status` from a coding agent |
 | Plan runner | Specflow itself | start a sync after each plan run that does not fail |
-| Deployment admin | whoever runs Specflow | set `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` ([../configuration.md](../configuration.md#jira-sync)) |
+| Deployment admin | whoever runs Specflow | set `ATLASSIAN_SITE_URL` and either the OAuth app (`ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY`) or the one account (`ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN`) ([../configuration.md](../configuration.md#jira-sync)) |
 | Jira users | people working in the Jira project | change status, assignee and anything else; Specflow never undoes it |
 
 ## Non-goals
@@ -46,15 +47,15 @@ overwritten, they get one comment per change instead.
 - Moving issues through workflow transitions, for example when a story is claimed or completed.
 - Sprints, fix versions, Jira Plans dates, components.
 - Deleting Jira issues, comments or links Specflow did not create.
-- Per-user Atlassian accounts or OAuth; an allow-list of Jira projects.
+- An allow-list of Jira projects.
 - A web "Sync now" button or a preview of the changes.
-- Confluence as a source (a separate feature; it will reuse the same Atlassian account).
+- Confluence as a source (a separate feature; it will reuse the same Atlassian connection).
 
 ## Boundaries
 
 | Boundary | Rule |
 |---|---|
-| Credentials | one Atlassian account per deployment, from the environment only; never in the database, a response or a log |
+| Credentials | `token` mode: one Atlassian account per deployment, from the environment only. `oauth` mode: one connection per user, its refresh token encrypted in the database, the access token in memory only ([oauth.md](oauth.md#tokens)). No token reaches a response or a log |
 | Process | the sync runs in the API process, like the plan and gap runs; one API replica (the same constraint as those runs) |
 | Plan reads | the persisted plan through the plan library's one read (`load_plan`), closed tasks included |
 | Jira API | REST v3 and the agile rank endpoint, through one gateway package; no Jira text reaches a log or an API error |

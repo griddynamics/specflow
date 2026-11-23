@@ -1,11 +1,14 @@
 // COLLABORATORS: the project Settings screen (tab General) on the PRODUCTION routes in a real browser, against the stub API through
 // the real BFF. The stub keeps the people of each project (tests/support/stub-members.mjs); a case seeds its own project through the
 // control port, so the shared stub never decides an outcome. Proves FR-PRJ-UI-01..08 (docs/projects/requirements.md) and, for the tab
-// Jira, FR-JIRA-UI-01, UI-03, UI-05 (docs/jira-sync/requirements.md).
+// Jira, FR-JIRA-UI-01, UI-03, UI-05 (docs/jira-sync/requirements.md), and the Atlassian connection of the oauth mode
+// (docs/jira-sync/oauth.md#jira-tab): connect through the consent (Atlassian's page is intercepted, never reached), the callback route,
+// its toast and disconnect.
 import { randomBytes } from "node:crypto";
 import type { Locator, Page } from "@playwright/test";
 import {
   allowConsoleErrors,
+  allowOrigin,
   expect,
   login,
   projectSwitcher,
@@ -31,7 +34,8 @@ const syncSwitch = (page: Page): Locator => page.getByRole("switch", { name: "Sy
 test.describe("Project Settings on production routes", { tag: "@production" }, () => {
   test.afterEach(async () => {
     await resetPeopleState();
-    await seedJira({ pid: "none", available: true }); // the Jira switch is global in the stub: put it back
+    // The Jira switch and the Atlassian knobs are global in the stub: put them back.
+    await seedJira({ pid: "none", available: true, mode: "token", connection: null, callbackError: null });
   });
 
   test("FR-PRJ-UI-01, UI-02: the sidebar opens Settings; the General tab sits in the shell header row, not in the body", async ({
@@ -295,5 +299,129 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     await expect(projectField(page)).toBeDisabled();
     await expect(epicField(page)).toBeDisabled();
     await expect(syncSwitch(page)).toBeDisabled();
+  });
+
+  test("Atlassian: Connect goes to Atlassian's consent; the callback connects, toasts once and drops ?atlassian= without a reload", async ({
+    page,
+    requests,
+    baseURL,
+  }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Atlassian connect") });
+    await seedJira({ pid: id, target: null, mode: "oauth", connection: null });
+    const back = `/projects/${id}/settings?tab=jira`;
+    // Atlassian's consent page never loads: the request is answered here with the redirect Atlassian sends after "Accept".
+    const consent: URL[] = [];
+    allowOrigin(page, "https://auth.atlassian.com");
+    await page.route(
+      (url) => url.origin === "https://auth.atlassian.com",
+      async (route) => {
+        const url = new URL(route.request().url());
+        consent.push(url);
+        const state = url.searchParams.get("state") ?? "";
+        await route.fulfill({
+          status: 302,
+          headers: { location: `${baseURL ?? ""}/api/integrations/atlassian/callback?code=stub-code&state=${state}` },
+        });
+      },
+    );
+    const logged = (await stubLog()).length; // the stub's log is shared by every case
+    let loads = 0;
+    page.on("load", () => {
+      loads += 1;
+    });
+    await page.goto(back);
+    const row = page.getByTestId("atlassian-row");
+    await expect(row).toHaveAttribute("data-state", "none");
+    await expect(page.getByRole("button", { name: "Check access" })).toBeDisabled();
+    await expect(page.getByTestId("jira-gate")).toHaveText("Connect Atlassian to check access and save.");
+    await row.getByRole("button", { name: "Connect Atlassian" }).click();
+
+    await expect(page.getByText("Atlassian connected")).toBeVisible();
+    expect(consent).toHaveLength(1);
+    expect(consent[0].pathname).toBe("/authorize");
+    const authorize = requests.find((r) => r.method === "POST" && r.path === "/api/backend/integrations/atlassian/authorize");
+    expect(bodyOf(authorize ?? { postData: null })).toEqual({ return_to: back });
+    await expect(page).toHaveURL(new RegExp(`/projects/${id}/settings\\?tab=jira$`)); // ?atlassian= is gone
+    await expect(row).toHaveAttribute("data-state", "connected");
+    await expect(row).toContainText("Connected to Atlassian as Ann Lee");
+    await expect(page.getByTestId("jira-gate")).toHaveCount(0);
+    expect(loads).toBe(2); // the tab, then the page the callback returned to: dropping ?atlassian= did not load it again
+    await expect(page.getByTestId("toast").filter({ hasText: "Atlassian connected" })).toHaveCount(1);
+    const log = await stubLog();
+    expect(log.slice(logged).filter((e) => e.method === "POST" && e.path === "/api/v1/integrations/atlassian/callback")).toHaveLength(1);
+  });
+
+  test("Atlassian: a refused consent and a refused callback land back on the tab with their toast", async ({ page }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Atlassian refused") });
+    await seedJira({ pid: id, target: null, mode: "oauth", connection: null, callbackError: "atlassian_site_not_granted" });
+    const payload = JSON.stringify({ u: "u1", r: `/projects/${id}/settings?tab=jira`, e: 1 });
+    const state = `n.${Buffer.from(payload).toString("base64url")}.stub-signature`;
+    await page.goto(`/api/integrations/atlassian/callback?error=access_denied&state=${state}`);
+    await expect(page.getByText("Atlassian access was not granted.")).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/projects/${id}/settings\\?tab=jira$`));
+    await page.goto(`/api/integrations/atlassian/callback?code=c&state=${state}`);
+    await expect(page.getByText("Your Atlassian account has no access to this Jira site.")).toBeVisible();
+    await expect(page.getByTestId("atlassian-row")).toHaveAttribute("data-state", "none");
+  });
+
+  test("Atlassian: a return_to with dot segments never redirects off the site, after a refusal or a connect", async ({ page, baseURL }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Atlassian redirect") });
+    await seedJira({ pid: id, target: null, mode: "oauth", connection: null, callbackError: null });
+    const origin = new URL(baseURL ?? "").origin;
+    for (const r of ["/.//evil.example", "/..//evil.example", "/%2e%2e//evil.example"]) {
+      const state = `n.${Buffer.from(JSON.stringify({ u: "u1", r, e: 1 })).toString("base64url")}.stub-signature`;
+      for (const query of [`error=access_denied&state=${state}`, `code=c&state=${state}`]) {
+        const res = await page.request.get(`/api/integrations/atlassian/callback?${query}`, { maxRedirects: 0 });
+        expect(res.status()).toBe(302);
+        const location = new URL(res.headers().location);
+        expect(location.origin, `${r} ${query.slice(0, 5)}`).toBe(origin);
+        expect(location.pathname).toBe("/");
+      }
+    }
+  });
+
+  test("Atlassian: Disconnect asks first, then forgets the connection; the acting line warns to save the target again", async ({
+    page,
+    requests,
+  }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Atlassian disconnect") });
+    await seedJira({
+      pid: id,
+      mode: "oauth",
+      connection: { status: "active", account_name: "Ann Lee" },
+      target: { jira_project: "ABC", epic_key: null, enabled: true, acting: "me" },
+    });
+    await page.goto(`/projects/${id}/settings?tab=jira`);
+    await expect(page.getByTestId("jira-acting")).toHaveText("Syncs to Jira as you");
+    await page.getByTestId("atlassian-disconnect").click();
+    const dialog = page.getByRole("dialog", { name: "Disconnect Atlassian?" });
+    await expect(dialog.getByRole("link", { name: "Connected apps" })).toHaveAttribute(
+      "href",
+      "https://id.atlassian.com/manage-profile/apps",
+    );
+    await dialog.getByRole("button", { name: "Keep" }).click();
+    expect(requests.filter((r) => r.method === "DELETE")).toHaveLength(0);
+    await page.getByTestId("atlassian-disconnect").click();
+    await page.getByTestId("atlassian-disconnect-confirm").click();
+    await expect(page.getByText("Atlassian disconnected")).toBeVisible();
+    await expect(page.getByTestId("atlassian-row")).toHaveAttribute("data-state", "none");
+    await expect(page.getByTestId("jira-acting")).toContainText("Syncs to Jira as nobody yet");
+    await expect(page.getByTestId("jira-acting")).toContainText("Save the target to sync as you.");
+    await expect(syncSwitch(page)).toBeDisabled();
+    expect(requests.filter((r) => r.method === "DELETE" && r.path === "/api/backend/integrations/atlassian")).toHaveLength(1);
+  });
+
+  test("Atlassian: the callback without a session goes to sign-in and never calls the API", async ({ playwright, baseURL }) => {
+    const anonymous = await playwright.request.newContext({ baseURL });
+    const before = (await stubLog()).length;
+    const res = await anonymous.get("/api/integrations/atlassian/callback?code=c&state=a.b.c", { maxRedirects: 0 });
+    expect(res.status()).toBe(302);
+    expect(new URL(res.headers().location).pathname).toBe("/login");
+    expect((await stubLog()).slice(before).filter((e) => e.path.includes("atlassian"))).toHaveLength(0);
+    await anonymous.dispose();
   });
 });

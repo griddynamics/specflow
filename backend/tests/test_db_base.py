@@ -65,6 +65,7 @@ def test_the_base_metadata_holds_exactly_the_app_tables() -> None:
         "gap_assignment",
         "jira_targets",
         "jira_issues",
+        "atlassian_connections",
     }
 
 

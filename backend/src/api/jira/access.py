@@ -14,11 +14,18 @@ from jira.reasons import Reason
 
 EPIC_TYPE: Final = "Epic"
 _OF_INPUT: Final = frozenset({Reason.NOT_FOUND, Reason.FORBIDDEN})  # failures that name the input to fix
-_KNOWN: Final = _OF_INPUT | {Reason.AUTH_FAILED, Reason.UNREACHABLE}
+_KNOWN: Final = _OF_INPUT | {Reason.AUTH_FAILED, Reason.UNREACHABLE, Reason.NOT_CONNECTED, Reason.RECONNECT_REQUIRED}
 
 
 def _failed(reason: Reason, field: JiraAccessField | None) -> JiraAccessFailed:
     return JiraAccessFailed.model_validate({"reason": reason.value, "field": field})
+
+
+def not_usable(error: JiraError) -> JiraAccessFailed:
+    """The caller's own connection cannot act (``oauth`` mode): ``jira_not_connected`` or
+    ``jira_reconnect_required``, with no field."""
+
+    return _failed(error.reason if error.reason in _KNOWN else Reason.UNEXPECTED, None)
 
 
 def _from_error(error: JiraError, field: JiraAccessField) -> JiraAccessFailed:

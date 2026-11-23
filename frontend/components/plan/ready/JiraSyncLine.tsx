@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { JiraProgress } from "@/components/settings/JiraProgress";
 import { POLL_MS } from "@/components/settings/jira-logic";
-import type { JiraSettings } from "@/lib/domain/jira";
+import type { JiraSettings, JiraSyncState } from "@/lib/domain/jira";
 import { usePlanRoutes, useJiraPort } from "../use-plan-ports";
 import { JIRA_LINE_COPY } from "./jira-sync-text";
 import "./jira-sync-line.css";
@@ -14,6 +14,12 @@ import "./jira-sync-line.css";
 /** True when the line has something to say: Jira is connected, the sync is on, and a pass has run or runs. */
 export const jiraLineShows = (s: JiraSettings): boolean =>
   s.available && s.enabled && s.jiraProject !== null && s.sync !== null && s.sync.status !== "idle" && s.sync.status !== "skipped";
+
+/** The words of a pass that did not succeed; a missing or expired Atlassian connection of the target says so (docs/jira-sync/oauth.md). */
+function failText(status: JiraSyncState, code: string | null): string {
+  if (status === "partial") return JIRA_LINE_COPY.partial;
+  return code === "jira_not_connected" || code === "jira_reconnect_required" ? JIRA_LINE_COPY.reconnect : JIRA_LINE_COPY.failed;
+}
 
 export function JiraSyncLineView({ settings, settingsHref }: Readonly<{ settings: JiraSettings; settingsHref: string }>) {
   const sync = settings.sync;
@@ -47,7 +53,7 @@ export function JiraSyncLineView({ settings, settingsHref }: Readonly<{ settings
   } else {
     body = (
       <>
-        <span role="status">{sync.status === "partial" ? JIRA_LINE_COPY.partial : JIRA_LINE_COPY.failed}</span>
+        <span role="status">{failText(sync.status, sync.errorCode)}</span>
         {settingsLink}
       </>
     );

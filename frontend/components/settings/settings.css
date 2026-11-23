@@ -174,3 +174,33 @@
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
+/* docs/jira-sync/oauth.md#jira-tab: the owner's Atlassian connection row (one row of the people card's look) and the acting account line
+   under the target. The hint may wrap here: it carries a sentence, not a name. */
+.settings-atlassian .settings-who small {
+  white-space: normal;
+}
+.settings-atlassian__mark {
+  flex-shrink: 0;
+  color: var(--ink-2);
+}
+.settings-atlassian .gdg-btn {
+  flex-shrink: 0;
+}
+.settings-acting {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.settings-acting__warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+.settings-acting__warning .gdg-icon {
+  flex-shrink: 0;
+  color: var(--danger);
+}

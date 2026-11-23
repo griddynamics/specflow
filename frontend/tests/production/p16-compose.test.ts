@@ -76,7 +76,7 @@ const http: HttpPorts = {
     removeNoiseRule: never,
   },
   members: { list: never, add: never, remove: never, cancelInvite: never, leave: never, suggest: never },
-  jira: { get: never, save: never, checkAccess: never },
+  jira: { get: never, save: never, checkAccess: never, connection: never, authorize: never, disconnect: never },
 };
 const ports = composeProductionPorts(http);
 

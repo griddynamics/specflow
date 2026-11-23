@@ -27,7 +27,8 @@ A failed plan run starts nothing. Starting is never an error for the plan run: a
 Runs (D12, D18):
 - One sync pass per project at a time. A start while the project's pass runs sets a flag and answers `running` with
   `queued: true`; when the pass ends, exactly one more pass runs. Starts are merged, never dropped.
-- One pass at a time in the process (all projects share one Atlassian account); other projects wait.
+- One pass at a time in the process (in `token` mode all projects share one Atlassian account; `oauth` mode keeps the
+  same limit); other projects wait.
 - A pass records `running`, the trigger and the time it was queued as soon as it is queued, before it waits for the
   process-wide slot, so a restart recovers a waiting pass too. At its end it records the status, counts, error code and
   finish time.
@@ -52,6 +53,21 @@ Counts of a pass: `created`, `updated` (To Do issues overwritten, a link-only ch
 comment posted, removal and revival included), `removed` (newly marked removed, issues deleted in Jira included),
 `links_added`, `links_removed`, `ranked` (issues moved), `unchanged` (wanted items with no create, change or revival),
 `failed` (items).
+
+### Acting account
+
+In `token` mode every pass calls Jira as the deployment's one account. In `oauth` mode a pass acts as the target's
+`connected_user_id`, the owner who last saved the target, whatever started it (plan run, `sync_to_jira`, settings,
+recovery) ([oauth.md](oauth.md#acting-account-of-a-target)):
+
+| Acting connection | Effect |
+|---|---|
+| `active` | the pass runs with that user's Jira permissions |
+| missing (never connected, disconnected, or no owner saved the target since `oauth` was turned on) | the pass ends `failed` with `jira_not_connected`, no Jira call |
+| `expired` | the pass ends `failed` with `jira_reconnect_required`, no Jira call |
+| expires during the pass (Atlassian refuses the refresh token) | the pass stops `failed` with `jira_reconnect_required` |
+
+The owner fixes either code by connecting or reconnecting Atlassian in the Jira tab and saving the target.
 
 ### Target change during a pass
 
@@ -327,7 +343,8 @@ Creates (D23):
 |---|---|---|
 | `400` on one issue | item | row gets `jira_invalid_field`, its content is not stored (retried next pass); the pass goes on; status `partial` |
 | `404` on one mapped Story or Sub-task | item | deleted in Jira ([Removed and revived items](#removed-and-revived-items)): row removed with `jira_not_found`, no further call |
-| `401` | run | stop, `failed`, `jira_auth_failed` |
+| `401` | run | stop, `failed`, `jira_auth_failed` (in `oauth` mode only after one refresh and one more try of the call) |
+| `oauth` mode: no usable acting connection | run | `failed`, `jira_not_connected` or `jira_reconnect_required` ([Acting account](#acting-account)) |
 | `403` | run | stop, `failed`, `jira_forbidden` |
 | `404` on the project, the configured Epic or the created Epic | run | stop, `failed`, `jira_not_found` |
 | `429` | call | wait `Retry-After`, at most 5 tries; a `Retry-After` over 60 s, or a sixth `429`, ends the run at once with `jira_unreachable` |
@@ -340,8 +357,9 @@ and never searched for.
 
 ## Jira calls
 
-All calls use basic authentication with the deployment's email and API token over HTTPS, JSON bodies, REST v3 unless
-marked agile.
+All calls go over HTTPS with JSON bodies, REST v3 unless marked agile. In `token` mode they use basic authentication with
+the deployment's email and API token against `ATLASSIAN_SITE_URL`; in `oauth` mode a bearer access token of the acting
+connection against `https://api.atlassian.com/ex/jira/{cloudId}` ([oauth.md](oauth.md#tokens)). The paths are the same.
 
 | Purpose | Call |
 |---|---|

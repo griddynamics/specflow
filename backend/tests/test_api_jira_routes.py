@@ -187,6 +187,7 @@ async def test_get_without_a_target_is_off_with_no_sync_and_the_standing_of_the_
         "created_epic_key": None,
         "enabled": False,
         "sync": None,
+        "connection": None,  # token mode
     }
     assert collaborator.json()["editable"] is False and collaborator.json()["available"] is True
 

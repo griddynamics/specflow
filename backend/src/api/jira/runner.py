@@ -18,25 +18,26 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from agent_contracts.jira_models import JiraSyncItem, JiraSyncProgress, JiraSyncStatus
 from api.contained import Contained
+from api.jira.connections import AtlassianConnections
 from api.jira.desired import EPIC, SpecRef
 from api.jira.state import Trigger, items_of, status_of
-from api.jira.sync import NOT_CONFIGURED, SyncDeps, SyncProgress, SyncResult, sync_once
+from api.jira.sync import FAILED, NOT_CONFIGURED, SyncCounts, SyncDeps, SyncProgress, SyncResult, sync_once
 from db import jira as jira_db
 from db.jira import JiraTargetView, TargetSaved
 from graph.core import Ontology, load_ontology
 from graph.core.reader import GraphReader
 from graph.core.store import as_executor
 from graph.plan.reader import LoadedPlan, load_plan
-from jira.gateway import JiraGateway
+from jira.gateway import JiraError, JiraGateway
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("api.jira.runner")
 
-MAX_CONCURRENT_SYNCS: Final = 1  # passes at once in this process: one Atlassian account, the other projects wait
+MAX_CONCURRENT_SYNCS: Final = 1  # passes at once in this process; the other projects wait
 
 
 class JiraRunnerClosedError(RuntimeError):
@@ -73,16 +74,21 @@ class JiraSyncRunner:
 
     def __init__(
         self,
-        gateway: JiraGateway,
+        gateway: JiraGateway | None,
         *,
         transaction: Callable[[], AbstractAsyncContextManager[Any]],
         store: Any,
         public_url: str | None,
         site_url: str,
         dependencies: JiraRunnerDependencies | None = None,
+        connections: AtlassianConnections | None = None,
     ) -> None:
+        """``token`` mode passes the one ``gateway``; ``oauth`` mode passes ``connections`` (and no gateway): each pass
+        then acts as the target's ``connected_user_id`` (docs/jira-sync/oauth.md "Acting account of a target")."""
+
         deps = dependencies or JiraRunnerDependencies()
         self._gateway = gateway
+        self._connections = connections
         self._transaction = transaction
         self._store = store
         self._site_url = site_url
@@ -90,7 +96,7 @@ class JiraSyncRunner:
         self._now = deps.now
         self._ontology_value: Ontology | None = None
         self._deps = SyncDeps(
-            gateway=gateway,
+            gateway=cast(JiraGateway, gateway),  # None in oauth mode: each pass puts its acting account's gateway
             transaction=transaction,
             load_plan=deps.load_plan or self._load_plan,
             spec_names=deps.spec_names or self._spec_names,
@@ -104,10 +110,24 @@ class JiraSyncRunner:
         self._closed = False
 
     @property
-    def gateway(self) -> JiraGateway:
-        """The gateway of the server's one Atlassian account (the access check uses it too)."""
+    def gateway(self) -> JiraGateway | None:
+        """The gateway of the server's one Atlassian account (``token`` mode); ``None`` in ``oauth`` mode."""
 
         return self._gateway
+
+    @property
+    def connections(self) -> AtlassianConnections | None:
+        """The users' Atlassian connections (``oauth`` mode); ``None`` in ``token`` mode."""
+
+        return self._connections
+
+    async def gateway_for(self, user_id: uuid.UUID | None) -> JiraGateway:
+        """The gateway acting as ``user_id`` (``oauth``: their connection, ``JiraError`` with ``jira_not_connected`` or
+        ``jira_reconnect_required`` when it cannot act), or the one account (``token``: ``user_id`` is ignored)."""
+
+        if self._connections is None:
+            return cast(JiraGateway, self._gateway)
+        return await self._connections.gateway(user_id)
 
     # Public ------------------------------------------------------------------
 
@@ -208,7 +228,10 @@ class JiraSyncRunner:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-        await self._gateway.aclose()
+        if self._gateway is not None:
+            await self._gateway.aclose()
+        if self._connections is not None:
+            await self._connections.aclose()
 
     # Reads ---------------------------------------------------------------------
 
@@ -297,7 +320,7 @@ class JiraSyncRunner:
                 await jira_db.record_start(session, pid, trigger=trigger, queued_at=project.queued_at)
             async with self._slots:
                 log_event(logger, INFO, "api.jira.sync.started", project_id=project_id, trigger=trigger)
-                result = await self._sync_once(project_id, self._deps)
+                result = await self._run(project_id, pid)
             async with self._transaction() as session:
                 await jira_db.record_end(
                     session,
@@ -326,6 +349,22 @@ class JiraSyncRunner:
                 error_code="unexpected_error",
                 error_type=ran.error_type,
             )
+
+    async def _run(self, project_id: str, pid: uuid.UUID) -> SyncResult:
+        """One pass with the gateway of its acting account (``oauth``), which may refuse: the pass then ends
+        ``failed`` with ``jira_not_connected`` or ``jira_reconnect_required`` and no Jira call. The acting account is
+        read here, with the slot held, so a takeover saved while the pass waited for the slot is the one it acts as."""
+
+        deps = self._deps
+        if self._connections is not None:
+            async with self._transaction() as session:
+                target = await jira_db.get_target(session, pid)
+            try:
+                gateway = await self._connections.gateway(target.connected_user_id if target is not None else None)
+            except JiraError as error:
+                return SyncResult(FAILED, error.reason.value, SyncCounts())
+            deps = dataclasses.replace(deps, gateway=gateway)
+        return await self._sync_once(project_id, deps)
 
 
 def _not_configured(project_id: str, target: JiraTargetView | None) -> JiraSyncStatus:

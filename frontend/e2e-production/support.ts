@@ -1,7 +1,8 @@
 // P17 (FE-BP-03.AC9, FE-DOD-03, TECH-SPECS §10.4): the `test` every production-route spec uses. The app runs against the stub API
 // (scripts/serve-production.mjs), never the real backend. It fails a case on a console error or page error (a case may allow a
 // named one, e.g. the browser's "Failed to load resource" line for an expected 404), on any origin other than the app, the stub
-// issuer the sign-in goes through and the two Google Fonts hosts, and on any app `/api/` path outside `/api/backend/` (the BFF) and `/api/auth/` (sign-in, sign-out).
+// issuer the sign-in goes through and the two Google Fonts hosts (a case may allow one more, e.g. Atlassian's consent page it intercepts),
+// and on any app `/api/` path outside `/api/backend/` (the BFF), `/api/auth/` (sign-in, sign-out) and the Atlassian consent callback.
 import { randomBytes } from "node:crypto";
 import { request, type Locator, type Page } from "@playwright/test";
 import { test as base, expect, networkQuiet } from "../e2e/support";
@@ -29,6 +30,7 @@ export interface StubEntry {
 
 // The allow-list lives per page so a case can extend it after the guard is installed (see allowConsoleErrors).
 const allowConsoleList = new WeakMap<Page, RegExp[]>();
+const allowOriginList = new WeakMap<Page, string[]>();
 
 export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
   requests: async ({}, use) => {
@@ -54,9 +56,15 @@ export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
           postData: r.postData(),
           headers: r.headers(),
         });
-        if (u.origin !== appOrigin && u.origin !== ISSUER_ORIGIN && !ALLOWED_EXTRA_HOSTS.includes(u.hostname))
+        const extra = allowOriginList.get(page) ?? [];
+        if (u.origin !== appOrigin && u.origin !== ISSUER_ORIGIN && !ALLOWED_EXTRA_HOSTS.includes(u.hostname) && !extra.includes(u.origin))
           problems.push(`foreign origin: ${u.origin}`);
-        if (u.origin === appOrigin && u.pathname.startsWith("/api/") && !/^\/api\/(?:backend|auth)\//.test(u.pathname))
+        if (
+          u.origin === appOrigin &&
+          u.pathname.startsWith("/api/") &&
+          !/^\/api\/(?:backend|auth)\//.test(u.pathname) &&
+          u.pathname !== "/api/integrations/atlassian/callback"
+        )
           problems.push(`API path: ${u.pathname}`);
       });
       await use(undefined);
@@ -71,6 +79,11 @@ export function allowConsoleErrors(page: Page, re: RegExp): void {
   const list = allowConsoleList.get(page) ?? [];
   list.push(re);
   allowConsoleList.set(page, list);
+}
+
+/** Accepts requests to `origin` on this page (a case that intercepts it with `page.route`, so nothing leaves the machine). */
+export function allowOrigin(page: Page, origin: string): void {
+  allowOriginList.set(page, [...(allowOriginList.get(page) ?? []), origin]);
 }
 
 export { expect };
@@ -323,8 +336,13 @@ export interface SeedJira extends Record<string, unknown> {
     enabled: boolean;
     created_epic_key?: string | null;
     sync?: Record<string, unknown>;
+    acting?: "me" | { connected_by_name: string | null; connected_by_me: boolean; status: "active" | "expired" | "missing" };
   } | null;
   access?: "ok" | { reason: string; field?: string | null };
+  /** Global Atlassian knobs (docs/jira-sync/oauth.md): the server mode, the caller's own connection and the next callback refusal. */
+  mode?: "token" | "oauth" | null;
+  connection?: { status: "active" | "expired"; account_name: string } | null;
+  callbackError?: string | null;
 }
 export async function seedJira(spec: SeedJira): Promise<void> {
   await control("POST", "/seed-jira", spec);

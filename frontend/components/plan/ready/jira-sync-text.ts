@@ -6,5 +6,6 @@ export const JIRA_LINE_COPY = {
   epic: "Epic",
   partial: "Jira sync finished with errors.",
   failed: "Jira sync failed.",
+  reconnect: "Jira sync failed: an owner must connect Atlassian again.", // `jira_not_connected`, `jira_reconnect_required`
   openSettings: "Open Jira settings",
 } as const;

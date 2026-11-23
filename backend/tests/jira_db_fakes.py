@@ -65,6 +65,7 @@ class FakeJiraDb:
         epic_key: str | None,
         enabled: bool,
         now: datetime,
+        connected_user_id: uuid.UUID | None = None,
     ) -> TargetSaved:
         self._called("save_target", session)
         before = self.targets.get(project_id)
@@ -87,6 +88,7 @@ class FakeJiraDb:
             last_finished_at=before.last_finished_at if before else None,
             last_error_code=before.last_error_code if before else None,
             last_counts=before.last_counts if before else None,
+            connected_user_id=connected_user_id,
         )
         return TargetSaved(project_changed=project_changed, turned_on=turned_on, keys_changed=keys_changed)
 

@@ -1037,6 +1037,21 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/integrations/atlassian[/authorize|/callback]` (docs/jira-sync/oauth.md#routes): the caller's Atlassian connection. */
+  async function atlassianRoute({ req, res, action }) {
+    const m = req.method;
+    if (!action && m === "GET") return json(res, 200, jira.connection());
+    if (!action && m === "DELETE") {
+      jira.disconnect();
+      res.writeHead(204);
+      return res.end();
+    }
+    if (action === "authorize" && m === "POST") return json(res, 200, jira.authorize(await readJson(req)));
+    if (action === "callback" && m === "POST") return json(res, 200, jira.callback(await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   async function authOk(req) {
     const header = req.headers.authorization ?? "";
     if (!header.startsWith("Bearer ")) return false;
@@ -1114,6 +1129,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       }
       return json(res, 200, people.suggest(await readJson(req)));
     }
+    if (a === "integrations" && pid === "atlassian") return atlassianRoute({ req, res, action: b });
     if (a !== "projects") return err(res, 404, "not_found");
     if (!pid) {
       if (req.method === "GET")
@@ -1217,7 +1233,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     drive,
     /** Project collaborators: `people.state` (allowedDomains, directory, claimsReleased, claimsFailed) and `people.seed(pid, ...)`. */
     people,
-    /** Jira settings: `jira.state` (available) and `jira.seed({pid, available, target, access})`. */
+    /** Jira settings: `jira.state` (available, mode, connection, callbackError) and `jira.seed({pid, available, target, access, mode, ...})`. */
     jira,
     /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */
     seedProject: (name, spec) => {

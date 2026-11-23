@@ -3492,6 +3492,7 @@ dependencies = [
 api = [
     { name = "alembic" },
     { name = "asyncpg" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
@@ -3578,6 +3579,7 @@ requires-dist = [
     { name = "asyncpg", marker = "extra == 'worker'", specifier = ">=0.32.0" },
     { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.43,<2" },
     { name = "claude-agent-sdk", marker = "extra == 'parse'", specifier = "==0.2.174" },
+    { name = "cryptography", marker = "extra == 'api'", specifier = ">=50.0.1" },
     { name = "defusedxml", marker = "extra == 'parse'", specifier = ">=0.7.1,<1" },
     { name = "docling-core", marker = "extra == 'parse'", specifier = ">=2.105,<3" },
     { name = "docling-slim", extras = ["convert-core", "format-pdf", "models-local", "format-docx", "format-pptx", "format-xlsx", "format-html", "format-markdown"], marker = "extra == 'parse'", specifier = "==2.145.0" },

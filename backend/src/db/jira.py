@@ -41,6 +41,7 @@ class JiraTargetView:
     last_finished_at: datetime | None
     last_error_code: str | None
     last_counts: Any
+    connected_user_id: uuid.UUID | None = None  # oauth: the owner whose Atlassian connection the sync acts as
 
 
 @dataclass(frozen=True)
@@ -75,9 +76,11 @@ async def save_target(
     epic_key: str | None,
     enabled: bool,
     now: datetime,
+    connected_user_id: uuid.UUID | None = None,
 ) -> TargetSaved:
     """Create or change the target. The row is locked ``FOR UPDATE`` first; a ``jira_project`` change deletes the
     project's map rows in the same transaction (FR-JIRA-CFG-04), so no pass writes a row of the old Jira project.
+    ``connected_user_id`` is the saving owner: the account the sync acts as in ``oauth`` mode (oauth.md).
 
     Lock order: call this before any other lock of the project, never after ``lock_project`` (a pass holds the target
     ``FOR SHARE`` and then needs ``projects`` ``FOR KEY SHARE``; the other order is a deadlock)."""
@@ -92,7 +95,12 @@ async def save_target(
     if before is None:
         session.add(
             JiraTarget(
-                project_id=project_id, jira_project=jira_project, epic_key=epic_key, enabled=enabled, updated_at=now
+                project_id=project_id,
+                jira_project=jira_project,
+                epic_key=epic_key,
+                enabled=enabled,
+                updated_at=now,
+                connected_user_id=connected_user_id,
             )
         )
         await session.flush()
@@ -105,6 +113,7 @@ async def save_target(
     if keys_changed or before.enabled != enabled:
         before.updated_at = now
     before.jira_project, before.epic_key, before.enabled = jira_project, epic_key, enabled
+    before.connected_user_id = connected_user_id
     await session.flush()
     return TargetSaved(project_changed=project_changed, turned_on=turned_on, keys_changed=keys_changed)
 

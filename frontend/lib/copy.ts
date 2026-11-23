@@ -24,7 +24,7 @@ export const COPY = {
   nameEmpty: "Enter a project name.", // the Create Project name messages, shared with the Settings name field
   nameTooLong: "Use 200 characters or fewer.",
   // Settings > Jira (docs/jira-sync/ui.md#errors-shown): the texts of the access-check reasons and of the sync status codes.
-  jiraAuthFailed: "Jira refused the Specflow account. An administrator checks the Atlassian token.",
+  jiraAuthFailed: "Jira refused the Specflow account. An administrator checks the Atlassian token.", // `token` mode
   jiraProjectNotFound: "No Jira space with this key, or the account cannot see it.",
   jiraIssueTypesMissing: "This Jira space has no Epic, Story or Sub-task issue type.",
   jiraForbidden: "The Specflow account may not create, edit, link or rank issues in this space.",
@@ -39,6 +39,22 @@ export const COPY = {
   jiraInterrupted: "Stopped by a restart.",
   jiraTargetChanged: "The Jira target changed during the sync.",
   jiraUnexpectedError: "Something went wrong.", // `unexpected_error` and any code not listed
+  // Atlassian connections (docs/jira-sync/oauth.md): the access-check reasons and the sync codes of the `oauth` mode, and the
+  // `?atlassian=` toasts of the consent callback.
+  jiraNotConnected: "Connect your Atlassian account first.", // access check `jira_not_connected`, PUT 409
+  jiraReconnectRequired: "Your Atlassian connection expired. Reconnect Atlassian.", // access check `jira_reconnect_required`
+  jiraSyncNotConnected: "No Atlassian account to sync as. An owner connects Atlassian and saves the target.", // sync `jira_not_connected`
+  jiraSyncReconnect: "The Atlassian connection this target syncs as expired. Its owner reconnects Atlassian.", // sync `jira_reconnect_required`
+  jiraAuthFailedOAuth: "Atlassian refused the connection. Reconnect Atlassian in Settings → Jira.", // access check `jira_auth_failed`
+  jiraSyncAuthFailedOAuth: "Atlassian refused the connection this target syncs as. Its owner reconnects Atlassian.", // sync `jira_auth_failed`
+  atlassianConnected: "Atlassian connected",
+  atlassianConsentDenied: "Atlassian access was not granted.",
+  atlassianStateInvalid: "The Atlassian sign-in expired. Try again.",
+  atlassianCodeInvalid: "Atlassian did not accept the sign-in. Try again.",
+  atlassianSiteNotGranted: "Your Atlassian account has no access to this Jira site.",
+  atlassianUnreachable: "Atlassian could not be reached. Try again later.",
+  atlassianUnavailable: "Atlassian connections are not set up on this Specflow server.",
+  atlassianUnexpected: "Could not connect Atlassian. Try again.",
   // Screen captions:
   settingsSection: "Settings section", // the SegmentedControl label in the shell header
   settingsTabGeneral: "General",

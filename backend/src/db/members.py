@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.emails import domain_allowed, normalise_email
-from db.models import Project, ProjectInvite, ProjectMember, User
+from db.models import JiraTarget, Project, ProjectInvite, ProjectMember, User
 
 MEMBER_LIMIT: Final = 50
 SUGGESTION_MIN_CHARS: Final = 3
@@ -335,16 +335,24 @@ async def _delete_collaborator(
     await session.execute(
         delete(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
     )
+    # A member who is gone is no longer the project's Jira acting account (docs/jira-sync/oauth.md "Acting account").
+    await session.execute(
+        update(JiraTarget)
+        .where(JiraTarget.project_id == project_id, JiraTarget.connected_user_id == user_id)
+        .values(connected_user_id=None)
+    )
 
 
 async def remove_member(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """Delete a member row. ``MemberNotFoundError`` when none; ``CannotRemoveOwnerError`` for the owner."""
+    """Delete a member row and clear them as the Jira target's acting account. ``MemberNotFoundError`` when none;
+    ``CannotRemoveOwnerError`` for the owner."""
 
     await _delete_collaborator(session, project_id, user_id, owner_error=CannotRemoveOwnerError)
 
 
 async def leave_project(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """The caller leaves. ``OwnerCannotLeaveError`` for the owner, ``MemberNotFoundError`` for a non-member."""
+    """The caller leaves and stops being the Jira target's acting account. ``OwnerCannotLeaveError`` for the owner,
+    ``MemberNotFoundError`` for a non-member."""
 
     await _delete_collaborator(session, project_id, user_id, owner_error=OwnerCannotLeaveError)
 

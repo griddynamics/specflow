@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.errors import ApiError, database_unavailable, graph_unavailable, required
 from api.gap.runner import GapRunner
 from api.graph_build.runner import GraphBuildRunner
+from api.jira.connections import AtlassianConnections
 from api.jira.runner import JiraSyncRunner
 from api.plan.runner import GraphPlanRunner
 from db import session as db_session
@@ -32,8 +33,8 @@ from health import (
 )
 from jira.http import HttpJiraGateway
 from logger.correlation import run_in_context
-from logger.logger import WARNING, get_logger, log_event
-from settings import GRAPH_BUILD_SWITCHES, GraphBuildSettings, JiraSettings, RoleSettings
+from logger.logger import INFO, WARNING, get_logger, log_event
+from settings import GRAPH_BUILD_SWITCHES, AtlassianOAuthSettings, GraphBuildSettings, JiraModeSettings, RoleSettings
 from storage import factory as storage_factory
 from temporal import client as temporal_client
 
@@ -82,7 +83,8 @@ class Runtime:
     plans: Any = None
     # api.gap.runner.GapRunner; None = gap runs not configured (503); set with the graph build when GAP_ENABLED
     gaps: Any = None
-    # api.jira.runner.JiraSyncRunner; None = Jira sync not configured (503); set when the ATLASSIAN_* variables are
+    # api.jira.runner.JiraSyncRunner; None = Jira sync not configured (503); set when the ATLASSIAN_* variables are.
+    # In oauth mode it holds the users' Atlassian connections (``jira.connections``).
     jira: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
@@ -230,17 +232,23 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
     return runtime
 
 
-def _add_jira(runtime: Runtime, jira: JiraSettings, settings: RoleSettings, stack: AsyncExitStack) -> None:
-    """The Jira sync runner of the one Atlassian account. It does not need the graph build; ``public_url`` is the
-    gap cards' rule (``PUBLIC_URL`` of the MCP settings, none without them). Startup recovery runs in the background."""
+def _add_jira(runtime: Runtime, jira: JiraModeSettings, settings: RoleSettings, stack: AsyncExitStack) -> None:
+    """The Jira sync runner: of the one Atlassian account (``token``) or of the users' connections (``oauth``, which
+    wins when both are set). It does not need the graph build; ``public_url`` is the gap cards' rule (``PUBLIC_URL``
+    of the MCP settings, none without them). Startup recovery runs in the background."""
 
-    gateway = HttpJiraGateway(jira.site_url, jira.email, jira.api_token)
+    log_event(logger, INFO, "api.jira.mode", mode=jira.mode)
+    if isinstance(jira, AtlassianOAuthSettings):
+        gateway, connections = None, AtlassianConnections(jira, transaction=runtime.transaction)
+    else:
+        gateway, connections = HttpJiraGateway(jira.site_url, jira.email, jira.api_token), None
     runtime.jira = JiraSyncRunner(
         gateway,
         transaction=runtime.transaction,
         store=runtime.graph_store,
         public_url=settings.mcp.public_url if settings.mcp else None,
         site_url=jira.site_url,
+        connections=connections,
     )
     stack.push_async_callback(runtime.jira.aclose)
     runtime.jira.start_recovery()

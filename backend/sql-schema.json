@@ -1,5 +1,40 @@
 {
   "tables": {
+    "atlassian_connections": {
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "cloud_id": {
+          "type": "text"
+        },
+        "account_id": {
+          "type": "text"
+        },
+        "account_name": {
+          "type": "text"
+        },
+        "scopes": {
+          "type": "text"
+        },
+        "refresh_token": {
+          "type": "bytes"
+        },
+        "status": {
+          "type": "text"
+        },
+        "connected_at": {
+          "type": "timestamp"
+        },
+        "last_used_at": {
+          "type": "timestamp"
+        },
+        "expired_at": {
+          "type": "timestamp"
+        }
+      }
+    },
     "connection_items": {
       "columns": {
         "id": {
@@ -660,6 +695,10 @@
         },
         "last_counts": {
           "type": "json"
+        },
+        "connected_user_id": {
+          "type": "uuid",
+          "fk": "users.id"
         }
       }
     },
