@@ -40,9 +40,11 @@ api = [
     "uvicorn>=0.54.0",
 ]
 # The worker role (agents and parse queues): Temporal worker, agent SDK, database, graph drivers, Drive, tracing.
+# cryptography and httpx: the GitHub token refresh of the clone check (agents queue).
 # anthropic, claude-agent-sdk, langfuse and dotenv serve `llm`, which only the parse queue's file_parsers use: see `parse`.
 worker = [
     "asyncpg>=0.32.0",
+    "cryptography>=50.0.1",
     "google-api-python-client>=2.201.0",
     "google-auth>=2.62.0",
     "httplib2>=0.22",
@@ -137,7 +139,8 @@ dev = [
 # Colocated test modules use the validation environment, not runtime imports.
 [tool.deptry]
 known_first_party = [
-    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "jira", "llm", "logger", "mcp_server", "postgres", "storage",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "github", "graph", "integrations", "jira", "llm",
+    "logger", "mcp_server", "postgres", "storage",
     "temporal", "cli", "cloud_profile", "health", "settings",
     "example_lib", "gap_detect_bench", "graph_build", "mcp_qa_lib",  # examples/
     "graph_probes",  # tests/graph_probes: the store probes examples/graph_bench.py reads the graph through

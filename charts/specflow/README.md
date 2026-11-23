@@ -214,6 +214,11 @@ Common optional pass-through settings are grouped below. They are ordinary
   `ATLASSIAN_API_TOKEN` (one account), or `ATLASSIAN_OAUTH_CLIENT_ID`,
   `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` and `PUBLIC_URL`
   (per-user OAuth, which wins when the client ID is set).
+- GitHub integration (the API and the agents worker): `GITHUB_APP_CLIENT_ID`,
+  `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_TOKEN_KEY` and `PUBLIC_URL`.
+  The worker-agent example also sets `TMPDIR=/var/tmp/specflow` on a 4Gi disk
+  `emptyDir` (`clones`): a clone check needs room for one repository (1 GiB cap)
+  and its `tar.gz` at once, and `/tmp` stays a small volume.
 - Graph store: `GRAPH_STORE`, `GRAPH_STORE_NAME`, `GRAPH_STORE_ADMIN_URI`,
   `GRAPH_STORE_POOL_SIZE`.
 - Authentication: `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE`,

@@ -622,6 +622,38 @@
         }
       }
     },
+    "github_connections": {
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "github_user_id": {
+          "type": "int"
+        },
+        "login": {
+          "type": "text"
+        },
+        "refresh_token": {
+          "type": "bytes"
+        },
+        "refresh_expires_at": {
+          "type": "timestamp"
+        },
+        "status": {
+          "type": "text"
+        },
+        "connected_at": {
+          "type": "timestamp"
+        },
+        "last_used_at": {
+          "type": "timestamp"
+        },
+        "expired_at": {
+          "type": "timestamp"
+        }
+      }
+    },
     "jira_issues": {
       "columns": {
         "project_id": {
@@ -907,6 +939,72 @@
       },
       "indexes": [
         "user_id"
+      ]
+    },
+    "project_repositories": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "github_repo_id": {
+          "type": "int"
+        },
+        "full_name": {
+          "type": "text"
+        },
+        "html_url": {
+          "type": "text"
+        },
+        "private": {
+          "type": "bool"
+        },
+        "added_by": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "clone_state": {
+          "type": "text"
+        },
+        "failure_code": {
+          "type": "text"
+        },
+        "default_branch": {
+          "type": "text"
+        },
+        "head_sha": {
+          "type": "text"
+        },
+        "file_count": {
+          "type": "int"
+        },
+        "size_bytes": {
+          "type": "int"
+        },
+        "snapshot_key": {
+          "type": "text"
+        },
+        "snapshot_bytes": {
+          "type": "int"
+        },
+        "checked_at": {
+          "type": "timestamp"
+        },
+        "cloned_at": {
+          "type": "timestamp"
+        },
+        "created_at": {
+          "type": "timestamp"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        "project_id"
       ]
     },
     "projects": {

@@ -32,6 +32,12 @@ def drive_import_workflow_id(connection_id: UUID | str, *, prefix: str = "") -> 
     return f"{prefix}drive-import-{connection_id}"
 
 
+def github_snapshot_workflow_id(repository_id: UUID | str, *, prefix: str = "") -> str:
+    """``github-snapshot-{repository_id}``: one clone check at a time per project repository (docs/github/clone.md)."""
+
+    return f"{prefix}github-snapshot-{repository_id}"
+
+
 def drive_document_id(connection_id: UUID, file_id: str) -> UUID:
     """The id of the document (and object path) of one Drive file; stable across retries."""
 

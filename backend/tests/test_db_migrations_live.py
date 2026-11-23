@@ -63,10 +63,12 @@ APP_TABLES = [
     "gap_site",
     "gap_suppression",
     "gap_verdict",
+    "github_connections",
     "jira_issues",
     "jira_targets",
     "project_invites",
     "project_members",
+    "project_repositories",
     "projects",
     "users",
 ]
@@ -75,13 +77,17 @@ COLLABORATORS = "0002_project_collaborators"
 GAP_MODULE = "0003_gap_module"
 HEAD_0004 = "0004_gap_assignment"
 HEAD_0005 = "0005_jira_sync"
-HEAD = "0006_atlassian_connections"
+HEAD_0006 = "0006_atlassian_connections"
+HEAD = "0007_github"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
 JIRA_TABLES = ["jira_issues", "jira_targets"]
 # The users' Atlassian connections, added by revision 0006 (row-level security with no policy).
 CONNECTIONS = "atlassian_connections"
+# The users' GitHub connections (no policy) and the project repositories (project-scoped), added by revision 0007.
+GITHUB_CONNECTIONS = "github_connections"
+REPOSITORIES = "project_repositories"
 # The relational rows of the gap module, added by revision 0003 (docs/graph/gap/data-model.md "Relational store").
 GAP_TABLES = [
     table for table in APP_TABLES if (table.startswith("gap_") or table == "corpus_amendment") and table != ASSIGNMENT
@@ -371,8 +377,8 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(
         "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
         "AND relnamespace = 'public'::regnamespace",
     ) == [
-        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 1
-    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's, 0005's, 0006's
+        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 3
+    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's, 0005's, 0006's, 0007's two
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
@@ -801,9 +807,9 @@ def test_l28_0006_adds_the_connections_and_the_acting_account_and_its_downgrade_
         p=project,
     )
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_0006)
 
-    assert stamped_versions(scratch_database) == [HEAD]
+    assert stamped_versions(scratch_database) == [HEAD_0006]
     assert run_app(
         scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=CONNECTIONS
     ) == ["true"]
@@ -833,4 +839,63 @@ def test_l28_0006_adds_the_connections_and_the_acting_account_and_its_downgrade_
     command.downgrade(cfg, "-1")
 
     assert stamped_versions(scratch_database) == [HEAD_0005]
+    assert fingerprint(scratch_database) == before
+
+
+# The GitHub tables, added by revision 0007 on top of 0006 -------------------------------
+
+
+def test_l29_0007_adds_the_github_tables_and_its_downgrade_returns_to_0006(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0006)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    bo = insert_user(scratch_database, "bo@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+
+    command.upgrade(cfg, "head")
+
+    assert stamped_versions(scratch_database) == [HEAD]
+    for table, policies in ((GITHUB_CONNECTIONS, 0), (REPOSITORIES, 1)):
+        assert run_app(
+            scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
+        ) == ["true"]
+        assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = :table", table=table) == [
+            policies
+        ]
+        assert run_app(
+            scratch_database,
+            "SELECT has_table_privilege(:role, :table, 'SELECT,INSERT,UPDATE,DELETE')::text",
+            role=SESSION_AGENT_ROLE,
+            table=table,
+        ) == ["false"]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    connection = (
+        "INSERT INTO github_connections (user_id, github_user_id, login, refresh_token, status, connected_at, "
+        "last_used_at) VALUES (:u, 1, 'octo', :t, :s, now(), now())"
+    )
+    run_app(scratch_database, connection, u=ana, t=b"cipher", s="active")
+    with pytest.raises(IntegrityError):  # one connection per user
+        run_app(scratch_database, connection, u=ana, t=b"cipher", s="active")
+    with pytest.raises(IntegrityError):
+        run_app(scratch_database, connection, u=bo, t=b"cipher", s="revoked")
+    repository = (
+        "INSERT INTO project_repositories (id, project_id, github_repo_id, full_name, html_url, private, added_by, "
+        "clone_state, failure_code) VALUES (gen_random_uuid(), :p, :r, 'o/r', 'https://github.com/o/r', true, :u, "
+        ":state, :code)"
+    )
+    run_app(scratch_database, repository, p=project, r=7, u=bo, state="pending", code=None)
+    with pytest.raises(IntegrityError):  # one row per repository and project
+        run_app(scratch_database, repository, p=project, r=7, u=bo, state="pending", code=None)
+    for state, code in (("failed", None), ("cloned", "github_clone_failed"), ("failed", "other"), ("done", None)):
+        with pytest.raises(IntegrityError):
+            run_app(scratch_database, repository, p=project, r=8, u=bo, state=state, code=code)
+    run_app(scratch_database, "DELETE FROM users WHERE id = :u", u=bo)  # the adder goes, the repository stays
+    assert run_app(scratch_database, "SELECT count(*) FROM project_repositories WHERE added_by IS NULL") == [1]
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0006]
     assert fingerprint(scratch_database) == before

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from auth.emails import InvalidCollaboratorsError, check_collaborators
 from db import members
 from db import repositories as repo
-from db.models import JiraTarget, Project, ProjectInvite, ProjectMember, User
+from db.models import JiraTarget, Project, ProjectInvite, ProjectMember, ProjectRepository, User
 from db.session import build_engine, build_session_factory
 from logger_harness import events, fields
 from settings import DatabaseSettings
@@ -305,6 +305,34 @@ async def test_a_removed_or_departed_member_stops_being_the_jira_acting_account_
             await members.remove_member(session, gamma, owner.id)
 
     assert await acting_accounts(factory, alpha, beta, gamma) == [None, None, bob.id]
+
+
+async def test_a_removed_member_stops_being_the_adder_of_that_projects_repositories_only(factory):
+    owner = await signed_in(factory, "owner@example.com")
+    bob = await signed_in(factory, "bob@example.com")
+    alpha, beta = [await new_project(factory, owner, name) for name in ("Alpha", "Beta")]
+    for project in (alpha, beta):
+        await add(factory, project, owner, "bob@example.com")
+    async with factory() as session, session.begin():
+        for project in (alpha, beta):
+            session.add(
+                ProjectRepository(
+                    project_id=project,
+                    github_repo_id=42,
+                    full_name="octo/repo",
+                    html_url="https://github.com/octo/repo",
+                    private=True,
+                    added_by=bob.id,
+                )
+            )
+
+    async with factory() as session, session.begin():
+        await members.remove_member(session, alpha, bob.id)
+
+    async with factory() as session:
+        query = select(ProjectRepository.added_by)
+        adders = [await session.scalar(query.where(ProjectRepository.project_id == p)) for p in (alpha, beta)]
+    assert adders == [None, bob.id]
 
 
 async def test_remove_leave_cancel_and_rename(factory):

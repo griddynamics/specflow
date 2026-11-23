@@ -21,6 +21,7 @@ from settings import (
     AtlassianOAuthSettings,
     AuthSettings,
     ConfigurationError,
+    GitHubSettings,
     GraphBuildSettings,
     GraphStoreSettings,
     JiraSettings,
@@ -47,6 +48,7 @@ SETTINGS_CLASSES = (
     GraphBuildSettings,
     JiraSettings,
     AtlassianOAuthSettings,
+    GitHubSettings,
     LangfuseSettings,
     McpSettings,
     ApiInternalSettings,
@@ -56,7 +58,7 @@ SETTINGS_CLASSES = (
 ROOT = Path(__file__).resolve().parents[2]
 DOC = (ROOT / "docs" / "configuration.md").read_text()
 
-# SPL-ENV-01: the 23 required, 25 optional and 6 local-stack keys, nothing else.
+# SPL-ENV-01: the 23 required, 29 optional and 6 local-stack keys, nothing else.
 REQUIRED_KEYS = frozenset(
     {
         "APP_ENV",
@@ -111,6 +113,10 @@ OPTIONAL_KEYS = frozenset(
         "ATLASSIAN_OAUTH_CLIENT_ID",
         "ATLASSIAN_OAUTH_CLIENT_SECRET",
         "ATLASSIAN_TOKEN_KEY",
+        "GITHUB_APP_CLIENT_ID",
+        "GITHUB_APP_CLIENT_SECRET",
+        "GITHUB_APP_SLUG",
+        "GITHUB_TOKEN_KEY",
     }
 )
 # Names only the local stack reads (`make env-local` writes them, docker-compose.yml and the Keycloak realm use them).
@@ -175,7 +181,7 @@ def _env_names_read_in_code() -> set[str]:
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS | STACK_KEYS
     assert len(REQUIRED_KEYS) == 23
-    assert len(OPTIONAL_KEYS) == 25
+    assert len(OPTIONAL_KEYS) == 29
     assert len(STACK_KEYS) == 6
 
 
@@ -477,3 +483,70 @@ def test_the_oauth_secrets_are_not_in_the_repr_of_the_settings(valid_env):
 
 def test_only_the_api_role_reads_the_oauth_settings(valid_env):
     assert load_settings("worker", {**valid_env, **OAUTH_ENV, "PUBLIC_URL": ""}).jira is None
+
+
+# GitHub integration (docs/github/oauth.md "Settings") -----------------------------------------------------------------
+
+GITHUB_ENV = {
+    "GITHUB_APP_CLIENT_ID": "Iv23-client-1",
+    "GITHUB_APP_CLIENT_SECRET": "gh-secret-canary-7c1d",
+    "GITHUB_APP_SLUG": "specflow-local",
+    "GITHUB_TOKEN_KEY": base64.urlsafe_b64encode(bytes(range(1, 33))).decode(),
+    "PUBLIC_URL": "http://localhost:3001/",
+}
+
+
+def test_the_github_client_id_turns_the_integration_on_with_its_callback(valid_env):
+    github = load_settings("api", {**valid_env, **GITHUB_ENV}).github
+
+    assert isinstance(github, GitHubSettings)
+    assert (github.client_id, github.slug) == ("Iv23-client-1", "specflow-local")
+    assert github.callback_url == "http://localhost:3001/api/integrations/github/callback"
+
+
+def test_github_is_off_without_the_client_id_even_with_the_other_variables(valid_env):
+    env = {**valid_env, **GITHUB_ENV, "GITHUB_APP_CLIENT_ID": "  ", "GITHUB_TOKEN_KEY": "x"}
+
+    assert load_settings("api", env).github is None
+
+
+@pytest.mark.parametrize("missing", ["GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_SLUG", "GITHUB_TOKEN_KEY", "PUBLIC_URL"])
+def test_a_partial_github_set_is_refused_at_startup_naming_the_missing_variable(valid_env, missing):
+    env = {**valid_env, **{name: value for name, value in GITHUB_ENV.items() if name != missing}}
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", env)
+
+    assert raised.value.variables == (missing,)
+    assert "gh-secret-canary" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("GITHUB_TOKEN_KEY", "not-a-key"),
+        ("GITHUB_APP_SLUG", "Specflow App"),
+        ("GITHUB_APP_SLUG", "-leading-dash"),
+        ("GITHUB_APP_CLIENT_SECRET", "   "),
+    ],
+)
+def test_a_bad_github_value_is_refused_naming_it(valid_env, name, value):
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", {**valid_env, **GITHUB_ENV, name: value})
+
+    assert raised.value.variables == (name,)
+
+
+def test_the_github_secrets_are_not_in_the_repr_of_the_settings(valid_env):
+    settings = load_settings("api", {**valid_env, **GITHUB_ENV})
+
+    text = repr(settings) + repr(settings.github) + str(settings.github)
+    assert "gh-secret-canary" not in text and GITHUB_ENV["GITHUB_TOKEN_KEY"] not in text
+
+
+def test_the_agents_worker_reads_the_github_settings_and_the_parse_worker_does_not(valid_env):
+    env = {**valid_env, **GITHUB_ENV}
+
+    assert load_settings("worker", env, queues=["agents"]).github is not None
+    assert load_settings("worker", {**env, "PUBLIC_URL": ""}, queues=["parse"]).github is None
+    assert load_settings("migrate", {**env, "PUBLIC_URL": ""}).github is None

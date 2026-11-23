@@ -14,7 +14,7 @@ from file_parsers.formats import FORMATS
 from settings import StorageSettings
 from storage.base import InvalidObjectKeyError, ObjectStore
 from storage.gcs import GcsObjectStore
-from storage.keys import document_original, document_prefix, validate_prefix
+from storage.keys import document_original, document_prefix, repository_prefix, repository_snapshot, validate_prefix
 from storage.memory import InMemoryObjectStore
 from storage.s3 import S3ObjectStore
 
@@ -248,3 +248,26 @@ async def test_s3_refuses_a_prefix_without_a_trailing_slash(stub):
     client, _ = stub
     with pytest.raises(InvalidObjectKeyError):
         await s3(client).delete_by_prefix("projects")
+
+
+SHA = "a" * 40
+
+
+def test_the_repository_keys_live_under_their_own_prefix_which_a_prefix_delete_accepts():
+    prefix = repository_prefix(PID, DID)
+
+    assert prefix == f"projects/{PID}/repositories/{DID}/"
+    assert validate_prefix(prefix) == prefix
+    assert repository_snapshot(PID, DID, SHA) == f"{prefix}{SHA}.tar.gz"
+
+
+@pytest.mark.parametrize("sha", ["", "abc", "A" * 40, "g" * 40, "../" + "a" * 37, "a" * 41])
+def test_a_snapshot_key_needs_a_full_hex_commit_id(sha):
+    with pytest.raises(InvalidObjectKeyError):
+        repository_snapshot(PID, DID, sha)
+
+
+@pytest.mark.parametrize("ids", [("a/b", DID), (PID, "../x"), ("", DID), (PID, "")])
+def test_the_repository_prefix_refuses_a_path_in_an_id(ids):
+    with pytest.raises(InvalidObjectKeyError):
+        repository_prefix(*ids)

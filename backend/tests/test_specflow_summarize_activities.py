@@ -34,6 +34,7 @@ from temporal.agents.models import (
     SaveSummarizationInput,
 )
 from temporal.agents.workflows import SummarizeDocumentWorkflow
+from temporal.github.workflows import GithubSnapshotWorkflow
 from temporal.registry import Registration, load_registration
 
 PROJECT_A = uuid.UUID("aaaaaaaa-0000-4000-8000-000000000001")
@@ -322,8 +323,9 @@ async def test_the_worker_registry_loads_the_agents_registration(valid_env):
     settings = load_settings("worker", valid_env)
     reg = load_registration("agents", settings)
     try:
-        assert list(reg.workflows) == [SummarizeDocumentWorkflow]
-        assert len(reg.activities) == 3
+        # The GitHub clone check (docs/github/clone.md) runs on the agents queue too.
+        assert list(reg.workflows) == [SummarizeDocumentWorkflow, GithubSnapshotWorkflow]
+        assert len(reg.activities) == 5
     finally:
         await reg.close()
 

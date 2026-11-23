@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 import pytest
 
-from api.jira.connections import EARLY_EXPIRY_SECONDS, AtlassianConnections
+from api.jira.connections import AtlassianConnections
 from atlassian_support import (
     ACCOUNT_ID,
     ACCOUNT_NAME,
@@ -26,6 +26,7 @@ from atlassian_support import (
     oauth_settings,
 )
 from db import atlassian as atlassian_module
+from integrations.tokens import EARLY_EXPIRY_SECONDS
 from jira.gateway import JiraError
 from jira.http import HttpJiraGateway, TokenSource
 from jira.oauth import OAuthCode, OAuthError

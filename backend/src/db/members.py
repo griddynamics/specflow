@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.emails import domain_allowed, normalise_email
-from db.models import JiraTarget, Project, ProjectInvite, ProjectMember, User
+from db.models import JiraTarget, Project, ProjectInvite, ProjectMember, ProjectRepository, User
 
 MEMBER_LIMIT: Final = 50
 SUGGESTION_MIN_CHARS: Final = 3
@@ -341,11 +341,17 @@ async def _delete_collaborator(
         .where(JiraTarget.project_id == project_id, JiraTarget.connected_user_id == user_id)
         .values(connected_user_id=None)
     )
+    # Nor the GitHub account the project's repositories are cloned with (docs/github/data-model.md).
+    await session.execute(
+        update(ProjectRepository)
+        .where(ProjectRepository.project_id == project_id, ProjectRepository.added_by == user_id)
+        .values(added_by=None)
+    )
 
 
 async def remove_member(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """Delete a member row and clear them as the Jira target's acting account. ``MemberNotFoundError`` when none;
-    ``CannotRemoveOwnerError`` for the owner."""
+    """Delete a member row and clear them as the Jira target's acting account and as the adder of the project's GitHub
+    repositories. ``MemberNotFoundError`` when none; ``CannotRemoveOwnerError`` for the owner."""
 
     await _delete_collaborator(session, project_id, user_id, owner_error=CannotRemoveOwnerError)
 

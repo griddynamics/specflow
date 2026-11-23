@@ -33,11 +33,15 @@ from temporal.documents.models import ParseDocumentInput
 from temporal.documents.workflows import (
     EXECUTION_TIMEOUT as PARSE_EXECUTION_TIMEOUT,
 )
+from temporal.github.models import EXECUTION_TIMEOUT as GITHUB_SNAPSHOT_EXECUTION_TIMEOUT
+from temporal.github.models import WORKFLOW_NAME as GITHUB_SNAPSHOT_WORKFLOW
+from temporal.github.models import GitHubSnapshotInput
 from temporal.ids import (
     CLEANUP_CHUNK_SIZE,
     chunk_ids,
     cleanup_workflow_id,
     drive_import_workflow_id,
+    github_snapshot_workflow_id,
     parse_workflow_id,
     summary_workflow_id,
 )
@@ -127,6 +131,24 @@ async def start_drive_import(runtime: Runtime, project_id: uuid.UUID, connection
         if await _workflow_exists(runtime, workflow_id):
             return workflow_id
         raise
+    return str(handle.id)
+
+
+async def start_github_snapshot(runtime: Runtime, project_id: uuid.UUID, repository_id: uuid.UUID) -> str:
+    """Start the clone check of a project repository (docs/github/clone.md): ``GithubSnapshotWorkflow`` on the
+    ``agents`` queue, id ``github-snapshot-{repository_id}``, ``USE_EXISTING`` (a running check is not started twice).
+    The input holds ids only: the worker reads the token of the repository's ``added_by`` itself."""
+
+    temporal = required(runtime.settings.temporal, "the api role requires temporal settings")
+    handle = await runtime.temporal.start_workflow(
+        GITHUB_SNAPSHOT_WORKFLOW,
+        GitHubSnapshotInput(project_id=project_id, repository_id=repository_id, id_prefix=runtime.id_prefix),
+        id=github_snapshot_workflow_id(repository_id, prefix=runtime.id_prefix),
+        task_queue=queue_name(temporal, "agents", prefix=runtime.id_prefix),
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        execution_timeout=GITHUB_SNAPSHOT_EXECUTION_TIMEOUT,
+    )
     return str(handle.id)
 
 

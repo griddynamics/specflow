@@ -13,11 +13,11 @@ import pytest
 from cryptography.fernet import Fernet
 from pydantic import SecretStr
 
+from integrations.state import STATE_TTL_SECONDS
 from jira.gateway import JiraError
 from jira.http import HttpJiraGateway
 from jira.oauth import (
     SCOPES,
-    STATE_TTL_SECONDS,
     AtlassianOAuthClient,
     OAuthCode,
     OAuthError,
