@@ -64,7 +64,7 @@ const OK = { kind: "ok", projectName: "Payments platform", epicSummary: "Checkou
 
 test("UI-01: the owner's empty tab has both fields, one primary Check access button disabled until a key is typed, the switch off and disabled", () => {
   const view = markup();
-  assert.match(view, /Jira project key/);
+  assert.match(view, /Jira space key/);
   assert.match(view, /placeholder="ABC"/);
   assert.match(view, /Epic key/);
   assert.match(view, /placeholder="ABC-123"/);
@@ -120,10 +120,10 @@ test("UI-01: the button reads Check access, Checking… (disabled), Save, Saving
   assert.equal(L.phaseOf({ kind: "problem", texts: { alert: "x" } }, null), "check");
 });
 
-test("UI-02: an ok check shows the Jira project and the Epic, or that Specflow creates one named after the project", () => {
+test("UI-02: an ok check shows the Jira space and the Epic, or that Specflow creates one named after the project", () => {
   let view = markup({ project: "PAY", epic: "pay-12", phase: "save", outcome: OK });
   assert.match(view, /data-testid="jira-check"/);
-  assert.match(view, /Jira project Payments platform/);
+  assert.match(view, /Jira space Payments platform/);
   assert.match(view, /Epic PAY-12: Checkout revamp/);
   view = markup({ project: "PAY", phase: "save", outcome: { ...OK, epicSummary: null } });
   assert.match(view, /Specflow creates an Epic named Checkout revamp/);
@@ -134,21 +134,21 @@ test("UI-02: a failed check puts its text under the field it names, or in an ale
   const cases: [Parameters<typeof L.outcomeOf>[0], RegExp, boolean][] = [
     [
       { result: "failed", reason: "jira_not_found", field: "jira_project" },
-      /No Jira project with this key, or the account cannot see it\./,
+      /No Jira space with this key, or the account cannot see it\./,
       false,
     ],
     [
       { result: "failed", reason: "jira_issue_types_missing", field: "jira_project" },
-      /This Jira project has no Epic, Story or Sub-task issue type\./,
+      /This Jira space has no Epic, Story or Sub-task issue type\./,
       false,
     ],
     [
       { result: "failed", reason: "jira_forbidden", field: "jira_project" },
-      /The Specflow account may not create, edit, link or rank issues in this project\./,
+      /The Specflow account may not create, edit, link or rank issues in this space\./,
       false,
     ],
     [{ result: "failed", reason: "jira_not_found", field: "epic_key" }, /No issue with this key\./, false],
-    [{ result: "failed", reason: "jira_epic_invalid", field: "epic_key" }, /This issue is not an Epic of the Jira project\./, false],
+    [{ result: "failed", reason: "jira_epic_invalid", field: "epic_key" }, /This issue is not an Epic of the Jira space\./, false],
     [
       { result: "failed", reason: "jira_auth_failed", field: null },
       /Jira refused the Specflow account\. An administrator checks the Atlassian token\./,
@@ -229,8 +229,8 @@ test("UI-04: each status is a word in a tag, with the finish time and the error 
 test("UI-04: every sync error code has its text; an unknown code says something went wrong", () => {
   const texts: [string, string][] = [
     ["jira_auth_failed", "Jira refused the Specflow account. An administrator checks the Atlassian token."],
-    ["jira_forbidden", "The Specflow account may not create, edit, link or rank issues in this project."],
-    ["jira_not_found", "No Jira project with this key, or the account cannot see it."],
+    ["jira_forbidden", "The Specflow account may not create, edit, link or rank issues in this space."],
+    ["jira_not_found", "No Jira space with this key, or the account cannot see it."],
     ["jira_unreachable", "Jira did not answer. Try again."],
     ["jira_unexpected", "Jira did not answer. Try again."],
     ["no_plan", "No plan yet."],

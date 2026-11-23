@@ -24,7 +24,7 @@ const ADD_ROW = "settings-add";
 const bodyOf = (r: { postData: string | null }): unknown => JSON.parse(r.postData ?? "{}");
 const SETTINGS = (pid: string) => new RegExp(`/projects/${pid}/settings$`);
 const JIRA_PATH = (pid: string) => `/api/backend/projects/${pid}/jira`;
-const projectField = (page: Page): Locator => page.getByRole("textbox", { name: "Jira project key" });
+const projectField = (page: Page): Locator => page.getByRole("textbox", { name: "Jira space key" });
 const epicField = (page: Page): Locator => page.getByRole("textbox", { name: "Epic key" });
 const syncSwitch = (page: Page): Locator => page.getByRole("switch", { name: "Sync to Jira" });
 
@@ -231,7 +231,7 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     await projectField(page).fill("abc");
     await epicField(page).fill("ABC-12");
     await primary.click();
-    await expect(page.getByTestId("jira-check")).toContainText("Jira project");
+    await expect(page.getByTestId("jira-check")).toContainText("Jira space");
     await expect(primary).toHaveText("Save");
     expect(puts()).toHaveLength(0); // the check saves nothing
     await primary.click();
@@ -263,7 +263,7 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     await page.goto(`/projects/${id}/settings?tab=jira`);
     await projectField(page).fill("NOPE");
     await page.getByTestId("jira-primary").click();
-    await expect(page.getByText("No Jira project with this key, or the account cannot see it.")).toBeVisible();
+    await expect(page.getByText("No Jira space with this key, or the account cannot see it.")).toBeVisible();
     await expect(page.getByTestId("jira-primary")).toHaveText("Check access");
   });
 

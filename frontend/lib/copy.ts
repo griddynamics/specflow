@@ -25,11 +25,11 @@ export const COPY = {
   nameTooLong: "Use 200 characters or fewer.",
   // Settings > Jira (docs/jira-sync/ui.md#errors-shown): the texts of the access-check reasons and of the sync status codes.
   jiraAuthFailed: "Jira refused the Specflow account. An administrator checks the Atlassian token.",
-  jiraProjectNotFound: "No Jira project with this key, or the account cannot see it.",
-  jiraIssueTypesMissing: "This Jira project has no Epic, Story or Sub-task issue type.",
-  jiraForbidden: "The Specflow account may not create, edit, link or rank issues in this project.",
+  jiraProjectNotFound: "No Jira space with this key, or the account cannot see it.",
+  jiraIssueTypesMissing: "This Jira space has no Epic, Story or Sub-task issue type.",
+  jiraForbidden: "The Specflow account may not create, edit, link or rank issues in this space.",
   jiraEpicNotFound: "No issue with this key.",
-  jiraEpicInvalid: "This issue is not an Epic of the Jira project.",
+  jiraEpicInvalid: "This issue is not an Epic of the Jira space.",
   jiraUnreachable: "Jira did not answer. Try again.", // `jira_unreachable` and `jira_unexpected`
   jiraKeyInvalid: "Use a Jira key such as ABC or ABC-123.", // `validation_failed`
   jiraUnavailable: "Jira is not connected to this Specflow server. An administrator connects an Atlassian account.",

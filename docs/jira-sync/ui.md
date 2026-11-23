@@ -27,7 +27,7 @@ Layout: one column, like General. Top to bottom:
 
 1. **Not available notice** (only when `available` is false): text "Jira is not connected to this Specflow server. An
    administrator connects an Atlassian account." Everything below is disabled.
-2. **Target form**: `TextField` "Jira project key" (placeholder `ABC`), `TextField` "Epic key" (placeholder `ABC-123`,
+2. **Target form**: `TextField` "Jira space key" (placeholder `ABC`), `TextField` "Epic key" (placeholder `ABC-123`,
    hint "Leave empty and Specflow creates an Epic named after the project."). One primary `Button`:
    - reads "Check access" until a check of the current values passed; a click sends the access check with the typed
      values; while it runs it reads "Checking…" and is disabled;
@@ -37,7 +37,7 @@ Layout: one column, like General. Top to bottom:
    - it is also disabled while the typed keys equal the saved target and no result waits, so a saved view shows no
      primary action; the first edit of a field enables it again as "Check access";
    - editing either field returns it to "Check access" and clears the result.
-3. **Check result** (under the form): ok shows "Jira project <name>" and either "Epic <key>: <summary>" or
+3. **Check result** (under the form): ok shows "Jira space <name>" and either "Epic <key>: <summary>" or
    "Specflow creates an Epic named <project name>"; a failure shows the reason text under the field that `field` names
    (`jira_forbidden` and `jira_not_found` name either field), or as an alert line when `field` is null.
 4. **Switch** "Sync to Jira" (DS `Switch`, label states the setting): disabled until the target is saved; a change sends
@@ -63,11 +63,11 @@ user home as the General tab does.
 | Cause | Where | Text (copy in `lib/copy.ts`) |
 |---|---|---|
 | `jira_auth_failed` | alert line | "Jira refused the Specflow account. An administrator checks the Atlassian token." |
-| `jira_not_found` on `jira_project` | under the project field | "No Jira project with this key, or the account cannot see it." |
-| `jira_issue_types_missing` | under the project field | "This Jira project has no Epic, Story or Sub-task issue type." |
-| `jira_forbidden` | under the field `field` names (`jira_project`, or `epic_key` when the Epic itself is refused) | "The Specflow account may not create, edit, link or rank issues in this project." |
+| `jira_not_found` on `jira_project` | under the space field | "No Jira space with this key, or the account cannot see it." |
+| `jira_issue_types_missing` | under the space field | "This Jira space has no Epic, Story or Sub-task issue type." |
+| `jira_forbidden` | under the field `field` names (`jira_project`, or `epic_key` when the Epic itself is refused) | "The Specflow account may not create, edit, link or rank issues in this space." |
 | `jira_not_found` on `epic_key` | under the Epic field | "No issue with this key." |
-| `jira_epic_invalid` | under the Epic field | "This issue is not an Epic of the Jira project." |
+| `jira_epic_invalid` | under the Epic field | "This issue is not an Epic of the Jira space." |
 | `jira_unreachable`, `jira_unexpected` | alert line | "Jira did not answer. Try again." |
 | `validation_failed` | under the field of `details.errors[].loc[1]` | "Use a Jira key such as ABC or ABC-123." |
 | `jira_unavailable` (503) | the not available notice | as above |
