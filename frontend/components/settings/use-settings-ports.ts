@@ -18,6 +18,11 @@ export function useSlackPort() {
   return usePorts().slack;
 }
 
+/** The GitHub port (connection, repositories of the caller and of a project). */
+export function useGitHubPort() {
+  return usePorts().github;
+}
+
 /** The projects port (`get`, `rename`). */
 export function useProjectsPort() {
   return usePorts().projects;

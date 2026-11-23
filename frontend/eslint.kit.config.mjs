@@ -89,17 +89,14 @@ const RUNNER_EXEMPT_RULES = [
 //   layouts read it through serverEnv() / appConfig());
 // - lib/oidc-refresh.ts is the server's OIDC back channel (token refresh and Auth.js's customFetch): it calls the issuer,
 //   which the browser's same-origin BFF client cannot do;
-// - app/api/integrations/atlassian/callback/route.ts forwards the Atlassian consent's code and state to the API on the server
-//   (docs/jira-sync/oauth.md#connect-flow): a browser navigation, not a BFF call, so lib/api.ts cannot make it;
+// - lib/oauth-route.ts is the GET handler of the OAuth return routes (app/api/integrations/{atlassian,github}/...): it forwards the
+//   provider's code or the app's state to the API on the server (docs/jira-sync/oauth.md#connect-flow): a browser navigation, not
+//   a BFF call, so lib/api.ts cannot make it;
 // - app/api/integrations/slack/link/route.ts forwards the one-time Slack link nonce to the API on the server, for the same
 //   reason (docs/slack/gap-answering.md "Parts").
 const SERVER_EXEMPT_FILES = {
   "restrict/syntax-test-probes": ["instrumentation.ts", "lib/config.ts"],
-  "restrict/globals-network": [
-    "lib/oidc-refresh.ts",
-    "app/api/integrations/atlassian/callback/route.ts",
-    "app/api/integrations/slack/link/route.ts",
-  ],
+  "restrict/globals-network": ["lib/oidc-refresh.ts", "lib/oauth-route.ts", "app/api/integrations/slack/link/route.ts"],
 };
 
 // project: `playwright/no-raw-locators` only reports a string literal argument, so a CSS selector held in a constant,

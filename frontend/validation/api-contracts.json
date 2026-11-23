@@ -304,6 +304,61 @@
       "path": "/projects/{pid}/slack"
     },
     {
+      "id": "get_github_connection_api_v1_integrations_github_get",
+      "method": "GET",
+      "path": "/integrations/github"
+    },
+    {
+      "id": "authorize_github_api_v1_integrations_github_authorize_post",
+      "method": "POST",
+      "path": "/integrations/github/authorize"
+    },
+    {
+      "id": "install_github_api_v1_integrations_github_install_post",
+      "method": "POST",
+      "path": "/integrations/github/install"
+    },
+    {
+      "id": "github_callback_api_v1_integrations_github_callback_post",
+      "method": "POST",
+      "path": "/integrations/github/callback"
+    },
+    {
+      "id": "github_setup_api_v1_integrations_github_setup_post",
+      "method": "POST",
+      "path": "/integrations/github/setup"
+    },
+    {
+      "id": "disconnect_github_api_v1_integrations_github_delete",
+      "method": "DELETE",
+      "path": "/integrations/github"
+    },
+    {
+      "id": "list_github_repositories_api_v1_integrations_github_repositories_get",
+      "method": "GET",
+      "path": "/integrations/github/repositories"
+    },
+    {
+      "id": "list_project_repositories_api_v1_projects__pid__repositories_get",
+      "method": "GET",
+      "path": "/projects/{pid}/repositories"
+    },
+    {
+      "id": "create_project_repository_api_v1_projects__pid__repositories_post",
+      "method": "POST",
+      "path": "/projects/{pid}/repositories"
+    },
+    {
+      "id": "remove_project_repository_api_v1_projects__pid__repositories__rid__delete",
+      "method": "DELETE",
+      "path": "/projects/{pid}/repositories/{rid}"
+    },
+    {
+      "id": "clone_project_repository_api_v1_projects__pid__repositories__rid__clone_post",
+      "method": "POST",
+      "path": "/projects/{pid}/repositories/{rid}/clone"
+    },
+    {
       "id": "answer_gap_api_v1_projects__pid__gaps__gap_id__answer_post",
       "method": "POST",
       "path": "/projects/{pid}/gaps/{gap_id}/answer"

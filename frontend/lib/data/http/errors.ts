@@ -52,6 +52,16 @@ const BY_CODE: Record<string, DataErrorCode> = {
   jira_not_configured: "conflict",
   jira_not_connected: "conflict", // 409 on PUT: the caller has no active Atlassian connection (docs/jira-sync/oauth.md)
   atlassian_oauth_unavailable: "unavailable", // 503: the server is not in the oauth mode
+  // GitHub (plans/GITHUB-INTEGRATION/contract.md#api).
+  github_unavailable: "unavailable", // 503: GitHub is not configured on this server (the GitHub tab says so)
+  github_unreachable: "unavailable", // 502: GitHub did not answer
+  github_auth_failed: "unavailable", // 502: GitHub refused the call for another reason (a wrong client secret, a refused list)
+  github_not_connected: "conflict", // 409: the caller has no GitHub connection
+  github_reconnect_required: "conflict", // 409: the caller's GitHub connection expired
+  github_repo_not_accessible: "not_found", // 404: the repository is not in the caller's list (any more)
+  github_repo_too_large: "validation", // 422: over the clone size cap
+  repository_exists: "conflict", // 409: the project has this repository already
+  repository_not_found: "not_found", // 404: the project repository is gone
 };
 
 /** Retryable codes (TECH-SPECS §2.13): the same request may succeed later. */

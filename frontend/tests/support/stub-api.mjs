@@ -6,6 +6,7 @@ import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
+import { createGitHubModel } from "./stub-github.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
 const LEEWAY_SECONDS = 60; // as backend/src/auth/claims.py
@@ -102,6 +103,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const people = createMembersModel();
   /** Jira settings (docs/jira-sync/api.md#web-routes): the target of a project, the owner rule, scripted access checks. */
   const jira = createJiraModel((pid) => people.list(pid).role);
+  /** GitHub (plans/GITHUB-INTEGRATION/contract.md#api): the caller's connection, their repositories, a project's repositories. */
+  const github = createGitHubModel((pid) => people.list(pid).role, ME.name);
   const readJson = async (req) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -1052,6 +1055,45 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  const noContent = (res) => {
+    res.writeHead(204);
+    return res.end();
+  };
+
+  /** `/integrations/github[/authorize|/install|/callback|/setup|/repositories]` (contract.md#api): the caller's GitHub connection. */
+  async function githubRoute({ req, res, action }) {
+    const m = req.method;
+    if (!action && m === "GET") return json(res, 200, github.connection());
+    if (!action && m === "DELETE") {
+      github.disconnect();
+      return noContent(res);
+    }
+    if (action === "repositories" && m === "GET") return json(res, 200, github.available());
+    if (action === "authorize" && m === "POST") return json(res, 200, github.authorize(await readJson(req)));
+    if (action === "install" && m === "POST") return json(res, 200, github.install(await readJson(req)));
+    if (action === "callback" && m === "POST") return json(res, 200, github.callback(await readJson(req)));
+    if (action === "setup" && m === "POST") return json(res, 200, github.setup(await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
+  /** `/projects/{pid}/repositories[/{rid}[/clone]]` (contract.md#api). */
+  async function repositoriesRoute({ req, res, pid, did, action }) {
+    const m = req.method;
+    if (!did && m === "GET") return json(res, 200, github.list(pid));
+    if (!did && m === "POST") return json(res, 201, github.add(pid, await readJson(req)));
+    if (did && !action && m === "DELETE") {
+      github.remove(pid, did);
+      return noContent(res);
+    }
+    if (did && action === "clone" && m === "POST") {
+      await drainBody(req);
+      return json(res, 202, github.clone(pid, did));
+    }
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   async function authOk(req) {
     const header = req.headers.authorization ?? "";
     if (!header.startsWith("Bearer ")) return false;
@@ -1130,6 +1172,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       return json(res, 200, people.suggest(await readJson(req)));
     }
     if (a === "integrations" && pid === "atlassian") return atlassianRoute({ req, res, action: b });
+    if (a === "integrations" && pid === "github") return githubRoute({ req, res, action: b });
     if (a !== "projects") return err(res, 404, "not_found");
     if (!pid) {
       if (req.method === "GET")
@@ -1157,6 +1200,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!b) return json(res, 200, project);
     if (b === "members" || b === "invites" || b === "leave") return membersRoute({ req, res, pid, b, did });
     if (b === "jira") return jiraRoute({ req, res, pid, did });
+    if (b === "repositories") return repositoriesRoute({ req, res, pid, did, action });
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
     if (b === "graph_build") return graphRoute({ req, res, pid, entry });
     if (b === "findings" || (b === "plan" && did === "claims"))
@@ -1235,6 +1279,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     people,
     /** Jira settings: `jira.state` (available, mode, connection, callbackError) and `jira.seed({pid, available, target, access, mode, ...})`. */
     jira,
+    /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
+    github,
     /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */
     seedProject: (name, spec) => {
       const project = { id: crypto.randomUUID(), name, created_at: new Date().toISOString() };
@@ -1261,6 +1307,9 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       if (mine.run.status === "running") mine.run = { ...mine.run, step_items_done: (mine.run.step_items_done ?? 0) + 1 };
     },
     setTiming: (t) => Object.assign(state, t),
-    close: () => close(server),
+    close: () => {
+      github.close();
+      return close(server);
+    },
   };
 }

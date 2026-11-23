@@ -6,6 +6,7 @@ import type { CreateProjectPort } from "@/lib/domain/create-project";
 import type { DiagramsPort } from "@/lib/domain/diagrams";
 import type { FilesPort } from "@/lib/domain/files";
 import type { GapsPort } from "@/lib/domain/gaps";
+import type { GitHubPort } from "@/lib/domain/github";
 import type { JiraPort } from "@/lib/domain/jira";
 import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
@@ -35,6 +36,7 @@ export interface DataPorts {
   members: MembersPort; // project collaborators: Settings (General tab) and the Create Project suggestions
   jira: JiraPort; // the Jira export target of a project: Settings (Jira tab)
   slack: SlackPort; // the Slack channel of a project: Settings (Slack tab)
+  github: GitHubPort; // the caller's GitHub connection and the GitHub repositories of a project: Settings (GitHub tab)
 }
 
 /** In-memory hand-over between screens (§1.5);  */

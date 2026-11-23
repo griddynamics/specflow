@@ -188,6 +188,26 @@ export const authorizeAtlassian = (returnTo: string) =>
 /** 204: resolves with the HTTP status. */
 export const disconnectAtlassian = () => httpDelete("/integrations/atlassian").then((r) => r.status);
 
+// GitHub (plans/GITHUB-INTEGRATION/contract.md#api): the caller's connection, the repositories it can read and the repositories of a
+// project. Bodies stay `unknown`; the GitHub port (lib/data/http/github.ts) checks their shape. The OAuth callback and the setup return
+// are not here: the route handlers app/api/integrations/github/{callback,setup} call the API on the server.
+export const getGitHubConnection = () => httpGet("/integrations/github").then((r) => r.body);
+export const authorizeGitHub = (returnTo: string) =>
+  httpPost("/integrations/github/authorize", json({ return_to: returnTo })).then((r) => r.body);
+export const installGitHub = (returnTo: string) =>
+  httpPost("/integrations/github/install", json({ return_to: returnTo })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const disconnectGitHub = () => httpDelete("/integrations/github").then((r) => r.status);
+export const listGitHubRepositories = () => httpGet("/integrations/github/repositories").then((r) => r.body);
+export const listProjectRepositories = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/repositories`).then((r) => r.body);
+export const addProjectRepository = (pid: string, githubRepoId: number) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/repositories`, json({ github_repo_id: githubRepoId })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const removeProjectRepository = (pid: string, rid: string) =>
+  httpDelete(`/projects/${encodeURIComponent(pid)}/repositories/${encodeURIComponent(rid)}`).then((r) => r.status);
+export const cloneProjectRepository = (pid: string, rid: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/repositories/${encodeURIComponent(rid)}/clone`).then((r) => r.body);
+
 // Sources (GDRIVE plan 04, architecture-notes B4). Bodies are returned as `unknown`: the http adapter (lib/data/http/sources.ts)
 // checks their shape. POSTs go through `call`, so they carry the CSRF header.
 export const getDriveIdentity = () => httpGet("/drive/identity").then((r) => r.body);

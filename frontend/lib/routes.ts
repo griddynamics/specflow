@@ -3,7 +3,7 @@
 export type AppMode = "production";
 export type MissionControlView = "readme" | "business" | "architecture" | "files" | "sources"; // "sources": Phase 1 sources screen only
 export type PlanView = "plan" | "work" | "develop"; // P20 (Plan page, AUTO-17)
-export type SettingsTab = "general" | "jira" | "slack"; // the Settings tabs (docs/projects/ui.md#route-and-sidebar)
+export type SettingsTab = "general" | "jira" | "slack" | "github"; // the Settings tabs (docs/projects/ui.md#route-and-sidebar)
 export type RouteKey = "home" | "missionControl" | "gaps" | "plan" | "specbot" | "settings" | "connections" | "guides";
 /** The Guides topics (MCP-M10): `/guides/{topic}`. Any other topic answers 404. */
 export const GUIDE_TOPICS = ["specflow-101", "best-practices", "mcp-server"] as const;
@@ -16,7 +16,7 @@ export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMod
   gaps: { template: "/projects/{projectId}/gaps", trees: ["production"] }, // FR-GWEB-04: the Gaps screen (was Decisions)
   plan: { template: "/projects/{projectId}/plan", trees: ["production"] }, // P20; page files in P21
   specbot: { template: "/projects/{projectId}/specbot", trees: ["production"] },
-  settings: { template: "/projects/{projectId}/settings", trees: ["production"] }, // ?tab=general | jira | slack
+  settings: { template: "/projects/{projectId}/settings", trees: ["production"] }, // ?tab=general | jira | slack | github
   connections: { template: "/connections", trees: ["production"] },
   guides: { template: "/guides", trees: ["production"] }, // + "/guides/{topic}": app/(app)/guides/[topic]/page.tsx
 };
@@ -39,7 +39,7 @@ export interface RouteBuilder {
 
 const VIEWS: readonly MissionControlView[] = ["readme", "business", "architecture", "files", "sources"];
 const PLAN_VIEWS: readonly PlanView[] = ["plan", "work", "develop"];
-const SETTINGS_TABS: readonly SettingsTab[] = ["general", "jira", "slack"];
+const SETTINGS_TABS: readonly SettingsTab[] = ["general", "jira", "slack", "github"];
 
 function withQuery(path: string, params: Record<string, string | undefined>): string {
   const q = new URLSearchParams();
