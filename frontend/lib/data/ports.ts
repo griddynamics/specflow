@@ -12,6 +12,7 @@ import type { PeoplePort } from "@/lib/domain/people";
 import type { PlanPort } from "@/lib/domain/plan";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
 import type { ProjectsPort } from "@/lib/domain/projects";
+import type { SlackPort } from "@/lib/domain/slack";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
 import type { WorkPort } from "@/lib/domain/work";
 
@@ -33,6 +34,7 @@ export interface DataPorts {
   work: WorkPort; // MCP-TOOLING session 10: findings list and claims board of the Plan page
   members: MembersPort; // project collaborators: Settings (General tab) and the Create Project suggestions
   jira: JiraPort; // the Jira export target of a project: Settings (Jira tab)
+  slack: SlackPort; // the Slack channel of a project: Settings (Slack tab)
 }
 
 /** In-memory hand-over between screens (§1.5);  */

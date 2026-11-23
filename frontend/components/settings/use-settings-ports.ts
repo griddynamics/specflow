@@ -13,6 +13,11 @@ export function useJiraPort() {
   return usePorts().jira;
 }
 
+/** The Slack port (`get`, `bind`, `unbind`). */
+export function useSlackPort() {
+  return usePorts().slack;
+}
+
 /** The projects port (`get`, `rename`). */
 export function useProjectsPort() {
   return usePorts().projects;

@@ -1,0 +1,45 @@
+# Slack app manifest for SpecFlow gap answering (docs/slack/gap-answering.md).
+# Paste it into "Create New App > From an app manifest" in the development workspace, then in the GD workspace.
+# Socket Mode: no request URLs. The channel flow reads the replies in the threads of the gap messages it posts, so it
+# needs the history scopes of the channels it is invited to (docs/slack/gap-answering.md "The channel flow"). Adding a
+# scope later means a new GD review and a reinstall.
+display_information:
+  name: SpecFlow
+  description: Answer SpecFlow gap questions without leaving Slack
+  long_description: >-
+    SpecFlow finds open questions (gaps) in a project's specifications. This app posts each open question to the
+    channel the project owner chose in SpecFlow, and anyone on the team answers it by replying in its thread. Every
+    answer is recorded under the person's SpecFlow account, which each person links once.
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: true
+  bot_user:
+    display_name: SpecFlow
+    always_online: false
+  slash_commands:
+    - command: /specflow
+      description: Link your account, start the implementation plan, or answer in a form
+      usage_hint: link | plan [project] | replan [project] | answer <project>
+      should_escape: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - im:write
+      - commands
+      - channels:read
+      - groups:read
+      - channels:history
+      - groups:history
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+  interactivity:
+    is_enabled: true
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

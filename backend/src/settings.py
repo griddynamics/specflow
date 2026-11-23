@@ -17,6 +17,7 @@ import importlib
 import ipaddress
 import os
 import re
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from http.client import HTTP_PORT, HTTPS_PORT
@@ -704,6 +705,62 @@ class McpSettings(_MappedSettings):
         return tuple(dict.fromkeys((resource, *self.allowed_hosts)))
 
 
+SLACK_WEBHOOK_PREFIX: Final = "https://hooks.slack.com/"
+
+
+class SlackNoticeSettings(_MappedSettings):
+    """The api role's gap notice (docs/slack/gap-answering.md "Before the app is approved"), on when
+    ``SLACK_WORKFLOW_WEBHOOK_URL`` is set: the webhook trigger of a Slack workflow, the projects whose gap runs it
+    announces, and ``PUBLIC_URL`` for the link (none when unset)."""
+
+    blank_is_unset: ClassVar[tuple[str, ...]] = ("PUBLIC_URL",)
+
+    webhook_url: SecretStr = Field(validation_alias="SLACK_WORKFLOW_WEBHOOK_URL")
+    projects: Csv = Field(validation_alias="SLACK_WORKFLOW_PROJECTS")
+    public_url: InternalUrl | None = Field(default=None, validation_alias="PUBLIC_URL")
+
+    @field_validator("webhook_url")
+    @classmethod
+    def _slack_hook(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value().strip().startswith(SLACK_WEBHOOK_PREFIX):
+            raise ValueError(f"must start with {SLACK_WEBHOOK_PREFIX}")
+        return SecretStr(value.get_secret_value().strip())
+
+    @field_validator("projects")
+    @classmethod
+    def _project_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _non_empty(tuple(str(uuid.UUID(item)) for item in value))
+
+
+def _prefixed(value: SecretStr, prefix: str) -> SecretStr:
+    text = value.get_secret_value().strip()
+    if not text.startswith(prefix):
+        raise ValueError(f"must start with {prefix}")
+    return SecretStr(text)
+
+
+class SlackAppSettings(_MappedSettings):
+    """The api role's Slack app in Socket Mode (docs/slack/gap-answering.md "Phase 0: the spike plan"), on when
+    ``SLACK_BOT_TOKEN`` or ``SLACK_APP_TOKEN`` is set (both are then needed); ``PUBLIC_URL`` makes the account-link
+    address (no link without it)."""
+
+    blank_is_unset: ClassVar[tuple[str, ...]] = ("PUBLIC_URL",)
+
+    bot_token: SecretStr = Field(validation_alias="SLACK_BOT_TOKEN")
+    app_token: SecretStr = Field(validation_alias="SLACK_APP_TOKEN")
+    public_url: InternalUrl | None = Field(default=None, validation_alias="PUBLIC_URL")
+
+    @field_validator("bot_token")
+    @classmethod
+    def _bot(cls, value: SecretStr) -> SecretStr:
+        return _prefixed(value, "xoxb-")
+
+    @field_validator("app_token")
+    @classmethod
+    def _app(cls, value: SecretStr) -> SecretStr:
+        return _prefixed(value, "xapp-")
+
+
 class ApiInternalSettings(_MappedSettings):
     """The MCP role's one address (FR-MCP-OPS-01): where the API answers the agent routes."""
 
@@ -917,6 +974,8 @@ class RoleSettings:
     mcp: McpSettings | None = None  # the mcp role; the api role when MCP_RESOURCE_URL is set (agent routes)
     gap: Any = None  # graph.gap.GapSettings; api only, with graph_build: the ``GAP_*`` variables (graph.gap)
     jira: JiraModeSettings | None = None  # api only; None = Jira sync off (none of the ``ATLASSIAN_*`` set)
+    slack_notice: SlackNoticeSettings | None = None  # api only, with gap; on when SLACK_WORKFLOW_WEBHOOK_URL is set
+    slack_app: SlackAppSettings | None = None  # api only, with gap; on when a SLACK_*_TOKEN is set
 
 
 @dataclass(frozen=True)
@@ -959,6 +1018,22 @@ def _build_gap(env: Mapping[str, str], bad: list[str]) -> Any:
     except GraphConfigurationError as error:
         _flag(bad, str(error.fields.get("variable", "GAP_ENABLED")))
         return None
+
+
+def _build_slack_notice(env: Mapping[str, str], bad: list[str]) -> SlackNoticeSettings | None:
+    """The gap notice's settings; ``None`` (no notice) while ``SLACK_WORKFLOW_WEBHOOK_URL`` is unset."""
+
+    if not env.get("SLACK_WORKFLOW_WEBHOOK_URL", "").strip():
+        return None
+    return _build(SlackNoticeSettings, env, bad)
+
+
+def _build_slack_app(env: Mapping[str, str], bad: list[str]) -> SlackAppSettings | None:
+    """The Slack app's settings; ``None`` (no app) while neither ``SLACK_BOT_TOKEN`` nor ``SLACK_APP_TOKEN`` is set."""
+
+    if not any(env.get(name, "").strip() for name in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN")):
+        return None
+    return _build(SlackAppSettings, env, bad)
 
 
 def _build_storage(env: Mapping[str, str], bad: list[str]) -> StorageSettings | None:
@@ -1009,6 +1084,8 @@ class _Bindings:
     graph_build: GraphBuildSettings | None = None
     gap: Any = None  # graph.gap.GapSettings
     jira: JiraModeSettings | None = None
+    slack_notice: SlackNoticeSettings | None = None
+    slack_app: SlackAppSettings | None = None
     mcp: McpSettings | None = None
     api_internal: ApiInternalSettings | None = None
 
@@ -1048,6 +1125,8 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
         found.gap = _build_gap(source, bad)
+        found.slack_notice = _build_slack_notice(source, bad)
+        found.slack_app = _build_slack_app(source, bad)
     if role == "api" or (role == "worker" and "agents" in _worker_queues(source)):
         found.graph_store = _build_graph_store(source, bad, found.database)
         found.agent_run = _build(AgentRunSettings, source, bad)
@@ -1243,6 +1322,8 @@ def load_settings(
         mcp=found.mcp,
         gap=found.gap,
         jira=found.jira,
+        slack_notice=found.slack_notice,
+        slack_app=found.slack_app,
     )
 
 

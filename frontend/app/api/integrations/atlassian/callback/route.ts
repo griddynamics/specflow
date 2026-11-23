@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
-import { callbackDestination, locationOn, type CallbackAnswer } from "@/lib/atlassian-callback";
+import { callbackDestination, type CallbackAnswer } from "@/lib/atlassian-callback";
+import { redirectOn, runGuarded } from "@/lib/redirect-route";
 import { appConfig } from "@/lib/config";
 import { accessTokenFor } from "@/lib/session-token";
 
@@ -37,18 +38,12 @@ const guarded = auth(async (req) => {
   const path = await callbackDestination(new URL(req.url).searchParams, signedIn, (code, state) =>
     postCallback(cfg.apiInternalUrl, token ?? "", code, state),
   );
-  // Absolute URL on PUBLIC_URL: req.url can carry the internal bind address (0.0.0.0). Never another origin (locationOn).
-  return new Response(null, {
-    status: 302,
-    headers: { location: locationOn(path, cfg.publicOrigin), "cache-control": "no-store", "referrer-policy": "no-referrer" },
-  });
+  return redirectOn(path, cfg.publicOrigin);
 });
 
-// `auth(fn)` returns a Promise of the wrapped handler when the config is lazy (auth.ts), as in the BFF.
 type Req = Parameters<typeof guarded>[0];
 type Ctx = Parameters<typeof guarded>[1];
 
 export async function GET(req: Req, ctx: Ctx): Promise<Response> {
-  const response = await (await Promise.resolve(guarded))(req, ctx);
-  return response instanceof Response ? response : new Response(null, { status: 500 });
+  return runGuarded(guarded, req, ctx);
 }

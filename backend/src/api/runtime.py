@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -14,12 +15,14 @@ from typing import Any, Final
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError, database_unavailable, graph_unavailable, required
+from api.gap.notice import GapNotice
 from api.gap.runner import GapRunner
 from api.graph_build.runner import GraphBuildRunner
 from api.jira.connections import AtlassianConnections
 from api.jira.runner import JiraSyncRunner
 from api.plan.runner import GraphPlanRunner
 from db import session as db_session
+from db.models import Project
 from db.session import is_database_unreachable
 from graph.core import InfrastructureUnavailableError
 from graph.gap import GapSettings
@@ -86,6 +89,8 @@ class Runtime:
     # api.jira.runner.JiraSyncRunner; None = Jira sync not configured (503); set when the ATLASSIAN_* variables are.
     # In oauth mode it holds the users' Atlassian connections (``jira.connections``).
     jira: Any = None
+    # api.slack.app.SlackGaps (started by the app's lifespan, ``start_slack``); None = not configured or not connected
+    slack: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
     cleanups: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
@@ -232,6 +237,14 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
     return runtime
 
 
+async def project_name(session_factory: Any, project_id: str) -> str | None:
+    """The project's name for the gap notice; ``None`` when the project is gone."""
+
+    async with session_factory() as session:
+        project = await session.get(Project, uuid.UUID(project_id))
+    return None if project is None else project.name
+
+
 def _add_jira(runtime: Runtime, jira: JiraModeSettings, settings: RoleSettings, stack: AsyncExitStack) -> None:
     """The Jira sync runner: of the one Atlassian account (``token``) or of the users' connections (``oauth``, which
     wins when both are set). It does not need the graph build; ``public_url`` is the gap cards' rule (``PUBLIC_URL``
@@ -260,7 +273,11 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
     answers through update builds of the graph build runner (``BuildRequests``)."""
 
     if gap.enabled:
-        runtime.gaps = GapRunner(graph_build, gap, store=runtime.graph_store, transaction=runtime.transaction)
+        slack = runtime.settings.slack_notice
+        notice = None if slack is None else GapNotice(slack, functools.partial(project_name, runtime.session_factory))
+        runtime.gaps = GapRunner(
+            graph_build, gap, store=runtime.graph_store, transaction=runtime.transaction, notice=notice
+        )
         stack.push_async_callback(runtime.gaps.aclose)
     else:
         log_event(logger, WARNING, "api.gap.disabled")

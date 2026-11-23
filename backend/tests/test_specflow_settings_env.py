@@ -26,6 +26,8 @@ from settings import (
     JiraSettings,
     LangfuseSettings,
     McpSettings,
+    SlackAppSettings,
+    SlackNoticeSettings,
     StorageSettings,
     TemporalSettings,
     load_settings,
@@ -48,6 +50,8 @@ SETTINGS_CLASSES = (
     LangfuseSettings,
     McpSettings,
     ApiInternalSettings,
+    SlackNoticeSettings,
+    SlackAppSettings,
 )
 ROOT = Path(__file__).resolve().parents[2]
 DOC = (ROOT / "docs" / "configuration.md").read_text()

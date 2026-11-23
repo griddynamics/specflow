@@ -59,6 +59,7 @@ export const COPY = {
   settingsSection: "Settings section", // the SegmentedControl label in the shell header
   settingsTabGeneral: "General",
   settingsTabJira: "Jira",
+  settingsTabSlack: "Slack",
   settingsProjectName: "Project name",
   settingsSave: "Save",
   collaboratorsHeading: "Collaborators",
