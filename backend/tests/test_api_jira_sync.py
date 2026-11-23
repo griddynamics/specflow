@@ -86,7 +86,7 @@ async def test_the_first_sync_creates_the_epic_stories_and_sub_tasks_without_ran
     assert (counts.created, counts.links_added, counts.ranked, counts.failed, counts.unchanged) == (9, 1, 0, 0, 0)
     assert h.gateway.called("rank") == [] and set(names(h)) <= ALLOWED_CALLS
     created = [call["node_id"] for call in h.gateway.called("create_issue")]
-    assert created == [EPIC, S1, S3, S2, T1, T2, T5, T3, T4]
+    assert created == [EPIC, S1, T1, T2, S3, T5, S2, T3, T4]  # each story, then its sub-tasks
     assert names(h)[:2] == ["project", "story_points_field"]
 
     bodies = {call["node_id"]: call["fields"] for call in h.gateway.called("create_issue")}
@@ -117,7 +117,7 @@ async def test_the_first_sync_creates_the_epic_stories_and_sub_tasks_without_ran
 
 async def test_a_task_description_has_the_done_when_task_list_and_the_phase(h):
     await synced(h)
-    blocks = h.gateway.called("create_issue")[4]["fields"]["description"]["content"]
+    blocks = h.gateway.called("create_issue")[2]["fields"]["description"]["content"]
     assert [block["type"] for block in blocks] == ["heading", "taskList", "paragraph", "paragraph"]
     (item,) = blocks[1]["content"]
     assert item["attrs"]["state"] == "TODO" and item["content"][0]["text"] == "it works"

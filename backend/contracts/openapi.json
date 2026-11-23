@@ -5022,6 +5022,40 @@
         "title": "JiraSyncItem",
         "type": "object"
       },
+      "JiraSyncProgress": {
+        "description": "Where a running pass is: ``done`` of ``total`` units of the current ``step`` are handled.",
+        "properties": {
+          "done": {
+            "description": "Units of this step handled so far.",
+            "minimum": 0.0,
+            "title": "Done",
+            "type": "integer"
+          },
+          "step": {
+            "description": "What the pass is doing: creating and updating issues, adding links, or ranking them.",
+            "enum": [
+              "issues",
+              "links",
+              "order"
+            ],
+            "title": "Step",
+            "type": "string"
+          },
+          "total": {
+            "description": "Units of this step the pass will handle; for issues it can grow once, when the updates are counted.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step",
+          "done",
+          "total"
+        ],
+        "title": "JiraSyncProgress",
+        "type": "object"
+      },
       "JiraSyncReport": {
         "properties": {
           "counts": {
@@ -5093,6 +5127,17 @@
               }
             ],
             "title": "Next Cursor"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JiraSyncProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set only while the pass runs and has begun its work; null when queued or finished."
           },
           "project_id": {
             "title": "Project Id",
@@ -5209,6 +5254,17 @@
           "jira_project": {
             "title": "Jira Project",
             "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JiraSyncProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set only while the pass runs and has begun its work; null when queued or finished."
           },
           "project_id": {
             "title": "Project Id",

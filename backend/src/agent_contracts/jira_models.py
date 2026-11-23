@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agent_contracts.models import DEFAULT_LIMIT, Limit, ProjectArguments
 
@@ -35,6 +35,21 @@ class JiraSyncCounts(BaseModel):
     failed: int = 0
 
 
+class JiraSyncProgress(BaseModel):
+    """Where a running pass is: ``done`` of ``total`` units of the current ``step`` are handled."""
+
+    step: Literal["issues", "links", "order"] = Field(
+        description="What the pass is doing: creating and updating issues, adding links, or ranking them."
+    )
+    done: int = Field(ge=0, description="Units of this step handled so far.")
+    total: int = Field(
+        ge=0,
+        description=(
+            "Units of this step the pass will handle; for issues it can grow once, when the updates are counted."
+        ),
+    )
+
+
 class JiraSyncStatus(BaseModel):
     project_id: str
     enabled: bool
@@ -47,6 +62,10 @@ class JiraSyncStatus(BaseModel):
     counts: JiraSyncCounts | None
     jira_project: str
     epic_key: str | None
+    progress: JiraSyncProgress | None = Field(
+        default=None,
+        description="Set only while the pass runs and has begun its work; null when queued or finished.",
+    )
 
 
 class JiraSyncItem(BaseModel):

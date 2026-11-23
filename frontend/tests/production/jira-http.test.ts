@@ -58,7 +58,7 @@ test("toJiraSettings reads the settings and the sync status; any other shape is 
     epicKey: null,
     createdEpicKey: "PAY-9",
     enabled: true,
-    sync: { status: "succeeded", finishedAt: "2026-01-01T00:00:00Z", errorCode: null },
+    sync: { status: "succeeded", finishedAt: "2026-01-01T00:00:00Z", errorCode: null, progress: null },
   });
   assert.equal(toJiraSettings(wireSettings({ sync: null, jira_project: null, enabled: false })).sync, null);
   invalid(() => toJiraSettings(wireSettings({ available: "yes" })));
@@ -68,6 +68,31 @@ test("toJiraSettings reads the settings and the sync status; any other shape is 
   invalid(() => toJiraSettings(wireSettings({ sync: { status: "idle", finished_at: 5, error_code: null } })));
   invalid(() => toJiraSettings(wireSettings({ sync: "idle" })));
   invalid(() => toJiraSettings(null));
+});
+
+test("toJiraSettings reads sync.progress: missing and null are none; a step with whole counts is kept; any other shape is invalid_response", () => {
+  const withProgress = (progress: unknown) => wireSettings({ sync: { status: "running", finished_at: null, error_code: null, progress } });
+  const progressOf = (progress: unknown) => toJiraSettings(withProgress(progress)).sync?.progress;
+  assert.equal(progressOf(undefined), null); // an older server omits the field
+  assert.equal(progressOf(null), null);
+  assert.deepEqual(progressOf({ step: "issues", done: 23, total: 60 }), { step: "issues", done: 23, total: 60 });
+  assert.deepEqual(progressOf({ step: "links", done: 0, total: 0 }), { step: "links", done: 0, total: 0 });
+  assert.deepEqual(progressOf({ step: "order", done: 7, total: 5 }), { step: "order", done: 7, total: 5 }); // done > total is the view's to clamp
+  for (const bad of [
+    "issues",
+    [],
+    {},
+    { step: "sorting", done: 1, total: 2 },
+    { step: "issues", done: -1, total: 2 },
+    { step: "issues", done: 1, total: -2 },
+    { step: "issues", done: 1.5, total: 2 },
+    { step: "issues", done: "1", total: 2 },
+    { step: "issues", done: 1 },
+    { step: "issues", total: 2 },
+    { done: 1, total: 2 },
+  ]) {
+    invalid(() => toJiraSettings(withProgress(bad)));
+  }
 });
 
 test("toJiraAccess reads an ok answer and a failed one (field may be null); any other shape is invalid_response", () => {
@@ -231,7 +256,17 @@ test("the seed seam: a target with a sync status and a created Epic, and null re
   });
   const s = await jira.get(pid);
   assert.equal(s.createdEpicKey, "PAY-7");
-  assert.deepEqual(s.sync, { status: "failed", finishedAt: "2026-02-01T10:00:00Z", errorCode: "jira_auth_failed" });
+  assert.deepEqual(s.sync, { status: "failed", finishedAt: "2026-02-01T10:00:00Z", errorCode: "jira_auth_failed", progress: null });
+  ctx.api.jira.seed({
+    pid,
+    target: {
+      jira_project: "PAY",
+      epic_key: null,
+      enabled: true,
+      sync: { status: "running", finished_at: null, error_code: null, progress: { step: "links", done: 3, total: 8 } },
+    },
+  });
+  assert.deepEqual((await jira.get(pid)).sync?.progress, { step: "links", done: 3, total: 8 }); // the seed's progress reaches the port
   ctx.api.jira.seed({ pid, target: null });
   assert.equal((await jira.get(pid)).jiraProject, null);
 });

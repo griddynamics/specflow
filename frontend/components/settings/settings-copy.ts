@@ -44,6 +44,9 @@ export const SETTINGS_COPY = {
   statusFailed: "Failed",
   statusSkipped: "Skipped",
   toastJiraSaved: "Jira target saved",
+  stepIssues: "Creating and updating issues",
+  stepLinks: "Adding links",
+  stepOrder: "Ordering issues",
 } as const;
 
 /** "4 of 50" (FR-PRJ-UI-06). */

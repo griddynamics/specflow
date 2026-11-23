@@ -1,7 +1,7 @@
 ---
 type: Design
 title: "Jira tab of project Settings"
-description: "The Jira tab of the per-project Settings screen: route, header tab, owner and collaborator views, the access check then Save flow, the Sync switch, the status line, errors shown and the frontend ports"
+description: "The Jira tab of the per-project Settings screen: route, header tab, owner and collaborator views, the access check then Save flow, the Sync switch, the status line, errors shown, the Plan line and the frontend ports"
 status: stable
 tags: [jira, frontend]
 ---
@@ -51,6 +51,10 @@ Layout: one column, like General. Top to bottom:
    finish time and, when there is one, the error text. Words:
    `idle` "Never synced", `running` "Syncing", `succeeded` "Synced", `partial` "Synced with errors", `failed` "Failed",
    `skipped` "Skipped". The tab reloads the settings every 5 seconds while the status is `running`.
+   While `running` with `sync.progress` set, the line also shows the step ("Creating and updating issues", "Adding
+   links", "Ordering issues"), the count "done of total" (for example "23 of 60") and a progress bar
+   (`role="progressbar"`, DS `gdg-progress`). `done` is clamped to `total`; the total can grow once during the first
+   step. A total of 0 shows the step alone. `progress` null, or missing from an older server, shows only the word.
 
 Owner versus collaborator: `editable` from `GET` decides. A collaborator sees the same blocks with every control
 disabled and no primary button.
@@ -72,7 +76,23 @@ user home as the General tab does.
 | `validation_failed` | under the field of `details.errors[].loc[1]` | "Use a Jira key such as ABC or ABC-123." |
 | `jira_unavailable` (503) | the not available notice | as above |
 | `owner_required`, network, other | toast | "Could not save. Try again." (existing) |
-| status `error_code` | status line | the reason texts above (`jira_not_found` of a run reads as the project text); `no_plan` "No plan yet."; `plan_applying` "The plan was being updated."; `jira_not_configured` "Sync is off."; `interrupted` "Stopped by a restart."; `target_changed` "The Jira target changed during the sync."; `unexpected_error`, `jira_invalid_field` and any code not listed "Something went wrong." |
+| status `error_code` | status line | the reason texts above (`jira_not_found` of a run reads as the space text); `no_plan` "No plan yet."; `plan_applying` "The plan was being updated."; `jira_not_configured` "Sync is off."; `interrupted` "Stopped by a restart."; `target_changed` "The Jira target changed during the sync."; `unexpected_error`, `jira_invalid_field` and any code not listed "Something went wrong." |
+
+## Plan line
+
+The ready Plan (all its views) shows one compact Jira sync line above its content while the project's Jira settings are
+`available` and `enabled`, a target is saved, `sync` is not null and its status is not `idle` or `skipped`. It reads
+`JiraPort.get` on mount and every 5 seconds while the last answer was available and enabled, stops on unmount and never
+blocks the plan. A failed read (503 `jira_unavailable` too) hides the line, with no toast, until a read works again. Any
+member sees it.
+
+| Status | Line |
+|---|---|
+| `running`, `progress` set | step, "done of total" and a progress bar, as on the status line |
+| `running`, `progress` null | "Jira sync queued" |
+| `succeeded` | "Jira is up to date" and, with an https `site_url` and an Epic key (`epic_key` or `created_epic_key`), a link "Epic <key>" to `<site_url>/browse/<key>` |
+| `partial` | "Jira sync finished with errors." and a link "Open Jira settings" to `/projects/{projectId}/settings?tab=jira` |
+| `failed` | "Jira sync failed." and the same link |
 
 ## Ports
 
@@ -82,4 +102,5 @@ user home as the General tab does.
 
 The http adapter (`lib/data/http/jira.ts`) checks every body's shape; `lib/api.ts` gets three calls. The API codes of
 [api.md](api.md#errors) map to `DataErrorCode`s (`jira_unavailable` → `unavailable`); screens branch on
-`detail.apiCode`. Access-check failures are answers (`result: "failed"`), not errors.
+`detail.apiCode`. Access-check failures are answers (`result: "failed"`), not errors. `JiraSync.progress` is
+`{step, done, total} | null`.

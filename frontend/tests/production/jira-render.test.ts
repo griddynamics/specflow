@@ -7,7 +7,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { stubCss } from "../support/css-stub.mjs";
 import { DataError } from "@/lib/domain/errors";
-import type { JiraSettings, JiraSyncState } from "@/lib/domain/jira";
+import type { JiraSettings, JiraSyncProgress, JiraSyncState } from "@/lib/domain/jira";
 import type { JiraViewProps } from "../../components/settings/jira-parts";
 
 stubCss();
@@ -38,7 +38,7 @@ const saved = (over: Partial<JiraSettings> = {}): JiraSettings => ({
   ...SETTINGS,
   jiraProject: "PAY",
   enabled: true,
-  sync: { status: "succeeded", finishedAt: "2026-02-01T10:00:00Z", errorCode: null },
+  sync: { status: "succeeded", finishedAt: "2026-02-01T10:00:00Z", errorCode: null, progress: null },
   ...over,
 });
 function markup(over: Partial<JiraViewProps> = {}): string {
@@ -102,7 +102,7 @@ test("U4, U5, U6: a busy switch keeps focus (aria-busy, not disabled); a check r
   assert.doesNotMatch(view, /<button[^>]*role="switch"[^>]*disabled/);
   assert.match(markup({ project: "PAY", phase: "save", outcome: OK }), /<p[^>]*role="status"[^>]*data-testid="jira-check"/);
   assert.match(
-    markup({ settings: saved({ sync: { status: "failed", finishedAt: "garbage", errorCode: null } }), project: "PAY" }),
+    markup({ settings: saved({ sync: { status: "failed", finishedAt: "garbage", errorCode: null, progress: null } }), project: "PAY" }),
     />garbage</,
   );
 });
@@ -206,7 +206,7 @@ test("UI-04: each status is a word in a tag, with the finish time and the error 
   ];
   for (const [status, word] of words) {
     assert.equal(L.statusWord(status), word);
-    const view = markup({ settings: saved({ sync: { status, finishedAt: null, errorCode: null } }), project: "PAY" });
+    const view = markup({ settings: saved({ sync: { status, finishedAt: null, errorCode: null, progress: null } }), project: "PAY" });
     assert.match(
       view,
       new RegExp(`data-testid="jira-status"[^>]*><span class="gdg-tag[^"]*"[^>]*>(<span[^>]*></span>)?${word}</span>`),
@@ -214,14 +214,14 @@ test("UI-04: each status is a word in a tag, with the finish time and the error 
     );
   }
   const view = markup({
-    settings: saved({ sync: { status: "failed", finishedAt: "2026-02-01T10:00:00Z", errorCode: "jira_auth_failed" } }),
+    settings: saved({ sync: { status: "failed", finishedAt: "2026-02-01T10:00:00Z", errorCode: "jira_auth_failed", progress: null } }),
     project: "PAY",
   });
   assert.match(view, /2026/);
   assert.match(view, /Jira refused the Specflow account/);
   assert.match(view, /gdg-tag--danger/);
   assert.match(
-    markup({ settings: saved({ sync: { status: "running", finishedAt: null, errorCode: null } }), project: "PAY" }),
+    markup({ settings: saved({ sync: { status: "running", finishedAt: null, errorCode: null, progress: null } }), project: "PAY" }),
     /gdg-tag--pending/,
   );
 });
@@ -293,4 +293,113 @@ test("failures: validation puts the key text under the field named by loc[1]; ow
   assert.deepEqual(L.failureOf(new DataError("network", true)), { kind: "toast", text: "Could not save. Try again." });
   assert.deepEqual(L.failureOf(err("unavailable", "jira_unavailable")), { kind: "unavailable" });
   assert.deepEqual(L.failureOf(err("not_found", "project_not_found")), { kind: "gone" });
+});
+
+// ---- Progress of a running pass (ui.md#progress) ----
+
+const running = (progress: JiraSyncProgress | null): JiraSettings =>
+  saved({ sync: { status: "running", finishedAt: null, errorCode: null, progress } });
+
+test("progress: StatusLine shows the step, 'done of total' and a progressbar while running; without progress only the word", () => {
+  const steps: [JiraSyncProgress["step"], string][] = [
+    ["issues", "Creating and updating issues"],
+    ["links", "Adding links"],
+    ["order", "Ordering issues"],
+  ];
+  for (const [step, text] of steps) {
+    const view = markup({ settings: running({ step, done: 23, total: 60 }), project: "PAY" });
+    assert.match(view, new RegExp(`data-testid="jira-progress"[^>]*data-step="${step}"`));
+    assert.ok(view.includes(`<span>${text}</span><span>23 of 60</span>`), step);
+    assert.match(
+      view,
+      /role="progressbar"[^>]*aria-valuemin="0"[^>]*aria-valuemax="60"[^>]*aria-valuenow="23"[^>]*aria-valuetext="23 of 60"/,
+    );
+    assert.match(view, /gdg-progress__fill" style="width:38\.33/);
+  }
+  assert.match(markup({ settings: running(null), project: "PAY" }), /gdg-tag--pending/);
+  assert.doesNotMatch(markup({ settings: running(null), project: "PAY" }), /jira-progress|progressbar/);
+  // a finished pass never shows a bar, whatever the status carries
+  const finished = saved({
+    sync: { status: "succeeded", finishedAt: null, errorCode: null, progress: { step: "issues", done: 1, total: 2 } },
+  });
+  assert.doesNotMatch(markup({ settings: finished, project: "PAY" }), /progressbar/);
+});
+
+test("progress: done is clamped to total, a total of 0 shows the step text alone", () => {
+  assert.deepEqual(L.progressView({ step: "issues", done: 9, total: 5 }), {
+    step: "Creating and updating issues",
+    count: "5 of 5",
+    done: 5,
+    total: 5,
+  });
+  const none = running({ step: "links", done: 0, total: 0 });
+  assert.ok(markup({ settings: none, project: "PAY" }).includes("<span>Adding links</span></div>"));
+  assert.doesNotMatch(markup({ settings: none, project: "PAY" }), /progressbar|0 of 0/);
+  assert.ok(line(saved({ sync: syncOf("running", { step: "order", done: 0, total: 0 }) })).includes("<span>Ordering issues</span></div>"));
+  assert.match(
+    markup({ settings: running({ step: "order", done: 9, total: 5 }), project: "PAY" }),
+    /aria-valuenow="5"[^>]*aria-valuetext="5 of 5"/,
+  );
+});
+
+// ---- The Plan's Jira line (ui.md#plan-line) ----
+
+let J: Awaited<ReturnType<typeof loadLine>>;
+const loadLine = () => import("../../components/plan/ready/JiraSyncLine");
+before(async () => {
+  J = await loadLine();
+});
+const HREF = "/projects/p1/settings?tab=jira";
+const line = (settings: JiraSettings): string => renderToStaticMarkup(createElement(J.JiraSyncLineView, { settings, settingsHref: HREF }));
+const syncOf = (status: JiraSyncState, progress: JiraSyncProgress | null = null): JiraSettings["sync"] => ({
+  status,
+  finishedAt: null,
+  errorCode: null,
+  progress,
+});
+
+test("plan line: running with progress shows the step, the count and a bar", () => {
+  const view = line(running({ step: "links", done: 4, total: 10 }));
+  assert.match(view, /data-testid="plan-jira"[^>]*data-status="running"/);
+  assert.match(view, /data-testid="plan-jira-progress"/);
+  assert.ok(view.includes("<span>Adding links</span><span>4 of 10</span>"));
+  assert.match(view, /role="progressbar"[^>]*aria-valuenow="4"/);
+});
+
+test("plan line: running without progress says the sync is queued, with no bar", () => {
+  const view = line(running(null));
+  assert.ok(view.includes("<span>Jira sync queued</span>"));
+  assert.doesNotMatch(view, /progressbar/);
+});
+
+test("plan line: succeeded says Jira is up to date and links the Epic (created or chosen) on https sites only", () => {
+  const ok = saved({ createdEpicKey: "PAY-9", sync: syncOf("succeeded") });
+  const view = line(ok);
+  assert.ok(view.includes("Jira is up to date"));
+  assert.match(view, /<a [^>]*href="https:\/\/example\.atlassian\.net\/browse\/PAY-9"[^>]*rel="noopener noreferrer"[^>]*>Epic PAY-9<\/a>/);
+  assert.match(line({ ...ok, createdEpicKey: null, epicKey: "PAY-3" }), /browse\/PAY-3"[^>]*>Epic PAY-3</);
+  assert.doesNotMatch(line({ ...ok, siteUrl: null }), /<a /); // no (https) site: no link
+  assert.doesNotMatch(line({ ...ok, createdEpicKey: null, epicKey: null }), /<a /);
+});
+
+test("plan line: partial and failed say so and link to the Jira tab of Settings", () => {
+  for (const [status, text] of [
+    ["partial", "Jira sync finished with errors."],
+    ["failed", "Jira sync failed."],
+  ] as const) {
+    const view = line(saved({ sync: syncOf(status) }));
+    assert.ok(view.includes(text), status);
+    assert.match(view, /<a [^>]*href="\/projects\/p1\/settings\?tab=jira"[^>]*>Open Jira settings<\/a>/);
+  }
+});
+
+test("plan line: hidden when Jira is unavailable or off, there is no target or sync, or the sync never ran or was skipped", () => {
+  const base = saved({ sync: syncOf("succeeded") });
+  assert.notEqual(line(base), "");
+  assert.equal(line({ ...base, available: false }), "");
+  assert.equal(line({ ...base, enabled: false }), "");
+  assert.equal(line({ ...base, jiraProject: null }), "");
+  assert.equal(line({ ...base, sync: null }), "");
+  assert.equal(line({ ...base, sync: syncOf("idle") }), "");
+  assert.equal(line({ ...base, sync: syncOf("skipped") }), "");
 });

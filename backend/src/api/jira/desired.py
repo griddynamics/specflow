@@ -59,7 +59,8 @@ class Item:
 
 @dataclass(frozen=True)
 class Desired:
-    """``items`` in creation order; ``orders`` per rank scope (the parent node id); the three id lists are sorted."""
+    """``items`` in creation order: the Epic, then each story followed by its sub-tasks; ``orders`` per rank scope (the
+    parent node id); the three id lists are sorted."""
 
     items: dict[str, Item]
     orders: dict[str, tuple[str, ...]]
@@ -173,7 +174,7 @@ def build(
     if epic_key is None:
         values = _values(summary=content_rules.summary(project_name, EPIC), labels=[content_rules.OWNED_LABEL])
         items[EPIC] = Item(EPIC, "epic", None, values, ())
-    for story_id in orders[EPIC]:
+    for story_id in orders[EPIC]:  # a story, then its sub-tasks: each story is whole in Jira before the next starts
         story = stories[story_id]
         values = _values(
             summary=content_rules.summary(story.title, story_id),
@@ -184,7 +185,6 @@ def build(
             labels=_labels(story.area_id),
         )
         items[story_id] = Item(story_id, "story", EPIC, values, story_blocked[story_id])
-    for story_id in orders[EPIC]:
         for base in orders[story_id]:
             task = wanted_tasks[base]
             values = _values(

@@ -34,7 +34,7 @@ const NONE: JiraSettings = {
   enabled: false,
   sync: null,
 };
-const SAVED: JiraSettings = { ...NONE, jiraProject: "PAY", sync: { status: "idle", finishedAt: null, errorCode: null } };
+const SAVED: JiraSettings = { ...NONE, jiraProject: "PAY", sync: { status: "idle", finishedAt: null, errorCode: null, progress: null } };
 const OK = { result: "ok", projectName: "Payments platform", epicSummary: null } as const;
 const apply = (st: TabState, ...actions: TabAction[]): TabState => actions.reduce(tabReducer, st);
 const loaded = (s: JiraSettings = NONE): TabState => apply(INITIAL_TAB, { type: "loaded", settings: s });
@@ -162,9 +162,9 @@ test("failures: unavailable turns the form into the notice from the latest setti
 test("polling: reloads every 5 s while the status is running, stops when it is not, and the stop function clears the timer", (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   const load = mock.fn();
-  const running: JiraSettings = { ...SAVED, sync: { status: "running", finishedAt: null, errorCode: null } };
+  const running: JiraSettings = { ...SAVED, sync: { status: "running", finishedAt: null, errorCode: null, progress: null } };
   assert.equal(isRunning(running), true);
-  assert.equal(isRunning({ ...running, sync: { status: "succeeded", finishedAt: null, errorCode: null } }), false);
+  assert.equal(isRunning({ ...running, sync: { status: "succeeded", finishedAt: null, errorCode: null, progress: null } }), false);
   assert.equal(isRunning(NONE) || isRunning("failed") || isRunning(null), false);
 
   assert.equal(startPolling(false, load), undefined); // not running: no timer

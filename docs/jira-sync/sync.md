@@ -270,7 +270,8 @@ created Epic that Jira no longer finds is a run error (`jira_not_found`): the ow
    mapped issues ([Rank](#rank)).
 5. Nothing to do: record `succeeded` with `unchanged` = the number of desired items. No Jira call.
 6. Recover pending rows ([Failure handling](#failure-handling)).
-7. Create missing issues, parents first: the Epic, then Stories, then Sub-tasks; each through a pending row. Before
+7. Create missing issues story by story: the Epic, then the first Story and its Sub-tasks, then the next Story and its
+   Sub-tasks (see [Creation order](#creation-order)); each through a pending row. Before
    the first Story of a pass is created, and before a To Do Story gets a new parent, the Epic is read once; a missing
    Epic ends the pass `failed` with `jira_not_found` (not needed for an Epic created in the same pass).
 8. Read the status and links of every changed, removed or revived mapped issue and of every issue a planned rank move
@@ -284,6 +285,27 @@ created Epic that Jira no longer finds is a run error (`jira_not_found`): the ow
 
 No database transaction is open while a Jira call runs; each item's write is its own short transaction, which first
 checks the target ([Target change during a pass](#target-change-during-a-pass)).
+
+## Creation order
+
+Issues are created in plan order, one Story at a time: the Epic (when Specflow creates it), then each Story followed by
+its Sub-tasks, then the next Story. A Story is whole in Jira before the next one starts, so an observer sees the plan
+fill in story by story. The order inside each [rank](#rank) scope is unchanged (Stories in the Epic's order, Sub-tasks
+in their Story's order), so a first sync still needs no rank call and Jira holds the plan order.
+
+## Progress
+
+While a pass runs, the runner holds its latest progress in memory (not stored): `step`, `done` of `total`. It is
+null while the pass is queued, waits for the process-wide slot or loads the plan, after the pass ends (also when it
+fails), and for a pass with nothing to do. Steps, in this order:
+
+| `step` | One unit | `total` |
+|---|---|---|
+| `issues` | an issue created, failed or skipped (its parent is missing), edited, commented or removed | the issues to create after recovery plus the changed, revived and removed ones; once the creates are done it is set again to the units done plus the updates still to apply |
+| `links` | a node with links to add or delete | the distinct nodes queued for links |
+| `order` | a rank scope | the scopes with moves (0 is possible) |
+
+Every unit counted in `total` ticks once, so `done` reaches `total` and never exceeds it.
 
 ## Failure handling
 

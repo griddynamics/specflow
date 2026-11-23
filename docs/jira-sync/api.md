@@ -87,7 +87,8 @@ Prefix `/api/v1/agent`, the MCP policy, `project_id` in the query, the membershi
 | `JiraSettingsOut` | `available` (the three `ATLASSIAN_*` are set), `editable` (the caller is the owner), `site_url` (null unless available), `jira_project`, `epic_key`, `created_epic_key` (the Epic Specflow created, read-only), `enabled` (false without a target), `sync` (`JiraSyncStatus` or null without a target) |
 | `JiraAccessOk` | `result: "ok"`, `project_name`, `epic_summary` (string or null) |
 | `JiraAccessFailed` | `result: "failed"`, `reason` ([Access check](#access-check)), `field` (`jira_project`, `epic_key` or null) |
-| `JiraSyncStatus` | `project_id`, `enabled`, `status` (`idle`, `running`, `succeeded`, `partial`, `failed`, `skipped`), `queued`, `trigger` (or null), `started_at` (when the pass was queued), `finished_at`, `error_code` (or null), `counts` (`JiraSyncCounts` or null), `jira_project`, `epic_key` (configured, else created, else null) |
+| `JiraSyncStatus` | `project_id`, `enabled`, `status` (`idle`, `running`, `succeeded`, `partial`, `failed`, `skipped`), `queued`, `trigger` (or null), `started_at` (when the pass was queued), `finished_at`, `error_code` (or null), `counts` (`JiraSyncCounts` or null), `jira_project`, `epic_key` (configured, else created, else null), `progress` (`JiraSyncProgress` or null, [Progress](sync.md#progress)) |
+| `JiraSyncProgress` | `step` (`issues`, `links`, `order`), `done` (integer, 0 or more), `total` (integer, 0 or more) |
 | `JiraSyncReport` | the fields of `JiraSyncStatus`, `items` (one page of `JiraSyncItem`), `next_cursor` (null on the last page) |
 | `JiraSyncCounts` | `created`, `updated`, `commented`, `removed`, `links_added`, `links_removed`, `ranked`, `unchanged`, `failed` (integers) |
 | `JiraSyncItem` (in `items`) | `node_id`, `kind` (`epic`, `story`, `subtask`), `jira_key` (null while pending), `url` (`<site>/browse/<key>` or null), `removed` (bool), `error_code` (or null) |

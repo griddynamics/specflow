@@ -15,7 +15,7 @@
 //                                            claimsReleased; answers the project; see stub-members.mjs `seed`)
 //                                          POST /seed-jira ({pid, available?, target?, access?}: the Jira settings of a project. `available`
 //                                            false = the server has no Atlassian account (503 jira_unavailable); `target` = {jira_project,
-//                                            epic_key, enabled, created_epic_key?, sync?: JiraSyncStatus} or null (no target); `access` = "ok" or
+//                                            epic_key, enabled, created_epic_key?, sync?: JiraSyncStatus, which may carry progress: {step, done, total}} or null (no target); `access` = "ok" or
 //                                            {reason, field}, the answer of the next access checks; answers {}; the PUTs show in GET /log;
 //                                            see stub-jira.mjs)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)

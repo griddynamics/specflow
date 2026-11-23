@@ -20,11 +20,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Final
 
-from agent_contracts.jira_models import JiraSyncItem, JiraSyncStatus
+from agent_contracts.jira_models import JiraSyncItem, JiraSyncProgress, JiraSyncStatus
 from api.contained import Contained
 from api.jira.desired import EPIC, SpecRef
 from api.jira.state import Trigger, items_of, status_of
-from api.jira.sync import NOT_CONFIGURED, SyncDeps, SyncResult, sync_once
+from api.jira.sync import NOT_CONFIGURED, SyncDeps, SyncProgress, SyncResult, sync_once
 from db import jira as jira_db
 from db.jira import JiraTargetView, TargetSaved
 from graph.core import Ontology, load_ontology
@@ -62,6 +62,7 @@ class _Project:
     trigger: Trigger  # the trigger of the next pass (the latest start; a merge overwrites it)
     queued_at: datetime  # when the current pass was queued
     pass_trigger: Trigger  # the trigger of the current pass (what a live status shows)
+    progress: JiraSyncProgress | None = None  # the running pass's latest progress; in memory only
     running: bool = False  # a pass of the project is queued or runs here (the status reads ``running``)
     dirty: bool = False  # a start came in meanwhile: one more pass follows
     task: asyncio.Task[None] | None = None
@@ -95,6 +96,7 @@ class JiraSyncRunner:
             spec_names=deps.spec_names or self._spec_names,
             public_url=public_url,
             now=deps.now,
+            report=self._report,
         )
         self._slots = asyncio.Semaphore(MAX_CONCURRENT_SYNCS)
         self._projects: dict[str, _Project] = {}
@@ -172,10 +174,17 @@ class JiraSyncRunner:
         project = self._projects.get(project_id)
         return self._live(status, project) if running and project is not None else status
 
+    def _report(self, project_id: str, progress: SyncProgress) -> None:
+        project = self._projects.get(project_id)
+        if project is not None and project.running:
+            project.progress = JiraSyncProgress(step=progress.step, done=progress.done, total=progress.total)
+
     @staticmethod
     def _live(status: JiraSyncStatus, project: _Project) -> JiraSyncStatus:
         # the stored row only has the current pass's values once its ``record_start`` ran
-        return status.model_copy(update={"trigger": project.pass_trigger, "started_at": project.queued_at})
+        return status.model_copy(
+            update={"trigger": project.pass_trigger, "started_at": project.queued_at, "progress": project.progress}
+        )
 
     async def items(self, project_id: str) -> list[JiraSyncItem]:
         async with self._transaction() as session:
@@ -276,11 +285,13 @@ class JiraSyncRunner:
                     break
                 project.queued_at = self._now()
         finally:
+            project.progress = None
             project.running = False  # no await between the last check and here: a start cannot slip in
 
     async def _pass(self, project_id: str, project: _Project) -> None:
         trigger = project.pass_trigger
         pid = uuid.UUID(project_id)
+        project.progress = None
         with Contained() as ran:  # a failed pass never stops the project's later ones
             async with self._transaction() as session:
                 await jira_db.record_start(session, pid, trigger=trigger, queued_at=project.queued_at)
@@ -305,6 +316,7 @@ class JiraSyncRunner:
                 error_code=result.error_code,
                 counts=dataclasses.asdict(result.counts),  # flat names would collide with LogRecord's ``created``
             )
+        project.progress = None
         if ran.failed:  # ``sync_once`` logs its own unexpected errors; this is the runner's (storage, a stub)
             log_event(
                 logger,

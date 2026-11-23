@@ -39,11 +39,11 @@ def test_items_follow_the_mapping_in_creation_order():
     assert list(result.items) == [
         EPIC,
         "STORY::A::ONE",
-        "STORY::A::THREE",
-        "STORY::A::TWO",
         "TASK::A::1",
         "TASK::A::2",
+        "STORY::A::THREE",
         "TASK::A::5",
+        "STORY::A::TWO",
         "TASK::A::3",
         "TASK::A::4",
     ]

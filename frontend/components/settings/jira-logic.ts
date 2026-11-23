@@ -2,8 +2,16 @@
 // failed check or save, the texts of the reason codes and the status word.
 import { COPY } from "@/lib/copy";
 import { isDataError, type DataError } from "@/lib/domain/errors";
-import type { JiraAccess, JiraAccessField, JiraSettings, JiraSyncState, JiraTarget } from "@/lib/domain/jira";
-import { SETTINGS_COPY } from "./settings-copy";
+import type {
+  JiraAccess,
+  JiraAccessField,
+  JiraSettings,
+  JiraSyncProgress,
+  JiraSyncState,
+  JiraSyncStep,
+  JiraTarget,
+} from "@/lib/domain/jira";
+import { countText, SETTINGS_COPY } from "./settings-copy";
 
 /** The typed keys as the API reads them: trimmed, upper-cased, a blank Epic is none. */
 export function targetOf(project: string, epic: string): JiraTarget {
@@ -204,4 +212,16 @@ export function tabReducer(st: TabState, a: TabAction): TabState {
     case "failed":
       return { ...st, ...afterFailure(st, a.failure, a.run), busy: done(a.kind, a.run) };
   }
+}
+
+const STEP_TEXT: Record<JiraSyncStep, string> = {
+  issues: SETTINGS_COPY.stepIssues,
+  links: SETTINGS_COPY.stepLinks,
+  order: SETTINGS_COPY.stepOrder,
+};
+
+/** What a running pass shows: the step text, "23 of 60", and the bar's numbers (`done` clamped into 0..total; `total` 0 has no bar value). */
+export function progressView(p: JiraSyncProgress): { step: string; count: string; done: number; total: number } {
+  const done = Math.min(p.done, p.total);
+  return { step: STEP_TEXT[p.step], count: countText(done, p.total), done, total: p.total };
 }

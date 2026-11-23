@@ -9,6 +9,7 @@ import { TextField } from "@/components/ui/TextField";
 import { COPY } from "@/lib/copy";
 import type { JiraSettings, JiraSync } from "@/lib/domain/jira";
 import { isSavedTarget, PHASE_LABEL, reasonText, statusTone, statusWord, targetOf, type Outcome, type Phase } from "./jira-logic";
+import { JiraProgress } from "./JiraProgress";
 import { SETTINGS_COPY } from "./settings-copy";
 import "./settings.css";
 
@@ -32,7 +33,7 @@ function CheckOk({
   );
 }
 
-/** The status word, when the pass ended and why it did not succeed. */
+/** The status word, when the pass ended and why it did not succeed; while it runs and has started, its step and count with a bar. */
 function StatusLine({ sync }: Readonly<{ sync: JiraSync | null }>) {
   // The live region stays mounted (empty without a sync) so a polled change of the word is announced.
   return (
@@ -42,6 +43,7 @@ function StatusLine({ sync }: Readonly<{ sync: JiraSync | null }>) {
           <Tag tone={statusTone(sync.status)}>{statusWord(sync.status)}</Tag>
           {sync.finishedAt === null ? null : <span className="settings-hint">{whenText(sync.finishedAt)}</span>}
           {sync.errorCode === null ? null : <span className="settings-hint">{reasonText(sync.errorCode)}</span>}
+          {sync.status === "running" && sync.progress !== null ? <JiraProgress progress={sync.progress} /> : null}
         </>
       )}
     </section>

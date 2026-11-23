@@ -1,7 +1,7 @@
 // Stub of the Jira settings API (docs/jira-sync/api.md#web-routes), in memory: the target of a project, the owner rule, the access check
 // with scripted answers and the `available` switch (the server has no Atlassian account: 503 `jira_unavailable`). A test double next to
 // stub-api.mjs, close enough to drive the http adapter, the BFF and the Settings tab; the real API lives in backend/src/api. It never
-// calls Jira and never starts a sync: the status of a target is what `seed` says. The caller's role comes from the members model.
+// calls Jira and never starts a sync: the status of a target is what `seed` says (a seeded `sync` may carry `progress`: {step, done, total}). The caller's role comes from the members model.
 import { StubError } from "./stub-members.mjs";
 
 const SITE_URL = "https://example.atlassian.net";
@@ -29,6 +29,7 @@ export function createJiraModel(roleOf) {
     finished_at: null,
     error_code: null,
     counts: null,
+    progress: null,
     jira_project: t.jira_project,
     epic_key: t.epic_key ?? t.created_epic_key ?? null,
   });

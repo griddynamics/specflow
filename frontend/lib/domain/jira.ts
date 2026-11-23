@@ -3,11 +3,21 @@
 
 export type JiraSyncState = "idle" | "running" | "succeeded" | "partial" | "failed" | "skipped";
 
-/** The part of `JiraSyncStatus` the Settings tab shows. */
+export type JiraSyncStep = "issues" | "links" | "order";
+
+/** How far a running pass is: the step it works on and the items done of the total (`done` may exceed `total`; views clamp). */
+export interface JiraSyncProgress {
+  step: JiraSyncStep;
+  done: number;
+  total: number;
+}
+
+/** The part of `JiraSyncStatus` the Settings tab and the Plan show. `progress` is set only while the pass runs and has started its work. */
 export interface JiraSync {
   status: JiraSyncState;
   finishedAt: string | null;
   errorCode: string | null;
+  progress: JiraSyncProgress | null;
 }
 
 /** `GET` and `PUT /projects/{pid}/jira`: `available` = the server has an Atlassian account, `editable` = the caller is the owner. */

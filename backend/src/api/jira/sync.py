@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from api.contained import Contained
 from api.jira import content as rules
@@ -65,6 +65,15 @@ class SyncResult:
 
 
 @dataclass(frozen=True)
+class SyncProgress:
+    """Where a running pass is: ``done`` of ``total`` units of ``step`` ("issues", "links" or "order")."""
+
+    step: Literal["issues", "links", "order"]
+    done: int
+    total: int
+
+
+@dataclass(frozen=True)
 class SyncDeps:
     """What a pass needs from its host; ``spec_names`` maps each asked spec id (an alias too) to its current node."""
 
@@ -75,6 +84,7 @@ class SyncDeps:
     public_url: str | None
     now: Callable[[], datetime]
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    report: Callable[[str, SyncProgress], None] | None = None  # (project id, progress), called as the pass advances
 
 
 class TargetChangedError(Exception):
@@ -150,6 +160,21 @@ class _Pass:
         self.points_looked = False
         self.points: str | None = None
         self.epic_checked = False
+        self.step: Literal["issues", "links", "order"] = "issues"
+        self.done = 0
+        self.total = 0
+
+    def _begin(self, step: Literal["issues", "links", "order"], total: int, *, done: int = 0) -> None:
+        self.step, self.done, self.total = step, done, total
+        self._report()
+
+    def _tick(self) -> None:
+        self.done = min(self.done + 1, self.total)
+        self._report()
+
+    def _report(self) -> None:
+        if self.deps.report is not None:
+            self.deps.report(self.project_id, SyncProgress(self.step, self.done, self.total))
 
     async def execute(self) -> tuple[str, str | None]:
         async with self.deps.transaction() as session:
@@ -175,6 +200,9 @@ class _Pass:
         if not (diff.creates or diff.changed or self.desired.removed or revived or diff.moves):
             return SUCCEEDED, None
         await self._recover()
+        again = self._diff(planning=True)
+        events = len(again.changed) + len(self.desired.revived) + len(self.desired.removed)
+        self._begin("issues", len(again.creates) + events)
         await self._create_all()
         self.desired = self._build()
         diff = self._diff(planning=False)
@@ -333,7 +361,10 @@ class _Pass:
 
     async def _create_all(self) -> None:
         for node, item in self.desired.items.items():
-            if node in self._keys() or (item.kind != "epic" and self._content(item)["parent"] is None):
+            if node in self._keys():
+                continue
+            if item.kind != "epic" and self._content(item)["parent"] is None:
+                self._tick()
                 continue
             if self.issue_types is None:
                 self.issue_types = await self.gateway.project(self.jira_project)
@@ -341,6 +372,7 @@ class _Pass:
             if item.kind == "story":
                 await self._check_epic()
             await self._guard(node, self._create(item))
+            self._tick()
 
     async def _create(self, item: Item) -> None:
         type_id = getattr(self.issue_types, _KIND_TYPE[item.kind])
@@ -400,6 +432,8 @@ class _Pass:
         nodes = [
             node for node in asked if node not in self.fresh and node not in self.failed and self.rows[node].jira_key
         ]
+        if self.done + len(events) != self.total:  # the creates changed what is to update: the total is final now
+            self._begin("issues", self.done + len(events), done=self.done)
         keys = [str(self.rows[node].jira_key) for node in nodes]
         found = await self.gateway.issue_states(keys) if keys else {}
         self.states = {node: found[key] for node, key in zip(nodes, keys, strict=True)}
@@ -411,12 +445,14 @@ class _Pass:
         for node, event in events:
             state = self.states[node]
             if state is None or self._dead(node):
+                self._tick()
                 continue
             if event != rules.REMOVED and state.category == TODO_CATEGORY:
                 await self._points_field()
                 if self._moves_story(node):
                     await self._check_epic()
             await self._guard(node, self._apply(node, event, state))
+            self._tick()
 
     def _moves_story(self, node: str) -> bool:
         item = self.desired.items.get(node)
@@ -489,9 +525,12 @@ class _Pass:
         await self._store(node, **columns)
 
     async def _link_all(self) -> None:
-        for node in dict.fromkeys(self.link_queue):
+        queue = list(dict.fromkeys(self.link_queue))
+        self._begin("links", len(queue))
+        for node in queue:
             if node not in self.failed and not self._dead(node):
                 await self._guard(node, self._link(node))
+            self._tick()
 
     async def _link(self, node: str) -> None:
         row, item = self.rows[node], self.desired.items[node]
@@ -542,6 +581,7 @@ class _Pass:
     async def _rank_all(self, diff: _Diff) -> None:
         if self.died:
             return
+        self._begin("order", len(diff.orders))
         not_todo = {node for node, state in self.states.items() if state is None or state.category != TODO_CATEGORY}
         keys = self._keys()
         failed_scopes: set[str] = set()
@@ -569,6 +609,7 @@ class _Pass:
                     if self.rows[node].error_code:
                         await self._store(node, error_code=None)
             real[scope] = applied
+            self._tick()
         positions = {
             node: index
             for scope, order in (self.desired.orders | real).items()

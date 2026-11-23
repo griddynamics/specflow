@@ -2,10 +2,20 @@
 // shape-checked (like `toMembersState`): any other shape is `invalid_response`. Failures are `DataError`s whose `detail.apiCode` is
 // the API code; a failed access check is an answer.
 import { checkJiraAccess, getJira, putJira } from "@/lib/api";
-import type { JiraAccess, JiraAccessField, JiraPort, JiraSettings, JiraSync, JiraSyncState } from "@/lib/domain/jira";
+import type {
+  JiraAccess,
+  JiraAccessField,
+  JiraPort,
+  JiraSettings,
+  JiraSync,
+  JiraSyncProgress,
+  JiraSyncState,
+  JiraSyncStep,
+} from "@/lib/domain/jira";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
 
 const STATES: readonly JiraSyncState[] = ["idle", "running", "succeeded", "partial", "failed", "skipped"];
+const STEPS: readonly JiraSyncStep[] = ["issues", "links", "order"];
 const FIELDS: readonly JiraAccessField[] = ["jira_project", "epic_key"];
 
 const textOrNull = (v: unknown): string | null => {
@@ -19,13 +29,25 @@ function siteOf(v: unknown): string | null {
   return text !== null && URL.canParse(text) && new URL(text).protocol === "https:" ? new URL(text).origin : null;
 }
 
+/** `progress`: missing or null (older servers, queued, finished) is none; anything but {step, done, total} with whole counts is invalid. */
+function toProgress(v: unknown): JiraSyncProgress | null {
+  if (v === undefined || v === null) return null;
+  expectShape(isRecord(v));
+  const step = STEPS.find((s) => s === v.step);
+  expectShape(step !== undefined && Number.isSafeInteger(v.done) && Number.isSafeInteger(v.total));
+  const done = v.done as number;
+  const total = v.total as number;
+  expectShape(done >= 0 && total >= 0);
+  return { step, done, total };
+}
+
 function toSync(v: unknown): JiraSync {
   expectShape(isRecord(v));
   const status = STATES.find((s) => s === v.status);
   expectShape(status !== undefined);
   const finishedAt = textOrNull(v.finished_at);
   expectShape(finishedAt === null || !Number.isNaN(Date.parse(finishedAt)));
-  return { status, finishedAt, errorCode: textOrNull(v.error_code) };
+  return { status, finishedAt, errorCode: textOrNull(v.error_code), progress: toProgress(v.progress) };
 }
 
 export function toJiraSettings(v: unknown): JiraSettings {
