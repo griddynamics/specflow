@@ -257,6 +257,19 @@ async def test_the_answer_route_refuses_anything_but_one_answer(cards: GapRig, a
     assert (await cards.gaps.get_gap(ALPHA, gap_id)).status == "open"
 
 
+async def test_an_own_answer_to_a_contradiction_is_refused_because_it_cannot_amend(cards: GapRig) -> None:
+    gap_id = cards.contradiction_gap()
+
+    response = await cards.rig.post(
+        ANSWER, await chosen(cards, gap_id, own_text="500 EUR everywhere."), project_id=ALPHA
+    )
+
+    error = response.json()["error"]
+    assert (response.status_code, error["code"]) == (400, "answer_invalid")
+    assert (error["details"]["field"], error["details"]["reason"]) == ("placement", "contradiction_amends")
+    assert (await cards.gaps.get_gap(ALPHA, gap_id)).status == "open"
+
+
 async def test_an_answer_to_a_gap_that_changed_since_the_dialog_is_stale(cards: GapRig) -> None:
     gap_id = cards.question_gap()
     body = {**await chosen(cards, gap_id, option_rank=1), "updated_at": "2020-01-01T00:00:00+00:00"}

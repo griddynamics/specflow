@@ -166,7 +166,8 @@ flat list: one box per option, a box for "Other", and a text field for an own an
 
 One ticked option, or Other (or no box) with an own answer, is an answer; two ticked boxes, an option together with own
 text, or nothing, return a note that says what to change. There is no placement field: an option keeps the placement of its edits, and an own answer goes to
-the clarifications document as written. A confirm round with the edits of `preview_edits` is deferred
+the clarifications document as written; an own answer to a `contradiction` is refused by the service (it always amends)
+and the note sends the user to an option or the web card. A confirm round with the edits of `preview_edits` is deferred
 ([later.md](later.md) "Own answers with edits"): the preview is a model call, so its text would change between the
 dialog's two calls and the SDK would ask again. Declining or cancelling records nothing. Layouts tried (Q10): a single titled
 choice, whose list opens only with the right arrow key (the first person who tried it did not find it); then one

@@ -32,6 +32,7 @@ from starlette.requests import Request
 
 from agent_contracts import (
     AGENT_ROUTES,
+    ANSWER_INVALID,
     GAP_CARD_ROUTE,
     INTERNAL_ERROR,
     AddFindingArgs,
@@ -610,6 +611,12 @@ NOT_SHOWN: Final = (
 )
 NO_DIALOG: Final = "Nothing was recorded: {reason} Give the user web_url to answer on the web card."
 RETRY: Final = "Nothing was recorded: {problem} Call answer_gap again so that the user can answer."
+CONTRADICTION: Final = "contradiction"
+CONTRADICTION_OWN: Final = (
+    "Nothing was recorded: a contradiction is answered by keeping one of its two lines, so an own answer cannot go to "
+    "the clarifications document. Call answer_gap again so that the user can tick an option, or give the user web_url "
+    "to answer in their own words on the web card, which turns the text into edits of the losing line."
+)
 STAGED: Final = (
     "Staged as the user's answer. It reaches the specification when someone presses Resolve gaps on the web Gaps "
     "screen (web_url)."
@@ -721,7 +728,12 @@ async def _answer(
     chosen = {"option_rank": sent.option.rank} if sent.option is not None else {"own_text": sent.own_text}
     body = {"gap_id": card.gap_id, "updated_at": card.updated_at.isoformat(), **chosen}
     reply = await _api_call(ctx, declaration.route, {"project_id": args.project_id}, body)
-    record = from_api(reply, GapAnswerRecord)
+    try:
+        record = from_api(reply, GapAnswerRecord)
+    except McpToolError as error:  # the service refuses an own answer that does not amend a contradiction
+        if error.code != ANSWER_INVALID or sent.own_text is None or card.kind != CONTRADICTION:
+            raise
+        return outcome(answered=False, action="accept", note=CONTRADICTION_OWN), 1
     return (
         outcome(
             answered=True,
