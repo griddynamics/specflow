@@ -17,7 +17,7 @@ from api.contained import Contained
 from api.deps import MemberDep, RuntimeDep, UserDep
 from api.errors import ApiError
 from api.slack.links import LinkRefusedError
-from api.slack.threads import SlackThreads
+from api.slack.threads import NO_CHANNEL, NOT_IN_CHANNEL, SlackThreads, WelcomeFailedError
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("api.routers.slack")
@@ -47,6 +47,23 @@ class SlackSettingsOut(BaseModel):
     available: bool
     channel: SlackChannelOut | None
     editable: bool
+
+
+class SlackTestOut(BaseModel):
+    """The welcome message was posted in ``channel``."""
+
+    posted: bool
+    channel: SlackChannelOut
+
+
+def welcome_error(code: str) -> ApiError:
+    """The closed answer of a refused welcome message."""
+
+    if code == NO_CHANNEL:
+        return ApiError(409, "slack_not_connected", "Connect a Slack channel to the project first.")
+    if code == NOT_IN_CHANNEL:
+        return ApiError(409, "slack_not_in_channel", "SpecFlow cannot post in the channel. Add it to the channel.")
+    return ApiError(502, "slack_unreachable", "Slack could not be reached. Try again later.")
 
 
 def slack_unavailable() -> ApiError:
@@ -101,3 +118,21 @@ async def delete_slack_settings(runtime: RuntimeDep, user: UserDep, access: Memb
     await runtime.slack.disconnect(str(access.project.id))
     log_event(logger, INFO, "api.slack.unbound", project_id=str(access.project.id), user_id=str(user.id))
     return Response(status_code=204)
+
+
+@router.post("/projects/{pid}/slack/test", response_model=SlackTestOut)
+async def test_slack_connection(runtime: RuntimeDep, user: UserDep, access: MemberDep) -> SlackTestOut:
+    """Post the welcome message in the project's channel (any member, D6)."""
+
+    threads = _threads(runtime)
+    if threads is None:
+        raise slack_unavailable()
+    try:
+        bound = await threads.post_welcome(str(access.project.id), access.project.name)
+    except WelcomeFailedError as error:
+        log_event(logger, INFO, "api.slack.test_refused", project_id=str(access.project.id), code=error.code)
+        raise welcome_error(error.code) from None
+    log_event(logger, INFO, "api.slack.tested", project_id=str(access.project.id), user_id=str(user.id))
+    return SlackTestOut(
+        posted=True, channel=SlackChannelOut(id=bound.channel_id, name=bound.channel_name, private=bound.private)
+    )

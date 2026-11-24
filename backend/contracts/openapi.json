@@ -9006,6 +9006,24 @@
         "title": "SlackSettingsOut",
         "type": "object"
       },
+      "SlackTestOut": {
+        "description": "The welcome message was posted in ``channel``.",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/SlackChannelOut"
+          },
+          "posted": {
+            "title": "Posted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "posted",
+          "channel"
+        ],
+        "title": "SlackTestOut",
+        "type": "object"
+      },
       "SourceCreated": {
         "properties": {
           "source": {
@@ -17104,6 +17122,49 @@
           }
         },
         "summary": "Get Slack Settings",
+        "tags": [
+          "slack"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/slack/test": {
+      "post": {
+        "description": "Post the welcome message in the project's channel (any member, D6).",
+        "operationId": "test_slack_connection_api_v1_projects__pid__slack_test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackTestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Slack Connection",
         "tags": [
           "slack"
         ]

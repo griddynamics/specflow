@@ -59,6 +59,22 @@ of the configured site; the GitHub one is the account login; the Slack one the w
 - No transaction is open across a call to an app; events `api.integrations.connected`, `.removed`, `.refused` carry
   ids and the app name only.
 
+## Slack test message
+
+`POST /projects/{pid}/slack/test` (no body; member, D6) posts `Welcome to the workspace of project <project name>.` in
+the project's bound channel (text in [../slack/gap-answering.md](../slack/gap-answering.md)) and answers 200
+`{posted: true, channel: {id, name, private}}`. Nothing is stored; the text and Slack's own error text are never logged.
+
+| Code | HTTP | When |
+|---|---|---|
+| `slack_not_connected` | 409 | the project has no bound channel (the channel is bound by `/specflow connect`) |
+| `slack_not_in_channel` | 409 | the app is not in the channel any more, or it is archived |
+| `slack_unreachable` | 502 | Slack did not answer, or refused for another reason |
+| `slack_unavailable` | 503 | the Slack app is off on this server |
+| `project_not_found` | 404 | not a member |
+
+The canvas form polls `GET /projects/{pid}/slack` until `channel` is set, then enables **Test connection**.
+
 ## Roles (D6)
 
 Owner only: add and remove members, cancel invites, rename the project. Every other action of the project is a
@@ -118,7 +134,8 @@ recorded in the answer history under its own name. No column stores it, no consu
 | `integration_workspace_mismatch` | 409 | `PUT`: the project is connected to another Atlassian site, GitHub account or Slack workspace |
 | `integration_not_found` | 404 | `DELETE`: the project has no connection to that app |
 | `integration_forbidden` | 403 | `DELETE`: the caller neither connected the app nor owns the project |
-| `atlassian_oauth_unavailable`, `github_unavailable` | 503 | the app is not configured on this server (`slack_unavailable` on the Slack routes) |
+| `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable` | 503 | the app is not configured on this server |
+| `slack_link_invalid` | 400 | `POST /integrations/slack/link`: the nonce expired or was used |
 | `jira_not_connected` | 409 | `PUT /projects/{pid}/jira` in `oauth` mode: the project has no Atlassian connection bound to a member |
 
 ## Data
