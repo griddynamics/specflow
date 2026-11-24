@@ -249,7 +249,7 @@ async def test_the_start_ends_interrupted_imports_of_the_imported_kinds_and_leav
         )
 
     await age(factory, project)
-    runner.start_recovery()
+    await runner.start_recovery()
     await asyncio.wait_for(runner._recovery, timeout=10)
 
     states = {key: await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=i) for key, i in ids.items()}
@@ -290,13 +290,26 @@ async def test_the_recovery_never_ends_a_source_added_after_the_process_started(
     user, project = await member_project(factory)
     old = await runner.add_source(project, user, kind="confluence", name="Old", link="https://wiki.example/old")
     await age(factory, project)
-    fresh = await runner.add_source(project, user, kind="confluence", name="Fresh", link="https://wiki.example/new")
 
-    runner.start_recovery()  # racing a request that has just added a source
+    await runner.start_recovery()  # the start instant is read from the database clock here
+    fresh = await runner.add_source(project, user, kind="confluence", name="Fresh", link="https://wiki.example/new")
     await asyncio.wait_for(runner._recovery, timeout=10)
 
     assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=old) == "failed"
     assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=fresh) == "listing"
+
+
+async def test_a_source_touched_a_moment_before_the_start_by_a_dead_process_is_ended(factory, runner) -> None:
+    user, project = await member_project(factory)
+    just_before = await runner.add_source(project, user, kind="jira_epic", name="A", link="https://wiki.example/a")
+
+    await runner.start_recovery()
+    await asyncio.wait_for(runner._recovery, timeout=10)
+
+    assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=just_before) == "failed"
+    assert (
+        await scalar(factory, "SELECT failure_reason FROM connections WHERE id = :i", i=just_before) == "unknown_error"
+    )
 
 
 async def test_a_confluence_import_is_the_corpus_and_is_listed_by_both_sources_statuses(

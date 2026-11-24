@@ -244,7 +244,7 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             stack.push_async_callback(runtime.github.aclose)
         runtime.imports = ImportRunner(transaction=runtime.transaction, store=store)
         stack.push_async_callback(runtime.imports.aclose)
-        runtime.imports.start_recovery()
+        await runtime.imports.start_recovery()
         if settings.graph_build is None:
             # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
             log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))

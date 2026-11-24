@@ -19,7 +19,7 @@ import logging
 import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, get_args
 
@@ -35,7 +35,6 @@ from api.imports import (
     NotImportedKindError,
     SourceGoneError,
 )
-from api.imports.runner import RECOVERY_MARGIN
 from api.schemas import SourceKindName
 from db import imports as imports_db
 from db import sources as sources_db
@@ -56,6 +55,7 @@ class Database:
         self.gone: set[uuid.UUID] = set()
         self.interrupted: list[tuple[str, ...]] = []
         self.before: list[datetime] = []
+        self.clock = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)  # the database clock
         self.ended_by_restart: list[uuid.UUID] = []
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,6 +80,10 @@ class Database:
             self.before.append(before)
             return self.ended_by_restart
 
+        async def database_now(_session: Any) -> datetime:
+            return self.clock
+
+        monkeypatch.setattr(imports_db, "database_now", database_now)
         monkeypatch.setattr(sources_db, "set_connection_state", set_state)
         monkeypatch.setattr(sources_db, "fail_unfinished_items", fail_unfinished)
         monkeypatch.setattr(sources_db, "create_connection", create_connection)
@@ -266,7 +270,7 @@ async def test_closing_cancels_the_running_imports_and_refuses_new_ones(database
 async def test_the_start_ends_the_sources_of_the_imported_kinds_a_restart_interrupted(runner, database) -> None:
     database.ended_by_restart = [uuid.uuid4(), uuid.uuid4()]
 
-    runner.start_recovery()
+    await runner.start_recovery()
     await asyncio.wait_for(runner._recovery, timeout=2)
 
     assert database.interrupted == [IMPORT_KINDS] and IMPORT_KINDS == ("confluence", "jira_epic")
@@ -296,14 +300,38 @@ def test_the_imported_kinds_are_source_kinds_the_database_and_the_api_accept() -
     assert set(get_args(SourceKindName)) == set(CONNECTION_KINDS)  # the sources status can name every kind
 
 
-async def test_the_recovery_spares_every_source_touched_since_this_process_started(database) -> None:
-    started = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
-    runner = ImportRunner(transaction=transaction, store=InMemoryObjectStore(app_env="local"), now=lambda: started)
-
-    runner.start_recovery()
+async def test_the_recovery_ends_only_sources_touched_before_the_database_clock_of_the_start(runner, database) -> None:
+    await runner.start_recovery()
     await asyncio.wait_for(runner._recovery, timeout=2)
 
-    # only sources last touched before the start (less the margin) are ended: a new import of this process, or of
-    # another replica, was touched after it
-    assert database.before == [started - RECOVERY_MARGIN] and timedelta(minutes=5) > RECOVERY_MARGIN
-    await runner.aclose()
+    # the bound is one instant of the database clock, read once: a new import of this process, or of another replica,
+    # was touched after it
+    assert database.before == [database.clock]
+
+
+async def test_a_database_that_cannot_give_its_clock_ends_no_source_and_the_start_goes_on(
+    runner, database, monkeypatch, caplog
+) -> None:
+    async def broken(_session: Any) -> datetime:
+        raise OSError(ERROR_TEXT)
+
+    monkeypatch.setattr(imports_db, "database_now", broken)
+
+    with caplog.at_level(logging.WARNING):
+        await runner.start_recovery()
+
+    assert runner._recovery is None and database.interrupted == []
+    assert "api.imports.recovery_failed" in caplog.text and ERROR_TEXT not in caplog.text
+
+
+async def test_a_lost_race_on_an_item_fails_the_source_with_the_closed_unknown_reason(runner, database) -> None:
+    async def importer(_job: ImportJob, _writer: Any) -> None:
+        raise imports_db.ItemDeclareError
+
+    this = job()
+    runner.start(this, importer)
+    await finished(runner)
+    await asyncio.sleep(0)
+
+    assert database.states_of(this.source_id) == [("importing", None), ("failed", "unknown_error")]
+    assert database.unfinished == [this.source_id]

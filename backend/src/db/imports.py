@@ -62,10 +62,17 @@ async def declare_item(
     return existing
 
 
+async def database_now(session: AsyncSession) -> datetime:
+    """The database clock: the instant ``updated_at`` columns are compared with (never this process's clock)."""
+
+    return (await session.execute(select(func.now()))).scalar_one()
+
+
 async def fail_interrupted(session: AsyncSession, kinds: Sequence[str], *, before: datetime) -> list[uuid.UUID]:
     """End every source of ``kinds`` that is still ``listing`` or ``importing`` and was last touched before ``before``
     as ``failed``, and its unfinished items as ``error``: a restart killed the task that imported it, and it is added
-    again. A source touched since (a new import of this process or of another replica) is left alone. The ids."""
+    again. ``before`` is an instant of the database clock (``database_now``) read when this process started: a source
+    touched since (a new import of this process or of another replica) is left alone. The ids."""
 
     failed = list(
         await session.scalars(

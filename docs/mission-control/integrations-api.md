@@ -18,7 +18,7 @@ acts as that member. The card says "by *member*".
 |---|---|---|---|
 | `GET /projects/{pid}/integrations` | member | 200 `ProjectIntegrationsOut` | 404 `project_not_found` |
 | `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian` or `github`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
-| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 422 `validation_failed` (unknown `app`) |
+| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
 
 **Slack in the UI:** any member can also remove the channel with `DELETE /projects/{pid}/slack` (D6, the route of the
 Settings tab), so a screen must not tell a member that only the connector or the owner can disconnect Slack; only
@@ -60,7 +60,7 @@ of the configured site; the GitHub one is the account login; the Slack one the w
 - **Remove** (`DELETE`): the member who connected the app, or the owner (AC6). The check and the delete are one
   statement (the row goes only if that member still holds it). The row is deleted and the Jira target's
   `connected_user_id` or the repositories' `added_by` becomes null in the same transaction, so everything that used the
-  account stops and no other member's account takes over (D2). For Slack the channel is unbound first and the row goes only once that worked. A
+  account stops and no other member's account takes over (D2). The existence and holder checks are the same for every app, Slack included (also when Slack is off on the server). For Slack the channel is unbound first and the row goes only once that worked; a failed unbind is `502 slack_unreachable` (the row stays), and a binding taken over by another member meanwhile is `403 integration_forbidden`. A
   member who is removed from the project or leaves it stops being the member of every row of the project in the
   same transaction.
 - No transaction is open across a call to an app; events `api.integrations.connected`, `.removed`, `.refused` carry
@@ -115,7 +115,7 @@ the graph build changes: an importer writes `parsed` documents the build already
   `processed` (a duplicate of content the project holds is `duplicate`, linking the first document); `fail(...)` ends
   one item `error`. A removed source stops the importer at its next write (`SourceGoneError`).
 - A restart ends the tasks: at startup every source of those kinds still `listing` or `importing` and not touched since
-  before this process started (less a minute) is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). One API replica is assumed, as for the Slack bindings.
+  before this process started is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). The start instant is read once from the database clock (`SELECT now()`) and compared with `connections.updated_at`, so no process clock is involved; a source added after it is never ended. One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
 - The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source" below.
