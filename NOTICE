@@ -155,6 +155,13 @@ https://github.com/pyca/cryptography
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------
+yarl (yarl) and propcache (propcache), through aiohttp, the transport of the Slack app's Socket Mode handler
+Copyright 2016-2021, Andrew Svetlov and aio-libs team
+Licensed under Apache License 2.0
+https://github.com/aio-libs/yarl, https://github.com/aio-libs/propcache
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
 FastAPI (fastapi)
 Copyright Sebastian Ramirez
 Licensed under MIT License

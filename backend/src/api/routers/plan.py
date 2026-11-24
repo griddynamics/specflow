@@ -9,17 +9,24 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
-from typing import Any
+from typing import Any, Final
 
 from fastapi import APIRouter
 
 from api.deps import RuntimeDep, UserDep
 from api.errors import ApiError
-from api.plan.state import NoGraphBuildError, PlanRunner, PlanState
+from api.plan.start import (
+    GRAPH_BUILD_RUNNING,
+    NO_GRAPH_BUILD,
+    PLAN_UNAVAILABLE,
+    PlanStartRefusedError,
+    start_plan_run,
+)
+from api.plan.state import PlanRunner, PlanState
 from api.routers.documents import require_project
 from api.runtime import Runtime
 from api.schemas import PlanContent, PlanPreview, PlanStartRequest, PlanStatus
-from logger.logger import INFO, WARNING, get_logger, log_event
+from logger.logger import WARNING, get_logger, log_event
 from settings import GRAPH_BUILD_SWITCHES
 
 logger = get_logger("api.routers.plan")
@@ -36,6 +43,13 @@ def no_graph_build() -> ApiError:
 
 def graph_build_running() -> ApiError:
     return ApiError(409, "graph_build_running", "The graph of the project is being built.")
+
+
+_REFUSED: Final = {
+    PLAN_UNAVAILABLE: plan_unavailable,
+    GRAPH_BUILD_RUNNING: graph_build_running,
+    NO_GRAPH_BUILD: no_graph_build,
+}
 
 
 def no_plan() -> ApiError:
@@ -63,26 +77,12 @@ async def start_plan(
     body: PlanStartRequest | None = None,
 ) -> PlanStatus:
     await require_project(runtime, user.id, pid)
-    runner = _runner(runtime)
-    project_id = str(pid)
-    # A plan is made after a build has returned, never during one (docs/graph/plan/api.md).
-    if runtime.graph_builds is not None and runtime.graph_builds.running(project_id):
-        raise graph_build_running()
     replan = body.replan if body is not None else False
-    already = runner.running(project_id)
     try:
-        state = await runner.start(project_id, replan=replan)
-    except NoGraphBuildError:
-        raise no_graph_build() from None
-    log_event(
-        logger,
-        INFO,
-        "api.plan.requested",
-        user_id=str(user.id),
-        project_id=project_id,
-        already_running=already,
-        replan=replan,
-    )
+        state = await start_plan_run(runtime, str(pid), user.id, replan=replan)
+    except PlanStartRefusedError as error:
+        refused = _REFUSED[error.code]()
+        raise refused from None
     return _out(state)
 
 

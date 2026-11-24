@@ -179,6 +179,7 @@ def make_gap_runner(
     ensured: list[Any] | None = None,
     builds: Any = None,
     service: Any = None,
+    notice: Any = None,
 ) -> GapRunner:
     """A runner on ``tmp_path`` (build store) and a memory run store, with stub ports, readers and gateway; its
     ``service()`` is ``service`` when given, else the (args, kwargs) the service was built with."""
@@ -213,7 +214,9 @@ def make_gap_runner(
         service=(lambda *_args, **_kwargs: service) if service is not None else lambda *args, **kwargs: (args, kwargs),
     )
     settings = SETTINGS.model_copy(update={"state_dir": str(tmp_path)})
-    return GapRunner(settings, gap or GapSettings(), store=object(), transaction=lambda: None, dependencies=deps)
+    return GapRunner(
+        settings, gap or GapSettings(), store=object(), transaction=lambda: None, dependencies=deps, notice=notice
+    )
 
 
 async def drained(runner: GapRunner, project_id: str = PROJECT) -> None:

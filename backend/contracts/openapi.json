@@ -8329,6 +8329,112 @@
         "title": "SimilarNodes",
         "type": "object"
       },
+      "SlackChannelOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "private": {
+            "title": "Private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "private"
+        ],
+        "title": "SlackChannelOut",
+        "type": "object"
+      },
+      "SlackLinkIn": {
+        "additionalProperties": false,
+        "properties": {
+          "nonce": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Nonce",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nonce"
+        ],
+        "title": "SlackLinkIn",
+        "type": "object"
+      },
+      "SlackLinkOut": {
+        "properties": {
+          "linked": {
+            "title": "Linked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "linked"
+        ],
+        "title": "SlackLinkOut",
+        "type": "object"
+      },
+      "SlackSettingsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_id": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Channel Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id"
+        ],
+        "title": "SlackSettingsIn",
+        "type": "object"
+      },
+      "SlackSettingsOut": {
+        "description": "``available``: the server runs the Slack app; ``channel`` the bound one (none when unbound); ``channels`` the\nones the app is in, to choose from; ``editable``: the caller is the owner.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlackChannelOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/SlackChannelOut"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "editable": {
+            "title": "Editable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available",
+          "channel",
+          "channels",
+          "editable"
+        ],
+        "title": "SlackSettingsOut",
+        "type": "object"
+      },
       "SourceCreated": {
         "properties": {
           "source": {
@@ -13125,6 +13231,48 @@
         ]
       }
     },
+    "/api/v1/integrations/slack/link": {
+      "post": {
+        "description": "Link the Slack user the nonce was made for to the caller, and tell them in Slack.",
+        "operationId": "link_slack_api_v1_integrations_slack_link_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Link Slack",
+        "tags": [
+          "slack"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "me_api_v1_me_get",
@@ -15750,6 +15898,132 @@
         "summary": "Plan Tasks",
         "tags": [
           "plan"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/slack": {
+      "delete": {
+        "operationId": "delete_slack_settings_api_v1_projects__pid__slack_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Slack Settings",
+        "tags": [
+          "slack"
+        ]
+      },
+      "get": {
+        "operationId": "get_slack_settings_api_v1_projects__pid__slack_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Slack Settings",
+        "tags": [
+          "slack"
+        ]
+      },
+      "put": {
+        "description": "Bind the project to the channel and post its open questions there.",
+        "operationId": "put_slack_settings_api_v1_projects__pid__slack_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackSettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Slack Settings",
+        "tags": [
+          "slack"
         ]
       }
     },

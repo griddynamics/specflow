@@ -32,12 +32,14 @@ from api.routers import (
     members,
     plan,
     projects,
+    slack,
     source_batches,
     source_removal,
     sources,
     users,
 )
 from api.runtime import DriveTimeoutError, Runtime, RuntimeFactory, build_runtime
+from api.slack.app import start_slack
 from auth.dependencies import AGENT_VERIFIER_STATE_ATTR, VERIFIER_STATE_ATTR
 from auth.jwks import JwksCache
 from auth.verifiers import build_verifier
@@ -154,6 +156,9 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
             )
             raise
         await prime_storage(app.state.runtime)
+        await start_slack(
+            app.state.runtime, settings.slack_app, settings.graph_build.state_dir if settings.graph_build else None
+        )
         log_event(logger, INFO, "api.startup.completed", port=settings.app.api_port)
         try:
             yield
@@ -194,6 +199,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         sources.router,
         source_batches.router,
         source_removal.router,
+        slack.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app

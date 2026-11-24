@@ -67,6 +67,7 @@ from agent_runtime.gap_investigator import AgentsInvestigator
 from api.contained import Contained
 from api.gap.changes import build_facts, gap_change_reports
 from api.gap.holds import plan_holds
+from api.gap.notice import GapNotice
 from api.gap.plan_view import PlanReaderView
 from api.gap.records import PostgresAmendments, PostgresGapRecords, all_project_ids
 from api.gap.state import GapRunState
@@ -176,6 +177,16 @@ class GapRunnerDependencies:
 
 
 @dataclass(frozen=True)
+class _Unclosed:
+    """A notice its owner closes (``add_notice``)."""
+
+    notice: Any
+
+    async def send(self, project_id: str, result: Any) -> None:
+        await self.notice.send(project_id, result)
+
+
+@dataclass(frozen=True)
 class _Request:
     mode: RequestMode
     build_id: str | None = None  # ``None``: the latest finished build when the run starts
@@ -243,6 +254,7 @@ class GapRunner:
         store: GraphStore,
         transaction: Transaction,
         dependencies: GapRunnerDependencies | None = None,
+        notice: GapNotice | None = None,
     ) -> None:
         deps = dependencies or GapRunnerDependencies()
         self._llm: LLMConfig = settings.to_llm_config()
@@ -251,12 +263,20 @@ class GapRunner:
         self._store = store
         self._transaction = transaction
         self._deps = deps
+        # what hears of each finished run: the Slack workflow notice, the Slack channel flow (``add_notice``)
+        self._notices: list[Any] = [] if notice is None else [notice]
         self._lazy = _Lazy(ontology=deps.ontology, rules=deps.rules, runs=deps.runs, builds=deps.builds)
         self._slots = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
         self._projects: dict[str, _Project] = {}
         self._builds_port: Any = None  # ``BuildRequests``: the graph build runner (``use_builds``)
         self._recovery: asyncio.Task[None] | None = None
         self._closed = False
+
+    def add_notice(self, notice: Any) -> None:
+        """Another listener of finished runs (``send(project_id, result)``, never raising); the runner does not
+        close it."""
+
+        self._notices.append(_Unclosed(notice))
 
     def use_builds(self, builds: Any) -> None:
         """The ``BuildRequests`` port the service applies answers through (the graph build runner)."""
@@ -564,6 +584,10 @@ class GapRunner:
             await asyncio.gather(*tasks, return_exceptions=True)
         if self._lazy.gateway is not None:
             await self._lazy.gateway.aclose()
+        for notice in self._notices:
+            closer = getattr(notice, "aclose", None)
+            if closer is not None:
+                await closer()
 
     # Queue ---------------------------------------------------------------------
 
@@ -752,6 +776,8 @@ class GapRunner:
             warnings=len(result.warnings),
             llm_calls=gateway.usage().total().calls,
         )
+        for notice in self._notices:
+            await notice.send(project_id, result)
 
     async def _changes(self, project_id: str, build_id: str | None) -> tuple[GapChangeReport, ...]:
         """The gap-side change reports after the build of the latest finished gap run up to ``build_id``; none

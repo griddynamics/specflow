@@ -223,9 +223,10 @@ ignore_imports = [
     "graph.stores.postgres.** -> postgres",
 ]
 
-# httpx (the ArcadeDB admin API) and pyTigerGraph (the `tigergraph` extra) belong to one adapter each.
+# httpx (the ArcadeDB admin API, the MCP API client, the Slack gap notice) and pyTigerGraph (the `tigergraph` extra)
+# belong to named adapters only.
 [[tool.importlinter.contracts]]
-name = "httpx is used by the ArcadeDB graph store, the Jira gateway and OAuth client and the MCP API client only"
+name = "httpx is used by the ArcadeDB graph store, the Jira gateway and OAuth client, the MCP API client and the Slack gap notice only"
 id = "httpx-confined"
 type = "forbidden"
 allow_indirect_imports = true
@@ -241,6 +242,7 @@ ignore_imports = [
     "mcp_server.api_client -> httpx",
     "jira.http -> httpx",
     "jira.oauth -> httpx",
+    "api.gap.notice -> httpx",
 ]
 
 [[tool.importlinter.contracts]]

@@ -165,6 +165,13 @@ export const leaveProject = (pid: string) => httpPost(`/projects/${encodeURIComp
 export const suggestUsers = (q: string, projectId?: string) =>
   httpPost("/users/suggestions", json(projectId === undefined ? { q } : { q, project_id: projectId })).then((r) => r.body);
 
+// The Slack channel of a project (docs/slack/gap-answering.md "The channel flow"). Bodies stay `unknown`; lib/data/http/slack.ts checks them.
+export const getSlack = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/slack`).then((r) => r.body);
+export const putSlack = (pid: string, channelId: string) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/slack`, json({ channel_id: channelId })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const deleteSlack = (pid: string) => httpDelete(`/projects/${encodeURIComponent(pid)}/slack`).then((r) => r.status);
+
 // Jira settings of a project (docs/jira-sync/api.md#web-routes). Bodies stay `unknown`; the Jira port (lib/data/http/jira.ts) checks
 // their shape. A failed access check is a 200 answer.
 export const getJira = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/jira`).then((r) => r.body);

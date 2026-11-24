@@ -71,6 +71,7 @@ from api.routers import (
     members,
     plan,
     projects,
+    slack,
     source_batches,
     source_removal,
     sources,
@@ -170,6 +171,7 @@ ROUTER_MODULES = (
     sources,
     source_batches,
     source_removal,
+    slack,
 )
 REST_PREFIX = "/api/v1"  # the prefix ``api.app`` includes every router under (the health router has none)
 

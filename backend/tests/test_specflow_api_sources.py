@@ -417,14 +417,14 @@ async def test_a_slow_save_is_504_too_slow_and_creates_nothing(sources, monkeypa
 
 async def test_waiting_for_a_drive_slot_counts_against_the_limit(sources, monkeypatch):
     await new_project(sources)
-    monkeypatch.setattr(router, "SAVE_LIMIT_SECONDS", 0.7)
+    # Either save may get the one slot. The holder needs 0.5 s of the 0.9 s; the other starts its 0.5 s call after
+    # waiting at least 0.5 s, so it always passes the limit.
+    monkeypatch.setattr(router, "SAVE_LIMIT_SECONDS", 0.9)
     sources.harness.runtime.drive = SpyGateway(delay=0.5)
     sources.harness.runtime.drive_slots = asyncio.Semaphore(1)
-    first, second = await asyncio.gather(
-        sources.save(link("fake-synthetic-30")), sources.save(link("fake-synthetic-23"))
-    )
-    assert first.status_code == 201  # got the slot at once
-    assert second.status_code == 504 and code(second) == "too_slow"  # waited 0.5 s
+    answers = await asyncio.gather(sources.save(link("fake-synthetic-30")), sources.save(link("fake-synthetic-23")))
+    assert sorted(answer.status_code for answer in answers) == [201, 504]
+    assert [code(answer) for answer in answers if answer.status_code == 504] == ["too_slow"]
     assert len(sources.repo.rows) == 1
 
 

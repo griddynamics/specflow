@@ -420,6 +420,10 @@ services:
       AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: QA users (example.com) + your domain (make env-local)
       MCP_RESOURCE_URL: "http://localhost:8002/mcp"   # the mcp service's value: turns on the agent routes (/api/v1/agent) that MCP reads through
       PUBLIC_URL: "${PUBLIC_URL:-http://localhost:3001}"   # the web app's address: the gap cards of the MCP tools link to it; the Atlassian OAuth callback is built from it
+      SLACK_WORKFLOW_WEBHOOK_URL: "${SLACK_WORKFLOW_WEBHOOK_URL:-}"   # optional: the Slack gap notice (docs/configuration.md)
+      SLACK_WORKFLOW_PROJECTS: "${SLACK_WORKFLOW_PROJECTS:-}"
+      SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN:-}"   # optional: the Slack app in Socket Mode, with SLACK_APP_TOKEN
+      SLACK_APP_TOKEN: "${SLACK_APP_TOKEN:-}"
       SPECFLOW_CONFIG_FILE: "/etc/specflow/cloud.yaml"   # local only: S3 storage on RustFS (config/cloud.local.yaml)
       AWS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY (run make env-local)}"   # local only: the RustFS keys
       AWS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY (run make env-local)}"
