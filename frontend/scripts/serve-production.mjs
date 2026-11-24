@@ -20,6 +20,11 @@
 //                                            ("token" | "oauth" | null), `connection` (the caller's own: null or {status, account_name})
 //                                            and `callbackError` (null or a callback route code); answers {}; the PUTs show in GET /log;
 //                                            see stub-jira.mjs)
+//                                          POST /seed-github ({pid?, repositories?, ...knobs}: the GitHub stub. Knobs: `enabled` (false = 503
+//                                            github_unavailable), `connection` (null or {status, login}), `callbackError`, `setupError`,
+//                                            `available` (the caller's repositories), `truncated`, `availableError`, `cloneMs` (null = a
+//                                            clone check keeps running), `cloneOutcome` ("cloned" or a failure code); with `pid` the
+//                                            project's repositories; `reset: true` puts every knob back first; see stub-github.mjs)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)
 //                                          POST /seed-gaps ({pid, gaps, run, rules, corpus}: the gaps, the latest gap run, the noise rules
 //                                            and the corpus documents of a project; stub-api.mjs `gapRoute`)
@@ -138,6 +143,14 @@ const control = http.createServer(async (req, res) => {
     for await (const c of req) chunks.push(c);
     const { pid, gaps } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
     api.recordGaps(pid, gaps ?? []);
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/seed-github") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const { reset, ...spec } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    if (reset === true) api.github.reset();
+    api.github.seed(spec);
     return send(200, { ok: true });
   }
   if (req.method === "POST" && req.url === "/seed-members") {

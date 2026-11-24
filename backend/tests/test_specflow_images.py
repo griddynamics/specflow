@@ -367,8 +367,8 @@ def test_the_cloud_profile_mount_no_adc_and_no_log_files_for_the_backend_service
         profile = [m for m in svc["volumes"] if m["target"] == "/etc/specflow/cloud.yaml"]
         assert len(profile) == 1 and profile[0]["read_only"] is True, name
         assert profile[0]["source"].endswith("config/cloud.local.yaml"), name
-        # The api also keeps the graph build state on a named volume.
-        expected = 2 if name == "api" else 1
+        # The api also keeps the graph build state on a named volume; worker-agents its TMPDIR (GitHub clone checks).
+        expected = 2 if name in ("api", "worker-agents") else 1
         assert len(svc["volumes"]) == expected, name
         env = env_of(svc)
         assert env["SPECFLOW_CONFIG_FILE"] == "/etc/specflow/cloud.yaml", name

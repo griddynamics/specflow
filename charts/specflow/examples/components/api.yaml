@@ -79,6 +79,31 @@ env:
         name: specflow-api
         key: PUBLIC_URL
         optional: true
+  # GitHub integration: the client ID turns it on and needs the secret, the app slug, a Fernet key and PUBLIC_URL.
+  - name: GITHUB_APP_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: GITHUB_APP_CLIENT_ID
+        optional: true
+  - name: GITHUB_APP_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: GITHUB_APP_CLIENT_SECRET
+        optional: true
+  - name: GITHUB_APP_SLUG
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: GITHUB_APP_SLUG
+        optional: true
+  - name: GITHUB_TOKEN_KEY
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: GITHUB_TOKEN_KEY
+        optional: true
   - name: AUTH_API_AUDIENCE
     valueFrom:
       secretKeyRef:

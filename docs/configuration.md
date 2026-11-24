@@ -33,7 +33,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AGENT_MODEL` | api, workers | Model id of the agents on the gateway route. |
 | `GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL` | api, tools | Models of the graph build behind **Build knowledge** in Mission Control, and of the plan runs behind **Create PLAN** on the Plan page. Set all three: one set without the others stops the api at start. With none set the api starts with the graph build and the plan off: it logs `api.graph_build.disabled` at start, each graph build request answers 503 `graph_build_unavailable` and logs `api.graph_build.unavailable`, and each plan request answers 503 `plan_unavailable` and logs `api.plan.unavailable`. Set `GRAPH_EMBEDDING_DIM` together with `GRAPH_EMBEDDING_MODEL`. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | api, mcp | Comma-separated list of allowed e-mail domains. Also decides which addresses the owner may add as a collaborator ([projects](projects/INDEX.md)). |
-| `PUBLIC_URL` | frontend, api | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. The api (with `MCP_RESOURCE_URL` set) links the gap cards of the MCP tools to it ([apps.md](mcp-server/apps.md#terminal-dialogs)) and gives the issues the [Jira sync](#jira-sync) creates a link back to the plan; without it the cards and the issues have no web link. In the Jira sync's `oauth` mode the api builds the Atlassian callback URL from it and needs it. Compose gives the api the same value as the frontend. The api's Slack gap notice (`SLACK_WORKFLOW_WEBHOOK_URL`) links to it too. |
+| `PUBLIC_URL` | frontend, api | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. The api (with `MCP_RESOURCE_URL` set) links the gap cards of the MCP tools to it ([apps.md](mcp-server/apps.md#terminal-dialogs)) and gives the issues the [Jira sync](#jira-sync) creates a link back to the plan; without it the cards and the issues have no web link. In the Jira sync's `oauth` mode the api builds the Atlassian callback URL from it and needs it; the [GitHub integration](#github-integration) builds its callback URL from it too. Compose gives the api the same value as the frontend. The api's Slack gap notice (`SLACK_WORKFLOW_WEBHOOK_URL`) links to it too. |
 | `API_INTERNAL_URL` | frontend, mcp | URL at which the frontend and the MCP server reach the API, often a bare in-cluster `host[:port]` (it becomes `http://host[:port]`; a trailing `/` is trimmed). The mcp role refuses userinfo, a query, a fragment or a scheme other than `http` and `https`. TLS is not required inside the cluster; `https` works with publicly trusted certificates only. See [architecture](mcp-server/architecture.md#settings). |
 | `OIDC_ISSUER` | api, mcp, frontend | OpenID Connect issuer. Must be `https` when `APP_ENV` is not `local`. Required in every environment: there is no other sign-in. |
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | frontend | OpenID Connect client. Required in every environment. |
@@ -52,6 +52,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `ATLASSIAN_SITE_URL` | api | The Jira Cloud site of the [Jira sync](#jira-sync), needed in both modes. |
 | `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | api | The one Atlassian account of the [Jira sync](#jira-sync) (`token` mode). Set both with `ATLASSIAN_SITE_URL`, or none. Not read when `ATLASSIAN_OAUTH_CLIENT_ID` is set. |
 | `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](#jira-sync) (`oauth` mode, which wins over the one account). The client ID turns it on and then needs the secret, a Fernet key, `ATLASSIAN_SITE_URL` and `PUBLIC_URL`. |
+| `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_TOKEN_KEY` | api, worker-agents | The GitHub App of the [GitHub integration](#github-integration). The client ID turns it on and then needs the secret, the app slug, a Fernet key and `PUBLIC_URL`. |
 
 ## Settings with a default (D)
 
@@ -622,6 +623,59 @@ The api must reach Atlassian directly: its Jira and OAuth clients ignore `HTTPS_
 pass. The account (in `oauth` mode the acting owner's account) needs, in each target Jira project, the permissions to
 browse, create, edit, comment on, link and rank issues; the sync never deletes or transitions issues. When the api also
 reads `PUBLIC_URL` with `MCP_RESOURCE_URL` set, each issue the sync creates links back to the project's plan page.
+
+## GitHub integration
+
+The [GitHub integration](github/INDEX.md) lets each user connect their own GitHub account and lets a project owner add
+repositories that this account can read to the project (Settings, tab GitHub). The `worker-agents` service clones each
+repository and keeps a snapshot in object storage. Specflow acts with a GitHub App **user access token**: it reads only
+the repositories that the user picked when they installed the app **and** can still read. There is no private key and
+no installation token.
+
+| Name | Rule |
+|---|---|
+| `GITHUB_APP_CLIENT_ID` | The Client ID of the GitHub App (not the App ID). A non-blank value turns the integration on. |
+| `GITHUB_APP_CLIENT_SECRET` | A client secret of the app. A secret: keep it in the cluster's secret store. |
+| `GITHUB_APP_SLUG` | The app's slug, the last part of its public page `https://github.com/apps/<slug>`. Builds the install link. |
+| `GITHUB_TOKEN_KEY` | A Fernet key that encrypts the users' refresh tokens and signs the OAuth `state`. Own key, not `ATLASSIAN_TOKEN_KEY`: rotating it expires only the GitHub connections (each user connects again). |
+| `PUBLIC_URL` | The web app's public address. The callback URL is `{PUBLIC_URL}/api/integrations/github/callback`. |
+
+The api and the `worker-agents` service read these names (the worker refreshes the token before a clone); compose
+passes them to both. With the client ID unset the integration is off: the GitHub tab says so and the GitHub routes
+answer 503 `github_unavailable`. A partial set stops the role at start and names the missing variables. The api logs
+`api.github.mode` (`mode` `on`) at start. Make the key with
+`python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`.
+
+The clone check runs on `worker-agents` with the `git` of its image. A clone (1 GiB cap) and its archive sit under
+`TMPDIR` at once, so `TMPDIR` must be a disk volume with room for about 4 GiB: compose mounts the named volume
+`specflow-worker-agents-tmp` at `/var/tmp/specflow`, and the chart example mounts a disk `emptyDir` there
+([clone.md](github/clone.md#disk)). The worker also needs the object storage settings, as the api does.
+
+### Register the GitHub App
+
+Register one app per deployment (local, each shared environment): a GitHub App has one setup URL. On github.com: your avatar >
+Settings > Developer settings > GitHub Apps > New GitHub App (or the same page of an organization).
+
+| Field | Value |
+|---|---|
+| GitHub App name | for example `Specflow (local)` |
+| Homepage URL | `PUBLIC_URL` |
+| Callback URL | `{PUBLIC_URL}/api/integrations/github/callback` |
+| Expire user authorization tokens | on (8-hour access tokens and a 6-month rotating refresh token; Specflow needs the refresh token) |
+| Request user authorization (OAuth) during installation | off (Specflow starts the sign-in itself, with a signed `state`) |
+| Enable Device Flow | off |
+| Setup URL | `{PUBLIC_URL}/api/integrations/github/setup`, with **Redirect on update** on |
+| Webhook | not active |
+| Repository permissions | Contents: Read-only. Metadata: Read-only (GitHub sets it). Nothing else. |
+| Organization and account permissions | none |
+| Where can this GitHub App be installed? | Any account (each user installs it on their own account; an organization owner can install it on the organization) |
+
+After you create it: copy the **Client ID** to `GITHUB_APP_CLIENT_ID`, generate a client secret for
+`GITHUB_APP_CLIENT_SECRET`, and copy the slug from the app's public page to `GITHUB_APP_SLUG`. Do not generate a
+private key: Specflow does not use one. On the local stack the URLs start with `http://localhost:3001`.
+
+The api and the worker must reach `github.com` and `api.github.com` directly: their clients ignore `HTTPS_PROXY` and
+the other proxy variables (and `.netrc`).
 
 ## Document parsing
 

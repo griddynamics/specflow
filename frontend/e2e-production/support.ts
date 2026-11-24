@@ -31,6 +31,8 @@ export interface StubEntry {
 // The allow-list lives per page so a case can extend it after the guard is installed (see allowConsoleErrors).
 const allowConsoleList = new WeakMap<Page, RegExp[]>();
 const allowOriginList = new WeakMap<Page, string[]>();
+/** The OAuth return routes a browser may open on the app (lib/oauth-route.ts): GitHub's and Atlassian's redirects land there. */
+const OAUTH_RETURN_ROUTES = ["/api/integrations/atlassian/callback", "/api/integrations/github/callback", "/api/integrations/github/setup"];
 
 export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
   requests: async ({}, use) => {
@@ -63,7 +65,7 @@ export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
           u.origin === appOrigin &&
           u.pathname.startsWith("/api/") &&
           !/^\/api\/(?:backend|auth)\//.test(u.pathname) &&
-          u.pathname !== "/api/integrations/atlassian/callback"
+          !OAUTH_RETURN_ROUTES.includes(u.pathname)
         )
           problems.push(`API path: ${u.pathname}`);
       });
@@ -346,6 +348,27 @@ export interface SeedJira extends Record<string, unknown> {
 }
 export async function seedJira(spec: SeedJira): Promise<void> {
   await control("POST", "/seed-jira", spec);
+}
+
+/** The GitHub stub (`POST /seed-github`, tests/support/stub-github.mjs `seed`): global knobs and, with `pid`, a project's repositories. */
+export interface SeedGitHub extends Record<string, unknown> {
+  /** Put every global knob back first. */
+  reset?: boolean;
+  pid?: string;
+  repositories?: Record<string, unknown>[];
+  enabled?: boolean;
+  connection?: { status: "active" | "expired"; login: string } | null;
+  callbackError?: string | null;
+  setupError?: string | null;
+  available?: Record<string, unknown>[];
+  truncated?: boolean;
+  availableError?: string | null;
+  /** null keeps a clone check running. */
+  cloneMs?: number | null;
+  cloneOutcome?: string;
+}
+export async function seedGitHub(spec: SeedGitHub): Promise<void> {
+  await control("POST", "/seed-github", spec);
 }
 
 /** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */

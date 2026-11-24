@@ -56,7 +56,8 @@ COLLABORATORS = "0002_project_collaborators"
 GAP_MODULE = "0003_gap_module"
 HEAD_0004 = "0004_gap_assignment"
 HEAD_0005 = "0005_jira_sync"
-HEAD = "0006_atlassian_connections"
+HEAD_0006 = "0006_atlassian_connections"
+HEAD = "0007_github"
 # SHA-256 of versions/0001_initial.py as 2.0.0 shipped it; a mismatch means a frozen revision was edited.
 FROZEN_0001_SHA256 = "ebc6d2e0f6ca8eef9bcbc5acde990ed151fe17fbc1945c75e5d6289a455948dc"
 INITIAL_TABLES = (
@@ -87,14 +88,26 @@ ASSIGNMENT = "gap_assignment"
 JIRA_TABLES = ("jira_targets", "jira_issues")
 # The users' Atlassian connections, added by 0006 (row-level security with no policy: not project-scoped).
 CONNECTIONS = "atlassian_connections"
-APP_TABLES = (*INITIAL_TABLES, "project_invites", *GAP_TABLES, ASSIGNMENT, *JIRA_TABLES, CONNECTIONS)
+# The users' GitHub connections (no policy) and the project repositories (project-scoped), added by 0007.
+GITHUB_CONNECTIONS = "github_connections"
+REPOSITORIES = "project_repositories"
+APP_TABLES = (
+    *INITIAL_TABLES,
+    "project_invites",
+    *GAP_TABLES,
+    ASSIGNMENT,
+    *JIRA_TABLES,
+    CONNECTIONS,
+    GITHUB_CONNECTIONS,
+    REPOSITORIES,
+)
 SCOPED_TABLES = (
     ("projects", "id"),
     ("project_members", "project_id"),
     ("documents", "project_id"),
     ("connections", "project_id"),
     ("connection_items", "project_id"),
-    *((table, "project_id") for table in (*GAP_TABLES, ASSIGNMENT, *JIRA_TABLES)),
+    *((table, "project_id") for table in (*GAP_TABLES, ASSIGNMENT, *JIRA_TABLES, REPOSITORIES)),
 )
 INVITES = ("project_invites", "project_id")
 
@@ -123,6 +136,7 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_bases() == [FIRST]
     assert [revision.revision for revision in script.walk_revisions()] == [
         HEAD,
+        HEAD_0006,
         HEAD_0005,
         HEAD_0004,
         GAP_MODULE,
@@ -134,7 +148,8 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_revision(GAP_MODULE).down_revision == COLLABORATORS
     assert script.get_revision(HEAD_0004).down_revision == GAP_MODULE
     assert script.get_revision(HEAD_0005).down_revision == HEAD_0004
-    assert script.get_revision(HEAD).down_revision == HEAD_0005
+    assert script.get_revision(HEAD_0006).down_revision == HEAD_0005
+    assert script.get_revision(HEAD).down_revision == HEAD_0006
 
 
 # T9 ------------------------------------------------------------------------
@@ -289,7 +304,7 @@ def test_offline_upgrade_enables_rls_and_creates_the_policy_on_each_scoped_table
             f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
         )
     assert sql.count("CREATE POLICY agent_project_scope") == len(SCOPED_TABLES) + 1
-    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 2  # + the connections, with no policy
+    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 3  # + the two connection tables, no policy
     assert "users ENABLE ROW LEVEL SECURITY" not in sql  # users is not project-scoped
 
 
@@ -654,7 +669,7 @@ def connections_sql() -> str:
     """The SQL of revision 0006 alone."""
 
     cfg, buffer = offline_config()
-    command.upgrade(cfg, f"{HEAD_0005}:{HEAD}", sql=True)
+    command.upgrade(cfg, f"{HEAD_0005}:{HEAD_0006}", sql=True)
     return buffer.getvalue()
 
 
@@ -690,7 +705,7 @@ def test_0006_enables_row_level_security_on_the_connections_with_no_policy_and_n
 def test_the_downgrade_of_0006_drops_the_column_and_the_table_and_says_what_is_lost() -> None:
     cfg, buffer = offline_config()
 
-    command.downgrade(cfg, f"{HEAD}:{HEAD_0005}", sql=True)
+    command.downgrade(cfg, f"{HEAD_0006}:{HEAD_0005}", sql=True)
 
     sql = buffer.getvalue()
     assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == [CONNECTIONS]
@@ -700,3 +715,70 @@ def test_the_downgrade_of_0006_drops_the_column_and_the_table_and_says_what_is_l
     assert sql.index("-- lock_timeout skipped (offline)") < sql.index("ALTER TABLE")
     doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0006_atlassian_connections.py").read_text("utf-8")
     assert "Every Atlassian connection is lost" in doc
+
+
+# The GitHub tables, added by revision 0007 on top of 0006 -------------------------------
+
+
+def github_sql() -> str:
+    """The SQL of revision 0007 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{HEAD_0006}:{HEAD}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0007_creates_the_github_tables_with_their_keys_and_checks() -> None:
+    sql = github_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == [GITHUB_CONNECTIONS, REPOSITORIES]
+    assert "CONSTRAINT pk_github_connections PRIMARY KEY (user_id)" in sql
+    assert (
+        "CONSTRAINT fk_github_connections_user_id_users FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE"
+    ) in sql
+    assert "refresh_token BYTEA NOT NULL" in sql and "github_user_id BIGINT NOT NULL" in sql
+    assert "CONSTRAINT pk_project_repositories PRIMARY KEY (id)" in sql
+    assert "CONSTRAINT uq_project_repositories_project_repo UNIQUE (project_id, github_repo_id)" in sql
+    assert (
+        "CONSTRAINT fk_project_repositories_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)"
+    ) in sql
+    assert (
+        "CONSTRAINT fk_project_repositories_added_by_users FOREIGN KEY(added_by) REFERENCES users (id) "
+        "ON DELETE SET NULL"
+    ) in sql
+    assert "CONSTRAINT ck_project_repositories_clone_state CHECK (clone_state IN ('pending', 'cloning'" in sql
+    assert "CONSTRAINT ck_project_repositories_failure_code CHECK (failure_code IN ('github_not_connected'" in sql
+    assert (
+        "CONSTRAINT ck_project_repositories_failure_code_matches_state "
+        "CHECK ((clone_state = 'failed') = (failure_code IS NOT NULL))"
+    ) in sql
+    assert "UPDATE alembic_version SET version_num='0007_github'" in sql
+    assert "DROP" not in sql.upper()
+
+
+def test_0007_scopes_the_repositories_to_the_agent_role_and_hides_the_connections_without_a_grant() -> None:
+    sql = github_sql()
+
+    scope = "nullif(current_setting('app.project_id', true), '')::uuid"
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index(f"CREATE TABLE {GITHUB_CONNECTIONS}")
+    for table in (GITHUB_CONNECTIONS, REPOSITORIES):
+        assert sql.index(f"CREATE TABLE {table}") < sql.index(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;")
+    assert sql.count("CREATE POLICY") == 1
+    assert (
+        f'CREATE POLICY agent_project_scope ON {REPOSITORIES} TO "specflow_agent" '
+        f"USING (project_id = {scope}) WITH CHECK (project_id = {scope});"
+    ) in sql
+    assert "GRANT" not in sql.upper()
+
+
+def test_the_downgrade_of_0007_drops_only_the_github_tables_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD}:{HEAD_0006}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == [REPOSITORIES, GITHUB_CONNECTIONS]
+    assert "UPDATE alembic_version SET version_num='0006_atlassian_connections'" in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("DROP TABLE")
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0007_github.py").read_text("utf-8")
+    assert "Every GitHub connection is lost" in doc

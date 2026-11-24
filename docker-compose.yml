@@ -419,7 +419,7 @@ services:
       AUTH_API_CLIENT_IDS: "${AUTH_API_CLIENT_IDS:-}"
       AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: QA users (example.com) + your domain (make env-local)
       MCP_RESOURCE_URL: "http://localhost:8002/mcp"   # the mcp service's value: turns on the agent routes (/api/v1/agent) that MCP reads through
-      PUBLIC_URL: "${PUBLIC_URL:-http://localhost:3001}"   # the web app's address: the gap cards of the MCP tools link to it; the Atlassian OAuth callback is built from it
+      PUBLIC_URL: "${PUBLIC_URL:-http://localhost:3001}"   # the web app's address: the gap cards of the MCP tools link to it; the Atlassian and GitHub callbacks are built from it
       SLACK_WORKFLOW_WEBHOOK_URL: "${SLACK_WORKFLOW_WEBHOOK_URL:-}"   # optional: the Slack gap notice (docs/configuration.md)
       SLACK_WORKFLOW_PROJECTS: "${SLACK_WORKFLOW_PROJECTS:-}"
       SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN:-}"   # optional: the Slack app in Socket Mode, with SLACK_APP_TOKEN
@@ -460,6 +460,11 @@ services:
       ATLASSIAN_OAUTH_CLIENT_ID: "${ATLASSIAN_OAUTH_CLIENT_ID:-}"
       ATLASSIAN_OAUTH_CLIENT_SECRET: "${ATLASSIAN_OAUTH_CLIENT_SECRET:-}"
       ATLASSIAN_TOKEN_KEY: "${ATLASSIAN_TOKEN_KEY:-}"
+      # GitHub integration: the client ID turns it on (docs/configuration.md "GitHub integration"); worker-agents too.
+      GITHUB_APP_CLIENT_ID: "${GITHUB_APP_CLIENT_ID:-}"
+      GITHUB_APP_CLIENT_SECRET: "${GITHUB_APP_CLIENT_SECRET:-}"
+      GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-}"
+      GITHUB_TOKEN_KEY: "${GITHUB_TOKEN_KEY:-}"
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     volumes:
@@ -544,7 +549,7 @@ services:
       dockerfile: docker/worker-parse/Dockerfile
     image: specflow-worker-parse:local
     container_name: specflow-worker-parse
-    # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
+    # Read-only root filesystem, as on Kubernetes; /tmp (the pod's emptyDir) and TMPDIR (a disk volume) are writable.
     read_only: true
     tmpfs:
       - /tmp:size=1g
@@ -596,7 +601,7 @@ services:
       dockerfile: docker/worker-agents/Dockerfile
     image: specflow-worker-agents:local
     container_name: specflow-worker-agents
-    # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
+    # Read-only root filesystem, as on Kubernetes; /tmp (the pod's emptyDir) and TMPDIR (a disk volume) are writable.
     read_only: true
     tmpfs:
       - /tmp:size=256m
@@ -607,6 +612,7 @@ services:
     environment:
       APP_ENV: "${APP_ENV:-local}"
       WORKER_QUEUES: "agents"
+      TMPDIR: "/var/tmp/specflow"   # the GitHub clone checks (up to 1 GiB each): a disk volume, not the RAM tmpfs
       WORKER_HEALTH_PORT: "8001"
       DATABASE_HOST: "specflow-postgres"
       DATABASE_PORT: "5432"
@@ -634,6 +640,12 @@ services:
       LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-}"
       LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
       LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      # GitHub integration: the clone check refreshes the user's token with the same app (docs/github/clone.md).
+      GITHUB_APP_CLIENT_ID: "${GITHUB_APP_CLIENT_ID:-}"
+      GITHUB_APP_CLIENT_SECRET: "${GITHUB_APP_CLIENT_SECRET:-}"
+      GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-}"
+      GITHUB_TOKEN_KEY: "${GITHUB_TOKEN_KEY:-}"
+      PUBLIC_URL: "${PUBLIC_URL:-http://localhost:3001}"
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     volumes:
@@ -641,6 +653,9 @@ services:
         source: ./config/cloud.local.yaml
         target: /etc/specflow/cloud.yaml
         read_only: true
+      - type: volume   # TMPDIR: the temporary clones and snapshot archives of the GitHub clone checks
+        source: specflow-worker-agents-tmp
+        target: /var/tmp/specflow
     depends_on:
       api:
         condition: service_healthy
@@ -713,6 +728,8 @@ volumes:
   # end graph-store
   specflow-graph-state:
     name: specflow-graph-state
+  specflow-worker-agents-tmp:
+    name: specflow-worker-agents-tmp
 
 # Secrets of the graph store backends (a value of the env file, mounted as a file: never a Java option or env var).
 secrets:

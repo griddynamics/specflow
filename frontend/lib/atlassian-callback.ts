@@ -1,6 +1,6 @@
-// docs/jira-sync/oauth.md#connect-flow: where the Atlassian consent callback sends the browser. Pure (no Next.js, no env), so the
-// rules are tested without a server; app/api/integrations/atlassian/callback/route.ts wires them to the session and the API.
-// Never logs and never echoes `code` or `state`: only the path of `return_to` and one fixed code reach the redirect.
+// docs/jira-sync/oauth.md#connect-flow: where the Atlassian consent callback sends the browser. The rules are the shared ones of
+// lib/oauth-callback.ts with the `?atlassian=` codes; app/api/integrations/atlassian/callback/route.ts wires them to the session and the API.
+import { codeCallbackDestination, withParam, type CallbackAnswer, type ReturnSpec } from "@/lib/oauth-callback";
 
 /** The `?atlassian=` codes the Jira tab knows; any other API answer becomes `atlassian_unexpected`. */
 export const ATLASSIAN_CODES = [
@@ -15,115 +15,26 @@ export const ATLASSIAN_CODES = [
 ] as const;
 export type AtlassianCode = (typeof ATLASSIAN_CODES)[number];
 
-/** Where the callback goes without a session: sign-in (it has no return target, so the user starts the connect again afterwards). */
-export const SIGN_IN_PATH = "/login";
+const API_CODES = ATLASSIAN_CODES.filter((c) => c !== "connected" && c !== "atlassian_consent_denied");
 
-/**
- * A same-site path: starts with `/`, not `//`, no backslash, no whitespace or control character, ASCII only; at most 2048 characters.
- * Its path part has no `.` or `..` segment (`%2e` counts as `.`) and no encoded `/` or `\` (`%2f`, `%5c`): a URL parser resolves
- * `/.//evil.com` to `//evil.com`, another host. The API checks `return_to` the same way (api/schemas.py `AtlassianAuthorizeIn`).
- */
-export function isSameSitePath(r: unknown): r is string {
-  if (typeof r !== "string" || r.length === 0 || r.length > 2048) return false;
-  if (!r.startsWith("/") || r.startsWith("//") || r.includes("\\")) return false;
-  for (const ch of r) {
-    const c = ch.codePointAt(0) ?? 0;
-    if (c <= 0x20 || c >= 0x7f) return false;
-  }
-  const beforeQuery = r.split(/[?#]/, 1)[0].toLowerCase();
-  if (beforeQuery.includes("%2f") || beforeQuery.includes("%5c")) return false;
-  return !beforeQuery.split("/").some((segment) => {
-    const s = segment.replaceAll("%2e", ".");
-    return s === "." || s === "..";
-  });
-}
-
-/** base64url to text; null when the input is not base64url or not UTF-8. */
-function fromBase64Url(text: string): string | null {
-  if (!/^[\w-]*$/.test(text)) return null;
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(text, "base64url"));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The `return_to` inside `state` (`nonce.payload.signature`, payload base64url JSON `{"u","r","e"}`), or `/` when it is missing or not a
- * same-site path. The signature is the API's to check: this only decides where the browser lands after a refusal.
- */
-export function returnToOf(state: string | null): string {
-  const parts = state?.split(".") ?? [];
-  if (parts.length !== 3) return "/";
-  const raw = fromBase64Url(parts[1]);
-  if (raw === null) return "/";
-  try {
-    const payload: unknown = JSON.parse(raw);
-    const r = typeof payload === "object" && payload !== null ? (payload as { r?: unknown }).r : undefined;
-    return isSameSitePath(r) ? r : "/";
-  } catch {
-    return "/";
-  }
-}
+const SPEC: ReturnSpec<AtlassianCode> = {
+  param: "atlassian",
+  success: "connected",
+  denied: "atlassian_consent_denied",
+  unexpected: "atlassian_unexpected",
+  apiCodes: API_CODES,
+};
 
 /** `path` with `?atlassian=<code>` set (other query parameters kept, a fragment dropped); `/` when the result is not a same-site path. */
-export function withCode(path: string, code: AtlassianCode): string {
-  const url = new URL(path, "https://same.site");
-  url.searchParams.set("atlassian", code);
-  const result = `${url.pathname}${url.search}`;
-  return url.origin === "https://same.site" && isSameSitePath(result) ? result : `/?atlassian=${code}`;
-}
-
-/** The absolute redirect for `path` on `publicOrigin`; `{publicOrigin}/` when `path` would resolve to another origin. */
-export function locationOn(path: string, publicOrigin: string): string {
-  const origin = new URL(publicOrigin).origin;
-  try {
-    const location = new URL(path, origin);
-    if (location.origin === origin) return location.href;
-  } catch {
-    // not a URL: the fallback below
-  }
-  return `${origin}/`;
-}
-
-/** The code of an API error answer: a known route code, else `atlassian_unexpected`. */
-export function codeOfAnswer(body: unknown): AtlassianCode {
-  const error = typeof body === "object" && body !== null ? (body as { error?: unknown }).error : undefined;
-  const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
-  const known = ATLASSIAN_CODES.find((c) => c === code && c !== "connected" && c !== "atlassian_consent_denied");
-  return known ?? "atlassian_unexpected";
-}
-
-/** What the API answered to `POST /integrations/atlassian/callback`: its status and parsed JSON body (null when none). */
-export interface CallbackAnswer {
-  status: number;
-  body: unknown;
-}
+export const withCode = (path: string, code: AtlassianCode): string => withParam(path, "atlassian", code);
 
 /**
  * The path the callback redirects to. `signedIn` false goes to sign-in. Atlassian's own `?error=` never reaches the API. A missing `code`
  * or `state` is `atlassian_unexpected`. A 401 from the API (the session's token was refused) goes to sign-in. `post` rejecting (the API
  * is down) is `atlassian_unexpected`.
  */
-export async function callbackDestination(
+export const callbackDestination = (
   query: URLSearchParams,
   signedIn: boolean,
   post: (code: string, state: string) => Promise<CallbackAnswer>,
-): Promise<string> {
-  if (!signedIn) return SIGN_IN_PATH;
-  const state = query.get("state");
-  const back = returnToOf(state);
-  if (query.has("error")) return withCode(back, "atlassian_consent_denied");
-  const code = query.get("code");
-  if (code === null || code === "" || state === null || state === "") return withCode(back, "atlassian_unexpected");
-  let answer: CallbackAnswer;
-  try {
-    answer = await post(code, state);
-  } catch {
-    return withCode(back, "atlassian_unexpected");
-  }
-  if (answer.status === 401) return SIGN_IN_PATH;
-  if (answer.status < 200 || answer.status >= 300) return withCode(back, codeOfAnswer(answer.body));
-  const returnTo = typeof answer.body === "object" && answer.body !== null ? (answer.body as { return_to?: unknown }).return_to : undefined;
-  return withCode(isSameSitePath(returnTo) ? returnTo : back, "connected");
-}
+): Promise<string> => codeCallbackDestination(SPEC, query, signedIn, post);

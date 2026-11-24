@@ -10,19 +10,19 @@ codes only.
 
 from __future__ import annotations
 
-import asyncio
 import time
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final, Literal
+from typing import Any, Literal
 
 from pydantic import SecretStr
 
 from db import atlassian as atlassian_db
 from db.models import AtlassianConnection
+from integrations.tokens import UserTokens
 from jira.gateway import JiraError, JiraGateway
 from jira.http import HttpJiraGateway, TokenSource
 from jira.oauth import AtlassianOAuthClient, OAuthCode, OAuthError, StateSigner, TokenCipher, TokenGrant
@@ -31,8 +31,6 @@ from logger.logger import INFO, WARNING, get_logger, log_event
 from settings import AtlassianOAuthSettings
 
 logger = get_logger("api.jira.connections")
-
-EARLY_EXPIRY_SECONDS: Final = 60  # an access token is dropped this long before Atlassian's ``expires_in``
 
 GatewayFactory = Callable[[str, TokenSource], JiraGateway]
 
@@ -55,12 +53,6 @@ class ConnectionView:
     def of(cls, row: AtlassianConnection) -> ConnectionView:
         status: Literal["active", "expired"] = "expired" if row.status == atlassian_db.EXPIRED else "active"
         return cls(status, row.account_name, row.cloud_id, row.connected_at, row.last_used_at)
-
-
-@dataclass
-class _Token:
-    value: str
-    good_until: float  # monotonic seconds
 
 
 class _UserTokens:
@@ -98,11 +90,8 @@ class AtlassianConnections:
         self._transaction = transaction
         self._gateway_factory = gateway_factory
         self._now = now
-        self._monotonic = monotonic
-        self._locks: dict[uuid.UUID, asyncio.Lock] = {}
-        self._tokens: dict[uuid.UUID, _Token] = {}
+        self._tokens = UserTokens(monotonic=monotonic)
         self._gateways: dict[tuple[uuid.UUID, str], JiraGateway] = {}  # closed only by ``aclose``: a pass may hold one
-        self._rotations: set[asyncio.Future[tuple[str | None, Reason]]] = set()  # in flight; ``aclose`` awaits them
 
     # The connect flow ----------------------------------------------------------------------------------------------
 
@@ -120,7 +109,7 @@ class AtlassianConnections:
         cloud_id = await self._client.cloud_id(grant.access_token, self._site_url)
         account = await self._client.account(grant.access_token, cloud_id)
         now = self._now()
-        async with self._lock(user_id), self._transaction() as session:
+        async with self._tokens.lock(user_id), self._transaction() as session:
             await atlassian_db.upsert_connection(
                 session,
                 user_id,
@@ -131,7 +120,7 @@ class AtlassianConnections:
                 refresh_token=self._cipher.encrypt(grant.refresh_token),
                 now=now,
             )
-        self._remember(user_id, grant)
+        self._tokens.remember(user_id, grant)
         log_event(logger, INFO, "api.atlassian.connected", user_id=str(user_id))
         view = ConnectionView("active", account.name, cloud_id, now, now)
         return view, return_to
@@ -139,10 +128,10 @@ class AtlassianConnections:
     async def disconnect(self, user_id: uuid.UUID) -> None:
         """Delete the connection and drop its access token (Atlassian has no revoke endpoint for 3LO)."""
 
-        async with self._lock(user_id):
+        async with self._tokens.lock(user_id):
             async with self._transaction() as session:
                 deleted = await atlassian_db.delete_connection(session, user_id)
-            self._tokens.pop(user_id, None)
+            self._tokens.forget(user_id)
         log_event(logger, INFO, "api.atlassian.disconnected", user_id=str(user_id), deleted=deleted)
 
     async def get(self, user_id: uuid.UUID) -> ConnectionView | None:
@@ -169,31 +158,16 @@ class AtlassianConnections:
     async def access_token(self, user_id: uuid.UUID) -> str:
         """The cached access token while it is good, else a refreshed one."""
 
-        cached = self._tokens.get(user_id)
-        if cached is not None and cached.good_until > self._monotonic():
-            return cached.value
-        return await self.refresh(user_id, used=None)
+        return await self._tokens.access_token(user_id, lambda: self._rotate_or_raise(user_id))
 
     async def refresh(self, user_id: uuid.UUID, *, used: str | None) -> str:
         """A new access token. Callers that wait for the lock while another refreshes get that one (one token call);
         ``used`` is the token Jira refused, never handed out again."""
 
-        async with self._lock(user_id):
-            cached = self._tokens.get(user_id)
-            if cached is not None and cached.value != used and cached.good_until > self._monotonic():
-                return cached.value
-            self._tokens.pop(user_id, None)
-            # Its own task: a cancelled caller cannot roll back a rotation Atlassian already made; ``aclose`` waits.
-            rotation = asyncio.ensure_future(self._rotate_and_remember(user_id))
-            self._rotations.add(rotation)
-            rotation.add_done_callback(self._rotations.discard)
-            token, refused = await asyncio.shield(rotation)
-            if token is None:
-                raise JiraError(refused)
-            return token
+        return await self._tokens.refresh(user_id, lambda: self._rotate_or_raise(user_id), used=used)
 
     async def aclose(self) -> None:
-        await asyncio.gather(*self._rotations, return_exceptions=True)
+        await self._tokens.aclose()
         gateways, self._gateways = list(self._gateways.values()), {}
         for gateway in gateways:
             await gateway.aclose()
@@ -201,17 +175,11 @@ class AtlassianConnections:
 
     # Inside --------------------------------------------------------------------------------------------------------
 
-    def _lock(self, user_id: uuid.UUID) -> asyncio.Lock:
-        return self._locks.setdefault(user_id, asyncio.Lock())
-
-    def _remember(self, user_id: uuid.UUID, grant: TokenGrant) -> str:
-        value = grant.access_token.get_secret_value()
-        self._tokens[user_id] = _Token(value, self._monotonic() + grant.expires_in - EARLY_EXPIRY_SECONDS)
-        return value
-
-    async def _rotate_and_remember(self, user_id: uuid.UUID) -> tuple[str | None, Reason]:
+    async def _rotate_or_raise(self, user_id: uuid.UUID) -> TokenGrant:
         grant, refused = await self._rotate(user_id)
-        return (None if grant is None else self._remember(user_id, grant)), refused
+        if grant is None:
+            raise JiraError(refused)
+        return grant
 
     async def _rotate(self, user_id: uuid.UUID) -> tuple[TokenGrant | None, Reason]:
         """One refresh with the row locked ``FOR UPDATE``; the transaction commits the rotated refresh token (or the

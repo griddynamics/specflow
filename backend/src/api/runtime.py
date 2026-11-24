@@ -22,8 +22,10 @@ from api.jira.connections import AtlassianConnections
 from api.jira.runner import JiraSyncRunner
 from api.plan.runner import GraphPlanRunner
 from db import session as db_session
+from db.github import connection_store
 from db.models import Project
 from db.session import is_database_unreachable
+from github.connections import GitHubConnections
 from graph.core import InfrastructureUnavailableError
 from graph.gap import GapSettings
 from graph.stores import build_store
@@ -91,6 +93,8 @@ class Runtime:
     jira: Any = None
     # api.slack.app.SlackGaps (started by the app's lifespan, ``start_slack``); None = not configured or not connected
     slack: Any = None
+    # github.connections.GitHubConnections; None = the GitHub integration is off (503); GITHUB_APP_CLIENT_ID sets it.
+    github: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
     cleanups: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
@@ -228,6 +232,10 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
         )
         if settings.jira is not None:
             _add_jira(runtime, settings.jira, settings, stack)
+        if settings.github is not None:
+            log_event(logger, INFO, "api.github.mode", mode="on")
+            runtime.github = GitHubConnections(settings.github, store=connection_store(runtime.transaction))
+            stack.push_async_callback(runtime.github.aclose)
         if settings.graph_build is None:
             # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
             log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))

@@ -78,12 +78,23 @@ const http: HttpPorts = {
   members: { list: never, add: never, remove: never, cancelInvite: never, leave: never, suggest: never },
   jira: { get: never, save: never, checkAccess: never, connection: never, authorize: never, disconnect: never },
   slack: { get: never, unbind: never },
+  github: {
+    connection: never,
+    authorize: never,
+    install: never,
+    disconnect: never,
+    available: never,
+    list: never,
+    add: never,
+    remove: never,
+    clone: never,
+  },
 };
 const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
@@ -95,6 +106,7 @@ test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects
   assert.equal(ports.members, http.members);
   assert.equal(ports.jira, http.jira);
   assert.equal(ports.slack, http.slack);
+  assert.equal(ports.github, http.github);
   assert.equal((await ports.createProject.create({ name: "X", collaboratorEmails: [] })).id, UUID);
   assert.deepEqual(Object.keys(ports.createProject), ["create"]);
 });
@@ -165,6 +177,7 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "diagrams",
       "files",
       "gaps",
+      "github",
       "jira",
       "knowledge",
       "members",

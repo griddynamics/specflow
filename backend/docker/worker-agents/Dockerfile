@@ -23,16 +23,21 @@ RUN uv sync --frozen --no-dev --no-install-project --extra worker --extra gcp --
 COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable --extra worker --extra gcp --extra aws
 
-# runtime: uid 10001, a HOME dir, the venv only. Logs go to stdout; read-only root filesystem
-# is fine. Writes temp files to /tmp only (a writable /tmp is enough).
+# runtime: uid 10001, a HOME dir, the venv and git (the GitHub clone check, docs/github/clone.md).
+# Logs go to stdout; read-only root filesystem is fine. Writes temp files under TMPDIR only (a
+# writable /tmp is enough; compose and the chart point TMPDIR at a disk volume for the clones).
 FROM python:3.12.13-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \
     HOME=/home/specflow
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN groupadd --gid 10001 specflow \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/specflow \
-        --shell /usr/sbin/nologin specflow
+        --shell /usr/sbin/nologin specflow \
+    && install -d -o 10001 -g 10001 -m 0700 /var/tmp/specflow
 WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
 USER 10001:10001

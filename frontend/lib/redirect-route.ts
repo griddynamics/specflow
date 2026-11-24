@@ -1,6 +1,6 @@
-// The answer of the server route handlers a browser navigates to and that redirect it back into the app: the Atlassian consent callback
-// (app/api/integrations/atlassian/callback/route.ts) and the Slack account link (app/api/integrations/slack/link/route.ts).
-import { locationOn } from "@/lib/atlassian-callback";
+// The answer of the server route handlers a browser navigates to and that redirect it back into the app: the OAuth return routes
+// (lib/oauth-route.ts: Atlassian, GitHub) and the Slack account link (app/api/integrations/slack/link/route.ts).
+import { locationOn } from "@/lib/oauth-callback";
 
 /** A 302 to `path` on PUBLIC_URL, never another origin (`req.url` can carry the internal bind address 0.0.0.0); not cached, no referrer. */
 export function redirectOn(path: string, publicOrigin: string): Response {

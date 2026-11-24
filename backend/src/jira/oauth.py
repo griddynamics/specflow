@@ -7,22 +7,20 @@ Stand-alone like the rest of ``jira``: the caller passes the client, the key and
 
 from __future__ import annotations
 
-import base64
-import binascii
-import hashlib
-import hmac
-import json
-import secrets
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Final, override
 from urllib.parse import urlencode
 
 import httpx
-from cryptography.fernet import Fernet, InvalidToken
 from pydantic import SecretStr
+
+from integrations.cipher import CipherError
+from integrations.cipher import TokenCipher as SharedTokenCipher
+from integrations.state import Clock, StateInvalidError
+from integrations.state import StateSigner as SharedStateSigner
 
 AUTHORIZE_URL: Final = "https://auth.atlassian.com/authorize"
 GRANT_URL: Final = "https://auth.atlassian.com/oauth/token"  # the token endpoint
@@ -45,15 +43,10 @@ SCOPES: Final = (
     "read:attachment:confluence",
     "offline_access",
 )
-STATE_TTL_SECONDS: Final = 600
 TIMEOUT_SECONDS: Final = 30
 REFRESH_TIMEOUT_SECONDS: Final = 10  # shorter: a refresh holds the row lock and a pass waits on it
 INVALID_GRANT: Final = "invalid_grant"
 _STATE_CONTEXT: Final = b"specflow atlassian oauth state"
-_NONCE_BYTES: Final = 16
-_STATE_PARTS: Final = 3
-
-Clock = Callable[[], float]
 
 
 class OAuthCode(StrEnum):
@@ -103,74 +96,30 @@ def api_url(cloud_id: str) -> str:
     return API_URL.format(cloud_id=cloud_id)
 
 
-def _b64(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
-
-
-def _unb64(text: str) -> bytes:
-    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
-
-
-class StateSigner:
-    """``state`` = ``nonce.payload.signature``: the payload holds the user id, ``return_to`` and the expiry, the
-    signature is an HMAC-SHA256 of ``nonce.payload`` with a key derived from the token key (no table)."""
+class StateSigner(SharedStateSigner):
+    """The ``state`` of the Atlassian consent (``integrations.state``); a bad one is ``STATE_INVALID``."""
 
     def __init__(self, token_key: SecretStr, *, clock: Clock = time.time) -> None:
-        self._key = hmac.new(token_key.get_secret_value().encode("ascii"), _STATE_CONTEXT, hashlib.sha256).digest()
-        self._clock = clock
+        super().__init__(token_key, _STATE_CONTEXT, clock=clock)
 
     @override
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}()"
-
-    def _signature(self, signed: str) -> str:
-        return _b64(hmac.new(self._key, signed.encode("ascii"), hashlib.sha256).digest())
-
-    def sign(self, user_id: str, return_to: str) -> str:
-        payload = json.dumps({"u": user_id, "r": return_to, "e": int(self._clock()) + STATE_TTL_SECONDS})
-        signed = f"{_b64(secrets.token_bytes(_NONCE_BYTES))}.{_b64(payload.encode())}"
-        return f"{signed}.{self._signature(signed)}"
-
-    def verify(self, state: str, user_id: str) -> str:
-        """The ``return_to`` of an unexpired state this signer made for ``user_id``; else ``STATE_INVALID``."""
-
-        parts = state.split(".")
-        if len(parts) != _STATE_PARTS or not state.isascii():
-            raise OAuthError(OAuthCode.STATE_INVALID)
-        signed = f"{parts[0]}.{parts[1]}"
-        if not hmac.compare_digest(self._signature(signed), parts[2]):
-            raise OAuthError(OAuthCode.STATE_INVALID)
+    def verify(self, state: str, user_id: str, purpose: str = "") -> str:
         try:
-            payload = json.loads(_unb64(parts[1]))
-        except (ValueError, binascii.Error):
+            return super().verify(state, user_id, purpose)
+        except StateInvalidError:
             raise OAuthError(OAuthCode.STATE_INVALID) from None
-        if not isinstance(payload, dict) or payload.get("u") != user_id or not isinstance(payload.get("r"), str):
-            raise OAuthError(OAuthCode.STATE_INVALID)
-        expiry = payload.get("e")
-        if not isinstance(expiry, int) or expiry < self._clock():
-            raise OAuthError(OAuthCode.STATE_INVALID)
-        return str(payload["r"])
 
 
-class TokenCipher:
-    """Fernet encryption of the refresh tokens at rest."""
-
-    def __init__(self, token_key: SecretStr) -> None:
-        self._fernet = Fernet(token_key.get_secret_value().encode("ascii"))
+class TokenCipher(SharedTokenCipher):
+    """Fernet encryption of the refresh tokens at rest (``integrations.cipher``)."""
 
     @override
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}()"
-
-    def encrypt(self, token: SecretStr) -> bytes:
-        return self._fernet.encrypt(token.get_secret_value().encode())
-
     def decrypt(self, ciphertext: bytes) -> SecretStr:
         """The token; a ciphertext of another key (a rotated ``ATLASSIAN_TOKEN_KEY``) is ``GRANT_INVALID``."""
 
         try:
-            return SecretStr(self._fernet.decrypt(ciphertext).decode())
-        except InvalidToken:
+            return super().decrypt(ciphertext)
+        except CipherError:
             raise OAuthError(OAuthCode.GRANT_INVALID) from None
 
 

@@ -4595,6 +4595,262 @@
         "title": "GapView",
         "type": "object"
       },
+      "GitHubCallbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "state"
+        ],
+        "title": "GitHubCallbackIn",
+        "type": "object"
+      },
+      "GitHubCallbackOut": {
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/GitHubConnectionOut"
+          },
+          "return_to": {
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "return_to"
+        ],
+        "title": "GitHubCallbackOut",
+        "type": "object"
+      },
+      "GitHubConnectionOut": {
+        "description": "The caller's GitHub connection; ``enabled`` is whether the server has the GitHub App configured.",
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Login"
+          },
+          "manage_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manage Url"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "expired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "enabled",
+          "connected",
+          "status",
+          "login",
+          "connected_at",
+          "last_used_at",
+          "manage_url"
+        ],
+        "title": "GitHubConnectionOut",
+        "type": "object"
+      },
+      "GitHubRepositoriesOut": {
+        "properties": {
+          "repositories": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubRepositoryOut"
+            },
+            "title": "Repositories",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "repositories",
+          "truncated"
+        ],
+        "title": "GitHubRepositoriesOut",
+        "type": "object"
+      },
+      "GitHubRepositoryOut": {
+        "description": "A repository the caller can read through the GitHub App.",
+        "properties": {
+          "default_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Branch"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "github_repo_id": {
+            "title": "Github Repo Id",
+            "type": "integer"
+          },
+          "html_url": {
+            "title": "Html Url",
+            "type": "string"
+          },
+          "private": {
+            "title": "Private",
+            "type": "boolean"
+          },
+          "size_kb": {
+            "title": "Size Kb",
+            "type": "integer"
+          },
+          "too_large": {
+            "title": "Too Large",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "github_repo_id",
+          "full_name",
+          "html_url",
+          "private",
+          "default_branch",
+          "size_kb",
+          "too_large"
+        ],
+        "title": "GitHubRepositoryOut",
+        "type": "object"
+      },
+      "GitHubReturnToIn": {
+        "additionalProperties": false,
+        "description": "Where the browser returns after GitHub: a path of this site (the Atlassian rule).",
+        "properties": {
+          "return_to": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "return_to"
+        ],
+        "title": "GitHubReturnToIn",
+        "type": "object"
+      },
+      "GitHubSetupIn": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "GitHubSetupIn",
+        "type": "object"
+      },
+      "GitHubSetupOut": {
+        "properties": {
+          "return_to": {
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "return_to"
+        ],
+        "title": "GitHubSetupOut",
+        "type": "object"
+      },
+      "GitHubUrlOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "GitHubUrlOut",
+        "type": "object"
+      },
       "GraphBuildRequest": {
         "additionalProperties": false,
         "description": "Optional body of ``POST /graph_build``; the level is only validated and logged.",
@@ -7802,6 +8058,214 @@
           "name"
         ],
         "title": "ProjectRename",
+        "type": "object"
+      },
+      "ProjectRepositoriesOut": {
+        "properties": {
+          "can_manage": {
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "repositories": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectRepositoryOut"
+            },
+            "title": "Repositories",
+            "type": "array"
+          }
+        },
+        "required": [
+          "enabled",
+          "can_manage",
+          "repositories"
+        ],
+        "title": "ProjectRepositoriesOut",
+        "type": "object"
+      },
+      "ProjectRepositoryIn": {
+        "additionalProperties": false,
+        "properties": {
+          "github_repo_id": {
+            "minimum": 1.0,
+            "title": "Github Repo Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "github_repo_id"
+        ],
+        "title": "ProjectRepositoryIn",
+        "type": "object"
+      },
+      "ProjectRepositoryOut": {
+        "description": "A GitHub repository of the project and its last clone check (docs/github/api.md).",
+        "properties": {
+          "added_by_me": {
+            "title": "Added By Me",
+            "type": "boolean"
+          },
+          "added_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added By Name"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "clone_state": {
+            "enum": [
+              "pending",
+              "cloning",
+              "cloned",
+              "failed"
+            ],
+            "title": "Clone State",
+            "type": "string"
+          },
+          "cloned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cloned At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Branch"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "file_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Count"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "github_repo_id": {
+            "title": "Github Repo Id",
+            "type": "integer"
+          },
+          "head_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Sha"
+          },
+          "html_url": {
+            "title": "Html Url",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "private": {
+            "title": "Private",
+            "type": "boolean"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "snapshot_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Bytes"
+          }
+        },
+        "required": [
+          "id",
+          "github_repo_id",
+          "full_name",
+          "html_url",
+          "private",
+          "added_by_name",
+          "added_by_me",
+          "clone_state",
+          "failure_code",
+          "default_branch",
+          "head_sha",
+          "file_count",
+          "size_bytes",
+          "snapshot_bytes",
+          "checked_at",
+          "cloned_at",
+          "created_at"
+        ],
+        "title": "ProjectRepositoryOut",
         "type": "object"
       },
       "Quote": {
@@ -13207,6 +13671,230 @@
         ]
       }
     },
+    "/api/v1/integrations/github": {
+      "delete": {
+        "description": "Delete the caller's connection and remove the app's grant on GitHub (best effort).",
+        "operationId": "disconnect_github_api_v1_integrations_github_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Disconnect Github",
+        "tags": [
+          "github"
+        ]
+      },
+      "get": {
+        "operationId": "get_github_connection_api_v1_integrations_github_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Github Connection",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/authorize": {
+      "post": {
+        "description": "GitHub's sign-in page of the app; its ``state`` holds the user, ``return_to`` and a 10-minute expiry.",
+        "operationId": "authorize_github_api_v1_integrations_github_authorize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubReturnToIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubUrlOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Authorize Github",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/callback": {
+      "post": {
+        "description": "Check ``state``, exchange ``code``, read the account and keep the connection.",
+        "operationId": "github_callback_api_v1_integrations_github_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubCallbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Github Callback",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/install": {
+      "post": {
+        "description": "The app's install page, where the user picks the repositories; GitHub hands ``state`` to the setup URL.",
+        "operationId": "install_github_api_v1_integrations_github_install_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubReturnToIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubUrlOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Install Github",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/repositories": {
+      "get": {
+        "description": "The repositories the caller can read through the app (at most 1000).",
+        "operationId": "list_github_repositories_api_v1_integrations_github_repositories_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoriesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Github Repositories",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/setup": {
+      "post": {
+        "description": "The ``return_to`` of an install ``state`` of the caller (the setup redirect after an install or update).",
+        "operationId": "github_setup_api_v1_integrations_github_setup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubSetupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubSetupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Github Setup",
+        "tags": [
+          "github"
+        ]
+      }
+    },
     "/api/v1/integrations/slack/link": {
       "post": {
         "description": "Link the Slack user the nonce was made for to the caller, and tell them in Slack.",
@@ -15874,6 +16562,196 @@
         "summary": "Plan Tasks",
         "tags": [
           "plan"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/repositories": {
+      "get": {
+        "operationId": "list_project_repositories_api_v1_projects__pid__repositories_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRepositoriesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Project Repositories",
+        "tags": [
+          "repositories"
+        ]
+      },
+      "post": {
+        "description": "Add a repository the owner's own connection can read, then start its clone check.",
+        "operationId": "create_project_repository_api_v1_projects__pid__repositories_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRepositoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRepositoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Project Repository",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/repositories/{rid}": {
+      "delete": {
+        "description": "Remove the repository and its snapshots (a snapshot a running check stores after this is deleted by it).",
+        "operationId": "remove_project_repository_api_v1_projects__pid__repositories__rid__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rid",
+            "required": true,
+            "schema": {
+              "title": "Rid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Project Repository",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/repositories/{rid}/clone": {
+      "post": {
+        "description": "Check the clone again: ``pending`` (unless a check is ``cloning`` now) and start the workflow.",
+        "operationId": "clone_project_repository_api_v1_projects__pid__repositories__rid__clone_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rid",
+            "required": true,
+            "schema": {
+              "title": "Rid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRepositoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clone Project Repository",
+        "tags": [
+          "repositories"
         ]
       }
     },

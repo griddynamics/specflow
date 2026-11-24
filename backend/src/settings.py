@@ -904,7 +904,7 @@ def _not_blank(value: SecretStr) -> SecretStr:
 
 
 def _fernet_key(value: SecretStr) -> SecretStr:
-    """``ATLASSIAN_TOKEN_KEY``: what ``Fernet.generate_key()`` returns, 32 bytes in url-safe base64."""
+    """``ATLASSIAN_TOKEN_KEY``, ``GITHUB_TOKEN_KEY``: ``Fernet.generate_key()`` output (32 bytes, url-safe base64)."""
 
     try:
         raw = base64.urlsafe_b64decode(value.get_secret_value().strip().encode("ascii"))
@@ -954,6 +954,50 @@ class AtlassianOAuthSettings(_MappedSettings):
 
 JiraModeSettings = JiraSettings | AtlassianOAuthSettings
 
+GITHUB_CALLBACK_PATH: Final = "/api/integrations/github/callback"
+GITHUB_SETUP_PATH: Final = "/api/integrations/github/setup"
+_GITHUB_SLUG: Final = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
+
+
+class GitHubSettings(_MappedSettings):
+    """The GitHub App of the GitHub integration (docs/github/oauth.md "Settings"; api and worker-agents roles): the
+    client ID turns it on and needs the secret, the app slug, the token key and ``PUBLIC_URL``."""
+
+    client_id: Text = Field(validation_alias="GITHUB_APP_CLIENT_ID")
+    client_secret: SecretStr = Field(validation_alias="GITHUB_APP_CLIENT_SECRET")
+    slug: Text = Field(validation_alias="GITHUB_APP_SLUG")
+    token_key: SecretStr = Field(validation_alias="GITHUB_TOKEN_KEY")
+    public_url: InternalUrl = Field(validation_alias="PUBLIC_URL")
+
+    @field_validator("client_secret")
+    @classmethod
+    def _secret_not_blank(cls, value: SecretStr) -> SecretStr:
+        return _not_blank(value)
+
+    @field_validator("slug")
+    @classmethod
+    def _slug(cls, value: str) -> str:
+        if not _GITHUB_SLUG.fullmatch(value):
+            raise ValueError("must be the app slug of github.com/apps/<slug>")
+        return value
+
+    @field_validator("token_key")
+    @classmethod
+    def _key_is_fernet(cls, value: SecretStr) -> SecretStr:
+        return _fernet_key(value)
+
+    @classmethod
+    def configured_in(cls, env: Mapping[str, str]) -> bool:
+        """True when ``GITHUB_APP_CLIENT_ID`` is non-blank (a partial set is then refused by the build)."""
+
+        return bool(env.get("GITHUB_APP_CLIENT_ID", "").strip())
+
+    @property
+    def callback_url(self) -> str:
+        """The callback URL registered on the GitHub App: ``{PUBLIC_URL}/api/integrations/github/callback``."""
+
+        return f"{self.public_url}{GITHUB_CALLBACK_PATH}"
+
 
 @dataclass(frozen=True)
 class RoleSettings:
@@ -976,6 +1020,7 @@ class RoleSettings:
     jira: JiraModeSettings | None = None  # api only; None = Jira sync off (none of the ``ATLASSIAN_*`` set)
     slack_notice: SlackNoticeSettings | None = None  # api only, with gap; on when SLACK_WORKFLOW_WEBHOOK_URL is set
     slack_app: SlackAppSettings | None = None  # api only, with gap; on when a SLACK_*_TOKEN is set
+    github: GitHubSettings | None = None  # api and worker-agents; None = GitHub off (``GITHUB_APP_CLIENT_ID`` unset)
 
 
 @dataclass(frozen=True)
@@ -1086,6 +1131,7 @@ class _Bindings:
     jira: JiraModeSettings | None = None
     slack_notice: SlackNoticeSettings | None = None
     slack_app: SlackAppSettings | None = None
+    github: GitHubSettings | None = None
     mcp: McpSettings | None = None
     api_internal: ApiInternalSettings | None = None
 
@@ -1101,6 +1147,17 @@ def _build_jira(role: str, source: Mapping[str, str], bad: list[str]) -> JiraMod
     if not JiraSettings.configured_in(source):
         return None
     return _build(JiraSettings, source, bad)
+
+
+def _build_github(role: str, source: Mapping[str, str], bad: list[str]) -> GitHubSettings | None:
+    """The GitHub App of the api role and of a worker that polls the agents queue (the clone check); ``None`` when
+    ``GITHUB_APP_CLIENT_ID`` is unset (the GitHub routes answer 503)."""
+
+    if role != "api" and not (role == "worker" and "agents" in _worker_queues(source)):
+        return None
+    if not GitHubSettings.configured_in(source):
+        return None
+    return _build(GitHubSettings, source, bad)
 
 
 def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bindings:
@@ -1122,6 +1179,7 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
     if role == "api" and source.get("MCP_RESOURCE_URL", "").strip():  # unset: the agent routes answer 503
         found.mcp = _build(McpSettings, source, bad)
     found.jira = _build_jira(role, source, bad)
+    found.github = _build_github(role, source, bad)
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
         found.gap = _build_gap(source, bad)
@@ -1324,6 +1382,7 @@ def load_settings(
         jira=found.jira,
         slack_notice=found.slack_notice,
         slack_app=found.slack_app,
+        github=found.github,
     )
 
 

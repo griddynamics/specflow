@@ -28,6 +28,9 @@ env:
     value: agents
   - name: WORKER_HEALTH_PORT
     value: "8001"
+  # The GitHub clone checks (up to 1 GiB each) work in the disk emptyDir below, not in /tmp.
+  - name: TMPDIR
+    value: /var/tmp/specflow
   - name: STORAGE_BUCKET
     valueFrom:
       secretKeyRef:
@@ -128,6 +131,37 @@ env:
       secretKeyRef:
         name: specflow-worker-agent
         key: LANGFUSE_SECRET_KEY
+  # GitHub integration: the clone check refreshes the user's token with the same app as the API.
+  - name: GITHUB_APP_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: specflow-worker-agent
+        key: GITHUB_APP_CLIENT_ID
+        optional: true
+  - name: GITHUB_APP_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: specflow-worker-agent
+        key: GITHUB_APP_CLIENT_SECRET
+        optional: true
+  - name: GITHUB_APP_SLUG
+    valueFrom:
+      secretKeyRef:
+        name: specflow-worker-agent
+        key: GITHUB_APP_SLUG
+        optional: true
+  - name: GITHUB_TOKEN_KEY
+    valueFrom:
+      secretKeyRef:
+        name: specflow-worker-agent
+        key: GITHUB_TOKEN_KEY
+        optional: true
+  - name: PUBLIC_URL
+    valueFrom:
+      secretKeyRef:
+        name: specflow-worker-agent
+        key: PUBLIC_URL
+        optional: true
 envFrom: []
 
 resources:
@@ -192,9 +226,15 @@ volumes:
   - name: tmp
     emptyDir:
       sizeLimit: 256Mi
+  # TMPDIR of the GitHub clone checks: a clone (1 GiB cap) and its tar.gz at once, plus one retry.
+  - name: clones
+    emptyDir:
+      sizeLimit: 4Gi
 volumeMounts:
   - name: tmp
     mountPath: /tmp
+  - name: clones
+    mountPath: /var/tmp/specflow
 
 routing:
   type: none

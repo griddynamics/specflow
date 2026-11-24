@@ -174,17 +174,27 @@
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
-/* docs/jira-sync/oauth.md#jira-tab: the owner's Atlassian connection row (one row of the people card's look) and the acting account line
+/* docs/jira-sync/oauth.md#jira-tab (and the GitHub tab): the caller's account row of an integration (one row of the people card's look) and the acting account line
    under the target. The hint may wrap here: it carries a sentence, not a name. */
-.settings-atlassian .settings-who small {
+.settings-account .settings-who small {
   white-space: normal;
 }
-.settings-atlassian__mark {
+.settings-account__mark {
   flex-shrink: 0;
   color: var(--ink-2);
 }
-.settings-atlassian .gdg-btn {
+.settings-account .gdg-btn {
   flex-shrink: 0;
+}
+.settings-account__ink {
+  color: var(--ink);
+}
+/* On a narrow column the button drops under the text instead of squeezing it. */
+.settings-account .settings-row {
+  flex-wrap: wrap;
+}
+.settings-account .settings-who {
+  flex: 1 1 160px;
 }
 .settings-acting {
   display: grid;
@@ -203,4 +213,75 @@
 .settings-acting__warning .gdg-icon {
   flex-shrink: 0;
   color: var(--danger);
+}
+/* docs/github/INDEX.md: the GitHub tab. The access line under the account card, the repositories head
+   (title and count on the left, Add repository on the right), a repository row (name and Private tag, sub lines that may wrap, the badge
+   and the actions at the end, which drop under the text on a narrow screen) and the picker's scrolling list. */
+.settings-github-access {
+  margin-top: var(--space-2xs);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs) var(--space-sm);
+}
+.settings-github-access__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.settings-repos__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+}
+.settings-repo {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.settings-repo__who {
+  flex: 1 1 200px;
+}
+.settings-repo__who small {
+  white-space: normal;
+}
+.settings-repo__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.settings-repo__name .settings-link {
+  overflow-wrap: anywhere;
+}
+.settings-repo__facts {
+  font-variant-numeric: tabular-nums;
+}
+.settings-repo__reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.settings-repo__reason .gdg-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--danger);
+}
+.settings-repo__end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.settings-pick {
+  display: grid;
+  gap: var(--space-sm);
+}
+.settings-pick__list {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 0;
 }

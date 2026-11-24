@@ -156,11 +156,15 @@ async def test_a_member_who_goes_stops_being_the_jira_acting_account_in_the_same
 
     await function(cast(Any, recorder), PROJECT, USER)
 
-    lock, _role, delete_member, clear = (" ".join(text.split()) for text in recorder.sql)
+    lock, _role, delete_member, clear, clear_adder = (" ".join(text.split()) for text in recorder.sql)
     assert lock.endswith("FOR UPDATE") and delete_member.startswith("DELETE FROM project_members")
     assert clear == (
         "UPDATE jira_targets SET connected_user_id=$1::UUID WHERE jira_targets.project_id = $2::UUID "
         "AND jira_targets.connected_user_id = $3::UUID"
+    )
+    assert clear_adder.startswith("UPDATE project_repositories SET added_by=$1::UUID")
+    assert clear_adder.endswith(
+        "WHERE project_repositories.project_id = $2::UUID AND project_repositories.added_by = $3::UUID"
     )
 
 
@@ -171,7 +175,7 @@ async def test_the_owner_cannot_go_so_the_acting_account_is_kept(function) -> No
     with pytest.raises(members.MemberError):
         await function(cast(Any, recorder), PROJECT, USER)
 
-    assert not any("jira_targets" in text for text in recorder.sql)
+    assert not any("jira_targets" in text or "project_repositories" in text for text in recorder.sql)
 
 
 # Typed errors ----------------------------------------------------------------------

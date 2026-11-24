@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 from file_parsers.formats import PDF_MEDIA_TYPE, format_for_media_type
 from storage.base import InvalidObjectKeyError
 
 MAX_KEY_BYTES = 1024
 DOCUMENT_PREFIX_SEGMENTS = 4
+PREFIX_KINDS = ("documents", "repositories")  # the folders under ``projects/<id>/`` a prefix delete may empty
 FIRST_PRINTABLE = 0x20
 DELETE_CHAR = 0x7F
 
@@ -77,9 +80,10 @@ def document_prefix(project_id: str, document_id: str) -> str:
 
 
 def validate_prefix(prefix: str) -> str:
-    """Return ``prefix`` unchanged if it is a document prefix: ``projects/<id>/documents/<id>/``.
+    """Return ``prefix`` unchanged if it is a document or a repository prefix: ``projects/<id>/documents/<id>/`` or
+    ``projects/<id>/repositories/<id>/``.
 
-    Only that shape may be deleted by prefix, so a shorter prefix (``projects/``, ``projects/<id>/``)
+    Only those shapes may be deleted by prefix, so a shorter prefix (``projects/``, ``projects/<id>/``)
     can never wipe a project. The trailing ``/`` keeps ``documents/{did}/`` from matching
     ``documents/{did}2/``.
     """
@@ -87,8 +91,8 @@ def validate_prefix(prefix: str) -> str:
     if not _is_text(prefix) or not prefix.endswith("/"):
         raise InvalidObjectKeyError("object prefix must end with '/'")
     segments = validate_key(prefix[:-1]).split("/")
-    if len(segments) != DOCUMENT_PREFIX_SEGMENTS or segments[0] != "projects" or segments[2] != "documents":
-        raise InvalidObjectKeyError("object prefix must be projects/<id>/documents/<id>/")
+    if len(segments) != DOCUMENT_PREFIX_SEGMENTS or segments[0] != "projects" or segments[2] not in PREFIX_KINDS:
+        raise InvalidObjectKeyError("object prefix must be projects/<id>/documents/<id>/ or .../repositories/<id>/")
     return prefix
 
 
@@ -102,3 +106,18 @@ def document_original_bin(project_id: str, document_id: str) -> str:
     """``.../original.bin``: the bytes of a stored-only Drive file (not processed in v1)."""
 
     return _original(project_id, document_id, "original.bin")
+
+
+def repository_prefix(project_id: str, repository_id: str) -> str:
+    """``projects/{pid}/repositories/{rid}/``: every snapshot of one project repository (docs/github/clone.md)."""
+
+    key = f"projects/{_segment('project_id', project_id)}/repositories/{_segment('repository_id', repository_id)}/x"
+    return validate_key(key)[: -len("x")]
+
+
+def repository_snapshot(project_id: str, repository_id: str, head_sha: str) -> str:
+    """``projects/{pid}/repositories/{rid}/{sha}.tar.gz``: the snapshot of one commit; ``head_sha`` is 40 or 64 hex."""
+
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head_sha or ""):
+        raise InvalidObjectKeyError("head_sha must be a full hex commit id")
+    return validate_key(f"{repository_prefix(project_id, repository_id)}{head_sha}.tar.gz")

@@ -3,6 +3,7 @@
 // (`lib/data/compose.ts`). All calls go through `lib/api.ts` (browser -> `/api/backend/*` -> API `/api/v1/*`), except `GET /me`
 // (`client.ts`, G01-10). No fixture is imported here (R7).
 import type { GapsPort } from "@/lib/domain/gaps";
+import type { GitHubPort } from "@/lib/domain/github";
 import type { JiraPort } from "@/lib/domain/jira";
 import type { CreateProjectPort } from "@/lib/domain/create-project";
 import type { MembersPort } from "@/lib/domain/members";
@@ -14,6 +15,7 @@ import type { SlackPort } from "@/lib/domain/slack";
 import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
 import { createHttpGaps } from "./gaps";
+import { createHttpGitHub } from "./github";
 import { createHttpJira } from "./jira";
 import { createHttpKnowledge } from "./knowledge";
 import { createHttpMembers } from "./members";
@@ -38,6 +40,7 @@ export interface HttpPorts {
   members: MembersPort;
   jira: JiraPort;
   slack: SlackPort;
+  github: GitHubPort;
 }
 
 /** TECH-SPECS §3.1. `pollMs` and `idleMs` are constructor options for the stub-API tests; production uses the defaults. */
@@ -61,5 +64,6 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     members: createHttpMembers(),
     jira: createHttpJira(),
     slack: createHttpSlack(),
+    github: createHttpGitHub(),
   };
 }

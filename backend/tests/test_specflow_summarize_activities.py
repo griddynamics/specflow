@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 import logging
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from temporalio.exceptions import ApplicationError
@@ -34,6 +35,7 @@ from temporal.agents.models import (
     SaveSummarizationInput,
 )
 from temporal.agents.workflows import SummarizeDocumentWorkflow
+from temporal.github.workflows import GithubSnapshotWorkflow
 from temporal.registry import Registration, load_registration
 
 PROJECT_A = uuid.UUID("aaaaaaaa-0000-4000-8000-000000000001")
@@ -318,12 +320,15 @@ async def test_registration_lists_the_workflow_and_activities_and_closes_everyth
     assert events == ["agent.dispose", "app.dispose"]
 
 
-async def test_the_worker_registry_loads_the_agents_registration(valid_env):
+async def test_the_worker_registry_loads_the_agents_registration(valid_env, monkeypatch):
+    # A fake object store: the real GCS client needs Application Default Credentials, which CI has not.
+    monkeypatch.setattr("storage.factory.build_object_store", lambda _s, **_kw: SimpleNamespace())
     settings = load_settings("worker", valid_env)
     reg = load_registration("agents", settings)
     try:
-        assert list(reg.workflows) == [SummarizeDocumentWorkflow]
-        assert len(reg.activities) == 3
+        # The GitHub clone check (docs/github/clone.md) runs on the agents queue too.
+        assert list(reg.workflows) == [SummarizeDocumentWorkflow, GithubSnapshotWorkflow]
+        assert len(reg.activities) == 5
     finally:
         await reg.close()
 

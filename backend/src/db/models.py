@@ -379,6 +379,21 @@ JIRA_RUN_STATUSES: Final = ("running", "succeeded", "partial", "failed", "skippe
 JIRA_TRIGGERS: Final = ("plan_run", "mcp", "settings", "recovery")
 JIRA_ISSUE_KINDS: Final = ("epic", "story", "subtask")
 ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
+# GitHub tables (docs/github/data-model.md). The failure codes mirror github.codes.CLONE_FAILURE_CODES; a test keeps
+# them equal (db does not import github).
+GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
+REPOSITORY_CLONE_STATES: Final = ("pending", "cloning", "cloned", "failed")
+REPOSITORY_FAILURE_CODES: Final = (
+    "github_not_connected",
+    "github_reconnect_required",
+    "github_repo_not_accessible",
+    "github_repo_too_large",
+    "github_unreachable",
+    "github_auth_failed",
+    "github_clone_failed",
+    "github_clone_timeout",
+    "storage_failed",
+)
 
 
 def _project_id() -> Mapped[uuid.UUID]:
@@ -704,3 +719,60 @@ class AtlassianConnection(Base):
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GitHubConnection(Base):
+    """One user's GitHub connection (migration ``0007_github``, docs/github/data-model.md): the refresh token is Fernet
+    ciphertext; the access token is never stored. Not project-scoped: row-level security is on with no policy and no
+    grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "github_connections"
+    __table_args__ = (CheckConstraint(_one_of("status", GITHUB_CONNECTION_STATUSES), name="status"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    github_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    login: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProjectRepository(Base):
+    """A GitHub repository of a project and its last clone check (migration ``0007_github``). ``added_by`` is the
+    owner whose GitHub connection every clone uses; null once that user is no longer a member. The snapshot fields keep
+    the last good clone after a later failure."""
+
+    __tablename__ = "project_repositories"
+    __table_args__ = (
+        UniqueConstraint("project_id", "github_repo_id", name="uq_project_repositories_project_repo"),
+        CheckConstraint(_one_of("clone_state", REPOSITORY_CLONE_STATES), name="clone_state"),
+        CheckConstraint(_one_of("failure_code", REPOSITORY_FAILURE_CODES), name="failure_code"),
+        CheckConstraint("(clone_state = 'failed') = (failure_code IS NOT NULL)", name="failure_code_matches_state"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    github_repo_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    full_name: Mapped[str] = mapped_column(Text, nullable=False)
+    html_url: Mapped[str] = mapped_column(Text, nullable=False)
+    private: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    added_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    clone_state: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    failure_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_branch: Mapped[str | None] = mapped_column(Text, nullable=True)
+    head_sha: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    snapshot_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    snapshot_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cloned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()

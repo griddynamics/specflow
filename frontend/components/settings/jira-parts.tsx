@@ -1,11 +1,9 @@
 "use client";
 // docs/jira-sync/ui.md#jira-tab, oauth.md#jira-tab: the pieces of the Jira tab. Each takes plain props and has no data access; JiraTab
-// wires them to the port. Design-system components only: TextField, Button, Switch, Tag, GlassSurface, Modal.
+// wires them to the port. Design-system components only: TextField, Button, Switch, Tag; the account row and the dialog are account-parts.tsx.
 import { logoSrc } from "@/components/connections/logos";
 import { Button } from "@/components/ui/Button";
-import { GlassSurface } from "@/components/ui/GlassSurface";
 import { Icon } from "@/components/ui/Icon";
-import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { Tag } from "@/components/ui/Tag";
 import { TextField } from "@/components/ui/TextField";
@@ -28,15 +26,12 @@ import {
   type Outcome,
   type Phase,
 } from "./jira-logic";
+import { AccountRow, ConfirmDialog, whenText } from "./account-parts";
 import { JiraProgress } from "./JiraProgress";
 import { SETTINGS_COPY } from "./settings-copy";
 import "./settings.css";
 
 const noop = () => undefined;
-const WHEN = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
-
-/** A time the API sent; a text that is not a date is shown as it is (the format would throw). */
-const whenText = (iso: string): string => (Number.isNaN(Date.parse(iso)) ? iso : WHEN.format(new Date(iso)));
 
 /** What a passed check found: the Jira project and the Epic that will be used. */
 function CheckOk({
@@ -106,55 +101,39 @@ export function ConnectionRow({
     hint = SETTINGS_COPY.atlassianNoneHint;
   }
   return (
-    <section className="settings-sec" aria-label={SETTINGS_COPY.atlassianLabel} data-testid="atlassian-row" data-state={row.kind}>
-      <GlassSurface className="settings-list settings-atlassian">
-        <div className="settings-row">
-          <span className="gdg-avatar gdg-avatar--md gdg-avatar--neutral settings-atlassian__mark" aria-hidden>
-            {row.kind === "expired" ? <Icon name="warning-circle" size={20} /> : <img src={JIRA_MARK} alt="" width={18} height={18} />}
-          </span>
-          <div className="settings-who">
-            <b>{title}</b>
-            {hint === "" ? null : <small>{hint}</small>}
-          </div>
-          {row.kind === "connected" ? (
-            <Button variant="glass" size="sm" disabled={busy} onClick={onDisconnect} data-testid="atlassian-disconnect">
-              {SETTINGS_COPY.atlassianDisconnect}
-            </Button>
-          ) : (
-            <Button size="sm" disabled={busy} onClick={onConnect} data-testid="atlassian-connect">
-              {row.kind === "expired" ? SETTINGS_COPY.atlassianReconnect : SETTINGS_COPY.atlassianConnect}
-            </Button>
-          )}
-        </div>
-      </GlassSurface>
+    <AccountRow
+      state={row.kind}
+      label={SETTINGS_COPY.atlassianLabel}
+      title={title}
+      hint={hint}
+      markSrc={JIRA_MARK}
+      connectText={SETTINGS_COPY.atlassianConnect}
+      reconnectText={SETTINGS_COPY.atlassianReconnect}
+      disconnectText={SETTINGS_COPY.atlassianDisconnect}
+      testId="atlassian"
+      busy={busy}
+      onConnect={onConnect}
+      onDisconnect={onDisconnect}
+    >
       {row.kind === "none" ? null : <GrantNote />}
-    </section>
+    </AccountRow>
   );
 }
 
 /** Confirms Disconnect. The first focus lands on the dialog, not on the destructive button. */
-export function DisconnectDialog({ busy, onConfirm, onClose }: Readonly<{ busy: boolean; onConfirm: () => void; onClose: () => void }>) {
+export function DisconnectDialog(p: Readonly<{ busy: boolean; onConfirm: () => void; onClose: () => void }>) {
   return (
-    <Modal
-      size="sm"
+    <ConfirmDialog
       title={SETTINGS_COPY.disconnectTitle}
-      onClose={onClose}
-      closeDisabled={busy}
-      initialFocus="dialog"
-      footer={
-        <>
-          <Button variant="glass" onClick={onClose} disabled={busy} data-testid="atlassian-disconnect-cancel">
-            {SETTINGS_COPY.keep}
-          </Button>
-          <Button onClick={onConfirm} disabled={busy} data-testid="atlassian-disconnect-confirm">
-            {SETTINGS_COPY.atlassianDisconnect}
-          </Button>
-        </>
-      }
+      body={SETTINGS_COPY.disconnectBody}
+      confirmText={SETTINGS_COPY.atlassianDisconnect}
+      testId="atlassian-disconnect"
+      busy={p.busy}
+      onConfirm={p.onConfirm}
+      onClose={p.onClose}
     >
-      <p className="settings-dialog__body">{SETTINGS_COPY.disconnectBody}</p>
       <GrantNote />
-    </Modal>
+    </ConfirmDialog>
   );
 }
 

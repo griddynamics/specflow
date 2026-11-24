@@ -1,5 +1,5 @@
 "use client";
-// FR-PRJ-UI-02 (docs/projects/ui.md#header): the Settings screen. The tab bar ("General", "Jira", "Slack") goes into the shell header row
+// FR-PRJ-UI-02 (docs/projects/ui.md#header): the Settings screen. The tab bar ("General", "Jira", "Slack", "GitHub") goes into the shell header row
 // through <ShellHeader tabs>, level with the project picker; the body has no H1, no title and no tab row. `?tab=` is pushed like the Plan
 // switch (native history API, which Next.js syncs with `useSearchParams`); a missing or unknown tab shows General.
 import { useSearchParams } from "next/navigation";
@@ -9,6 +9,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { COPY } from "@/lib/copy";
 import { parseSettingsQuery, type SettingsTab } from "@/lib/routes";
 import { GeneralTab } from "./GeneralTab";
+import { GitHubTab } from "./GitHubTab";
 import { JiraTab } from "./JiraTab";
 import { SlackTab } from "./SlackTab";
 import { useSettingsRoutes } from "./use-settings-ports";
@@ -18,6 +19,7 @@ const TAB_OPTIONS: { value: SettingsTab; label: string }[] = [
   { value: "general", label: COPY.settingsTabGeneral },
   { value: "jira", label: COPY.settingsTabJira },
   { value: "slack", label: COPY.settingsTabSlack },
+  { value: "github", label: COPY.settingsTabGitHub },
 ];
 
 /** `key={projectId}`: another project starts with a fresh tab state. */
@@ -53,5 +55,6 @@ function Settings({ projectId, projectName }: Readonly<{ projectId: string; proj
 function TabBody({ tab, projectId, projectName }: Readonly<{ tab: SettingsTab; projectId: string; projectName: string | null }>) {
   if (tab === "jira") return <JiraTab projectId={projectId} projectName={projectName} />;
   if (tab === "slack") return <SlackTab projectId={projectId} />;
+  if (tab === "github") return <GitHubTab projectId={projectId} />;
   return <GeneralTab projectId={projectId} projectName={projectName} />;
 }

@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationInfo, field_validator
 
 from agent_contracts import JiraSyncStatus
+from integrations.return_to import RETURN_TO_MAX, is_same_site_path
 
 NAME_MAX = 200
 COLLABORATORS_MAX = 49
@@ -674,8 +675,6 @@ JiraAccessResult = Annotated[JiraAccessOk | JiraAccessFailed, Field(discriminato
 
 # --- Atlassian connections (docs/jira-sync/oauth.md "Routes") ------------------------------------------------------
 
-RETURN_TO_MAX = 2048
-
 
 class AtlassianConnectionOut(BaseModel):
     """The caller's Atlassian connection: ``mode`` is the server's Jira mode (null = Jira off)."""
@@ -688,13 +687,12 @@ class AtlassianConnectionOut(BaseModel):
     last_used_at: datetime | None
 
 
-def _dot_segment_or_encoded_separator(value: str) -> bool:
-    """Whether the path part of ``value`` has a ``.`` or ``..`` segment (``%2e`` counts as ``.``) or an encoded ``/`` or
-    ``\\``: a URL parser resolves ``/.//evil.com`` to ``//evil.com``, another host."""
-    path = value.split("?", 1)[0].split("#", 1)[0].lower()
-    if "%2f" in path or "%5c" in path:
-        return True
-    return any(segment.replace("%2e", ".") in {".", ".."} for segment in path.split("/"))
+def same_site_path(value: str) -> str:
+    """``value`` when it is a path of this site (``integrations.return_to``), else ``ReturnToError``."""
+
+    if not is_same_site_path(value):
+        raise ReturnToError("return_to must be a path of this site")
+    return value
 
 
 class AtlassianAuthorizeIn(BaseModel):
@@ -709,17 +707,7 @@ class AtlassianAuthorizeIn(BaseModel):
     @field_validator("return_to")
     @classmethod
     def _same_origin_path(cls, value: str) -> str:
-        if (
-            not value.startswith("/")
-            or value.startswith("//")
-            or "\\" in value
-            or not value.isascii()
-            or not value.isprintable()
-            or any(c.isspace() for c in value)
-            or _dot_segment_or_encoded_separator(value)
-        ):
-            raise ReturnToError("return_to must be a path of this site")
-        return value
+        return same_site_path(value)
 
 
 class AtlassianAuthorizeOut(BaseModel):
@@ -736,3 +724,108 @@ class AtlassianCallbackIn(BaseModel):
 class AtlassianCallbackOut(BaseModel):
     connection: AtlassianConnectionOut
     return_to: str
+
+
+# --- GitHub integration (docs/github/api.md) --------------------------------------------------------------------------
+
+
+class GitHubConnectionOut(BaseModel):
+    """The caller's GitHub connection; ``enabled`` is whether the server has the GitHub App configured."""
+
+    enabled: bool
+    connected: bool
+    status: Literal["active", "expired"] | None
+    login: str | None
+    connected_at: datetime | None
+    last_used_at: datetime | None
+    manage_url: str | None
+
+
+class GitHubReturnToIn(BaseModel):
+    """Where the browser returns after GitHub: a path of this site (the Atlassian rule)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    return_to: str = Field(min_length=1, max_length=RETURN_TO_MAX)
+
+    @field_validator("return_to")
+    @classmethod
+    def _same_origin_path(cls, value: str) -> str:
+        return same_site_path(value)
+
+
+class GitHubUrlOut(BaseModel):
+    url: str
+
+
+class GitHubCallbackIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=4096)
+    state: str = Field(min_length=1, max_length=4096)
+
+
+class GitHubCallbackOut(BaseModel):
+    connection: GitHubConnectionOut
+    return_to: str
+
+
+class GitHubSetupIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: str = Field(min_length=1, max_length=4096)
+
+
+class GitHubSetupOut(BaseModel):
+    return_to: str
+
+
+class GitHubRepositoryOut(BaseModel):
+    """A repository the caller can read through the GitHub App."""
+
+    github_repo_id: int
+    full_name: str
+    html_url: str
+    private: bool
+    default_branch: str | None
+    size_kb: int
+    too_large: bool
+
+
+class GitHubRepositoriesOut(BaseModel):
+    repositories: list[GitHubRepositoryOut]
+    truncated: bool
+
+
+class ProjectRepositoryIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    github_repo_id: StrictInt = Field(ge=1)
+
+
+class ProjectRepositoryOut(BaseModel):
+    """A GitHub repository of the project and its last clone check (docs/github/api.md)."""
+
+    id: uuid.UUID
+    github_repo_id: int
+    full_name: str
+    html_url: str
+    private: bool
+    added_by_name: str | None
+    added_by_me: bool
+    clone_state: Literal["pending", "cloning", "cloned", "failed"]
+    failure_code: str | None
+    default_branch: str | None
+    head_sha: str | None
+    file_count: int | None
+    size_bytes: int | None
+    snapshot_bytes: int | None
+    checked_at: datetime | None
+    cloned_at: datetime | None
+    created_at: datetime
+
+
+class ProjectRepositoriesOut(BaseModel):
+    enabled: bool
+    can_manage: bool
+    repositories: list[ProjectRepositoryOut]
