@@ -65,7 +65,7 @@ BUILT = {
     "worker-parse": ("./backend", "docker/worker-parse/Dockerfile"),
     "worker-agents": ("./backend", "docker/worker-agents/Dockerfile"),
     "mcp": ("./backend", "docker/mcp/Dockerfile"),
-    "frontend": ("./frontend", "Dockerfile"),
+    "frontend": (".", "frontend/Dockerfile"),
 }
 # Database service -> public image.
 PUBLIC = {"postgres": "pgvector/pgvector:0.8.7-pg17", "neo4j": "neo4j:5.26.30-community"}

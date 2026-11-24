@@ -1,0 +1,21 @@
+# Per-Dockerfile ignore file (BuildKit). The build context is the repository root: send only the workspace
+# manifests, packages/ and frontend/ (never .claude/ worktrees, backend, plans, .git).
+*
+!package.json
+!package-lock.json
+!packages/
+!frontend/
+**/node_modules
+**/.next
+**/.env*
+**/npm-debug.log*
+# not part of an image
+frontend/Dockerfile*
+frontend/tests
+frontend/e2e
+frontend/e2e-production
+frontend/playwright*.config.ts
+frontend/playwright-report
+frontend/test-results
+frontend/resources
+frontend/logs

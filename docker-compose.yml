@@ -672,7 +672,9 @@ services:
   # The standalone Next.js server (the image Infra builds). For live reload, stop it and
   # run `make frontend-dev` on the host instead (same port).
   frontend:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     image: specflow-frontend:local
     container_name: specflow-frontend
     mem_limit: 512m

@@ -51,3 +51,8 @@ docs/**/CHANGES.md
 
 # Local certificates of `make up WITH=tls` (scripts/postgres-tls.sh)
 .postgres-tls/
+
+# npm workspace (root install and Next build output)
+node_modules/
+.next/
+out/

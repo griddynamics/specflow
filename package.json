@@ -1,0 +1,11 @@
+{
+  "name": "graphico",
+  "private": true,
+  "workspaces": [
+    "packages/ui",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

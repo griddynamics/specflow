@@ -59,3 +59,12 @@ reason = "the local TLS certificate script; backend/tests/test_postgres_tls.py r
 [[source-ownership.external]]
 paths = ["docs/mission-control/*.js", "docs/mission-control/*.css"]
 reason = "design prototype for Mission Control V2, a static page opened in a browser; validated by nobody in this repository"
+
+# packages/ui is the shared Graphico UI package of the npm workspace (D17). The frontend imports it
+# (transpilePackages), so the frontend's tsc, ESLint and knip runs reach its sources, and its tests run in
+# frontend/tests. Session 03 adds the same kind of entry for site/ with the first file there: an entry whose
+# pattern matches no file is a configuration error.
+[[source-ownership.external]]
+paths = ["packages/**/*"]
+owner = "frontend"
+reason = "the shared UI package of the npm workspace; the frontend imports it, so the frontend's checks and tests run over it"

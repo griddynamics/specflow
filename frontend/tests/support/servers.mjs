@@ -7,13 +7,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const standalone = path.join(root, ".next/standalone");
+// The standalone tree is rooted at the workspace root (next.config.ts outputFileTracingRoot): the server is frontend/server.js.
+const standalone = path.join(root, ".next/standalone/frontend");
 
 export const randomSecret = () => randomBytes(32).toString("hex");
 
 export function prepareStandalone() {
   if (!existsSync(path.join(standalone, "server.js"))) {
-    throw new Error("missing .next/standalone/server.js: run `npm run build` first");
+    throw new Error("missing .next/standalone/frontend/server.js: run `npm run build` first");
   }
   // Same layout as the runtime image: static assets and public beside server.js.
   cpSync(path.join(root, ".next/static"), path.join(standalone, ".next/static"), { recursive: true, force: true });

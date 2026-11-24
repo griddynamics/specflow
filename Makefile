@@ -218,8 +218,9 @@ images:
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) image-test
 
 # Frontend on the host with live reload (stop the `frontend` container first: same port).
+# One install for the npm workspace (packages/ui, frontend): the root package-lock.json, node_modules/ at the root.
 frontend-setup:
-	npm --prefix frontend ci
+	npm ci
 
 # Explicit host and port: a clash with the container is a bind error, not a
 # silent move to another port.

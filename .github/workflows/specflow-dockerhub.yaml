@@ -7,6 +7,9 @@ on:
     paths:
       - backend/**
       - frontend/**
+      - packages/**
+      - package.json
+      - package-lock.json
       - validation/**
       - Makefile
       - .github/workflows/specflow-dockerhub.yaml
@@ -61,7 +64,7 @@ jobs:
             context: backend
             dockerfile: backend/docker/worker-agents/Dockerfile
           - image: specflow-frontend
-            context: frontend
+            context: .
             dockerfile: frontend/Dockerfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
