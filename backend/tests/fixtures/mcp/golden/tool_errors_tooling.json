@@ -341,6 +341,81 @@
       }
     }
   },
+  "invalid_cursor:jira_sync_status": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_cursor\",\"message\":\"The cursor is invalid. Start again without a cursor.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_cursor",
+        "message": "The cursor is invalid. Start again without a cursor."
+      }
+    }
+  },
+  "jira_not_configured": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"jira_not_configured\",\"message\":\"This project does not sync to Jira. Its owner sets the Jira target in the project Settings, tab Jira.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "jira_not_configured",
+        "message": "This project does not sync to Jira. Its owner sets the Jira target in the project Settings, tab Jira."
+      }
+    }
+  },
+  "jira_not_configured:jira_sync_status": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"jira_not_configured\",\"message\":\"This project does not sync to Jira. Its owner sets the Jira target in the project Settings, tab Jira.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "jira_not_configured",
+        "message": "This project does not sync to Jira. Its owner sets the Jira target in the project Settings, tab Jira."
+      }
+    }
+  },
+  "jira_unavailable": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"jira_unavailable\",\"message\":\"Jira sync is not set up on this Specflow server. Ask an administrator to connect an Atlassian account.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "jira_unavailable",
+        "message": "Jira sync is not set up on this Specflow server. Ask an administrator to connect an Atlassian account."
+      }
+    }
+  },
+  "jira_unavailable:jira_sync_status": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"jira_unavailable\",\"message\":\"Jira sync is not set up on this Specflow server. Ask an administrator to connect an Atlassian account.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "jira_unavailable",
+        "message": "Jira sync is not set up on this Specflow server. Ask an administrator to connect an Atlassian account."
+      }
+    }
+  },
   "no_plan": {
     "content": [
       {

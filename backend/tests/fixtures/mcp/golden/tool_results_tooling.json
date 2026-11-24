@@ -1654,6 +1654,126 @@
       "project_id": "00000000-0000-4000-8000-000000000001"
     }
   },
+  "jira_sync_status_first_page": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"enabled\":true,\"status\":\"succeeded\",\"queued\":false,\"trigger\":\"plan_run\",\"started_at\":\"2026-11-22T10:00:00Z\",\"finished_at\":\"2026-11-22T10:00:00Z\",\"error_code\":null,\"counts\":{\"created\":6,\"updated\":0,\"commented\":0,\"removed\":0,\"links_added\":2,\"links_removed\":0,\"ranked\":0,\"unchanged\":0,\"failed\":0},\"jira_project\":\"ABC\",\"epic_key\":\"ABC-1\",\"progress\":null,\"items\":[{\"node_id\":\"EPIC\",\"kind\":\"epic\",\"jira_key\":\"ABC-1\",\"url\":\"https://example.atlassian.net/browse/ABC-1\",\"removed\":false,\"error_code\":null},{\"node_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"kind\":\"story\",\"jira_key\":\"ABC-2\",\"url\":\"https://example.atlassian.net/browse/ABC-2\",\"removed\":false,\"error_code\":null},{\"node_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"kind\":\"story\",\"jira_key\":\"ABC-3\",\"url\":\"https://example.atlassian.net/browse/ABC-3\",\"removed\":false,\"error_code\":\"jira_invalid_field\"},{\"node_id\":\"TASK::WEB_SHOP::CONTRACT_CHECKOUT\",\"kind\":\"subtask\",\"jira_key\":\"ABC-4\",\"url\":\"https://example.atlassian.net/browse/ABC-4\",\"removed\":false,\"error_code\":null}],\"next_cursor\":\"eyJ2IjoxLCJhZnRlciI6IjI6VEFTSzo6V0VCX1NIT1A6OkNPTlRSQUNUX0NIRUNLT1VUIn0\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "counts": {
+        "commented": 0,
+        "created": 6,
+        "failed": 0,
+        "links_added": 2,
+        "links_removed": 0,
+        "ranked": 0,
+        "removed": 0,
+        "unchanged": 0,
+        "updated": 0
+      },
+      "enabled": true,
+      "epic_key": "ABC-1",
+      "error_code": null,
+      "finished_at": "2026-11-22T10:00:00Z",
+      "items": [
+        {
+          "error_code": null,
+          "jira_key": "ABC-1",
+          "kind": "epic",
+          "node_id": "EPIC",
+          "removed": false,
+          "url": "https://example.atlassian.net/browse/ABC-1"
+        },
+        {
+          "error_code": null,
+          "jira_key": "ABC-2",
+          "kind": "story",
+          "node_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+          "removed": false,
+          "url": "https://example.atlassian.net/browse/ABC-2"
+        },
+        {
+          "error_code": "jira_invalid_field",
+          "jira_key": "ABC-3",
+          "kind": "story",
+          "node_id": "STORY::WEB_SHOP::CHECKOUT",
+          "removed": false,
+          "url": "https://example.atlassian.net/browse/ABC-3"
+        },
+        {
+          "error_code": null,
+          "jira_key": "ABC-4",
+          "kind": "subtask",
+          "node_id": "TASK::WEB_SHOP::CONTRACT_CHECKOUT",
+          "removed": false,
+          "url": "https://example.atlassian.net/browse/ABC-4"
+        }
+      ],
+      "jira_project": "ABC",
+      "next_cursor": "eyJ2IjoxLCJhZnRlciI6IjI6VEFTSzo6V0VCX1NIT1A6OkNPTlRSQUNUX0NIRUNLT1VUIn0",
+      "progress": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "queued": false,
+      "started_at": "2026-11-22T10:00:00Z",
+      "status": "succeeded",
+      "trigger": "plan_run"
+    }
+  },
+  "jira_sync_status_second_page": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"enabled\":true,\"status\":\"succeeded\",\"queued\":false,\"trigger\":\"plan_run\",\"started_at\":\"2026-11-22T10:00:00Z\",\"finished_at\":\"2026-11-22T10:00:00Z\",\"error_code\":null,\"counts\":{\"created\":6,\"updated\":0,\"commented\":0,\"removed\":0,\"links_added\":2,\"links_removed\":0,\"ranked\":0,\"unchanged\":0,\"failed\":0},\"jira_project\":\"ABC\",\"epic_key\":\"ABC-1\",\"progress\":null,\"items\":[{\"node_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"kind\":\"subtask\",\"jira_key\":\"ABC-5\",\"url\":\"https://example.atlassian.net/browse/ABC-5\",\"removed\":true,\"error_code\":null},{\"node_id\":\"TASK::WEB_SHOP::UI_CHECKOUT\",\"kind\":\"subtask\",\"jira_key\":null,\"url\":null,\"removed\":false,\"error_code\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "counts": {
+        "commented": 0,
+        "created": 6,
+        "failed": 0,
+        "links_added": 2,
+        "links_removed": 0,
+        "ranked": 0,
+        "removed": 0,
+        "unchanged": 0,
+        "updated": 0
+      },
+      "enabled": true,
+      "epic_key": "ABC-1",
+      "error_code": null,
+      "finished_at": "2026-11-22T10:00:00Z",
+      "items": [
+        {
+          "error_code": null,
+          "jira_key": "ABC-5",
+          "kind": "subtask",
+          "node_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+          "removed": true,
+          "url": "https://example.atlassian.net/browse/ABC-5"
+        },
+        {
+          "error_code": null,
+          "jira_key": null,
+          "kind": "subtask",
+          "node_id": "TASK::WEB_SHOP::UI_CHECKOUT",
+          "removed": false,
+          "url": null
+        }
+      ],
+      "jira_project": "ABC",
+      "next_cursor": null,
+      "progress": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "queued": false,
+      "started_at": "2026-11-22T10:00:00Z",
+      "status": "succeeded",
+      "trigger": "plan_run"
+    }
+  },
   "list_areas": {
     "content": [
       {
@@ -3264,6 +3384,29 @@
         "REQ::Q::CHECKOUT_SPEED"
       ],
       "unknown": []
+    }
+  },
+  "sync_to_jira": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"enabled\":true,\"status\":\"running\",\"queued\":false,\"trigger\":\"mcp\",\"started_at\":\"2026-11-22T10:00:00Z\",\"finished_at\":null,\"error_code\":null,\"counts\":null,\"jira_project\":\"ABC\",\"epic_key\":\"ABC-1\",\"progress\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "counts": null,
+      "enabled": true,
+      "epic_key": "ABC-1",
+      "error_code": null,
+      "finished_at": null,
+      "jira_project": "ABC",
+      "progress": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "queued": false,
+      "started_at": "2026-11-22T10:00:00Z",
+      "status": "running",
+      "trigger": "mcp"
     }
   },
   "trace_spec_ids_affects_with_holders": {

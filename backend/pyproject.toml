@@ -18,6 +18,7 @@ dependencies = [
 api = [
     "alembic>=1.20.1",
     "asyncpg>=0.32.0",
+    "cryptography>=50.0.1",
     "fastapi>=0.162.0",
     "google-api-python-client>=2.201.0",
     "google-auth>=2.62.0",
@@ -134,7 +135,7 @@ dev = [
 # Colocated test modules use the validation environment, not runtime imports.
 [tool.deptry]
 known_first_party = [
-    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "mcp_server", "postgres", "storage",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "jira", "llm", "logger", "mcp_server", "postgres", "storage",
     "temporal", "cli", "cloud_profile", "health", "settings",
     "example_lib", "gap_detect_bench", "graph_build", "mcp_qa_lib",  # examples/
     "graph_probes",  # tests/graph_probes: the store probes examples/graph_bench.py reads the graph through

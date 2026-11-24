@@ -17,6 +17,7 @@ import { RECREATE_PLAN_LABEL } from "../before/plan-text";
 import { DevelopTab, type DevelopInfo } from "../develop/DevelopTab";
 import { PlanTab } from "../tasks/PlanTab";
 import { WorkTab } from "../work/WorkTab";
+import { JiraSyncLine } from "./JiraSyncLine";
 
 export function PlanReadyView({ projectId, plan, develop }: Readonly<{ projectId: string; plan: PlanSnapshot; develop: DevelopInfo }>) {
   const planPort = usePlanPort();
@@ -48,6 +49,7 @@ export function PlanReadyView({ projectId, plan, develop }: Readonly<{ projectId
           </Button>
         }
       />
+      <JiraSyncLine projectId={projectId} />
       {view === "develop" ? <DevelopTab projectId={projectId} info={develop} /> : null}
       {view === "work" ? <WorkTab projectId={projectId} /> : null}
       {view === "plan" ? <PlanTab projectId={projectId} plan={plan} /> : null}

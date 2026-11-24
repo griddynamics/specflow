@@ -6,6 +6,7 @@ import type { CreateProjectPort } from "@/lib/domain/create-project";
 import type { DiagramsPort } from "@/lib/domain/diagrams";
 import type { FilesPort } from "@/lib/domain/files";
 import type { GapsPort } from "@/lib/domain/gaps";
+import type { JiraPort } from "@/lib/domain/jira";
 import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
 import type { PlanPort } from "@/lib/domain/plan";
@@ -31,6 +32,7 @@ export interface DataPorts {
   knowledge: KnowledgePort;
   work: WorkPort; // MCP-TOOLING session 10: findings list and claims board of the Plan page
   members: MembersPort; // project collaborators: Settings (General tab) and the Create Project suggestions
+  jira: JiraPort; // the Jira export target of a project: Settings (Jira tab)
 }
 
 /** In-memory hand-over between screens (§1.5);  */

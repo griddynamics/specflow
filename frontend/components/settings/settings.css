@@ -138,3 +138,69 @@
   gap: var(--space-sm);
   margin: 0;
 }
+/* docs/jira-sync/ui.md#jira-tab: the Jira form column, the hint and alert lines, the Switch block, the status line and the Epic link. */
+.settings-jira .gdg-btn {
+  justify-self: start;
+}
+.settings-hint {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+.settings-check {
+  display: grid;
+}
+.settings-alert {
+  margin: 0;
+  color: var(--danger);
+  font-size: 14px;
+  line-height: 20px;
+}
+/* The DS Switch has no disabled look: dim the whole row (switch and label) like the other controls (opacity .45, not-allowed). */
+.settings-switch .gdg-switch-row:has(:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.settings-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.settings-link {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+/* docs/jira-sync/oauth.md#jira-tab: the owner's Atlassian connection row (one row of the people card's look) and the acting account line
+   under the target. The hint may wrap here: it carries a sentence, not a name. */
+.settings-atlassian .settings-who small {
+  white-space: normal;
+}
+.settings-atlassian__mark {
+  flex-shrink: 0;
+  color: var(--ink-2);
+}
+.settings-atlassian .gdg-btn {
+  flex-shrink: 0;
+}
+.settings-acting {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.settings-acting__warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+.settings-acting__warning .gdg-icon {
+  flex-shrink: 0;
+  color: var(--danger);
+}

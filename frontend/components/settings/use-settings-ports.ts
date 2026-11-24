@@ -8,6 +8,11 @@ export function useMembersPort() {
   return usePorts().members;
 }
 
+/** The Jira port (`get`, `save`, `checkAccess`). */
+export function useJiraPort() {
+  return usePorts().jira;
+}
+
 /** The projects port (`get`, `rename`). */
 export function useProjectsPort() {
   return usePorts().projects;

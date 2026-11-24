@@ -255,7 +255,7 @@ def _report(spec_id: str, *classes: str, edge: str | None = None) -> ChangeRepor
     )
 
 
-def make_runner(tmp_path, plan=None, *, reader: StubPlanReader | None = None, nodes=(), estimate=None):
+def make_runner(tmp_path, plan=None, *, reader: StubPlanReader | None = None, nodes=(), estimate=None, jira=None):
     StubGateway.instances.clear()
     reads = PlanReads(reader or StubPlanReader(), StubGraphReader(list(nodes)))
     ensured: list[Any] = []
@@ -276,7 +276,7 @@ def make_runner(tmp_path, plan=None, *, reader: StubPlanReader | None = None, no
         reads=lambda _store, _ontology, _rules: reads,
     )
     settings = SETTINGS.model_copy(update={"state_dir": str(tmp_path)})
-    runner = GraphPlanRunner(settings, store=StubStore(), dependencies=deps)
+    runner = GraphPlanRunner(settings, store=StubStore(), dependencies=deps, jira=jira)
     return runner, ensured
 
 
@@ -712,3 +712,54 @@ async def test_preview_keeps_the_features_when_the_estimate_fails_and_is_empty_w
 
     assert preview.build_id == "build-1" and preview.calls is None
     assert [feature.spec_id for feature in preview.features] == ["FEAT::B"]
+
+
+# Jira sync hook ----------------------------------------------------------------------------------
+
+
+class StubJira:
+    """The plan runner's Jira hook: records the projects."""
+
+    def __init__(self) -> None:
+        self.projects: list[str] = []
+
+    async def after_plan(self, project_id: str) -> None:
+        self.projects.append(project_id)
+
+
+def _with_result(plan: StubPlan, **changes: Any):
+    async def run(context) -> PlanResult:
+        return (await plan(context)).model_copy(update=changes)
+
+    return run
+
+
+@pytest.mark.parametrize(
+    ("changes", "calls"),
+    [
+        ({}, 1),  # succeeded
+        ({"unchanged": True}, 1),  # an unchanged run too
+        ({"status": "partially_succeeded"}, 1),
+        ({"status": "failed", "failure": "boom"}, 0),
+    ],
+)
+async def test_a_returned_plan_run_starts_the_jira_sync_except_a_failed_one(tmp_path, changes, calls):
+    await _finished_build(tmp_path)
+    jira = StubJira()
+    runner, _ = make_runner(tmp_path, _with_result(StubPlan(), **changes), jira=jira)
+
+    await runner.start(PROJECT)
+    await _settle(runner)
+
+    assert jira.projects == [PROJECT] * calls
+
+
+async def test_a_plan_run_that_raises_starts_no_jira_sync(tmp_path):
+    await _finished_build(tmp_path)
+    jira = StubJira()
+    runner, _ = make_runner(tmp_path, StubPlan(fail=ConfigurationError("no_spec_graph")), jira=jira)
+
+    await runner.start(PROJECT)
+    await _settle(runner)
+
+    assert jira.projects == []

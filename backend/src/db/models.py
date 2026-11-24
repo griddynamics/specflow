@@ -27,6 +27,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     PrimaryKeyConstraint,
     Text,
     UniqueConstraint,
@@ -374,6 +375,10 @@ GAP_NOISE_SCOPES: Final = ("document", "section", "pattern")
 AMENDMENT_OPERATIONS: Final = ("insert_after", "replace", "append_section")
 AMENDMENT_STATUSES: Final = ("pending", "active", "retired", "suspended", "orphaned", "reverted", "undecided")
 GAP_OPTIONS_MAX: Final = 4
+JIRA_RUN_STATUSES: Final = ("running", "succeeded", "partial", "failed", "skipped")
+JIRA_TRIGGERS: Final = ("plan_run", "mcp", "settings", "recovery")
+JIRA_ISSUE_KINDS: Final = ("epic", "story", "subtask")
+ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 
 
 def _project_id() -> Mapped[uuid.UUID]:
@@ -622,3 +627,80 @@ class GapAssignment(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     assigned_by: Mapped[str] = mapped_column(Text, nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class JiraTarget(Base):
+    """The Jira settings of a project and its last sync pass (migration ``0005_jira_sync``); holds no credential."""
+
+    __tablename__ = "jira_targets"
+    __table_args__ = (
+        CheckConstraint(_one_of("last_status", JIRA_RUN_STATUSES), name="last_status"),
+        CheckConstraint(_one_of("last_trigger", JIRA_TRIGGERS), name="last_trigger"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    jira_project: Mapped[str] = mapped_column(Text, nullable=False)
+    epic_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_trigger: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_counts: Mapped[Any] = _json(nullable=True)
+    # oauth mode: the owner whose Atlassian connection the sync acts as (migration ``0006_atlassian_connections``)
+    connected_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class JiraIssue(Base):
+    """The Jira issue of a plan node: a pending row (no key) before the create, the applied content after."""
+
+    __tablename__ = "jira_issues"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "node_id"),
+        CheckConstraint(_one_of("kind", JIRA_ISSUE_KINDS), name="kind"),
+        Index(
+            "ux_jira_issues_jira_key",
+            "project_id",
+            "jira_key",
+            unique=True,
+            postgresql_where=text("jira_key IS NOT NULL"),
+        ),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    jira_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content: Mapped[Any] = _json(nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AtlassianConnection(Base):
+    """One user's Atlassian OAuth connection (migration ``0006_atlassian_connections``, docs/jira-sync/oauth.md
+    "Data"): the refresh token is Fernet ciphertext; the access token is never stored. Not project-scoped: row-level
+    security is on with no policy and no grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "atlassian_connections"
+    __table_args__ = (CheckConstraint(_one_of("status", ATLASSIAN_CONNECTION_STATUSES), name="status"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    cloud_id: Mapped[str] = mapped_column(Text, nullable=False)
+    account_id: Mapped[str] = mapped_column(Text, nullable=False)
+    account_name: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

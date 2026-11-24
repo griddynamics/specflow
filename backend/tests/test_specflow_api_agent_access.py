@@ -34,6 +34,8 @@ from agent_contracts import (
     GetStoryBriefArgs,
     GetTaskBriefArgs,
     GetTaskPathArgs,
+    JiraSyncArgs,
+    JiraSyncStatusArgs,
     ListAreasArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
@@ -54,14 +56,17 @@ from api.deps import agent_principal, agent_project, current_agent_user, current
 from api.routers import (
     agent,
     agent_gaps,
+    agent_jira,
     agent_spec,
     agent_stories,
     agent_writes,
+    atlassian,
     claims,
     documents,
     findings,
     gaps,
     graph_build,
+    jira,
     me,
     members,
     plan,
@@ -103,8 +108,18 @@ TOOL_ARGUMENTS: dict[str, Any] = {
     "add_finding": AddFindingArgs,
     "report_task": ReportTaskArgs,
     "complete_story": CompleteStoryArgs,
+    "sync_to_jira": JiraSyncArgs,
+    "jira_sync_status": JiraSyncStatusArgs,
 }
-WRITE_TOOLS = ("claim_story", "release_story", "add_finding", "report_task", "complete_story", "answer_gap")  # POST
+WRITE_TOOLS = (  # POST
+    "claim_story",
+    "release_story",
+    "add_finding",
+    "report_task",
+    "complete_story",
+    "answer_gap",
+    "sync_to_jira",
+)
 # A tool's second route: answer_gap reads the gap's card (GET) before its dialog, then writes on its own route.
 READ_ROUTES = {GAP_CARD_ROUTE: "answer_gap"}
 AGENT_PATHS = {**{path: tool for tool, path in AGENT_ROUTES.items()}, **READ_ROUTES}  # every agent route, its tool
@@ -124,6 +139,7 @@ WRITE_BODIES = {
     AGENT_ROUTES["add_finding"]: {"kind": "gap", "text": "x", "about": ["FEAT::API"]},
     AGENT_ROUTES["report_task"]: {"task_id": "TASK::A::API_LOGIC", "claim_token": "t", "progress": "done"},
     AGENT_ROUTES["complete_story"]: {"story_id": "STORY::A::API", "claim_token": "t", "merge_commit": "a" * 40},
+    AGENT_ROUTES["sync_to_jira"]: {},
     AGENT_ROUTES["answer_gap"]: {"gap_id": "GAP::X", "option_rank": 1, "updated_at": "2026-11-18T09:00:00+00:00"},
 }
 
@@ -139,8 +155,11 @@ ROUTER_MODULES = (
     agent_stories,
     agent_writes,
     agent_gaps,
+    agent_jira,
     projects,
     members,
+    jira,
+    atlassian,
     users,
     documents,
     graph_build,

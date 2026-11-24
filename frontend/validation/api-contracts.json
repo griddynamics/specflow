@@ -3,6 +3,7 @@
     "httpGet": "GET",
     "httpPost": "POST",
     "httpPatch": "PATCH",
+    "httpPut": "PUT",
     "httpDelete": "DELETE",
     "getJson": "GET"
   },
@@ -251,6 +252,46 @@
       "id": "remove_noise_rule_api_v1_projects__pid__gaps_noise_rules__rule_id__delete",
       "method": "DELETE",
       "path": "/projects/{pid}/gaps/noise_rules/{rule_id}"
+    },
+    {
+      "id": "assign_gap_api_v1_projects__pid__gaps__gap_id__assignee_put",
+      "method": "PUT",
+      "path": "/projects/{pid}/gaps/{gap_id}/assignee"
+    },
+    {
+      "id": "get_jira_settings_api_v1_projects__pid__jira_get",
+      "method": "GET",
+      "path": "/projects/{pid}/jira"
+    },
+    {
+      "id": "put_jira_settings_api_v1_projects__pid__jira_put",
+      "method": "PUT",
+      "path": "/projects/{pid}/jira"
+    },
+    {
+      "id": "check_jira_access_api_v1_projects__pid__jira_access_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/jira/access-check"
+    },
+    {
+      "id": "get_atlassian_connection_api_v1_integrations_atlassian_get",
+      "method": "GET",
+      "path": "/integrations/atlassian"
+    },
+    {
+      "id": "authorize_atlassian_api_v1_integrations_atlassian_authorize_post",
+      "method": "POST",
+      "path": "/integrations/atlassian/authorize"
+    },
+    {
+      "id": "atlassian_callback_api_v1_integrations_atlassian_callback_post",
+      "method": "POST",
+      "path": "/integrations/atlassian/callback"
+    },
+    {
+      "id": "disconnect_atlassian_api_v1_integrations_atlassian_delete",
+      "method": "DELETE",
+      "path": "/integrations/atlassian"
     },
     {
       "id": "answer_gap_api_v1_projects__pid__gaps__gap_id__answer_post",

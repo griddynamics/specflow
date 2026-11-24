@@ -82,6 +82,23 @@ findings in a member project, as every member may read it.
 | Denial of service | an agent floods findings | at most 50 open findings per caller and story (`finding_limit`); the length limits of [tools.md](tools.md#add_finding) |
 | Elevation of privilege | an agent changes the spec through a finding | AC13 |
 
+## Jira sync tools
+
+`sync_to_jira` and `jira_sync_status` ([tools.md](tools.md#sync_to_jira)) follow the one rule: any member may start the
+project's sync and read its status. Choosing where the plan goes is the owner's: the Jira target and the access check
+are web routes for the owner only, and no tool changes them ([../jira-sync/api.md](../jira-sync/api.md#access)).
+
+| # | Rule |
+|---|---|
+| AC15 | A sync writes only to the target the owner saved, with the deployment's Atlassian account; a disabled or missing target refuses the tool (`jira_not_configured`) and calls nothing. |
+| AC16 | A sync never deletes, closes or transitions a Jira issue and never changes its status or assignee; the Atlassian token never reaches a tool result, a log or the database. |
+
+| Threat | Example | Mitigation |
+|---|---|---|
+| Tampering | an agent floods Jira with syncs | one pass per project, repeated calls merge into one more pass, one pass per process |
+| Elevation of privilege | an agent redirects the sync to another Jira project | no tool takes a Jira project or Epic; AC15 |
+| Information disclosure | the token leaks through a tool | AC16; tools return keys, links and codes only |
+
 ## Untrusted content
 
 Feature names, statements and quotes come from documents that project members uploaded. They reach the developer's

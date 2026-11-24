@@ -6,7 +6,9 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationInfo, field_validator
+
+from agent_contracts import JiraSyncStatus
 
 NAME_MAX = 200
 COLLABORATORS_MAX = 49
@@ -19,6 +21,14 @@ class InvalidNameError(ValueError):
 
 class InvalidSuggestionTextError(ValueError):
     """The suggestion text is shorter than 3 or longer than 254 characters."""
+
+
+class JiraEpicPrefixError(ValueError):
+    """The Epic key does not start with the Jira project key."""
+
+
+class ReturnToError(ValueError):
+    """``return_to`` is not a path of this site."""
 
 
 class Page[T](BaseModel):
@@ -567,3 +577,162 @@ class SuggestionOut(BaseModel):
 
 class SuggestionsOut(BaseModel):
     items: list[SuggestionOut]
+
+
+# --- Jira settings and access check (docs/jira-sync/api.md "Web routes", "Access check", "Shapes") ---------------
+
+JIRA_PROJECT_PATTERN = r"^[A-Z][A-Z0-9_]{1,9}$"
+JIRA_EPIC_PATTERN = r"^[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]*$"
+
+
+class JiraAccessCheckIn(BaseModel):
+    """The typed Jira target before it is saved: trimmed and upper-cased, a blank Epic is null; the Epic key carries
+    the prefix of ``jira_project``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    jira_project: str = Field(pattern=JIRA_PROJECT_PATTERN)
+    epic_key: str | None = Field(default=None, pattern=JIRA_EPIC_PATTERN)
+
+    @field_validator("jira_project", mode="before")
+    @classmethod
+    def _normalise_project(cls, value: object) -> object:
+        return value.strip().upper() if isinstance(value, str) else value
+
+    @field_validator("epic_key", mode="before")
+    @classmethod
+    def _normalise_epic(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        text = value.strip().upper()
+        return text or None
+
+    @field_validator("epic_key")
+    @classmethod
+    def _epic_in_project(cls, value: str | None, info: ValidationInfo) -> str | None:
+        project = info.data.get("jira_project")
+        if value is not None and project is not None and not value.startswith(f"{project}-"):
+            raise JiraEpicPrefixError("the Epic key must start with the Jira project key")
+        return value
+
+
+class JiraSettingsIn(JiraAccessCheckIn):
+    enabled: StrictBool
+
+
+class JiraConnectionOut(BaseModel):
+    """The acting account of the target (``oauth`` mode, docs/jira-sync/oauth.md): whose Atlassian connection the
+    sync uses and its state; ``missing`` when the row is gone (or no owner saved the target since ``oauth``)."""
+
+    connected_by_name: str | None
+    connected_by_me: bool
+    status: Literal["active", "expired", "missing"]
+
+
+class JiraSettingsOut(BaseModel):
+    available: bool
+    editable: bool
+    site_url: str | None
+    jira_project: str | None
+    epic_key: str | None
+    created_epic_key: str | None
+    enabled: bool
+    sync: JiraSyncStatus | None
+    connection: JiraConnectionOut | None = Field(
+        default=None, description="Null outside the oauth mode and when the project has no target."
+    )
+
+
+JiraAccessReason = Literal[
+    "jira_auth_failed",
+    "jira_not_found",
+    "jira_issue_types_missing",
+    "jira_forbidden",
+    "jira_epic_invalid",
+    "jira_unreachable",
+    "jira_unexpected",
+    "jira_not_connected",
+    "jira_reconnect_required",
+]
+JiraAccessField = Literal["jira_project", "epic_key"]
+
+
+class JiraAccessOk(BaseModel):
+    result: Literal["ok"] = "ok"
+    project_name: str
+    epic_summary: str | None
+
+
+class JiraAccessFailed(BaseModel):
+    result: Literal["failed"] = "failed"
+    reason: JiraAccessReason
+    field: JiraAccessField | None
+
+
+JiraAccessResult = Annotated[JiraAccessOk | JiraAccessFailed, Field(discriminator="result")]
+
+
+# --- Atlassian connections (docs/jira-sync/oauth.md "Routes") ------------------------------------------------------
+
+RETURN_TO_MAX = 2048
+
+
+class AtlassianConnectionOut(BaseModel):
+    """The caller's Atlassian connection: ``mode`` is the server's Jira mode (null = Jira off)."""
+
+    mode: Literal["oauth", "token"] | None
+    connected: bool
+    status: Literal["active", "expired"] | None
+    account_name: str | None
+    connected_at: datetime | None
+    last_used_at: datetime | None
+
+
+def _dot_segment_or_encoded_separator(value: str) -> bool:
+    """Whether the path part of ``value`` has a ``.`` or ``..`` segment (``%2e`` counts as ``.``) or an encoded ``/`` or
+    ``\\``: a URL parser resolves ``/.//evil.com`` to ``//evil.com``, another host."""
+    path = value.split("?", 1)[0].split("#", 1)[0].lower()
+    if "%2f" in path or "%5c" in path:
+        return True
+    return any(segment.replace("%2e", ".") in {".", ".."} for segment in path.split("/"))
+
+
+class AtlassianAuthorizeIn(BaseModel):
+    """Where the browser returns after the consent: a same-origin path (``/``, not ``//``, so no scheme or host; no
+    backslash, which a browser reads as ``/``; no dot segment or encoded separator, which a URL parser can turn into
+    ``//``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    return_to: str = Field(min_length=1, max_length=RETURN_TO_MAX)
+
+    @field_validator("return_to")
+    @classmethod
+    def _same_origin_path(cls, value: str) -> str:
+        if (
+            not value.startswith("/")
+            or value.startswith("//")
+            or "\\" in value
+            or not value.isascii()
+            or not value.isprintable()
+            or any(c.isspace() for c in value)
+            or _dot_segment_or_encoded_separator(value)
+        ):
+            raise ReturnToError("return_to must be a path of this site")
+        return value
+
+
+class AtlassianAuthorizeOut(BaseModel):
+    url: str
+
+
+class AtlassianCallbackIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=4096)
+    state: str = Field(min_length=1, max_length=4096)
+
+
+class AtlassianCallbackOut(BaseModel):
+    connection: AtlassianConnectionOut
+    return_to: str

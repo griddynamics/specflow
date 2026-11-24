@@ -1,0 +1,21 @@
+/* docs/jira-sync/ui.md#plan-line: the compact Jira sync line at the top of the ready Plan. Tokens only. */
+.jira-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-sm);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.jira-line .gdg-progress {
+  max-width: 420px;
+}
+.jira-line__link {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}

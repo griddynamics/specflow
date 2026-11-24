@@ -32,6 +32,7 @@ from typing import Any, Final
 from api.contained import Contained
 from api.gap.state import GapHooks
 from api.graph_build.reports import reports_since
+from api.jira.state import JiraHooks
 from api.plan.changes import plan_change_reports
 from api.plan.state import NoGraphBuildError, PlanState
 from api.schemas import (
@@ -157,12 +158,14 @@ class GraphPlanRunner:
         store: GraphStore,
         dependencies: RunnerDependencies | None = None,
         gaps: GapHooks | None = None,
+        jira: JiraHooks | None = None,
     ) -> None:
         deps = dependencies or RunnerDependencies()
         self._llm: LLMConfig = settings.to_llm_config()
         self._state_dir = Path(settings.state_dir)
         self._store = store
         self._gaps = gaps
+        self._jira = jira
         self._plan = deps.plan
         self._estimate = deps.estimate
         self._ensure = deps.ensure
@@ -575,6 +578,14 @@ class GraphPlanRunner:
             tasks_by_status=result.metrics.tasks_by_status,
             llm_calls=usage.calls,
         )
+        if result.status != "failed":
+            await self._start_jira_sync(project_id)
+
+    async def _start_jira_sync(self, project_id: str) -> None:
+        """Queue the project's Jira sync: the hook only enqueues and never raises."""
+
+        if self._jira is not None:
+            await self._jira.after_plan(project_id)
 
 
 def _with_items(state: PlanState, items: tuple[str, int, int] | None) -> PlanState:

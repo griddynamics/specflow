@@ -47,6 +47,7 @@ from specflow_live import requires_live
 pytestmark = requires_live("POSTGRES")
 
 APP_TABLES = [
+    "atlassian_connections",
     "connection_items",
     "connections",
     "corpus_amendment",
@@ -62,6 +63,8 @@ APP_TABLES = [
     "gap_site",
     "gap_suppression",
     "gap_verdict",
+    "jira_issues",
+    "jira_targets",
     "project_invites",
     "project_members",
     "projects",
@@ -70,9 +73,15 @@ APP_TABLES = [
 FIRST = "0001_initial"  # frozen: the 2.0.0 schema
 COLLABORATORS = "0002_project_collaborators"
 GAP_MODULE = "0003_gap_module"
-HEAD = "0004_gap_assignment"
+HEAD_0004 = "0004_gap_assignment"
+HEAD_0005 = "0005_jira_sync"
+HEAD = "0006_atlassian_connections"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
+# The Jira target and the node-to-issue map, added by revision 0005.
+JIRA_TABLES = ["jira_issues", "jira_targets"]
+# The users' Atlassian connections, added by revision 0006 (row-level security with no policy).
+CONNECTIONS = "atlassian_connections"
 # The relational rows of the gap module, added by revision 0003 (docs/graph/gap/data-model.md "Relational store").
 GAP_TABLES = [
     table for table in APP_TABLES if (table.startswith("gap_") or table == "corpus_amendment") and table != ASSIGNMENT
@@ -361,7 +370,9 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(
         migrated_database,
         "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
         "AND relnamespace = 'public'::regnamespace",
-    ) == [7 + len(GAP_TABLES)]  # the five scoped tables of 0001, project_invites (0002), the gap tables (0003), 0004's
+    ) == [
+        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 1
+    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's, 0005's, 0006's
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
@@ -435,7 +446,7 @@ def agent_grants(db: DatabaseSettings) -> list[str]:
     )
 
 
-def test_l20_the_chain_has_four_revisions_and_head_creates_the_collaborator_gap_and_assignment_schema(
+def test_l20_the_chain_has_six_revisions_and_head_creates_the_collaborator_gap_assignment_jira_and_atlassian_schema(
     scratch_database: DatabaseSettings, agent_role: AgentRole
 ) -> None:
     command.upgrade(alembic_config(scratch_database, agent_role.name), "head")
@@ -445,7 +456,7 @@ def test_l20_the_chain_has_four_revisions_and_head_creates_the_collaborator_gap_
         scratch_database,
         "SELECT indexname FROM pg_indexes WHERE tablename = 'project_members'",
     )
-    assert {*GAP_TABLES, ASSIGNMENT} <= set(query_column(scratch_database, TABLES_SQL))
+    assert {*GAP_TABLES, ASSIGNMENT, *JIRA_TABLES, CONNECTIONS} <= set(query_column(scratch_database, TABLES_SQL))
 
 
 def test_l21_a_2_0_0_database_with_data_upgrades_keeping_every_row(
@@ -704,9 +715,9 @@ def test_l26_0004_adds_the_assignment_keyed_to_the_membership_and_its_downgrade_
     project = insert_project(scratch_database, ana, role="owner")
     add_member(scratch_database, project, bo, "collaborator")
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_0004)
 
-    assert stamped_versions(scratch_database) == [HEAD]
+    assert stamped_versions(scratch_database) == [HEAD_0004]
     assert run_app(
         scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=ASSIGNMENT
     ) == ["true"]
@@ -728,4 +739,98 @@ def test_l26_0004_adds_the_assignment_keyed_to_the_membership_and_its_downgrade_
     command.downgrade(cfg, "-1")
 
     assert stamped_versions(scratch_database) == [GAP_MODULE]
+    assert fingerprint(scratch_database) == before
+
+
+# The Jira sync tables, added by revision 0005 on top of 0004 -------------------------------
+
+
+def test_l27_0005_adds_the_jira_tables_with_the_partial_key_index_and_its_downgrade_returns_to_0004(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0004)
+    before = fingerprint(scratch_database)
+    project = insert_project(scratch_database, insert_user(scratch_database, "ana@example.com"), role="owner")
+
+    command.upgrade(cfg, HEAD_0005)
+
+    assert stamped_versions(scratch_database) == [HEAD_0005]
+    for table in JIRA_TABLES:
+        assert run_app(
+            scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
+        ) == ["true"]
+        assert run_app(
+            scratch_database, "SELECT policyname FROM pg_policies WHERE tablename = :table", table=table
+        ) == ["agent_project_scope"]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    insert = (
+        "INSERT INTO jira_issues (project_id, node_id, kind, jira_key, requested_at) "
+        "VALUES (:p, :n, 'story', :k, now())"
+    )
+    run_app(scratch_database, insert, p=project, n="STORY::a::one", k="SF-1")
+    with pytest.raises(IntegrityError):  # the same key twice in one project
+        run_app(scratch_database, insert, p=project, n="STORY::a::two", k="SF-1")
+    run_app(scratch_database, insert, p=project, n="STORY::a::three", k=None)
+    run_app(scratch_database, insert, p=project, n="STORY::a::four", k=None)  # pending rows carry no key
+    assert run_app(scratch_database, "SELECT count(*) FROM jira_issues") == [3]
+    with pytest.raises(IntegrityError):
+        run_app(scratch_database, insert.replace("'story'", "'epic2'"), p=project, n="X", k=None)
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0004]
+    assert fingerprint(scratch_database) == before
+
+
+# The Atlassian connections, added by revision 0006 on top of 0005 -------------------------------
+
+
+def test_l28_0006_adds_the_connections_and_the_acting_account_and_its_downgrade_returns_to_0005(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0005)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    bo = insert_user(scratch_database, "bo@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+    run_app(
+        scratch_database,
+        "INSERT INTO jira_targets (project_id, jira_project, enabled, updated_at) VALUES (:p, 'SF', true, now())",
+        p=project,
+    )
+
+    command.upgrade(cfg, "head")
+
+    assert stamped_versions(scratch_database) == [HEAD]
+    assert run_app(
+        scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=CONNECTIONS
+    ) == ["true"]
+    assert run_app(
+        scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = :table", table=CONNECTIONS
+    ) == [0]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    assert run_app(
+        scratch_database,
+        "SELECT has_table_privilege(:role, 'atlassian_connections', 'SELECT,INSERT,UPDATE,DELETE')::text",
+        role=SESSION_AGENT_ROLE,
+    ) == ["false"]
+    assert run_app(scratch_database, "SELECT count(*) FROM jira_targets WHERE connected_user_id IS NULL") == [1]
+    insert = (
+        "INSERT INTO atlassian_connections (user_id, cloud_id, account_id, account_name, scopes, refresh_token, "
+        "status, connected_at, last_used_at) VALUES (:u, 'c', 'a', 'n', 's', :t, :s, now(), now())"
+    )
+    run_app(scratch_database, insert, u=ana, t=b"cipher", s="active")
+    with pytest.raises(IntegrityError):  # one connection per user
+        run_app(scratch_database, insert, u=ana, t=b"cipher", s="active")
+    with pytest.raises(IntegrityError):
+        run_app(scratch_database, insert, u=bo, t=b"cipher", s="revoked")
+    run_app(scratch_database, "UPDATE jira_targets SET connected_user_id = :u WHERE project_id = :p", u=bo, p=project)
+    run_app(scratch_database, "DELETE FROM users WHERE id = :u", u=bo)  # the acting account goes, the target stays
+    assert run_app(scratch_database, "SELECT count(*) FROM jira_targets WHERE connected_user_id IS NULL") == [1]
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0005]
     assert fingerprint(scratch_database) == before

@@ -165,6 +165,24 @@ export const leaveProject = (pid: string) => httpPost(`/projects/${encodeURIComp
 export const suggestUsers = (q: string, projectId?: string) =>
   httpPost("/users/suggestions", json(projectId === undefined ? { q } : { q, project_id: projectId })).then((r) => r.body);
 
+// Jira settings of a project (docs/jira-sync/api.md#web-routes). Bodies stay `unknown`; the Jira port (lib/data/http/jira.ts) checks
+// their shape. A failed access check is a 200 answer.
+export const getJira = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/jira`).then((r) => r.body);
+export const putJira = (pid: string, jiraProject: string, epicKey: string | null, enabled: boolean) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/jira`, json({ jira_project: jiraProject, epic_key: epicKey, enabled })).then((r) => r.body);
+export const checkJiraAccess = (pid: string, jiraProject: string, epicKey: string | null) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/jira/access-check`, json({ jira_project: jiraProject, epic_key: epicKey })).then(
+    (r) => r.body,
+  );
+
+// The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
+// app/api/integrations/atlassian/callback calls the API on the server.
+export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);
+export const authorizeAtlassian = (returnTo: string) =>
+  httpPost("/integrations/atlassian/authorize", json({ return_to: returnTo })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const disconnectAtlassian = () => httpDelete("/integrations/atlassian").then((r) => r.status);
+
 // Sources (GDRIVE plan 04, architecture-notes B4). Bodies are returned as `unknown`: the http adapter (lib/data/http/sources.ts)
 // checks their shape. POSTs go through `call`, so they carry the CSRF header.
 export const getDriveIdentity = () => httpGet("/drive/identity").then((r) => r.body);

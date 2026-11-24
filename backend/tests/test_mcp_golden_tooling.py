@@ -1,7 +1,8 @@
 """The contract gate of the MCP tooling tools (MCP-TOOLING D29): ``list_areas``, ``list_stories``, ``preview_story``,
 ``claim_story``, ``release_story``, ``get_story_brief``, ``trace``, ``get_node``, ``search_spec``, ``similar``,
 ``get_evidence``, ``path``, ``expand_brief``, ``list_gaps``, ``browse_gaps``, ``open_gap``,
-``add_finding``, ``report_task`` and ``complete_story``, and the open gaps the briefs show (scenario ``gaps``), frozen
+``add_finding``, ``report_task``, ``complete_story``, ``sync_to_jira`` and ``jira_sync_status``, and the open gaps
+the briefs show (scenario ``gaps``), frozen
 as golden files NEXT TO the split's (whose files stay as the split froze them, ``tools/list`` aside).
 
 Read the way a client reads them, over JSON-RPC and HTTP against the in-process MCP app, whose API is the real app over
@@ -21,6 +22,7 @@ import json
 from typing import Any
 
 from mcp_golden_tooling_seam import ALPHA, CHECKOUT, UNKNOWN_PROJECT
+from specflow_api_agent_support import BETA
 from test_mcp_golden import check_golden, tool
 
 # The ErrorCodes these tools return (tools.md), kept literal so nothing here imports the product; a code a new tool
@@ -49,6 +51,8 @@ ERROR_CODES = (
     "gap_wrong_state",
     "gap_stale",
     "answer_invalid",
+    "jira_unavailable",
+    "jira_not_configured",
 )
 # Reached only after a person accepted the dialog of answer_gap, which a plain tools/call cannot do: covered by
 # test_mcp_answer_gap.py (gap_wrong_state) and test_api_agent_gaps.py (all three).
@@ -219,6 +223,15 @@ async def test_every_tool_answers_the_golden_success_results(tooling_double):
         async with tooling_double.serve(scenario) as client:
             for key, (name, arguments) in successes.items():
                 results[key], names[key] = await tool(client, name, **arguments), name
+    async with tooling_double.serve("jira") as client:  # read the finished pass, in two pages, before one is started
+        results["jira_sync_status_first_page"] = await tool(client, "jira_sync_status", project_id=ALPHA, limit=4)
+        first = results["jira_sync_status_first_page"]["structuredContent"]
+        assert len(first["items"]) == 4 and first["next_cursor"] is not None
+        results["jira_sync_status_second_page"] = await tool(
+            client, "jira_sync_status", project_id=ALPHA, limit=4, cursor=first["next_cursor"]
+        )
+        results["sync_to_jira"] = await tool(client, "sync_to_jira", project_id=ALPHA)
+        names |= {key: key.removesuffix("_first_page").removesuffix("_second_page") for key in results if "jira" in key}
     async with tooling_double.serve("free") as client:  # the writes: a claim, its repeat, a release, its repeat
         claim = {
             "project_id": ALPHA,
@@ -313,6 +326,8 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
             "report_task",
             {"project_id": ALPHA, "task_id": "TASK::NOPE", "claim_token": NOBODYS_CLAIM, "progress": "done"},
         ),
+        "jira_unavailable": ("jira_off", "sync_to_jira", {"project_id": ALPHA}),
+        "jira_not_configured": ("jira", "sync_to_jira", {"project_id": BETA}),
         "invalid_commit": (
             "free",
             "complete_story",
@@ -338,6 +353,15 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
         ),
     }
     held = {"project_id": ALPHA, "story_id": CHECKOUT, "claim_token": FIRST_CLAIM}
+    extra |= {
+        "jira_unavailable:jira_sync_status": ("jira_off", "jira_sync_status", {"project_id": ALPHA}),
+        "jira_not_configured:jira_sync_status": ("jira", "jira_sync_status", {"project_id": BETA}),
+        "invalid_cursor:jira_sync_status": (
+            "jira",
+            "jira_sync_status",
+            {"project_id": ALPHA, "cursor": "not-a-cursor"},
+        ),
+    }
     extra |= {
         "node_not_found:add_finding": (
             "free",

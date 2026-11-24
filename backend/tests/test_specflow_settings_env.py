@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import base64
 import re
 from pathlib import Path
 
@@ -17,13 +18,17 @@ from settings import (
     AgentSettings,
     ApiInternalSettings,
     AppSettings,
+    AtlassianOAuthSettings,
     AuthSettings,
+    ConfigurationError,
     GraphBuildSettings,
     GraphStoreSettings,
+    JiraSettings,
     LangfuseSettings,
     McpSettings,
     StorageSettings,
     TemporalSettings,
+    load_settings,
 )
 from specflow_live import TemporalLive, live_enabled, requires_live
 from specflow_settings_support import FakeClient, FakeHandle, example_entries
@@ -38,6 +43,8 @@ SETTINGS_CLASSES = (
     AgentRunSettings,
     AgentSettings,
     GraphBuildSettings,
+    JiraSettings,
+    AtlassianOAuthSettings,
     LangfuseSettings,
     McpSettings,
     ApiInternalSettings,
@@ -45,7 +52,7 @@ SETTINGS_CLASSES = (
 ROOT = Path(__file__).resolve().parents[2]
 DOC = (ROOT / "docs" / "configuration.md").read_text()
 
-# SPL-ENV-01: the 23 required, 19 optional and 6 local-stack keys, nothing else.
+# SPL-ENV-01: the 23 required, 25 optional and 6 local-stack keys, nothing else.
 REQUIRED_KEYS = frozenset(
     {
         "APP_ENV",
@@ -94,6 +101,12 @@ OPTIONAL_KEYS = frozenset(
         "MCP_PUBLIC_URL",
         "MCP_CLIENT_ID",
         "MCP_SERVER_NAME",
+        "ATLASSIAN_SITE_URL",
+        "ATLASSIAN_EMAIL",
+        "ATLASSIAN_API_TOKEN",
+        "ATLASSIAN_OAUTH_CLIENT_ID",
+        "ATLASSIAN_OAUTH_CLIENT_SECRET",
+        "ATLASSIAN_TOKEN_KEY",
     }
 )
 # Names only the local stack reads (`make env-local` writes them, docker-compose.yml and the Keycloak realm use them).
@@ -158,7 +171,7 @@ def _env_names_read_in_code() -> set[str]:
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS | STACK_KEYS
     assert len(REQUIRED_KEYS) == 23
-    assert len(OPTIONAL_KEYS) == 19
+    assert len(OPTIONAL_KEYS) == 25
     assert len(STACK_KEYS) == 6
 
 
@@ -323,3 +336,140 @@ def test_the_api_address_of_the_mcp_role_shares_its_name_with_the_web_app():
     assert ApiInternalSettings.model_fields["url"].validation_alias == "API_INTERNAL_URL"
     assert '"API_INTERNAL_URL"' in rules
     assert "API_INTERNAL_URL" in REQUIRED_KEYS
+
+
+# Jira sync account (FR-JIRA-CFG-08, NFR-JIRA-01) -------------------------------------------------
+
+JIRA_VARIABLES = ("ATLASSIAN_SITE_URL", "ATLASSIAN_EMAIL", "ATLASSIAN_API_TOKEN")
+JIRA_ENV = {
+    "ATLASSIAN_SITE_URL": "https://example.atlassian.net/",
+    "ATLASSIAN_EMAIL": "robot@example.com",
+    "ATLASSIAN_API_TOKEN": "token-canary-5d1f",
+}
+
+
+@pytest.mark.parametrize("blank", [False, True])
+def test_no_atlassian_variable_means_no_jira_settings(valid_env, blank):
+    valid_env.update(dict.fromkeys(JIRA_VARIABLES, "  ") if blank else {})
+
+    assert load_settings("api", valid_env).jira is None
+
+
+def test_all_three_atlassian_variables_build_the_account(valid_env):
+    jira = load_settings("api", {**valid_env, **JIRA_ENV}).jira
+
+    assert jira is not None
+    assert (jira.site_url, jira.email) == ("https://example.atlassian.net", "robot@example.com")
+    assert jira.api_token.get_secret_value() == "token-canary-5d1f"
+
+
+@pytest.mark.parametrize("present", [{"ATLASSIAN_EMAIL"}, {"ATLASSIAN_SITE_URL", "ATLASSIAN_API_TOKEN"}])
+def test_a_partial_atlassian_set_names_the_missing_variables(valid_env, present):
+    valid_env.update({name: JIRA_ENV[name] for name in present})
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", valid_env)
+
+    assert set(raised.value.variables) == set(JIRA_VARIABLES) - present
+    assert "token-canary" not in str(raised.value)
+
+
+@pytest.mark.parametrize("name", ["ATLASSIAN_API_TOKEN", "ATLASSIAN_EMAIL", "ATLASSIAN_SITE_URL"])
+def test_a_blank_atlassian_value_is_refused_when_the_others_are_set(valid_env, name):
+    valid_env.update({**JIRA_ENV, name: "   "})
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", valid_env)
+
+    assert raised.value.variables == (name,)
+
+
+@pytest.mark.parametrize(
+    "url", ["http://example.atlassian.net", "https://example.atlassian.net/wiki", "https://u:p@example.atlassian.net"]
+)
+def test_the_site_url_must_be_an_https_origin(valid_env, url):
+    valid_env.update({**JIRA_ENV, "ATLASSIAN_SITE_URL": url})
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", valid_env)
+
+    assert raised.value.variables == ("ATLASSIAN_SITE_URL",)
+
+
+def test_only_the_api_role_reads_the_atlassian_account(valid_env):
+    worker = load_settings("worker", {**valid_env, **JIRA_ENV, "ATLASSIAN_EMAIL": ""})
+
+    assert worker.jira is None
+
+
+def test_the_token_is_not_in_the_repr_of_the_settings(valid_env):
+    settings = load_settings("api", {**valid_env, **JIRA_ENV})
+
+    assert settings.jira is not None
+    assert "token-canary" not in repr(settings.jira) + str(settings.jira)
+    assert "token-canary" not in repr(settings)
+
+
+# Atlassian OAuth connections (docs/jira-sync/oauth.md "Modes", "Settings") ----------------------------------------
+
+OAUTH_ENV = {
+    "ATLASSIAN_SITE_URL": "https://example.atlassian.net",
+    "ATLASSIAN_OAUTH_CLIENT_ID": "client-id-1",
+    "ATLASSIAN_OAUTH_CLIENT_SECRET": "secret-canary-2a9e",
+    "ATLASSIAN_TOKEN_KEY": base64.urlsafe_b64encode(bytes(range(32))).decode(),
+    "PUBLIC_URL": "http://localhost:3001/",
+}
+
+
+def test_the_oauth_client_id_turns_the_oauth_mode_on_with_its_callback(valid_env):
+    jira = load_settings("api", {**valid_env, **OAUTH_ENV}).jira
+
+    assert isinstance(jira, AtlassianOAuthSettings) and jira.mode == "oauth"
+    assert (jira.site_url, jira.client_id) == ("https://example.atlassian.net", "client-id-1")
+    assert jira.callback_url == "http://localhost:3001/api/integrations/atlassian/callback"
+
+
+def test_oauth_wins_over_the_token_account_when_both_are_set(valid_env):
+    jira = load_settings("api", {**valid_env, **JIRA_ENV, **OAUTH_ENV}).jira
+
+    assert isinstance(jira, AtlassianOAuthSettings) and jira.mode == "oauth"
+
+
+def test_the_token_mode_is_unchanged_without_the_client_id(valid_env):
+    jira = load_settings(
+        "api", {**valid_env, **JIRA_ENV, "ATLASSIAN_OAUTH_CLIENT_ID": " ", "ATLASSIAN_TOKEN_KEY": "x"}
+    ).jira
+
+    assert isinstance(jira, JiraSettings) and jira.mode == "token"
+
+
+@pytest.mark.parametrize(
+    "missing", ["ATLASSIAN_OAUTH_CLIENT_SECRET", "ATLASSIAN_TOKEN_KEY", "PUBLIC_URL", "ATLASSIAN_SITE_URL"]
+)
+def test_a_partial_oauth_set_is_refused_at_startup_naming_the_missing_variable(valid_env, missing):
+    env = {**valid_env, **{name: value for name, value in OAUTH_ENV.items() if name != missing}}
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", env)
+
+    assert raised.value.variables == (missing,)
+    assert "secret-canary" not in str(raised.value)
+
+
+@pytest.mark.parametrize("key", ["not-a-key", base64.urlsafe_b64encode(bytes(16)).decode(), "   "])
+def test_the_token_key_must_be_a_fernet_key(valid_env, key):
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", {**valid_env, **OAUTH_ENV, "ATLASSIAN_TOKEN_KEY": key})
+
+    assert raised.value.variables == ("ATLASSIAN_TOKEN_KEY",)
+
+
+def test_the_oauth_secrets_are_not_in_the_repr_of_the_settings(valid_env):
+    settings = load_settings("api", {**valid_env, **OAUTH_ENV})
+
+    text = repr(settings) + repr(settings.jira) + str(settings.jira)
+    assert "secret-canary" not in text and OAUTH_ENV["ATLASSIAN_TOKEN_KEY"] not in text
+
+
+def test_only_the_api_role_reads_the_oauth_settings(valid_env):
+    assert load_settings("worker", {**valid_env, **OAUTH_ENV, "PUBLIC_URL": ""}).jira is None

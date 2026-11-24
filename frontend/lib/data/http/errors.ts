@@ -47,6 +47,11 @@ const BY_CODE: Record<string, DataErrorCode> = {
   owner_cannot_leave: "conflict",
   member_not_found: "not_found",
   invite_not_found: "not_found",
+  // Jira settings (docs/jira-sync/api.md#errors).
+  jira_unavailable: "unavailable", // 503: the server has no Atlassian account (the Jira tab says so)
+  jira_not_configured: "conflict",
+  jira_not_connected: "conflict", // 409 on PUT: the caller has no active Atlassian connection (docs/jira-sync/oauth.md)
+  atlassian_oauth_unavailable: "unavailable", // 503: the server is not in the oauth mode
 };
 
 /** Retryable codes (TECH-SPECS §2.13): the same request may succeed later. */

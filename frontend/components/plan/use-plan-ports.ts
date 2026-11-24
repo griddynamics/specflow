@@ -22,3 +22,8 @@ export function useWorkPort() {
 export function useGapsPort() {
   return usePorts().gaps;
 }
+
+/** The Jira port (`get`): the Plan shows the progress of the Jira sync. */
+export function useJiraPort() {
+  return usePorts().jira;
+}

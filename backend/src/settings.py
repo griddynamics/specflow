@@ -10,6 +10,9 @@ test passes an explicit mapping. Nothing here reads ``.env.local``;
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import importlib
 import ipaddress
 import os
@@ -789,6 +792,112 @@ class LangfuseSettings(_MappedSettings):
         return self.public_key is not None and self.secret_key is not None
 
 
+def _site_url(value: Any) -> Any:
+    """``ATLASSIAN_SITE_URL``: an https origin with no path, query or fragment; a trailing ``/`` goes."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip().rstrip("/")
+    if not text.isascii() or not text.isprintable() or any(c in text for c in ' "\\?#@'):
+        raise ValueError("must be a plain https URL")
+    try:
+        parts = urlsplit(text)
+        _ = parts.port
+    except ValueError as error:
+        raise ValueError("must be a valid URL") from error
+    if parts.scheme != "https" or not parts.hostname or parts.path:
+        raise ValueError("must be an https URL with a host and no path")
+    return text
+
+
+class JiraSettings(_MappedSettings):
+    """The one Atlassian account of the Jira sync (api role): all three variables or none (FR-JIRA-CFG-08)."""
+
+    site_url: Annotated[str, BeforeValidator(_site_url)] = Field(validation_alias="ATLASSIAN_SITE_URL")
+    email: Text = Field(validation_alias="ATLASSIAN_EMAIL")
+    api_token: SecretStr = Field(validation_alias="ATLASSIAN_API_TOKEN")
+
+    @field_validator("api_token")
+    @classmethod
+    def _token_not_blank(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value().strip():
+            raise ValueError("must not be blank")
+        return value
+
+    @classmethod
+    def configured_in(cls, env: Mapping[str, str]) -> bool:
+        """True when any of the three variables is non-blank (a partial set is then refused by the build)."""
+
+        return any(env.get(name, "").strip() for name in cls.variables())
+
+    @property
+    def mode(self) -> Literal["token"]:
+        return "token"
+
+
+# A Fernet key is 32 bytes (a 128-bit HMAC-SHA256 signing key and a 128-bit AES key): the SHA-256 digest size.
+FERNET_KEY_BYTES: Final = hashlib.sha256().digest_size
+ATLASSIAN_CALLBACK_PATH: Final = "/api/integrations/atlassian/callback"
+
+
+def _not_blank(value: SecretStr) -> SecretStr:
+    if not value.get_secret_value().strip():
+        raise ValueError("must not be blank")
+    return value
+
+
+def _fernet_key(value: SecretStr) -> SecretStr:
+    """``ATLASSIAN_TOKEN_KEY``: what ``Fernet.generate_key()`` returns, 32 bytes in url-safe base64."""
+
+    try:
+        raw = base64.urlsafe_b64decode(value.get_secret_value().strip().encode("ascii"))
+    except (binascii.Error, UnicodeEncodeError, ValueError):
+        raw = b""
+    if len(raw) != FERNET_KEY_BYTES:
+        raise ValueError("must be a Fernet key (32 bytes, url-safe base64)")
+    return SecretStr(value.get_secret_value().strip())
+
+
+class AtlassianOAuthSettings(_MappedSettings):
+    """Per-user Atlassian connections of the Jira sync (api role, docs/jira-sync/oauth.md): the client ID turns the
+    ``oauth`` mode on and needs the secret, the token key and ``PUBLIC_URL``."""
+
+    site_url: Annotated[str, BeforeValidator(_site_url)] = Field(validation_alias="ATLASSIAN_SITE_URL")
+    client_id: Text = Field(validation_alias="ATLASSIAN_OAUTH_CLIENT_ID")
+    client_secret: SecretStr = Field(validation_alias="ATLASSIAN_OAUTH_CLIENT_SECRET")
+    token_key: SecretStr = Field(validation_alias="ATLASSIAN_TOKEN_KEY")
+    public_url: InternalUrl = Field(validation_alias="PUBLIC_URL")
+
+    @field_validator("client_secret")
+    @classmethod
+    def _secret_not_blank(cls, value: SecretStr) -> SecretStr:
+        return _not_blank(value)
+
+    @field_validator("token_key")
+    @classmethod
+    def _key_is_fernet(cls, value: SecretStr) -> SecretStr:
+        return _fernet_key(value)
+
+    @classmethod
+    def configured_in(cls, env: Mapping[str, str]) -> bool:
+        """True when ``ATLASSIAN_OAUTH_CLIENT_ID`` is non-blank: ``oauth`` wins over the token account."""
+
+        return bool(env.get("ATLASSIAN_OAUTH_CLIENT_ID", "").strip())
+
+    @property
+    def mode(self) -> Literal["oauth"]:
+        return "oauth"
+
+    @property
+    def callback_url(self) -> str:
+        """The redirect URI registered on the Atlassian app: ``{PUBLIC_URL}/api/integrations/atlassian/callback``."""
+
+        return f"{self.public_url}{ATLASSIAN_CALLBACK_PATH}"
+
+
+JiraModeSettings = JiraSettings | AtlassianOAuthSettings
+
+
 @dataclass(frozen=True)
 class RoleSettings:
     """The bindings one role needs; the others are ``None``."""
@@ -807,6 +916,7 @@ class RoleSettings:
     graph_build: GraphBuildSettings | None = None  # api only; None = feature off
     mcp: McpSettings | None = None  # the mcp role; the api role when MCP_RESOURCE_URL is set (agent routes)
     gap: Any = None  # graph.gap.GapSettings; api only, with graph_build: the ``GAP_*`` variables (graph.gap)
+    jira: JiraModeSettings | None = None  # api only; None = Jira sync off (none of the ``ATLASSIAN_*`` set)
 
 
 @dataclass(frozen=True)
@@ -898,8 +1008,22 @@ class _Bindings:
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None
     gap: Any = None  # graph.gap.GapSettings
+    jira: JiraModeSettings | None = None
     mcp: McpSettings | None = None
     api_internal: ApiInternalSettings | None = None
+
+
+def _build_jira(role: str, source: Mapping[str, str], bad: list[str]) -> JiraModeSettings | None:
+    """The Jira mode of the api role: ``oauth`` (the client ID is set; the token account is then not read), else the
+    one ``token`` account, else ``None`` (the Jira routes answer 503)."""
+
+    if role != "api":
+        return None
+    if AtlassianOAuthSettings.configured_in(source):
+        return _build(AtlassianOAuthSettings, source, bad)
+    if not JiraSettings.configured_in(source):
+        return None
+    return _build(JiraSettings, source, bad)
 
 
 def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bindings:
@@ -920,6 +1044,7 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
         found.api_internal = _build(ApiInternalSettings, source, bad)
     if role == "api" and source.get("MCP_RESOURCE_URL", "").strip():  # unset: the agent routes answer 503
         found.mcp = _build(McpSettings, source, bad)
+    found.jira = _build_jira(role, source, bad)
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
         found.gap = _build_gap(source, bad)
@@ -1117,6 +1242,7 @@ def load_settings(
         graph_build=found.graph_build,
         mcp=found.mcp,
         gap=found.gap,
+        jira=found.jira,
     )
 
 
