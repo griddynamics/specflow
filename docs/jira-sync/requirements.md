@@ -20,8 +20,8 @@ rows state behaviour and link the section that defines it; values live only ther
 
 | ID | Requirement | Acceptance |
 |---|---|---|
-| FR-JIRA-CFG-01 | Every member shall read the project's Jira settings with `available` and `editable` (D14). | Given a collaborator, `GET /projects/{pid}/jira` is 200 with `editable` false; the owner gets `editable` true. |
-| FR-JIRA-CFG-02 | When a collaborator saves settings or runs the access check, the API shall answer 403 `owner_required` and change nothing (D9). | Given a collaborator, `PUT` is 403 and the target row is unchanged. |
+| FR-JIRA-CFG-01 | Every member shall read the project's Jira settings with `available` and `editable` (D14). | Given a collaborator, `GET /projects/{pid}/jira` is 200 with `editable` true, as for the owner (D6 supersedes D14 for editing). |
+| FR-JIRA-CFG-02 | Any member shall save settings and run the access check; a non-member gets 404 `project_not_found` and nothing changes (D6, supersedes D9 and D14). | Given a collaborator, `PUT` is 200 and the target row holds the settings; given a non-member, `PUT` is 404 and the target row is unchanged. |
 | FR-JIRA-CFG-03 | If a key breaks the format rules, then the API shall answer 422 `validation_failed` (D9). | `jira_project` `abc-1`, or `epic_key` `XYZ-1` with project `ABC`, is 422; ` abc ` saves as `ABC`. |
 | FR-JIRA-CFG-04 | When the owner changes `jira_project`, the API shall delete the project's map rows in the same transaction (D21). | Given 3 map rows, a `PUT` with another project leaves 0 rows; a `PUT` that changes only `enabled` keeps 3. |
 | FR-JIRA-CFG-05 | The access check shall answer `ok` or the first failing step with its reason and field ([api.md](api.md#access-check), D29). | With the fake: bad token `jira_auth_failed`/null; unknown project `jira_not_found`/`jira_project`; no sub-task type `jira_issue_types_missing`; missing link permission `jira_forbidden`/`jira_project`; an Epic read refused with 403 `jira_forbidden`/`epic_key`; a Story key as Epic `jira_epic_invalid`/`epic_key`; valid input `ok` with the names. |

@@ -890,6 +890,30 @@
         }
       }
     },
+    "project_integrations": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "app": {
+          "type": "text"
+        },
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "workspace_id": {
+          "type": "text"
+        },
+        "workspace_name": {
+          "type": "text"
+        },
+        "connected_at": {
+          "type": "timestamp"
+        }
+      }
+    },
     "project_invites": {
       "columns": {
         "id": {

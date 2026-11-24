@@ -87,6 +87,10 @@ codes = [
     { code = "github_repo_too_large", http = 422 },
     { code = "repository_exists", http = 409 },
     { code = "repository_not_found", http = 404 },
+    { code = "atlassian_not_connected", http = 409 },
+    { code = "integration_workspace_mismatch", http = 409 },
+    { code = "integration_not_found", http = 404 },
+    { code = "integration_forbidden", http = 403 },
     { code = "internal_error", http = 500 },
     { code = "http_error", http = 400 },
 ]
@@ -154,6 +158,10 @@ probes = [
     { name = "probe-56", class = "api.errors:ApiError", args = [422, "github_repo_too_large", "The repository is larger than 1 GiB."] },
     { name = "probe-57", class = "api.errors:ApiError", args = [409, "repository_exists", "The project already has this repository."] },
     { name = "probe-58", class = "api.errors:ApiError", args = [404, "repository_not_found", "The repository is not in this project."] },
+    { name = "probe-59", class = "api.errors:ApiError", args = [409, "atlassian_not_connected", "Connect your Atlassian account first."] },
+    { name = "probe-60", class = "api.errors:ApiError", args = [409, "integration_workspace_mismatch", "The project is connected to another workspace of this app. Remove that connection first."] },
+    { name = "probe-61", class = "api.errors:ApiError", args = [404, "integration_not_found", "The project has no connection to this app."] },
+    { name = "probe-62", class = "api.errors:ApiError", args = [403, "integration_forbidden", "Only the member who connected the app or the owner can remove it."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

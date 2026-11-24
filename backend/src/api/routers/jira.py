@@ -1,13 +1,15 @@
 """The Jira settings of a project and the access check (``docs/jira-sync/api.md`` "Web routes", "Access check").
 
-A member reads the settings; only the owner saves them or runs the access check, and the web app never starts a sync
-(the agent routes do). ``PUT`` saves in one transaction, with the target row locked first (``db.jira.save_target``,
+Any member reads and saves the settings and runs the access check, and the web app never starts a sync (the agent
+routes do). ``PUT`` saves in one transaction, with the target row locked first (``db.jira.save_target``,
 ``FOR UPDATE``) and no ``projects`` lock at all (a running pass holds the target ``FOR SHARE`` and then needs
 ``projects`` ``FOR KEY SHARE``); it never waits for a pass: the runner is told after the commit. No Jira call is made
 inside a transaction. Events carry ids and codes only.
 
-In ``oauth`` mode (docs/jira-sync/oauth.md) saving needs the owner's own active Atlassian connection and makes the
-owner the target's acting account; the access check runs as the caller; ``connection`` shows the acting account.
+In ``oauth`` mode (docs/jira-sync/oauth.md) saving needs the project's Atlassian connection (``PUT
+/projects/{pid}/integrations/atlassian``, docs/mission-control/integrations-api.md) and makes the member it is bound to
+the target's acting account, not whoever saves; the access check runs as the caller; ``connection`` shows the acting
+account.
 """
 
 from __future__ import annotations
@@ -18,12 +20,13 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from api.deps import MemberDep, OwnerDep, RuntimeDep, UserDep
+from api.deps import MemberDep, RuntimeDep, UserDep
 from api.errors import ApiError
 from api.jira.access import check_access, not_usable
 from api.jira.desired import EPIC
 from api.jira.runner import JiraSyncRunner
 from api.jira.state import status_of
+from api.project_integrations import acting_member
 from api.runtime import Runtime
 from api.schemas import (
     JiraAccessCheckIn,
@@ -36,6 +39,7 @@ from api.schemas import (
 )
 from db import atlassian as atlassian_db
 from db import jira as jira_db
+from db.integrations import ATLASSIAN
 from db.jira import JiraTargetView
 from jira.gateway import JiraError
 from jira.reasons import Reason
@@ -111,18 +115,19 @@ async def _settings_out(runtime: Runtime, pid: uuid.UUID, user_id: uuid.UUID, *,
 
 @router.get("", response_model=JiraSettingsOut)
 async def get_jira_settings(runtime: RuntimeDep, user: UserDep, access: MemberDep) -> JiraSettingsOut:
-    return await _settings_out(runtime, access.project.id, user.id, editable=access.is_owner)
+    return await _settings_out(runtime, access.project.id, user.id, editable=True)
 
 
 @router.put("", response_model=JiraSettingsOut)
 async def put_jira_settings(
-    body: JiraSettingsIn, runtime: RuntimeDep, user: UserDep, access: OwnerDep
+    body: JiraSettingsIn, runtime: RuntimeDep, user: UserDep, access: MemberDep
 ) -> JiraSettingsOut:
     runner = jira_runner(runtime)
     pid = access.project.id
-    if runner.connections is not None:
-        mine = await runner.connections.get(user.id)
-        if mine is None or mine.status != "active":
+    acting = None
+    if runner.connections is not None:  # oauth: the sync acts as the member the project's Atlassian is connected by
+        acting = await acting_member(runtime, pid, ATLASSIAN)
+        if acting is None:
             raise jira_not_connected()
     async with runtime.transaction() as session:
         saved = await jira_db.save_target(
@@ -132,7 +137,7 @@ async def put_jira_settings(
             epic_key=body.epic_key,
             enabled=body.enabled,
             now=datetime.now(UTC),
-            connected_user_id=user.id,
+            connected_user_id=acting,
         )
     log_event(
         logger,
@@ -149,7 +154,7 @@ async def put_jira_settings(
 
 @router.post("/access-check", response_model=JiraAccessResult)
 async def check_jira_access(
-    body: JiraAccessCheckIn, runtime: RuntimeDep, user: UserDep, access: OwnerDep
+    body: JiraAccessCheckIn, runtime: RuntimeDep, user: UserDep, access: MemberDep
 ) -> JiraAccessOk | JiraAccessFailed:
     runner = jira_runner(runtime)
     result: JiraAccessOk | JiraAccessFailed

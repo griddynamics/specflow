@@ -1,6 +1,6 @@
 """``SlackThreads``: the channel flow (docs/slack/gap-answering.md "The channel flow").
 
-- **Connect.** The project owner runs ``/specflow connect <project id>`` in a channel the app is in; every open
+- **Connect.** A project member runs ``/specflow connect <project id>`` in a channel the app is in; every open
   question of the project (route ``ask``) is posted there, one message each, and so is every new one after each gap
   run. A channel belongs to one project, and the command proves the caller is in it.
 - **Answer in the thread.** Anyone in the channel answers by replying in a gap's thread: one option letter, or their

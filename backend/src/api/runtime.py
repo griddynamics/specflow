@@ -18,9 +18,11 @@ from api.errors import ApiError, database_unavailable, graph_unavailable, requir
 from api.gap.notice import GapNotice
 from api.gap.runner import GapRunner
 from api.graph_build.runner import GraphBuildRunner
+from api.imports import ImportRunner
 from api.jira.connections import AtlassianConnections
 from api.jira.runner import JiraSyncRunner
 from api.plan.runner import GraphPlanRunner
+from api.plan_destinations import PlanDestinations
 from db import session as db_session
 from db.github import connection_store
 from db.models import Project
@@ -95,6 +97,10 @@ class Runtime:
     slack: Any = None
     # github.connections.GitHubConnections; None = the GitHub integration is off (503); GITHUB_APP_CLIENT_ID sets it.
     github: Any = None
+    # api.plan_destinations.PlanDestinations: the plan runner's one post-plan hook; Jira is the first destination.
+    plan_destinations: Any = None
+    # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics)
+    imports: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
     cleanups: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
@@ -236,6 +242,9 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             log_event(logger, INFO, "api.github.mode", mode="on")
             runtime.github = GitHubConnections(settings.github, store=connection_store(runtime.transaction))
             stack.push_async_callback(runtime.github.aclose)
+        runtime.imports = ImportRunner(transaction=runtime.transaction, store=store)
+        stack.push_async_callback(runtime.imports.aclose)
+        runtime.imports.start_recovery()
         if settings.graph_build is None:
             # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
             log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))
@@ -298,7 +307,11 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
     if runtime.gaps is not None:  # answers are applied by update builds of this runner
         runtime.gaps.use_builds(runtime.graph_builds)
         runtime.gaps.start_recovery()  # applies a restart left behind (their update builds)
-    runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps, jira=runtime.jira)
+    destinations = PlanDestinations()
+    if runtime.jira is not None:
+        destinations.register(runtime.jira)
+    runtime.plan_destinations = destinations  # the plan runner's one hook: a destination is added here
+    runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps, jira=destinations)
     # Pushed last, so they run first: plan runs, builds and then gap runs stop before the store and engine close.
     stack.push_async_callback(runtime.graph_builds.aclose)
     stack.push_async_callback(runtime.plans.aclose)

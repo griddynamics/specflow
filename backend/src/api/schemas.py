@@ -423,7 +423,7 @@ FileStateName = Literal[
     "failed",
     "already_in_project",
 ]
-SourceKindName = Literal["gdrive", "upload"]
+SourceKindName = Literal["gdrive", "upload", "confluence", "jira_epic"]
 BatchOutcomeName = Literal["added", "already_in_project", "read_again", "duplicate"]
 MAX_EXPECTED_FILES = 10_000
 

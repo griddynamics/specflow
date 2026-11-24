@@ -66,6 +66,7 @@ APP_TABLES = [
     "github_connections",
     "jira_issues",
     "jira_targets",
+    "project_integrations",
     "project_invites",
     "project_members",
     "project_repositories",
@@ -78,7 +79,8 @@ GAP_MODULE = "0003_gap_module"
 HEAD_0004 = "0004_gap_assignment"
 HEAD_0005 = "0005_jira_sync"
 HEAD_0006 = "0006_atlassian_connections"
-HEAD = "0007_github"
+HEAD_0007 = "0007_github"
+HEAD = "0008_project_integrations"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
@@ -88,6 +90,8 @@ CONNECTIONS = "atlassian_connections"
 # The users' GitHub connections (no policy) and the project repositories (project-scoped), added by revision 0007.
 GITHUB_CONNECTIONS = "github_connections"
 REPOSITORIES = "project_repositories"
+# The project integrations, added by revision 0008 (project-scoped).
+INTEGRATIONS = "project_integrations"
 # The relational rows of the gap module, added by revision 0003 (docs/graph/gap/data-model.md "Relational store").
 GAP_TABLES = [
     table for table in APP_TABLES if (table.startswith("gap_") or table == "corpus_amendment") and table != ASSIGNMENT
@@ -377,8 +381,8 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(
         "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
         "AND relnamespace = 'public'::regnamespace",
     ) == [
-        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 3
-    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's, 0005's, 0006's, 0007's two
+        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 4
+    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's, 0005's, 0006's, 0007's two, 0008's
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
@@ -855,9 +859,9 @@ def test_l29_0007_adds_the_github_tables_and_its_downgrade_returns_to_0006(
     bo = insert_user(scratch_database, "bo@example.com")
     project = insert_project(scratch_database, ana, role="owner")
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_0007)
 
-    assert stamped_versions(scratch_database) == [HEAD]
+    assert stamped_versions(scratch_database) == [HEAD_0007]
     for table, policies in ((GITHUB_CONNECTIONS, 0), (REPOSITORIES, 1)):
         assert run_app(
             scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
@@ -898,4 +902,146 @@ def test_l29_0007_adds_the_github_tables_and_its_downgrade_returns_to_0006(
     command.downgrade(cfg, "-1")
 
     assert stamped_versions(scratch_database) == [HEAD_0006]
+    assert fingerprint(scratch_database) == before
+
+
+# The project integrations and the wider source kinds, added by revision 0008 on top of 0007 -------------
+
+
+def insert_source(db: DatabaseSettings, project: uuid.UUID, user: uuid.UUID, kind: str, external_id: str) -> uuid.UUID:
+    source = uuid.uuid4()
+    run_app(
+        db,
+        "INSERT INTO connections (id, project_id, kind, external_id, name, connected_by) "
+        "VALUES (:id, :p, :kind, :ext, 'Source', :u)",
+        id=source,
+        p=project,
+        kind=kind,
+        ext=external_id,
+        u=user,
+    )
+    return source
+
+
+def test_l30_0008_backfills_the_bindings_and_widens_the_source_kinds_and_its_downgrade_returns_to_0007(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0007)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    bo = insert_user(scratch_database, "bo@example.com")
+    cy = insert_user(scratch_database, "cy@example.com")
+    jira_project = insert_project(scratch_database, ana, role="owner")  # a target acting as ana, who has a connection
+    gone_project = insert_project(scratch_database, ana, role="owner")  # a target acting as cy, who has none
+    repo_project = insert_project(scratch_database, ana, role="owner")  # two repositories, the first added by bo
+    stale_project = insert_project(scratch_database, ana, role="owner")  # a repository whose adder has no connection
+    for project, acting in ((jira_project, ana), (gone_project, cy)):
+        run_app(
+            scratch_database,
+            "INSERT INTO jira_targets (project_id, jira_project, enabled, updated_at, connected_user_id) "
+            "VALUES (:p, 'SF', true, now(), :u)",
+            p=project,
+            u=acting,
+        )
+    run_app(
+        scratch_database,
+        "INSERT INTO atlassian_connections (user_id, cloud_id, account_id, account_name, scopes, refresh_token, "
+        "status, connected_at, last_used_at) VALUES (:u, 'cloud-1', 'acc', 'Ana', 'read', :t, 'active', now(), now())",
+        u=ana,
+        t=b"cipher",
+    )
+    for user, github_id, login in ((bo, 11, "octo-bo"), (ana, 12, "octo-ana")):
+        run_app(
+            scratch_database,
+            "INSERT INTO github_connections (user_id, github_user_id, login, refresh_token, status, connected_at, "
+            "last_used_at) VALUES (:u, :g, :login, :t, 'active', now(), now())",
+            u=user,
+            g=github_id,
+            login=login,
+            t=b"cipher",
+        )
+    repository = (
+        "INSERT INTO project_repositories (id, project_id, github_repo_id, full_name, html_url, private, added_by, "
+        "created_at) VALUES (gen_random_uuid(), :p, :r, 'o/r', 'https://github.com/o/r', true, :u, :at)"
+    )
+    for project, repo_id, adder, created in (
+        (repo_project, 1, bo, "2026-01-01"),
+        (repo_project, 2, ana, "2026-01-02"),
+        (stale_project, 3, cy, "2026-01-01"),
+    ):
+        run_app(
+            scratch_database,
+            repository,
+            p=project,
+            r=repo_id,
+            u=adder,
+            at=datetime.fromisoformat(f"{created}T00:00:00+00:00"),
+        )
+
+    command.upgrade(cfg, "head")
+
+    assert stamped_versions(scratch_database) == [HEAD]
+    bound = run_app(
+        scratch_database,
+        "SELECT project_id::text || ' ' || app || ' ' || user_id::text || ' ' || workspace_id || ' ' || workspace_name "
+        "FROM project_integrations ORDER BY app, project_id",
+    )
+    assert sorted(bound) == sorted(
+        [
+            f"{jira_project} atlassian {ana} cloud-1 cloud-1",
+            f"{repo_project} github {bo} octo-bo octo-bo",
+        ]
+    )
+    for table, policies in ((INTEGRATIONS, 1),):
+        assert run_app(
+            scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
+        ) == ["true"]
+        assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = :table", table=table) == [
+            policies
+        ]
+        assert run_app(
+            scratch_database,
+            "SELECT has_table_privilege(:role, :table, 'SELECT,INSERT,UPDATE,DELETE')::text",
+            role=SESSION_AGENT_ROLE,
+            table=table,
+        ) == ["false"]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    binding = (
+        "INSERT INTO project_integrations (project_id, app, workspace_id, workspace_name, connected_at) "
+        "VALUES (:p, :app, 'w', 'W', now())"
+    )
+    with pytest.raises(IntegrityError):  # one row per app and project
+        run_app(scratch_database, binding, p=jira_project, app="atlassian")
+    with pytest.raises(IntegrityError):  # a closed set of apps
+        run_app(scratch_database, binding, p=jira_project, app="notion")
+    run_app(scratch_database, binding, p=jira_project, app="slack")
+    run_app(scratch_database, "DELETE FROM users WHERE id = :u", u=bo)  # the member goes, the binding stays
+    assert run_app(scratch_database, "SELECT app FROM project_integrations WHERE user_id IS NULL ORDER BY app") == [
+        "github",
+        "slack",  # inserted above with no member
+    ]
+
+    for kind in ("confluence", "jira_epic"):
+        insert_source(scratch_database, jira_project, ana, kind, str(uuid.uuid4()))
+    with pytest.raises(IntegrityError):  # a closed set of kinds
+        insert_source(scratch_database, jira_project, ana, "notion", str(uuid.uuid4()))
+    insert_source(scratch_database, jira_project, ana, "upload", str(uuid.uuid4()))
+    confluence = run_app(scratch_database, "SELECT id FROM connections WHERE kind = 'confluence'")[0]
+    run_app(
+        scratch_database,
+        "INSERT INTO documents (id, project_id, content_hash, original_filename, media_type, size_bytes, origin, "
+        "original_key, source_id, markdown, status) VALUES (gen_random_uuid(), :p, :h, 'page.md', 'text/markdown', 1, "
+        "'connection', 'projects/x/documents/y/original.md', :s, '# page', 'parsed')",
+        p=jira_project,
+        h="a" * 64,
+        s=confluence,
+    )
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0007]
+    assert run_app(scratch_database, "SELECT kind FROM connections") == ["upload"]
+    assert run_app(scratch_database, "SELECT count(*) FROM documents") == [0]
+    assert run_app(scratch_database, "DELETE FROM connections WHERE kind = 'upload' RETURNING 1") == [1]
     assert fingerprint(scratch_database) == before

@@ -14,12 +14,13 @@ import pytest
 
 from agent_contracts import GapDetail
 from api.plan.state import NoGraphBuildError
-from api.slack.app import CONNECT_REFUSED, CONNECT_USAGE, NOT_OWNER, SlackGaps
+from api.slack.app import CONNECT_REFUSED, CONNECT_USAGE, NOT_MEMBER, WORKSPACE_MISMATCH, SlackGaps
 from api.slack.blocks import APPLY_BLOCK, APPLY_VALUE, CHOICE, OWN, SlackAnswer, answer_view, read_answers
 from api.slack.channels import Binding
 from api.slack.links import NONCE_TTL, LinkRefusedError, SlackLinks, SlackUser
 from api.slack.threads import NOT_IN_CHANNEL
 from graph.gap import StaleGapError
+from integrations_db_fakes import FakeIntegrationsDb
 from settings import ConfigurationError, SlackAppSettings, load_settings
 
 PROJECT = str(uuid.UUID(int=7))
@@ -418,6 +419,9 @@ class ChannelClient:
             raise RuntimeError("channel_not_found")
         return {"channel": {"id": "C1", "name": "shop-gaps", "is_member": True, "is_private": True}}
 
+    async def auth_test(self) -> dict[str, Any]:
+        return {"team_id": "T1", "team": "Shop workspace"}
+
     async def _post(self, **kwargs: Any) -> dict[str, Any]:
         self.posted.append(kwargs)
         return {"ts": "1.1"}
@@ -431,6 +435,7 @@ class ChannelClient:
 
         methods = {
             "conversations_info": self.conversations_info,
+            "auth_test": self.auth_test,
             "chat_postMessage": self._post,
             "chat_postEphemeral": self._ephemeral,
         }
@@ -442,10 +447,20 @@ def connecting(planning, monkeypatch):
     """The planning app with a fake Slack client, a role for the caller (``rig.role``; ``None``: no member) and the
     posting of open questions recorded instead of done."""
 
-    rig = SimpleNamespace(app=planning.app, client=ChannelClient(), role="owner", posted_for=[])
+    rig = SimpleNamespace(
+        app=planning.app,
+        client=ChannelClient(),
+        role="owner",
+        posted_for=[],
+        integrations=FakeIntegrationsDb(),
+        not_member_of=set(),  # projects the caller is no member of, whatever ``role`` says
+    )
+    rig.integrations.install(monkeypatch)
 
     async def membership(_session: Any, _user: Any, project_id: uuid.UUID) -> Any:
-        return None if rig.role is None else (SimpleNamespace(id=project_id, name="Shop"), rig.role)
+        if rig.role is None or project_id in rig.not_member_of:
+            return None
+        return SimpleNamespace(id=project_id, name="Shop"), rig.role
 
     async def post_open(project_id: str) -> int:
         rig.posted_for.append(project_id)
@@ -469,29 +484,72 @@ async def test_connect_by_the_owner_in_a_channel_binds_it_and_posts_the_question
     assert said["response_type"] == "in_channel"
     assert said["text"].startswith("🔗 <@U1> connected this channel to the SpecFlow project *Shop*.")
     assert (await connecting.app.threads.channels.binding(PROJECT)) == Binding(PROJECT, "C1", "shop-gaps", str(USER))
+    bound = connecting.integrations.rows[uuid.UUID(PROJECT), "slack"]
+    assert (bound.user_id, bound.workspace_id, bound.workspace_name) == (USER, "T1", "Shop workspace")
     assert connecting.posted_for == [PROJECT]
 
     await connecting.app._command(acked, command(f"connect {PROJECT}"), respond, None)
     assert respond.sent[-1] == {"text": "This channel is already connected to *Shop*.", "response_type": "ephemeral"}
 
 
-async def test_connect_needs_the_project_id_its_owner_and_a_channel_the_app_is_in(connecting):
+async def test_connect_needs_the_project_id_a_member_and_a_channel_the_app_is_in(connecting):
     await link(connecting.app)
     respond = Responses()
 
     await connecting.app._command(acked, command("connect"), respond, None)
     assert respond.sent[-1]["text"] == CONNECT_USAGE
-    for role, wanted in (("collaborator", PROJECT), (None, PROJECT), ("owner", "Shop")):
+    for role, wanted in ((None, PROJECT), ("owner", "Shop")):
         connecting.role = role
         await connecting.app._command(acked, command(f"connect {wanted}"), respond, None)
-        assert respond.sent[-1]["text"] == NOT_OWNER  # the same answer: an outsider learns nothing
+        assert respond.sent[-1]["text"] == NOT_MEMBER  # the same answer: an outsider learns nothing
     connecting.role = "owner"
     await connecting.app._command(acked, command(f"connect {PROJECT}", channel="C9"), respond, None)
     assert respond.sent[-1]["text"] == CONNECT_REFUSED[NOT_IN_CHANNEL]
 
     assert all(sent["response_type"] == "ephemeral" for sent in respond.sent)
     assert await connecting.app.threads.channels.binding(PROJECT) is None
+    assert connecting.integrations.rows == {}  # a refused connect records nothing
     assert connecting.posted_for == []
+
+
+async def test_a_collaborator_connects_the_channel_and_is_the_member_of_the_integration(connecting):
+    await link(connecting.app)
+    connecting.role = "collaborator"
+    respond = Responses()
+
+    await connecting.app._command(acked, command(f"connect {PROJECT}"), respond, None)
+
+    assert (await connecting.app.threads.channels.binding(PROJECT)).channel_id == "C1"
+    assert connecting.integrations.rows[uuid.UUID(PROJECT), "slack"].user_id == USER
+    assert connecting.posted_for == [PROJECT]
+
+
+async def test_a_project_bound_to_another_slack_workspace_is_not_connected_again(connecting):
+    await link(connecting.app)
+    connecting.integrations.put(uuid.UUID(PROJECT), "slack", USER, workspace_id="T-other", workspace_name="Other")
+    respond = Responses()
+
+    await connecting.app._command(acked, command(f"connect {PROJECT}"), respond, None)
+
+    assert respond.sent[-1]["text"] == WORKSPACE_MISMATCH
+    assert await connecting.app.threads.channels.binding(PROJECT) is None
+    connecting.integrations.release(uuid.UUID(PROJECT), USER)  # its member left: the new workspace takes over
+    await connecting.app._command(acked, command(f"connect {PROJECT}"), respond, None)
+    assert connecting.integrations.rows[uuid.UUID(PROJECT), "slack"].workspace_id == "T1"
+
+
+async def test_the_start_gives_a_binding_without_a_row_the_member_who_ran_the_connect(connecting):
+    app, project = connecting.app, uuid.UUID(PROJECT)
+    other = uuid.UUID(int=99)
+    await app.threads.channels.bind(Binding(PROJECT, "C1", "shop-gaps", str(USER)))
+    await app.threads.channels.bind(Binding(str(other), "C2", "other", str(USER)))
+    connecting.not_member_of.add(other)  # the member who ran that connect has left its project
+
+    await app._record_bindings()
+    await app._record_bindings()  # a second start changes nothing
+
+    assert set(connecting.integrations.rows) == {(project, "slack")}
+    assert connecting.integrations.rows[project, "slack"].user_id == USER
 
 
 async def test_an_unlinked_caller_signs_in_first_and_the_channel_connects_then(connecting):
@@ -515,20 +573,23 @@ async def test_an_unlinked_caller_signs_in_first_and_the_channel_connects_then(c
     assert connecting.posted_for == [PROJECT]
 
 
-async def test_disconnect_in_the_channel_is_for_the_owner_of_its_project(connecting):
+async def test_disconnect_in_the_channel_is_for_a_member_of_its_project_and_removes_the_integration(connecting):
     await link(connecting.app)
     respond = Responses()
     await connecting.app._command(acked, command("disconnect"), respond, None)
     assert respond.sent[-1]["text"] == "This channel is not connected to a SpecFlow project."
     await connecting.app.threads.channels.bind(Binding(PROJECT, "C1", "shop-gaps", str(USER)))
+    connecting.integrations.put(uuid.UUID(PROJECT), "slack", USER)
+
+    connecting.role = None
+    await connecting.app._command(acked, command("disconnect"), respond, None)
+    assert respond.sent[-1]["text"] == "Only a member of the connected SpecFlow project can disconnect it."
+    assert await connecting.app.threads.channels.binding(PROJECT) is not None
+    assert (uuid.UUID(PROJECT), "slack") in connecting.integrations.rows
 
     connecting.role = "collaborator"
-    await connecting.app._command(acked, command("disconnect"), respond, None)
-    assert respond.sent[-1]["text"] == "Only the owner of the connected SpecFlow project can disconnect it."
-    assert await connecting.app.threads.channels.binding(PROJECT) is not None
-
-    connecting.role = "owner"
     await connecting.app._command(acked, command("disconnect"), respond, None)
     assert respond.sent[-1]["response_type"] == "in_channel"
     assert "disconnected this channel from SpecFlow" in respond.sent[-1]["text"]
     assert await connecting.app.threads.channels.binding(PROJECT) is None
+    assert connecting.integrations.rows == {}

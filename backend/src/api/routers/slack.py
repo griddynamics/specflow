@@ -2,8 +2,8 @@
 
 - ``POST /integrations/slack/link``: the web app's route handler forwards the one-time nonce that Slack gave the
   person, from their signed-in session; the Slack user is then linked to the caller.
-- ``/projects/{pid}/slack``: the project's Slack channel. A member reads it; only the owner disconnects it. A channel
-  is connected from inside Slack (``/specflow connect <project id>``), so no other channel is ever listed here.
+- ``/projects/{pid}/slack``: the project's Slack channel. A member reads it and disconnects it. A channel is connected
+  from inside Slack (``/specflow connect <project id>``), so no other channel is ever listed here.
 
 No nonce or Slack text is logged; events carry ids and a code.
 """
@@ -14,7 +14,7 @@ from fastapi import APIRouter, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.contained import Contained
-from api.deps import MemberDep, OwnerDep, RuntimeDep, UserDep
+from api.deps import MemberDep, RuntimeDep, UserDep
 from api.errors import ApiError
 from api.slack.links import LinkRefusedError
 from api.slack.threads import SlackThreads
@@ -42,7 +42,7 @@ class SlackChannelOut(BaseModel):
 
 class SlackSettingsOut(BaseModel):
     """``available``: the server runs the Slack app; ``channel`` the connected one (none when not connected);
-    ``editable``: the caller is the owner."""
+    ``editable``: the caller may disconnect it (every member)."""
 
     available: bool
     channel: SlackChannelOut | None
@@ -91,14 +91,13 @@ def _threads(runtime: RuntimeDep) -> SlackThreads | None:
 
 @router.get("/projects/{pid}/slack", response_model=SlackSettingsOut)
 async def get_slack_settings(runtime: RuntimeDep, access: MemberDep) -> SlackSettingsOut:
-    return await _settings(_threads(runtime), str(access.project.id), editable=access.is_owner)
+    return await _settings(_threads(runtime), str(access.project.id), editable=True)
 
 
 @router.delete("/projects/{pid}/slack", status_code=204)
-async def delete_slack_settings(runtime: RuntimeDep, user: UserDep, access: OwnerDep) -> Response:
-    threads = _threads(runtime)
-    if threads is None:
+async def delete_slack_settings(runtime: RuntimeDep, user: UserDep, access: MemberDep) -> Response:
+    if runtime.slack is None:
         raise slack_unavailable()
-    await threads.channels.unbind(str(access.project.id))
+    await runtime.slack.disconnect(str(access.project.id))
     log_event(logger, INFO, "api.slack.unbound", project_id=str(access.project.id), user_id=str(user.id))
     return Response(status_code=204)

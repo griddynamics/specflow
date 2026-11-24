@@ -59,8 +59,8 @@ Layout: one column, like General. Top to bottom:
 In `oauth` mode the [Atlassian connection](#atlassian-connection) row sits between the notice and the target form, and the
 acting account line under the switch.
 
-Owner versus collaborator: `editable` from `GET` decides. A collaborator sees the same blocks with every control
-disabled and no primary button.
+Owner versus collaborator: `editable` from `GET` decides. Since V2 (D6) it is true for every member, so a collaborator
+sees the same controls as the owner; a server that answers `editable` false still disables every control.
 
 Loading shows a `Skeleton` block; a failed load shows the General tab's "Try again" alert; a `project_not_found` sends the
 user home as the General tab does.
@@ -70,7 +70,7 @@ user home as the General tab does.
 Only in `oauth` mode (`GET /integrations/atlassian` answers `mode` `oauth`); in `token` mode the tab is unchanged. The
 rules behind it are in [oauth.md](oauth.md).
 
-Connection row (owners only, above the target form), from the caller's `AtlassianConnectionOut`:
+Connection row (members, above the target form), from the caller's `AtlassianConnectionOut`:
 
 | State | Text | Action |
 |---|---|---|

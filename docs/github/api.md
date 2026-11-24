@@ -31,20 +31,22 @@ below answers 503 `github_unavailable`, except `GET /integrations/github` (`enab
 
 ## Project repository routes
 
-A member reads; only the owner (403 `owner_required` otherwise) writes. A non-member and a missing project are 404
+Any member reads and writes (D6; a collaborator no longer gets 403 `owner_required`). A non-member and a missing project are 404
 `project_not_found`; a malformed or unknown repository id is 404 `repository_not_found`.
 
 | Method, path | Body | Success | Errors |
 |---|---|---|---|
 | `GET /projects/{pid}/repositories` | - | 200 `{enabled, can_manage, repositories: ProjectRepositoryOut[]}` | - |
-| `POST /projects/{pid}/repositories` | `{github_repo_id}` (integer, 1 or more) | 201 `ProjectRepositoryOut`; the clone check starts | 409 `github_not_connected`; 409 `github_reconnect_required`; 404 `github_repo_not_accessible` (not in the caller's list); 422 `github_repo_too_large`; 409 `repository_exists`; 502 `github_unreachable` / `github_auth_failed` |
+| `POST /projects/{pid}/repositories` | `{github_repo_id}` (integer, 1 or more) | 201 `ProjectRepositoryOut`; the clone check starts | 409 `github_not_connected` (the project has no GitHub connection bound to a member); 409 `github_reconnect_required`; 404 `github_repo_not_accessible` (not in the list of the bound member); 422 `github_repo_too_large`; 409 `repository_exists`; 502 `github_unreachable` / `github_auth_failed` |
 | `DELETE /projects/{pid}/repositories/{rid}` | - | 204; the snapshots under its prefix are deleted (a failure there is only logged) | 404 `repository_not_found` |
 | `POST /projects/{pid}/repositories/{rid}/clone` | - | 202 `ProjectRepositoryOut` (`pending`, or `cloning` when a check runs) | 404 `repository_not_found` |
 
-The add route checks the repository against the caller's own list (`GET /user/installations` and the repositories of
-each installation, with the caller's token), so an owner can add only a repository they read through the app. A
-workflow start that fails marks the row `failed` with `github_clone_failed` (log `api.github.snapshot.start_failed`);
-the owner asks again with `POST …/clone`.
+Any member reads, adds, removes and re-checks (D6; the owner-only rule of 0007 is gone). The add route checks the
+repository against the list of the member the project's GitHub connection is bound to (the `github` row of
+`project_integrations`; `GET /user/installations` and the repositories of each installation, with that member's
+token), so only a repository the bound member reads through the app can be added, and the row's `added_by` is that
+member, not the caller. `can_manage` is true for every member. A workflow start that fails marks the row `failed` with
+`github_clone_failed` (log `api.github.snapshot.start_failed`); a member asks again with `POST …/clone`.
 
 `ProjectRepositoryOut`: `id`, `github_repo_id`, `full_name`, `html_url`, `private`, `added_by_name` (the Specflow display
 name, null once that user is gone), `added_by_me`, `clone_state`, `failure_code`, `default_branch`, `head_sha`,
