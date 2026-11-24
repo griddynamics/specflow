@@ -38,6 +38,7 @@ from api.routers import (
     slack,
     source_batches,
     source_confluence,
+    source_jira_epic,
     source_removal,
     sources,
     users,
@@ -206,6 +207,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         sources.router,
         source_batches.router,
         source_confluence.router,
+        source_jira_epic.router,
         source_removal.router,
         slack.router,
     ):

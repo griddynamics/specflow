@@ -32,6 +32,8 @@ from jira.issues import JiraIssueReader
 from jira.reader import AtlassianReader, confluence_url, jira_url
 from jira.reasons import Reason
 
+NO_ACCESS: Final = "no_access"  # the closed reason of an item or a source the member cannot read
+READ_STEP: Final = "read"
 SKIPPABLE: Final = frozenset({Reason.NOT_FOUND, Reason.FORBIDDEN})  # an item the member cannot see: skipped, counted
 _NO_ACCESS: Final = frozenset({Reason.NOT_FOUND, Reason.FORBIDDEN, Reason.AUTH_FAILED, Reason.RECONNECT_REQUIRED})
 _RECONNECT: Final = frozenset({Reason.AUTH_FAILED, Reason.RECONNECT_REQUIRED, Reason.NOT_CONNECTED})

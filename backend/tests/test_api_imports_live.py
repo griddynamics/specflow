@@ -23,7 +23,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from api.graph_build.corpus import PostgresCorpusSource
 from api.imports import ImportFailedError, ImportJob, ImportRunner, ImportWriter
 from api.imports.confluence import ConfluenceImport, ConfluenceImporter
-from atlassian_import_support import FakeAtlassian, FakeConnections, install, storage_page
+from api.imports.jira_epic import JiraEpicImport, JiraEpicImporter
+from atlassian_import_support import (
+    FakeAtlassian,
+    FakeConnections,
+    install,
+    jira_comment,
+    jira_issue,
+    storage_page,
+)
 from db import removal, source_files
 from db import sources as sources_db
 from db.github import session_transaction
@@ -371,3 +379,24 @@ async def test_a_failed_import_shows_its_closed_reason_in_both_sources_statuses(
     (listed,) = progress.connections
     assert (listed.connection_id, listed.state, listed.failure_reason) == (job.source_id, "failed", "no_access")
     assert (card.kind, card.failure_reason, card.listing_finished) == ("jira_epic", "no_access", True)
+
+
+async def test_a_jira_epic_import_is_the_corpus_with_its_issues_and_comments(factory, runner, monkeypatch) -> None:
+    user, project = await member_project(factory)
+    epic = jira_issue("PAY-1", "Checkout", "The epic.")
+    epic["fields"]["issuetype"] = {"name": "Epic", "hierarchyLevel": 1}
+    card = {**jira_issue("PAY-2", "Card flow", "Pay by card.", [jira_comment("Ada", "Looks good")]), "parent": "PAY-1"}
+    install(monkeypatch, FakeAtlassian(issues={"PAY-1": epic, "PAY-2": card}))
+    importer = JiraEpicImporter(FakeConnections(user_id=user), JiraEpicImport("PAY-1"))
+
+    job = await run(runner, project, user, kind="jira_epic", name="PAY-1: Checkout", importer=importer)
+
+    corpus = await PostgresCorpusSource(factory).snapshot(str(project))
+    assert sorted(c.title for c in corpus) == ["PAY-1: Checkout", "PAY-2: Card flow"]
+    assert all(c.path.startswith("PAY-1: Checkout/") for c in corpus)
+    assert "**Ada** (2026-03-01):\n\nLooks good" in next(c.markdown for c in corpus if c.title.startswith("PAY-2"))
+    async with factory() as session:
+        (listed,) = (await sources_db.sources_progress(session, project)).connections
+        (summary,) = await source_files.source_summaries(session, project)
+    assert (listed.connection_id, listed.state, listed.progress.total) == (job.source_id, "done", 2)
+    assert (summary.kind, summary.counts["done"], summary.failure_reason) == ("jira_epic", 2, None)

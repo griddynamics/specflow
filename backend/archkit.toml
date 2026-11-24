@@ -102,6 +102,10 @@ codes = [
     { code = "confluence_short_link_unsupported", http = 422 },
     { code = "confluence_not_found", http = 409 },
     { code = "confluence_forbidden", http = 409 },
+    { code = "jira_epic_link_invalid", http = 422 },
+    { code = "jira_epic_not_an_epic", http = 422 },
+    { code = "jira_epic_not_found", http = 409 },
+    { code = "jira_epic_forbidden", http = 409 },
     { code = "internal_error", http = 500 },
     { code = "http_error", http = 400 },
 ]
@@ -184,6 +188,10 @@ probes = [
     { name = "probe-71", class = "api.errors:ApiError", args = [422, "confluence_short_link_unsupported", "Short links are not supported. Paste the full page address."] },
     { name = "probe-72", class = "api.errors:ApiError", args = [409, "confluence_not_found", "The page or space does not exist or is not visible to the member."] },
     { name = "probe-73", class = "api.errors:ApiError", args = [409, "confluence_forbidden", "The member who connected Atlassian cannot read this page or space."] },
+    { name = "probe-74", class = "api.errors:ApiError", args = [422, "jira_epic_link_invalid", "Enter an issue key such as ABC-12, or a link to the epic."] },
+    { name = "probe-75", class = "api.errors:ApiError", args = [422, "jira_epic_not_an_epic", "The issue is not an epic."] },
+    { name = "probe-76", class = "api.errors:ApiError", args = [409, "jira_epic_not_found", "The epic does not exist or is not visible to the member."] },
+    { name = "probe-77", class = "api.errors:ApiError", args = [409, "jira_epic_forbidden", "The member who connected Atlassian cannot read this epic."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

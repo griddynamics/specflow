@@ -8,14 +8,17 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
 import pytest
 
-from api.imports import ImportWriter
+from api.imports import ImportJob, ImportWriter
 from api.imports import atlassian as atlassian_module
+from db import source_files
+from integrations_db_fakes import FakeIntegrationsDb
 from jira.reader import AtlassianReader
 
 SITE_HOST = "example.atlassian.net"
@@ -95,7 +98,9 @@ class FakeAtlassian:
     spaces: dict[str, dict[str, Any]] = field(default_factory=dict)  # key -> space
     space_pages: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # space id -> pages
     issues: dict[str, dict[str, Any]] = field(default_factory=dict)
-    extra_comments: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # beyond the issue's own
+    all_comments: dict[str, list[dict[str, Any]]] = field(
+        default_factory=dict
+    )  # every comment, by issue key (the comment endpoint)
     status: dict[str, int] = field(default_factory=dict)
     page_size: int = 2
     expire_t1: bool = False
@@ -154,7 +159,7 @@ class FakeAtlassian:
     def _jira(self, request: httpx.Request, path: str) -> httpx.Response:
         match = re.fullmatch(r"/rest/api/3/issue/([A-Z0-9-]+)/comment", path)
         if match:
-            more = self.extra_comments.get(match[1], [])
+            more = self.all_comments.get(match[1], [])
             start = int(request.url.params.get("startAt", "0"))
             return httpx.Response(200, json={"comments": more[start : start + 1], "total": len(more)})
         match = re.fullmatch(r"/rest/api/3/issue/([A-Z0-9-]+)", path)
@@ -240,3 +245,82 @@ def as_writer(writer: RecordingWriter) -> ImportWriter:
     """The recorder where an importer expects its ``ImportWriter`` (the same methods; the database is the boundary)."""
 
     return cast(ImportWriter, writer)
+
+
+SOURCE_ID = uuid.UUID(int=900)
+
+
+class FakeImports:
+    """``runtime.imports``: records the sources it was asked to add and the imports it was asked to start."""
+
+    def __init__(self) -> None:
+        self.added: list[dict[str, Any]] = []
+        self.started: list[tuple[ImportJob, Any]] = []
+
+    async def add_source(self, project_id: uuid.UUID, user_id: uuid.UUID, **values: Any) -> uuid.UUID:
+        self.added.append({"project_id": project_id, "user_id": user_id, **values})
+        return SOURCE_ID
+
+    def start(self, job: ImportJob, importer: Any) -> None:
+        self.started.append((job, importer))
+
+
+def source_card(kind: str, user_id: uuid.UUID, name: str, link: str) -> source_files.SourceSummary:
+    """The card the Sources status would show for the source a route just added."""
+
+    return source_files.SourceSummary(
+        id=SOURCE_ID,
+        kind=kind,
+        name=name,
+        name_suffix=1,
+        added_by_id=user_id,
+        added_by_name="Alice",
+        created_at=datetime(2026, 3, 1, tzinfo=UTC),
+        listing_finished=False,
+        open=False,
+        total=0,
+        counts=dict.fromkeys(source_files.FILE_STATES, 0),
+        failure_reason=None,
+        folder_id=None,
+        link=link,
+    )
+
+
+async def wire_import_rig(
+    served: Any, monkeypatch: pytest.MonkeyPatch, fake: FakeAtlassian, *, alpha: uuid.UUID, kind: str
+) -> SimpleNamespace:
+    """The REST app of ``serve_agent`` with an Atlassian bound to ``ACTING`` for project ``Alpha``, ``fake`` behind
+    every reader, ``FakeImports`` as ``runtime.imports``, the card of the added source of ``kind``, ben (a
+    collaborator) and carol (no member). Returns the rig the route tests share."""
+
+    runtime, repo = served.runtime, served.repo
+    connections, integrations, imports = FakeConnections(), FakeIntegrationsDb(), FakeImports()
+    integrations.install(monkeypatch)
+    integrations.put(alpha, "atlassian", ACTING)
+    runtime.jira = SimpleNamespace(connections=connections)
+    runtime.imports = imports
+    install(monkeypatch, fake)
+
+    async def source_summary(_session: Any, _project: uuid.UUID, source_id: uuid.UUID) -> Any:
+        added = imports.added[-1] if imports.added else {"name": "", "link": ""}
+        card = source_card(kind, served.users["alice"].id, added["name"], added["link"])
+        return card if source_id == SOURCE_ID else None
+
+    monkeypatch.setattr(source_files, "source_summary", source_summary)
+    ben = await repo.upsert_user(
+        None, SimpleNamespace(subject="user:ben@example.com", email="ben@example.com", name=None)
+    )
+    carol_subject = SimpleNamespace(subject="user:carol@example.com", email="carol@example.com", name=None)
+    await repo.upsert_user(None, carol_subject)
+    repo.members.add((alpha, ben.id))
+    repo.roles[(alpha, ben.id)] = "collaborator"
+    return SimpleNamespace(
+        http=served.client,
+        runtime=runtime,
+        fake=fake,
+        connections=connections,
+        integrations=integrations,
+        imports=imports,
+        alpha=alpha,
+        ben=ben,
+    )

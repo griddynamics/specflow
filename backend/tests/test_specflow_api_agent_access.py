@@ -77,6 +77,7 @@ from api.routers import (
     slack,
     source_batches,
     source_confluence,
+    source_jira_epic,
     source_removal,
     sources,
     users,
@@ -178,6 +179,7 @@ ROUTER_MODULES = (
     sources,
     source_batches,
     source_confluence,
+    source_jira_epic,
     source_removal,
     slack,
 )

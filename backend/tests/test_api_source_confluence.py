@@ -13,27 +13,24 @@ Sequence::
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 import pytest_asyncio
 
-from api.imports import ImportJob
 from api.imports.confluence import ConfluenceImporter
 from atlassian_import_support import (
     ACTING,
     SITE,
+    SOURCE_ID,
     FakeAtlassian,
-    FakeConnections,
     RecordingWriter,
     as_writer,
-    install,
     storage_page,
+    wire_import_rig,
 )
 from db import source_files
-from integrations_db_fakes import FakeIntegrationsDb
 from specflow_api_agent_support import ALPHA, agent_env, log_haystack, serve_agent
 from test_api_atlassian_routes import call, error_of
 
@@ -43,44 +40,9 @@ SOURCE_ID = uuid.UUID(int=900)
 CANARY = "page-title-canary-3c9a"
 
 
-class FakeImports:
-    """``runtime.imports``: records the sources it was asked to add and the imports it was asked to start."""
-
-    def __init__(self) -> None:
-        self.added: list[dict[str, Any]] = []
-        self.started: list[tuple[ImportJob, Any]] = []
-
-    async def add_source(self, project_id: uuid.UUID, user_id: uuid.UUID, **values: Any) -> uuid.UUID:
-        self.added.append({"project_id": project_id, "user_id": user_id, **values})
-        return SOURCE_ID
-
-    def start(self, job: ImportJob, importer: Any) -> None:
-        self.started.append((job, importer))
-
-
-def card(user_id: uuid.UUID, name: str) -> source_files.SourceSummary:
-    return source_files.SourceSummary(
-        id=SOURCE_ID,
-        kind="confluence",
-        name=name,
-        name_suffix=1,
-        added_by_id=user_id,
-        added_by_name="Alice",
-        created_at=datetime(2026, 3, 1, tzinfo=UTC),
-        listing_finished=False,
-        open=False,
-        total=0,
-        counts=dict.fromkeys(source_files.FILE_STATES, 0),
-        failure_reason=None,
-        folder_id=None,
-        link=PAGE_LINK,
-    )
-
-
 @pytest_asyncio.fixture
 async def rig(monkeypatch, valid_env):
     async with serve_agent(monkeypatch, agent_env(valid_env)) as served:
-        runtime, repo = served.runtime, served.repo
         fake = FakeAtlassian(
             pages={
                 "5": storage_page("5", CANARY, '<p><a href="https://example.atlassian.net/browse/PAY-7">t</a></p>'),
@@ -90,34 +52,7 @@ async def rig(monkeypatch, valid_env):
             spaces={"ORD": {"id": "10", "key": "ORD", "name": "Orders"}},
             space_pages={"10": [{"id": "1", "title": "Home"}]},
         )
-        connections = FakeConnections()
-        integrations = FakeIntegrationsDb()
-        integrations.install(monkeypatch)
-        alpha = uuid.UUID(ALPHA)
-        integrations.put(alpha, "atlassian", ACTING)
-        imports = FakeImports()
-        runtime.jira = SimpleNamespace(connections=connections)
-        runtime.imports = imports
-        install(monkeypatch, fake)
-
-        async def source_summary(_session: Any, _project: uuid.UUID, source_id: uuid.UUID) -> Any:
-            return card(served.users["alice"].id, "Order limits") if source_id == SOURCE_ID else None
-
-        monkeypatch.setattr(source_files, "source_summary", source_summary)
-        ben = await repo.upsert_user(None, SimpleNamespace(subject=f"user:{BEN}", email=BEN, name=None))
-        repo.members.add((alpha, ben.id))
-        repo.roles[(alpha, ben.id)] = "collaborator"
-        await repo.upsert_user(None, SimpleNamespace(subject=f"user:{CAROL}", email=CAROL, name=None))
-        yield SimpleNamespace(
-            http=served.client,
-            runtime=runtime,
-            fake=fake,
-            connections=connections,
-            integrations=integrations,
-            imports=imports,
-            alpha=alpha,
-            ben=ben,
-        )
+        yield await wire_import_rig(served, monkeypatch, fake, alpha=uuid.UUID(ALPHA), kind="confluence")
 
 
 def path(rig: Any, tail: str = "") -> str:
@@ -220,7 +155,7 @@ async def test_adding_a_link_creates_the_source_for_the_caller_and_reads_as_the_
     assert (source["id"], source["kind"], source["name"], source["link"]) == (
         str(SOURCE_ID),
         "confluence",
-        "Order limits",
+        CANARY,
         PAGE_LINK,
     )
     (added,) = rig.imports.added

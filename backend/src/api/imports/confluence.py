@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from api.imports.atlassian import (
+    NO_ACCESS,
+    READ_STEP,
     SKIPPABLE,
     Connections,
     access_of,
@@ -22,12 +24,12 @@ from api.imports.atlassian import (
     import_failure,
     jira_reader,
 )
+from api.imports.issues import import_issue
 from api.imports.model import ImportFailedError, ImportJob
 from api.imports.writer import ImportWriter
 from jira.confluence import ConfluenceClient
 from jira.confluence_links import PageTarget, References, SpaceTarget, TitledPage, references
 from jira.gateway import JiraError
-from jira.issue_document import issue_markdown, issue_original, issue_title
 from jira.issues import JiraIssueReader
 from jira.storage_markdown import to_markdown
 from logger.logger import WARNING, get_logger, log_event
@@ -36,8 +38,6 @@ logger = get_logger("api.imports.confluence")
 
 MAX_PAGES: Final = 100  # pages of one import: the target, its descendants and the followed pages
 MAX_LINKED_ISSUES: Final = 50  # Jira issues of one import, followed from pages
-NO_ACCESS: Final = "no_access"
-READ_STEP: Final = "read"
 
 
 @dataclass(frozen=True)
@@ -230,21 +230,7 @@ class _Run:
                 cap=MAX_LINKED_ISSUES,
             )
         for key in keys[:MAX_LINKED_ISSUES]:
-            external_id = f"issue:{key}"
-            try:
-                issue = await self._jira.issue(key)
-                comments = await self._jira.comments(issue)
-            except JiraError as error:
-                if error.reason not in SKIPPABLE:
-                    raise
-                await self._writer.fail(external_id, key, reason=NO_ACCESS, step=READ_STEP)
-                continue
-            await self._writer.add(
-                external_id,
-                name=issue_title(issue),
-                original=issue_original(issue, comments),
-                markdown=issue_markdown(issue, comments),
-            )
+            await import_issue(self._writer, self._jira, key)
 
     def _cap_hit(self) -> None:
         log_event(logger, WARNING, "api.imports.page_cap_reached", project_id=str(self._job.project_id), cap=MAX_PAGES)

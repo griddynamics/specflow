@@ -118,7 +118,7 @@ the graph build changes: an importer writes `parsed` documents the build already
   before this process started is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). The start instant is read once from the database clock (`SELECT now()`) and compared with `connections.updated_at`, so no process clock is involved; a source added after it is never ended. One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
-- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source" below.
+- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source" and "Jira epic source" below.
 
 ## Confluence source
 
@@ -161,6 +161,34 @@ Codes (any 4xx here carries only a fixed sentence, never Confluence's text):
 | `atlassian_unreachable` | 502 | Atlassian could not be reached, or answered something unusable |
 
 Order of checks: project member, Atlassian bound and usable, link, Confluence.
+
+## Jira epic source
+
+What the canvas form (check, then add) calls. Any member (D6); the import reads as the member the project's Atlassian is
+connected by (R1), runs in the API process and is the source `kind` `jira_epic`. What it reads and its caps:
+[../sources/importers.md](../sources/importers.md).
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/jira-epic/check` | `{key_or_link}` | 200 `JiraEpicCheckOut` | 404 `project_not_found`; the codes below |
+| `POST /projects/{pid}/sources/jira-epic` | `{key_or_link}` | 201 `BatchSourceOut` (the card of the new source, `kind` `jira_epic`, `name` `KEY: summary`, `link` `https://<site>/browse/KEY`) | as the check; 404 `source_not_found` (removed at once) |
+
+`key_or_link` is at most 2048 characters (the body is closed: other keys are 422 `validation_failed`).
+`JiraEpicCheckOut`: `key` (upper case), `summary` (shown, not stored), `issues` (how many issues the epic has for the
+bound member; an import takes at most 200). Progress and status are the card of `GET /projects/{pid}/sources?batches=1`, as
+for the Confluence source above; one source per add, every add is a new source (D7).
+
+Codes: the shared `atlassian_oauth_unavailable`, `atlassian_not_connected`, `atlassian_reconnect_required`,
+`atlassian_site_mismatch`, `atlassian_unreachable` of the Confluence source, and
+
+| Code | HTTP | When |
+|---|---|---|
+| `jira_epic_link_invalid` | 422 | not an issue key, nor an https `/browse/KEY` or `selectedIssue=KEY` link |
+| `jira_epic_not_an_epic` | 422 | the issue exists but is not an epic |
+| `jira_epic_not_found` | 409 | no such issue, or not visible to the bound member |
+| `jira_epic_forbidden` | 409 | Jira refused the bound member (403) |
+
+Order of checks: project member, Atlassian bound and usable, key or link, Jira.
 
 ## Plan destinations
 

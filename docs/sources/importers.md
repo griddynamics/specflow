@@ -72,3 +72,30 @@ dropped.
 
 Item names: `page:<id>` is the item's `external_id`, the page title its name; followed issues are `issue:<KEY>` named
 `KEY: summary`.
+
+## Jira epic
+
+`POST /projects/{pid}/sources/jira-epic/check` and `POST /projects/{pid}/sources/jira-epic`, both `{key_or_link}`, any
+member. Shapes and codes: [integrations-api.md](../mission-control/integrations-api.md) "Jira epic source".
+
+`key_or_link` is an issue key (`ABC-12`, any case) or a link of the configured site (`/browse/ABC-12`, or a board link with
+`selectedIssue=ABC-12`). The issue must be an epic (`issuetype.hierarchyLevel` 1, or named `Epic`), else
+`jira_epic_not_an_epic`. The source is named `KEY: summary` and its `link` is `https://<site>/browse/KEY`.
+
+Reads (Jira Cloud REST v3, `https://api.atlassian.com/ex/jira/{cloud id}`): `GET /issue/{key}`, `POST /search/jql` with
+`parent = "<KEY>" ORDER BY key` (paged by `nextPageToken`, fields summary, description, status, issuetype, labels and
+comment), `POST /search/approximate-count` (the check), `GET /issue/{key}/comment` (only for an issue whose comments
+did not all come with the search). One document per issue, the epic first: `issue:<KEY>` named `KEY: summary`.
+
+**Cap**: `MAX_EPIC_ISSUES = 200` issues under the epic (`api/imports/jira_epic.py`), logged once as a count
+(`api.imports.epic_cap_reached`). Issues the bound member cannot see are not returned by Jira; one whose comments are
+refused while it is read is skipped and counted (`no_access`, step `read`). Sub-tasks are issues under a story, not under
+the epic: they are not read.
+
+**Issue to Markdown** (`jira/issue_document.py`): `# KEY: summary`, a line `Type: ... | Status: ... | Labels: ...`, the
+description, then `## Comments` with one `**Author** (date):` block per comment (all comments, paged). The description and
+every comment are Atlassian Document Format; `jira/adf_reader.py` turns them into Markdown: paragraphs, headings, bold,
+italic, code, strikethrough, links, line breaks, bullet, ordered and task lists, tables, code blocks, quotes and panels
+(as quotes), expands (title in bold), rules, mentions as names, emoji, dates, statuses, cards as links and media as
+`[attachment]`. A node it does not know renders the text of its children. The Confluence "follow links" import of a linked
+issue uses the same reader and document.

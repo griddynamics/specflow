@@ -5346,6 +5346,46 @@
         "title": "JiraConnectionOut",
         "type": "object"
       },
+      "JiraEpicCheckOut": {
+        "description": "The epic an import would take: its key, its summary (shown, not stored) and how many issues it has for the\nmember (at most the issue cap is imported).",
+        "properties": {
+          "issues": {
+            "title": "Issues",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "summary",
+          "issues"
+        ],
+        "title": "JiraEpicCheckOut",
+        "type": "object"
+      },
+      "JiraEpicIn": {
+        "additionalProperties": false,
+        "description": "A Jira epic by its key (``ABC-12``) or by a link of the configured site.",
+        "properties": {
+          "key_or_link": {
+            "maxLength": 2048,
+            "title": "Key Or Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_or_link"
+        ],
+        "title": "JiraEpicIn",
+        "type": "object"
+      },
       "JiraSettingsIn": {
         "additionalProperties": false,
         "properties": {
@@ -17512,6 +17552,110 @@
           }
         },
         "summary": "Test Drive Folder",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/jira-epic": {
+      "post": {
+        "operationId": "add_jira_epic_source_api_v1_projects__pid__sources_jira_epic_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraEpicIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Jira Epic Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/jira-epic/check": {
+      "post": {
+        "operationId": "check_jira_epic_api_v1_projects__pid__sources_jira_epic_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraEpicIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraEpicCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Jira Epic",
         "tags": [
           "sources"
         ]

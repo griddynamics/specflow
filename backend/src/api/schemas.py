@@ -850,3 +850,20 @@ class ConfluenceCheckOut(BaseModel):
     pages: int
     capped: bool
     linked_issues: int
+
+
+class JiraEpicIn(BaseModel):
+    """A Jira epic by its key (``ABC-12``) or by a link of the configured site."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key_or_link: str = Field(max_length=LINK_MAX)
+
+
+class JiraEpicCheckOut(BaseModel):
+    """The epic an import would take: its key, its summary (shown, not stored) and how many issues it has for the
+    member (at most the issue cap is imported)."""
+
+    key: str
+    summary: str
+    issues: int
