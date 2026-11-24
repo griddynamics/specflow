@@ -26,6 +26,7 @@ from db.models import ProjectRepository
 from github.client import SIZE_LIMIT_KB, Repository
 from github.connections import GitHubConnections
 from github_support import CLIENT_CANARY, CODE_CANARY, LOGIN, USER_ID, FakeGitHub, MemoryStore, github_settings, repo
+from integrations_db_fakes import FakeIntegrationsDb
 from specflow_api_agent_support import ALPHA, agent_env, serve_agent
 from storage.keys import repository_snapshot
 from test_api_atlassian_routes import call, error_of
@@ -113,6 +114,8 @@ async def rig(monkeypatch, valid_env):
     async with serve_agent(monkeypatch, agent_env(valid_env)) as served:
         github, store, db = FakeGitHub(), MemoryStore(), FakeRepositoriesDb()
         db.install(monkeypatch)
+        integrations = FakeIntegrationsDb()
+        integrations.install(monkeypatch)
         started: list[tuple[uuid.UUID, uuid.UUID]] = []
 
         async def start(_runtime: Any, project_id: uuid.UUID, repository_id: uuid.UUID) -> str:
@@ -142,6 +145,7 @@ async def rig(monkeypatch, valid_env):
             github=github,
             store=store,
             db=db,
+            integrations=integrations,
             started=started,
             state=rig_state,
             alpha=alpha,
@@ -159,6 +163,12 @@ def state_of(url: str) -> str:
 async def connect(rig: Any, who: str = ALICE) -> httpx.Response:
     url = (await call(rig, "POST", "integrations/github/authorize", who, {"return_to": RETURN})).json()["url"]
     return await call(rig, "POST", "integrations/github/callback", who, {"code": CODE_CANARY, "state": state_of(url)})
+
+
+async def bind(rig: Any, who: str = ALICE) -> httpx.Response:
+    """Connect the project to GitHub as ``who`` (their own active connection)."""
+
+    return await call(rig, "PUT", f"projects/{ALPHA}/integrations/github", who)
 
 
 # The connection routes -----------------------------------------------------------------------------------------------
@@ -267,8 +277,9 @@ async def test_with_the_integration_off_the_routes_answer_503_and_the_list_says_
 # The project repositories --------------------------------------------------------------------------------------------
 
 
-async def test_the_owner_adds_a_repository_they_can_read_and_its_clone_check_starts(rig) -> None:
+async def test_a_member_adds_a_repository_the_projects_connection_can_read_and_its_clone_check_starts(rig) -> None:
     await connect(rig)
+    await bind(rig)
 
     added = await call(rig, "POST", f"projects/{ALPHA}/repositories", body={"github_repo_id": 7})
 
@@ -282,7 +293,7 @@ async def test_the_owner_adds_a_repository_they_can_read_and_its_clone_check_sta
     )
     assert rig.started == [(rig.alpha, uuid.UUID(body["id"]))]
     as_ben = (await call(rig, "GET", f"projects/{ALPHA}/repositories", BEN)).json()
-    assert as_ben["enabled"] is True and as_ben["can_manage"] is False
+    assert as_ben["enabled"] is True and as_ben["can_manage"] is True  # D6: any member manages
     assert [(r["full_name"], r["added_by_me"]) for r in as_ben["repositories"]] == [("octo/app", False)]
     again = await call(rig, "POST", f"projects/{ALPHA}/repositories", body={"github_repo_id": 7})
     assert error_of(again) == (409, "repository_exists")
@@ -291,28 +302,51 @@ async def test_the_owner_adds_a_repository_they_can_read_and_its_clone_check_sta
 @pytest.mark.parametrize(
     ("repo_id", "expected"), [(9, (404, "github_repo_not_accessible")), (8, (422, "github_repo_too_large"))]
 )
-async def test_a_repository_the_owner_cannot_read_or_too_large_is_refused(rig, repo_id, expected) -> None:
+async def test_a_repository_the_projects_connection_cannot_read_or_too_large_is_refused(rig, repo_id, expected) -> None:
     await connect(rig)
+    await bind(rig)
 
     refused = await call(rig, "POST", f"projects/{ALPHA}/repositories", body={"github_repo_id": repo_id})
 
     assert error_of(refused) == expected and rig.db.rows == {} and rig.started == []
 
 
-async def test_only_the_owner_manages_and_a_non_member_sees_nothing(rig) -> None:
-    await connect(rig, BEN)
+async def test_a_collaborator_adds_a_repository_as_the_bound_member_and_a_non_member_sees_nothing(rig) -> None:
+    await connect(rig)  # alice's GitHub connection; the project is bound to her
+    await bind(rig)
     body = {"github_repo_id": 7}
 
-    assert error_of(await call(rig, "POST", f"projects/{ALPHA}/repositories", BEN, body)) == (403, "owner_required")
+    added = await call(rig, "POST", f"projects/{ALPHA}/repositories", BEN, body)  # ben has no connection of his own
+
+    assert added.status_code == 201
+    assert (added.json()["added_by_name"], added.json()["added_by_me"]) == ("Alice", False)  # D1: alice's account
+    assert rig.db.rows[uuid.UUID(added.json()["id"])].added_by == rig.alice.id
     assert error_of(await call(rig, "GET", f"projects/{ALPHA}/repositories", CAROL)) == (404, "project_not_found")
+    assert error_of(await call(rig, "POST", f"projects/{ALPHA}/repositories", CAROL, body)) == (
+        404,
+        "project_not_found",
+    )
+
+
+async def test_adding_needs_the_project_to_be_connected_to_github_by_a_member(rig) -> None:
+    await connect(rig)  # a connection of the caller is not the project's: nobody bound it
+    body = {"github_repo_id": 7}
+
     assert error_of(await call(rig, "POST", f"projects/{ALPHA}/repositories", body=body)) == (
         409,
         "github_not_connected",
     )
+    rig.integrations.put(rig.alpha, "github", None)  # its member left
+    assert error_of(await call(rig, "POST", f"projects/{ALPHA}/repositories", body=body)) == (
+        409,
+        "github_not_connected",
+    )
+    assert rig.db.rows == {} and rig.started == []
 
 
-async def test_a_start_that_fails_marks_the_repository_failed_so_the_owner_can_retry(rig) -> None:
+async def test_a_start_that_fails_marks_the_repository_failed_so_a_member_can_retry(rig) -> None:
     await connect(rig)
+    await bind(rig)
     rig.state.start_fails = True
 
     body = (await call(rig, "POST", f"projects/{ALPHA}/repositories", body={"github_repo_id": 7})).json()
@@ -327,14 +361,18 @@ async def test_a_start_that_fails_marks_the_repository_failed_so_the_owner_can_r
 
 async def test_removing_a_repository_deletes_its_snapshots(rig) -> None:
     await connect(rig)
+    await bind(rig)
     rid = (await call(rig, "POST", f"projects/{ALPHA}/repositories", body={"github_repo_id": 7})).json()["id"]
     key = repository_snapshot(ALPHA, rid, SHA)
     writer = await rig.runtime.store.open_writer(key, content_type="application/gzip")
     await writer.write(b"tar")
     await writer.close()
 
-    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/repositories/{rid}", BEN)) == (403, "owner_required")
-    assert (await call(rig, "DELETE", f"projects/{ALPHA}/repositories/{rid}")).status_code == 204
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/repositories/{rid}", CAROL)) == (
+        404,
+        "project_not_found",
+    )
+    assert (await call(rig, "DELETE", f"projects/{ALPHA}/repositories/{rid}", BEN)).status_code == 204  # D6
 
     assert rig.db.rows == {} and not await rig.runtime.store.exists(key)
     for path in (f"repositories/{rid}", "repositories/not-a-uuid", f"repositories/{rid}/clone"):

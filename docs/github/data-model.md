@@ -26,16 +26,16 @@ Row-level security is on with no policy and no grant: the agent role reads nothi
 
 ## project_repositories
 
-One row per GitHub repository a project owner added.
+One row per GitHub repository a project member added.
 
 | Column | Type | Rule |
 |---|---|---|
 | `id` | uuid | primary key |
 | `project_id` | uuid | foreign key `projects.id`; unique with `github_repo_id` |
 | `github_repo_id` | bigint | GitHub's repository id (stable across renames) |
-| `full_name`, `html_url` | text | not null; as GitHub answered when the owner added it |
+| `full_name`, `html_url` | text | not null; as GitHub answered when the member added it |
 | `private` | boolean | not null |
-| `added_by` | uuid | foreign key `users.id` on delete set null; the user whose connection every clone check uses |
+| `added_by` | uuid | foreign key `users.id` on delete set null; the user whose connection every clone check uses: the member the project's GitHub connection is bound to (`project_integrations`), kept equal to it when another member connects the project |
 | `clone_state` | text | `pending`, `cloning`, `cloned`, `failed` (check constraint); default `pending` |
 | `failure_code` | text | a clone failure code ([oauth.md](oauth.md#codes)); set exactly when `clone_state` is `failed` |
 | `default_branch`, `head_sha` | text | of the last good snapshot |
@@ -47,7 +47,7 @@ One row per GitHub repository a project owner added.
 
 A failed check keeps the last good snapshot and its fields. A member who is removed from the project, or leaves it,
 stops being `added_by` of its repositories in the same transaction (`db.members`); the next check then fails with
-`github_not_connected` until an owner adds the repository again. Row-level security is on with the policy
+`github_not_connected` until a member connects the project to GitHub again (that call points every repository at them). Row-level security is on with the policy
 `agent_project_scope` of the agent role and no grant, as on every project table.
 
 ## Migration

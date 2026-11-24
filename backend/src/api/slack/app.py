@@ -4,8 +4,9 @@ design", the phase 0 spike).
 Socket Mode opens an outbound WebSocket to Slack: no public endpoint. What it handles:
 
 - ``/specflow link``: a one-time link (``SlackLinks``) that the person opens while signed in to SpecFlow.
-- ``/specflow connect <project id>``: run in a channel by the project's owner (the command is copied from SpecFlow's
-  Settings), it connects the channel to the project and posts its open questions there. A caller not linked yet gets
+- ``/specflow connect <project id>``: run in a channel by a member of the project (the command is copied from
+  SpecFlow), it connects the channel to the project, records the member as the project's Slack integration
+  (``project_integrations``) and posts its open questions there. A caller not linked yet gets
   the link first, and the channel is connected as soon as they have signed in. ``/specflow disconnect`` undoes it.
 - ``/specflow answer [project]``: a modal opened at once ("Loading…", within the 3 s of the trigger) and filled with
   the caller's open questions, theirs first, then unassigned ones (``blocks.answer_view``).
@@ -52,7 +53,10 @@ from api.slack.threads import (
     SlackThreads,
     assign_answerer,
 )
+from db import integrations as integrations_db
 from db import repositories as repo
+from db.integrations import SLACK as SLACK_APP
+from db.integrations import WorkspaceMismatchError
 from graph.gap import AnswerInput, AnswerInvalidError, GapNotFoundError, GapStateError, StaleGapError
 from graph.gap.assignment import NO_ASSIGNEE
 from logger.logger import INFO, WARNING, get_logger, log_event
@@ -65,11 +69,10 @@ LINK_PATH: Final = "/api/integrations/slack/link"
 ASK: Final = "ask"
 PROJECTS_MAX: Final = 100
 STAGED_MAX: Final = 200
-OWNER: Final = "owner"
 HELP: Final = (
     "`/specflow link`: connect your Slack account to SpecFlow (once).\n"
-    "`/specflow connect <project id>`: connect this channel to a SpecFlow project you own, so its open questions are "
-    "posted here (copy the command from SpecFlow: Settings, Slack tab); `/specflow disconnect` undoes it.\n"
+    "`/specflow connect <project id>`: connect this channel to a SpecFlow project you are a member of, so its open "
+    "questions are posted here (copy the command from SpecFlow); `/specflow disconnect` undoes it.\n"
     "`/specflow plan [project]`: start the implementation plan, as the Plan screen's button does "
     "(in a project's channel the project is that one); `/specflow replan [project]` recreates it.\n"
     "`/specflow answer <project>`: answer your open questions of a project in a form."
@@ -79,13 +82,16 @@ PLAN_REFUSED: Final = {
     GRAPH_BUILD_RUNNING: "The project's knowledge is being built; start the plan when the build has finished.",
     NO_GRAPH_BUILD: "The project has no built knowledge yet; build it in SpecFlow first.",
 }
-CONNECT_USAGE: Final = "Copy the command from SpecFlow (Settings, Slack tab): `/specflow connect <project id>`."
-NOT_OWNER: Final = "Only the project's owner can connect it, with the command from SpecFlow (Settings, Slack tab)."
+CONNECT_USAGE: Final = "Copy the command from SpecFlow: `/specflow connect <project id>`."
+NOT_MEMBER: Final = "Only a member of the project can connect it, with the command from SpecFlow."
+WORKSPACE_MISMATCH: Final = (
+    "This project is connected to another Slack workspace; remove that connection in SpecFlow first."
+)
 CONNECT_REFUSED: Final = {
     NOT_A_CHANNEL: "Run the command in the channel to connect, not in a direct message.",
     NOT_IN_CHANNEL: "Add SpecFlow to this channel first (`/invite @SpecFlow`), then run the command again.",
     SHARED: "This channel is shared outside the workspace; connect an internal channel.",
-    TAKEN: "This channel is connected to another SpecFlow project; its owner must run `/specflow disconnect` first.",
+    TAKEN: "This channel is connected to another SpecFlow project; a member must run `/specflow disconnect` first.",
 }
 
 
@@ -112,6 +118,7 @@ class SlackGaps:
         self._runtime = runtime
         self.links = SlackLinks(state_dir)
         self._connecting: dict[str, _Connecting] = {}
+        self._team: tuple[str, str] | None = None  # the workspace of the bot token: its id and name
         self._app = AsyncApp(token=settings.bot_token.get_secret_value(), logger=get_logger("api.slack.bolt"))
         self.threads = SlackThreads(
             self._app.client,
@@ -130,6 +137,10 @@ class SlackGaps:
     async def start(self) -> None:
         await self._handler.connect_async()
         log_event(logger, INFO, "api.slack.connected")
+        with Contained() as filled:  # a failure here never turns Slack off; the next start tries again
+            await self._record_bindings()
+        if filled.failed:
+            log_event(logger, WARNING, "api.slack.integrations_failed", error_type=filled.error_type)
 
     async def aclose(self) -> None:
         await self._handler.close_async()
@@ -182,14 +193,19 @@ class SlackGaps:
         await self._connect_as(slack, user_id, wanted, channel_id, say)
 
     async def _connect_as(self, slack: SlackUser, user_id: uuid.UUID, wanted: str, channel_id: str, say: Say) -> None:
-        """Connect the channel to the project ``wanted`` (its id) when ``user_id`` owns it, then post its open
-        questions there. A project the caller does not own and one that does not exist get the same answer."""
+        """Connect the channel to the project ``wanted`` (its id) when ``user_id`` is a member, record them as the
+        project's Slack integration, then post its open questions there. A project the caller is not a member of and
+        one that does not exist get the same answer."""
 
-        project = await self._owned(user_id, wanted)
+        project = await self._member(user_id, wanted)
         if project is None:
-            await say(NOT_OWNER)
+            await say(NOT_MEMBER)
             return
         project_id = str(project.id)
+        team = await self._workspace() or (slack.team_id, slack.team_id)
+        if await self._other_workspace(project.id, team[0]):
+            await say(WORKSPACE_MISMATCH)
+            return
         try:
             earlier = await self.threads.connect(project_id, channel_id, by=str(user_id))
         except ChannelRefusedError as error:
@@ -203,6 +219,7 @@ class SlackGaps:
             )
             await say(CONNECT_REFUSED[error.code])
             return
+        await self._bind_integration(project.id, user_id, team)
         name = escaped(project.name, 150)
         if earlier is not None and earlier.channel_id == channel_id:
             await say(f"This channel is already connected to *{name}*.")
@@ -223,18 +240,95 @@ class SlackGaps:
         if project_id is None:
             await say("This channel is not connected to a SpecFlow project.")
             return
-        if await self._owned(user_id, project_id) is None:
-            await say("Only the owner of the connected SpecFlow project can disconnect it.")
+        if await self._member(user_id, project_id) is None:
+            await say("Only a member of the connected SpecFlow project can disconnect it.")
             return
-        await self.threads.channels.unbind(project_id)
+        await self.disconnect(project_id)
         log_event(logger, INFO, "api.slack.unbound", project_id=project_id, user_id=str(user_id))
         await say(
             f"🔌 <@{slack.user_id}> disconnected this channel from SpecFlow; no more questions are posted here.",
             public=True,
         )
 
-    async def _owned(self, user_id: uuid.UUID, wanted: str) -> Any:
-        """The project with the id ``wanted`` when ``user_id`` owns it; ``None`` otherwise."""
+    async def disconnect(self, project_id: str) -> None:
+        """Unbind the project's channel and remove its Slack integration (the web route and the command)."""
+
+        await self.threads.channels.unbind(project_id)
+        async with self._runtime.transaction() as session:
+            await integrations_db.delete_integration(session, uuid.UUID(project_id), SLACK_APP)
+
+    async def _workspace(self) -> tuple[str, str] | None:
+        """The id and name of the Slack workspace of the bot token (asked once); ``None`` when Slack does not say."""
+
+        if self._team is None:
+            with Contained() as asked:
+                answer = await self._app.client.auth_test()
+            team_id = None if asked.failed else str(answer.get("team_id") or "")
+            if not team_id:
+                return None
+            self._team = (team_id, str(answer.get("team") or team_id))
+        return self._team
+
+    async def _other_workspace(self, project_id: uuid.UUID, team_id: str) -> bool:
+        """The project's Slack integration is bound to another workspace and a member acts on it."""
+
+        async with self._runtime.transaction() as session:
+            bound = await integrations_db.get_integration(session, project_id, SLACK_APP)
+        return bound is not None and bound.user_id is not None and bound.workspace_id != team_id
+
+    async def _bind_integration(self, project_id: uuid.UUID, user_id: uuid.UUID, team: tuple[str, str]) -> None:
+        """Record ``user_id`` as the member the project's Slack channel is connected by."""
+
+        try:
+            async with self._runtime.transaction() as session:
+                await integrations_db.bind_integration(
+                    session,
+                    project_id,
+                    SLACK_APP,
+                    user_id=user_id,
+                    workspace_id=team[0],
+                    workspace_name=team[1],
+                    now=datetime.now(UTC),
+                )
+        except WorkspaceMismatchError:  # another connect moved the workspace since the check; the channel stays bound
+            log_event(logger, WARNING, "api.slack.integration_mismatch", project_id=str(project_id))
+
+    async def _record_bindings(self) -> None:
+        """Give every channel binding made before the integrations table existed its row: the member who ran the
+        connect, while they are still a member. A binding that has a row is left as it is."""
+
+        team = await self._workspace()
+        if team is None:
+            return
+        for bound in await self.threads.channels.bindings():
+            with Contained() as recorded:  # one bad binding (an odd id, a failed write) never stops the others
+                await self._record_binding(bound, team)
+            if recorded.failed:
+                log_event(
+                    logger,
+                    WARNING,
+                    "api.slack.integration_record_failed",
+                    project_id=bound.project_id,
+                    error_type=recorded.error_type,
+                )
+
+    async def _record_binding(self, bound: Any, team: tuple[str, str]) -> None:
+        project_id, user_id = uuid.UUID(bound.project_id), uuid.UUID(bound.bound_by)
+        async with self._runtime.transaction() as session:
+            if await repo.get_membership(session, user_id, project_id) is None:
+                return
+            await integrations_db.add_missing_integration(
+                session,
+                project_id,
+                SLACK_APP,
+                user_id=user_id,
+                workspace_id=team[0],
+                workspace_name=team[1],
+                now=datetime.now(UTC),
+            )
+
+    async def _member(self, user_id: uuid.UUID, wanted: str) -> Any:
+        """The project with the id ``wanted`` when ``user_id`` is a member of it; ``None`` otherwise."""
 
         try:
             project_id = uuid.UUID(wanted)
@@ -242,7 +336,7 @@ class SlackGaps:
             return None
         async with self._runtime.transaction() as session:
             found = await repo.get_membership(session, user_id, project_id)
-        return found[0] if found is not None and found[1] == OWNER else None
+        return None if found is None else found[0]
 
     def _poster(self, slack: SlackUser, waiting: _Connecting) -> Say:
         """``Say`` for a connect finished after the link: the slash command's reply is gone, so the app posts."""

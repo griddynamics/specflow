@@ -15,14 +15,14 @@ sentences and never echo a value or Jira text.
 | Check | Answer |
 |---|---|
 | Caller is not a member, the project does not exist, or the id is malformed | 404 `project_not_found` (the rule of every project route) |
-| Owner route and the caller is a collaborator | 403 `owner_required` |
+| Owner route and the caller is a collaborator | 403 `owner_required` (no Jira route is owner-only since V2, D6; the members, rename and invite routes are) |
 | Jira is off: neither the OAuth app nor the one account is set ([oauth.md](oauth.md#modes)) | 503 `jira_unavailable` on every route below except `GET /projects/{pid}/jira` |
 
-Any member may start a sync and read its status, on the agent routes (D9, D14). Only the
-owner changes settings or runs the access check.
+Any member may start a sync and read its status, on the agent routes (D9, D14), and since Mission Control V2 (D6) any
+member saves the settings and runs the access check too.
 
-Order of the checks: membership (404), owner (403), the body (422), availability (503), then on `PUT` in `oauth` mode the
-caller's Atlassian connection (409). A malformed body on a
+Order of the checks: membership (404), the body (422), availability (503), then on `PUT` in `oauth` mode the project's
+Atlassian connection (409). A malformed body on a
 server without `ATLASSIAN_*` is 422, not 503.
 
 ## Web routes
@@ -30,8 +30,8 @@ server without `ATLASSIAN_*` is 422, not 503.
 | Method, path | Who | Body | Success |
 |---|---|---|---|
 | `GET /projects/{pid}/jira` | member | - | 200 `JiraSettingsOut` |
-| `PUT /projects/{pid}/jira` | owner | `JiraSettingsIn` | 200 `JiraSettingsOut` |
-| `POST /projects/{pid}/jira/access-check` | owner | `JiraAccessCheckIn` | 200 `JiraAccessOk` or `JiraAccessFailed` |
+| `PUT /projects/{pid}/jira` | member | `JiraSettingsIn` | 200 `JiraSettingsOut` |
+| `POST /projects/{pid}/jira/access-check` | member | `JiraAccessCheckIn` | 200 `JiraAccessOk` or `JiraAccessFailed` |
 
 There is no web route that starts a sync (D24): the web app only configures. Bodies forbid extra fields.
 
@@ -88,7 +88,7 @@ Prefix `/api/v1/agent`, the MCP policy, `project_id` in the query, the membershi
 |---|---|
 | `JiraSettingsIn` | `jira_project` (string), `epic_key` (string or null), `enabled` (bool) |
 | `JiraAccessCheckIn` | `jira_project`, `epic_key` (string or null) |
-| `JiraSettingsOut` | `available` (Jira is on, in `oauth` or `token` mode), `editable` (the caller is the owner), `site_url` (null unless available), `jira_project`, `epic_key`, `created_epic_key` (the Epic Specflow created, read-only), `enabled` (false without a target), `sync` (`JiraSyncStatus` or null without a target), `connection` (`JiraConnectionOut`; null outside `oauth` mode and without a target) |
+| `JiraSettingsOut` | `available` (Jira is on, in `oauth` or `token` mode), `editable` (true for every member), `site_url` (null unless available), `jira_project`, `epic_key`, `created_epic_key` (the Epic Specflow created, read-only), `enabled` (false without a target), `sync` (`JiraSyncStatus` or null without a target), `connection` (`JiraConnectionOut`; null outside `oauth` mode and without a target) |
 | `JiraConnectionOut` | `connected_by_name` (the acting account's Atlassian display name, null when `missing`), `connected_by_me` (bool), `status` (`active`, `expired`, `missing`) ([oauth.md](oauth.md#routes)) |
 | `JiraAccessOk` | `result: "ok"`, `project_name`, `epic_summary` (string or null) |
 | `JiraAccessFailed` | `result: "failed"`, `reason` ([Access check](#access-check)), `field` (`jira_project`, `epic_key` or null) |
@@ -137,8 +137,8 @@ error code of these routes except where the table above says so.
 | `jira_unexpected` | run, item, check | any other Jira status; on a run also a project that lacks the issue type of a create; on an item a link add that answers 404 while both issues exist, and a rank call that answers 404 |
 | `jira_issue_types_missing` | check | the project lacks `Epic`, `Story` or a sub-task type |
 | `jira_epic_invalid` | check | the Epic key is not an `Epic` of the project |
-| `jira_not_connected` | run, check | `oauth` mode: the acting account (run) or the caller (check) has no Atlassian connection, or no owner saved the target since `oauth` was turned on |
-| `jira_reconnect_required` | run, check | `oauth` mode: that connection expired (Atlassian refused its refresh token); its owner reconnects |
+| `jira_not_connected` | run, check | `oauth` mode: the acting account (run) or the caller (check) has no Atlassian connection, or the project has no Atlassian connection bound to a member (`PUT /projects/{pid}/integrations/atlassian`, [integrations-api.md](../mission-control/integrations-api.md)) |
+| `jira_reconnect_required` | run, check | `oauth` mode: that connection expired (Atlassian refused its refresh token); its member reconnects |
 | `jira_not_configured` | skipped | the target was disabled or removed before the pass |
 | `no_plan` | skipped | the project has no plan yet |
 | `plan_applying` | skipped | a plan run was writing the plan |
@@ -169,14 +169,14 @@ or a token. The events of the Atlassian connections are in [oauth.md](oauth.md#l
 | STRIDE | Example | Mitigation |
 |---|---|---|
 | Spoofing | a non-member starts a sync | membership check before anything on every route |
-| Tampering | a collaborator points the project at another Jira project | `PUT` and the access check are owner-only |
+| Tampering | a collaborator points the project at another Jira project | accepted since V2 (D6): any member sets the target; the sync acts as the member the project's Atlassian connection is bound to, whoever saves |
 | Tampering | a sync overwrites work people do in Jira | only To Do issues are overwritten, only owned fields; others get a comment ([sync.md](sync.md#update-rules)) |
 | Tampering | a sync deletes or closes issues | the gateway has no issue delete and no transition call; removed items get a label and a comment |
 | Repudiation | who changed the target or started a sync | `api.jira.settings.saved`, `api.jira.sync.queued` with ids |
 | Information disclosure | the Atlassian token leaks | `token` mode: env only; a secret setting type; never in the database, a response, a log or an exception text. `oauth` mode: refresh tokens Fernet-encrypted at rest, access tokens in memory only, no agent-role access to the table |
 | Spoofing | a callback binds another user's Atlassian grant | `state` is signed, expires in 10 minutes and names the user who asked ([oauth.md](oauth.md#connect-flow)) |
 | Information disclosure | plan text reaches logs | events carry ids and codes only |
-| Information disclosure | an owner reads the names of Jira projects and Epics through the access check | accepted for the MVP: the check is owner-only, but whoever creates a project owns it, and the check answers with the project name and the Epic summary of any key the account can see; the account's own Jira permissions bound it |
-| Information disclosure | a member writes into any Jira project the account can reach | accepted for the MVP (D9): only owners choose the target; the account's own Jira permissions bound it (in `oauth` mode those of the owner who saved the target) |
+| Information disclosure | an owner reads the names of Jira projects and Epics through the access check | accepted: any member runs the check (D6), and it answers with the project name and the Epic summary of any key the account can see; the account's own Jira permissions bound it |
+| Information disclosure | a member writes into any Jira project the account can reach | accepted (D9, D6): members choose the target; the account's own Jira permissions bound it (in `oauth` mode those of the member the project's Atlassian connection is bound to) |
 | Denial of service | many triggers flood Jira | one pass per project, merged starts, one pass per process, `Retry-After` honoured |
 | Elevation of privilege | an agent changes settings | no tool changes settings; the agent routes only start a sync and read status |

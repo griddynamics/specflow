@@ -27,7 +27,7 @@ token, Fernet-encrypted with `ATLASSIAN_TOKEN_KEY`; access tokens are never stor
 | `last_started_at`, `last_finished_at` | timestamptz | null until a pass is queued or ends (`last_started_at` is set when the pass is queued) |
 | `last_error_code` | text | a code of [api.md](api.md#sync-codes), else null |
 | `last_counts` | jsonb | null until a pass ends; the counts object of [sync.md](sync.md#triggers-and-runs) |
-| `connected_user_id` | uuid | null; foreign key to `users.id` on delete set null; the owner who last saved the target, whose Atlassian connection the sync acts as in `oauth` mode (ignored in `token` mode); set to null when that user is removed from the project or leaves it; added by 0006 |
+| `connected_user_id` | uuid | null; foreign key to `users.id` on delete set null; the member the project's Atlassian connection is bound to (`project_integrations`, app `atlassian`; set by every settings `PUT` and by the connect call), whose Atlassian connection the sync acts as in `oauth` mode (null and ignored in `token` mode); set to null when that user is removed from the project, leaves it, or the project's connection is removed; added by 0006 |
 
 The key formats are checked by the API ([api.md](api.md#web-routes)); the table keeps them as text.
 

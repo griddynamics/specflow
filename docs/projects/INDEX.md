@@ -2,7 +2,9 @@
 
 A project's creator is its owner. The owner adds collaborators by email on the project's Settings screen (tab
 "General"), or when creating the project; an email that never signed in waits as an invite until its first sign-in.
-The owner renames the project, removes collaborators and cancels invites; a collaborator can leave. Removal frees the
+The owner renames the project, removes collaborators and cancels invites; a collaborator can leave. Everything else, the
+integrations (a Jira target, GitHub repositories, a Slack channel) included, any member does (Mission Control V2, D6;
+[integrations-api.md](../mission-control/integrations-api.md)). Removal frees the
 person's story claims. Membership stays the only rule for reading and working on a project, on the web and over MCP.
 
 # overview.md: purpose, scope, actors, non-goals, boundaries, key terms

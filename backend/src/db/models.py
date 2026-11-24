@@ -55,7 +55,8 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # The Drive-related values mirror
 # drive.categories / reasons; a test keeps them equal. They are
 # written out here so the models do not import the Drive package.
-CONNECTION_KINDS: Final = ("gdrive", "upload")
+# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations).
+CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic")
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",
@@ -382,6 +383,7 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 # GitHub tables (docs/github/data-model.md). The failure codes mirror github.codes.CLONE_FAILURE_CODES; a test keeps
 # them equal (db does not import github).
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
+INTEGRATION_APPS: Final = ("atlassian", "github", "slack")
 REPOSITORY_CLONE_STATES: Final = ("pending", "cloning", "cloned", "failed")
 REPOSITORY_FAILURE_CODES: Final = (
     "github_not_connected",
@@ -776,3 +778,24 @@ class ProjectRepository(Base):
     cloned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
+
+
+class ProjectIntegration(Base):
+    """The member whose per-user connection a project's uses of an app act as (migration
+    ``0008_project_integrations``): one row per app per project, with the one workspace (Atlassian site, GitHub account,
+    Slack workspace) of the project. ``user_id`` is null once that member is no longer a member. Holds no credential."""
+
+    __tablename__ = "project_integrations"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "app"),
+        CheckConstraint(_one_of("app", INTEGRATION_APPS), name="app"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    app: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_name: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

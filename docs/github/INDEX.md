@@ -1,7 +1,9 @@
 # INDEX.md: table of contents of the GitHub integration specification
 
-Each Specflow user connects their own GitHub account through the deployment's GitHub App. A project owner adds
-repositories that this account can read to the project (Settings, tab GitHub). The `worker-agents` service clones each
+Each Specflow user connects their own GitHub account through the deployment's GitHub App. A project member connects
+the project to GitHub as themselves (`PUT /projects/{pid}/integrations/github`,
+[integrations-api.md](../mission-control/integrations-api.md)); any member then adds repositories that this account can
+read to the project (Settings, tab GitHub), and every clone uses that member's account. The `worker-agents` service clones each
 repository and keeps a snapshot of it in object storage. A later feature reads the snapshots (knowledge build, agent
 tools); this one stops at "the repository is clonable".
 

@@ -1,0 +1,330 @@
+"""The project integration routes over the REST app (docs/mission-control/integrations-api.md): who each app of a
+project is connected by, connecting Atlassian and GitHub as the caller, and removing a connection. Atlassian and GitHub
+run on their scripted fakes (a connection row of each member), Slack on a binding file; the rows of
+``project_integrations`` are an in-memory fake.
+
+Standings as in test_api_jira_routes: alice owns ``Alpha``, ben is its collaborator, carol is no member.
+
+Sequence of ``PUT`` (an app is called only while no transaction is open)::
+
+    web -> project_member -> the caller's own connection read (Atlassian / GitHub service)
+        -> transaction: bind_integration + point the Jira target / the repositories at the caller -> commit
+        -> 200 ProjectIntegrationOut (health read through the service again)
+"""
+
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+from typing import Any
+from urllib.parse import parse_qs, urlsplit
+
+import httpx
+import pytest
+import pytest_asyncio
+
+from api.jira.connections import AtlassianConnections
+from api.jira.runner import JiraSyncRunner
+from api.slack.channels import Binding, SlackChannels
+from atlassian_support import CLOUD, FakeAtlassianDb, FakeOAuthClient, oauth_env, oauth_settings
+from github.connections import GitHubConnections
+from github_support import CODE_CANARY, USER_ID, FakeGitHub, MemoryStore, github_settings
+from integrations_db_fakes import FakeIntegrationsDb
+from specflow_api_agent_support import ALPHA, agent_env, serve_agent
+from test_api_atlassian_routes import call, error_of
+
+ALICE, BEN, CAROL = "alice@example.com", "ben@example.com", "carol@example.com"
+SITE_HOST = "example.atlassian.net"
+
+
+@pytest_asyncio.fixture
+async def rig(monkeypatch, valid_env, tmp_path):
+    """The app with Atlassian (oauth mode), GitHub and Slack on: ``rig.atlassian`` and ``rig.github_store`` hold the
+    members' connections, ``rig.integrations`` the project rows, ``rig.channels`` the Slack bindings."""
+
+    async with serve_agent(monkeypatch, agent_env(valid_env, **oauth_env())) as served:
+        atlassian = FakeAtlassianDb()
+        atlassian.install(monkeypatch)
+        integrations = FakeIntegrationsDb()
+        integrations.install(monkeypatch)
+        runtime, repo = served.runtime, served.repo
+        connections = AtlassianConnections(oauth_settings(), transaction=runtime.transaction, client=FakeOAuthClient())
+        runner = JiraSyncRunner(
+            None, transaction=runtime.transaction, store=None, public_url=None, site_url="x", connections=connections
+        )
+        runtime.jira = runner
+        github, store = FakeGitHub(), MemoryStore()
+        github_connections = GitHubConnections(github_settings(), store=store.transaction, client=github.client())
+        runtime.github = github_connections
+        channels = SlackChannels(tmp_path)
+        runtime.slack = SimpleNamespace(threads=SimpleNamespace(channels=channels))
+        ben = await repo.upsert_user(None, SimpleNamespace(subject=f"user:{BEN}", email=BEN, name=None))
+        alpha = uuid.UUID(ALPHA)
+        repo.members.add((alpha, ben.id))
+        repo.roles[(alpha, ben.id)] = "collaborator"
+        await repo.upsert_user(None, SimpleNamespace(subject=f"user:{CAROL}", email=CAROL, name=None))
+        alice = served.users["alice"]
+        integrations.names |= {alice.id: "Alice", ben.id: "Ben"}
+        yield SimpleNamespace(
+            http=served.client,
+            runtime=runtime,
+            atlassian=atlassian,
+            github=github,
+            github_store=store,
+            integrations=integrations,
+            channels=channels,
+            alpha=alpha,
+            alice=alice,
+            ben=ben,
+        )
+        await runner.aclose()
+        await github_connections.aclose()
+
+
+async def connect_github(rig: Any, user_id: uuid.UUID, login: str = "octo") -> None:
+    """The member's own GitHub connection (the callback of the connect flow, on the scripted GitHub)."""
+
+    rig.github.logins[USER_ID] = login
+    rig.github.codes[CODE_CANARY] = USER_ID
+    state = parse_qs(urlsplit(rig.runtime.github.authorize_url(user_id, "/p")).query)["state"][0]
+    await rig.runtime.github.connect(user_id, code=CODE_CANARY, state=state)
+
+
+def apps(response: httpx.Response) -> dict[str, dict[str, Any]]:
+    assert response.status_code == 200
+    return {item["app"]: item for item in response.json()["integrations"]}
+
+
+# GET ------------------------------------------------------------------------------------------------------------------
+
+
+async def test_a_project_without_connections_lists_the_three_apps_with_nothing_acting(rig) -> None:
+    answer = await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN)
+
+    assert [item["app"] for item in answer.json()["integrations"]] == ["atlassian", "github", "slack"]
+    assert list(apps(answer).values()) == [
+        {
+            "app": app,
+            "available": True,
+            "connected_by": None,
+            "workspace": None,
+            "connected_at": None,
+            "health": "none",
+        }
+        for app in ("atlassian", "github", "slack")
+    ]
+
+
+async def test_a_connected_app_names_the_member_its_workspace_and_the_health_of_their_connection(rig) -> None:
+    rig.atlassian.add(rig.alice.id)
+    await connect_github(rig, rig.ben.id, "octo-ben")
+    rig.integrations.put(rig.alpha, "atlassian", rig.alice.id, workspace_id=CLOUD, workspace_name="stored")
+    rig.integrations.put(rig.alpha, "github", rig.ben.id, workspace_id="octo-ben", workspace_name="octo-ben")
+    rig.integrations.put(rig.alpha, "slack", rig.alice.id, workspace_id="T1", workspace_name="Shop")
+    await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
+
+    listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN))
+
+    assert listed["atlassian"]["connected_by"] == {"user_id": str(rig.alice.id), "name": "Alice"}
+    assert listed["atlassian"]["workspace"] == {"id": CLOUD, "name": SITE_HOST}  # the configured site names it
+    assert listed["github"]["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
+    assert listed["github"]["workspace"] == {"id": "octo-ben", "name": "octo-ben"}
+    assert listed["slack"]["workspace"] == {"id": "T1", "name": "Shop"}
+    assert {app: item["health"] for app, item in listed.items()} == dict.fromkeys(
+        ("atlassian", "github", "slack"), "active"
+    )
+    assert all(item["connected_at"] is not None for item in listed.values())
+
+
+async def test_an_expired_connection_asks_to_reconnect_and_a_missing_one_or_member_acts_as_nothing(rig) -> None:
+    rig.atlassian.add(rig.alice.id, status="expired")
+    rig.integrations.put(rig.alpha, "atlassian", rig.alice.id)
+    rig.integrations.put(rig.alpha, "github", rig.ben.id)  # ben has no GitHub connection any more
+    rig.integrations.put(rig.alpha, "slack", None)  # its member left
+
+    listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))
+
+    assert listed["atlassian"]["health"] == "reconnect_required"
+    assert listed["github"]["health"] == "none" and listed["github"]["connected_by"] is not None
+    assert listed["slack"]["health"] == "none" and listed["slack"]["connected_by"] is None
+    assert listed["slack"]["workspace"] is not None  # the workspace stays: D3, one per project
+
+
+async def test_an_app_the_server_does_not_run_is_unavailable(rig) -> None:
+    rig.runtime.github = None
+    rig.runtime.slack = None
+    rig.runtime.jira = SimpleNamespace(connections=None)  # token mode: one account for the server, no per-user ones
+
+    listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))
+
+    assert {app: item["available"] for app, item in listed.items()} == dict.fromkeys(
+        ("atlassian", "github", "slack"), False
+    )
+
+
+async def test_a_non_member_learns_nothing_of_the_integrations(rig) -> None:
+    for method, path in (("GET", ""), ("PUT", "/github"), ("DELETE", "/slack")):
+        answer = await call(rig, method, f"projects/{ALPHA}/integrations{path}", CAROL)
+        assert error_of(answer) == (404, "project_not_found"), path
+
+
+# PUT ------------------------------------------------------------------------------------------------------------------
+
+
+async def test_a_member_connects_atlassian_as_themselves_and_the_jira_target_acts_as_them(rig) -> None:
+    rig.atlassian.add(rig.ben.id)
+
+    answer = await call(rig, "PUT", f"projects/{ALPHA}/integrations/atlassian", BEN)  # a collaborator: D6
+
+    assert answer.status_code == 200
+    assert answer.json()["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
+    assert answer.json()["workspace"] == {"id": CLOUD, "name": SITE_HOST} and answer.json()["health"] == "active"
+    assert rig.integrations.rows[rig.alpha, "atlassian"].user_id == rig.ben.id
+    assert rig.integrations.pointed == [("jira", rig.alpha, rig.ben.id)]
+
+
+async def test_a_member_connects_github_as_themselves_and_the_repositories_are_cloned_with_them(rig) -> None:
+    await connect_github(rig, rig.alice.id)
+
+    answer = await call(rig, "PUT", f"projects/{ALPHA}/integrations/github")
+
+    assert answer.status_code == 200
+    assert answer.json()["workspace"] == {"id": "octo", "name": "octo"} and answer.json()["health"] == "active"
+    assert rig.integrations.pointed == [("repositories", rig.alpha, rig.alice.id)]
+
+
+@pytest.mark.parametrize("app", ["atlassian", "github"])
+async def test_connecting_needs_the_callers_own_active_connection(rig, app) -> None:
+    missing = await call(rig, "PUT", f"projects/{ALPHA}/integrations/{app}")
+    if app == "atlassian":
+        rig.atlassian.add(rig.alice.id, status="expired")
+    else:
+        await connect_github(rig, rig.alice.id)
+        rig.github_store.rows[rig.alice.id] = rig.github_store.rows[rig.alice.id].__class__(
+            **{**vars(rig.github_store.rows[rig.alice.id]), "status": "expired"}
+        )
+    expired = await call(rig, "PUT", f"projects/{ALPHA}/integrations/{app}")
+
+    assert error_of(missing) == error_of(expired) == (409, f"{app}_not_connected")
+    assert rig.integrations.rows == {} and rig.integrations.pointed == []
+
+
+async def test_a_project_stays_in_the_one_workspace_of_its_app(rig) -> None:
+    await connect_github(rig, rig.ben.id, "other-org")
+    rig.integrations.put(rig.alpha, "github", rig.alice.id, workspace_id="octo", workspace_name="octo")
+
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/github", BEN)
+
+    assert error_of(refused) == (409, "integration_workspace_mismatch")
+    assert rig.integrations.rows[rig.alpha, "github"].user_id == rig.alice.id and rig.integrations.pointed == []
+
+
+async def test_a_member_takes_over_a_workspace_whose_member_left_and_another_member_of_it_reconnects(rig) -> None:
+    await connect_github(rig, rig.ben.id, "other-org")
+    rig.integrations.put(rig.alpha, "github", None, workspace_id="octo", workspace_name="octo")  # nobody acts on it
+
+    taken = await call(rig, "PUT", f"projects/{ALPHA}/integrations/github", BEN)
+
+    assert taken.status_code == 200 and taken.json()["workspace"]["id"] == "other-org"
+    assert taken.json()["connected_by"]["user_id"] == str(rig.ben.id)
+    assert rig.integrations.pointed == [("repositories", rig.alpha, rig.ben.id)]
+
+
+async def test_the_apps_the_server_does_not_run_refuse_a_connect(rig) -> None:
+    rig.runtime.github = None
+    rig.runtime.jira = SimpleNamespace(connections=None)  # token mode: one account for the server
+
+    github = await call(rig, "PUT", f"projects/{ALPHA}/integrations/github")
+    atlassian = await call(rig, "PUT", f"projects/{ALPHA}/integrations/atlassian")
+
+    assert error_of(github) == (503, "github_unavailable")
+    assert error_of(atlassian) == (503, "atlassian_oauth_unavailable")
+
+
+async def test_slack_is_connected_by_its_command_not_by_put(rig) -> None:
+    answer = await call(rig, "PUT", f"projects/{ALPHA}/integrations/slack")
+
+    assert error_of(answer) == (422, "validation_failed")
+
+
+# DELETE ---------------------------------------------------------------------------------------------------------------
+
+
+async def test_the_member_who_connected_an_app_or_the_owner_removes_it_and_what_used_it_stops(rig) -> None:
+    rig.integrations.put(rig.alpha, "atlassian", rig.ben.id)
+    rig.integrations.put(rig.alpha, "github", rig.ben.id)
+
+    by_ben = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/atlassian", BEN)
+    by_owner = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/github")  # alice owns the project
+
+    assert by_ben.status_code == by_owner.status_code == 204
+    assert rig.integrations.rows == {}
+    assert rig.integrations.pointed == [("jira", rig.alpha, None), ("repositories", rig.alpha, None)]
+
+
+async def test_another_member_may_not_remove_it_and_nothing_changes(rig) -> None:
+    rig.integrations.put(rig.alpha, "atlassian", rig.alice.id)
+
+    refused = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/atlassian", BEN)
+
+    assert error_of(refused) == (403, "integration_forbidden")
+    assert (rig.alpha, "atlassian") in rig.integrations.rows and rig.integrations.pointed == []
+
+
+async def test_a_connection_whose_member_left_is_removed_by_the_owner_only(rig) -> None:
+    rig.integrations.put(rig.alpha, "github", None)
+
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/github", BEN)) == (
+        403,
+        "integration_forbidden",
+    )
+    assert (await call(rig, "DELETE", f"projects/{ALPHA}/integrations/github")).status_code == 204
+
+
+async def test_removing_what_is_not_connected_is_404_and_an_unknown_app_is_422(rig) -> None:
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/github")) == (
+        404,
+        "integration_not_found",
+    )
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack")) == (
+        404,
+        "integration_not_found",
+    )
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")) == (422, "validation_failed")
+
+
+async def test_removing_slack_unbinds_its_channel(rig) -> None:
+    rig.integrations.put(rig.alpha, "slack", rig.alice.id)
+    await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
+
+    answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack", BEN)  # not the connector
+
+    assert error_of(answer) == (403, "integration_forbidden")
+    assert (await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack")).status_code == 204
+    assert await rig.channels.binding(str(rig.alpha)) is None and rig.integrations.rows == {}
+
+
+async def test_a_slack_row_stays_when_the_channel_cannot_be_unbound(rig, monkeypatch) -> None:
+    rig.integrations.put(rig.alpha, "slack", rig.alice.id)
+    await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
+
+    async def broken(_project_id: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(rig.channels, "unbind", broken)
+
+    answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack")
+
+    assert answer.status_code == 500
+    assert (
+        rig.alpha,
+        "slack",
+    ) in rig.integrations.rows  # a row that says "connected" is never left without its channel
+
+
+async def test_a_channel_bound_before_its_row_existed_can_still_be_removed(rig) -> None:
+    await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
+
+    answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack", BEN)
+
+    assert answer.status_code == 204 and await rig.channels.binding(str(rig.alpha)) is None

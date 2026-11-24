@@ -1,11 +1,11 @@
 # INDEX.md: table of contents of the Jira sync specification
 
-Specflow pushes a project's implementation plan into Jira on its own. The project owner sets a Jira project and,
+Specflow pushes a project's implementation plan into Jira on its own. Any project member sets a Jira project and,
 optionally, an Epic on the project's Settings screen (tab "Jira") and turns the sync on; after every plan run that does
 not fail, Specflow creates and updates one Epic, a Story per plan story and a Sub-task per task, with labels, story
 points, "Blocks" links and rank. Issues still in To Do are overwritten in the fields Specflow owns; any other issue gets
 one comment that lists what changed. Coding agents run the sync and read its status over MCP. Specflow calls Jira either
-as each project owner's own Atlassian account, connected with OAuth, or as one Atlassian account set in the environment.
+as the account of the member who connected the project to Atlassian, with OAuth, or as one Atlassian account set in the environment.
 
 # overview.md: purpose, scope, actors, non-goals, boundaries, flow, key terms
 - [overview.md](overview.md)

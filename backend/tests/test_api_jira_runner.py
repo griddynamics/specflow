@@ -582,7 +582,9 @@ async def test_build_runtime_builds_closes_and_wires_the_runner(monkeypatch, val
     await graph.aclose()
 
     assert isinstance(bare.jira, JiraSyncRunner) and isinstance(gateway, HttpJiraGateway)
-    assert bare.plans is None and graph.plans._jira is graph.jira
+    assert bare.plans is None
+    # the plan runner's one hook is the fan-out of the plan destinations; Jira is the first of them
+    assert graph.plans._jira is graph.plan_destinations and graph.plan_destinations._destinations == [graph.jira]
     assert bare.jira._closed and gateway._client.is_closed
     assert bare.jira._deps.public_url is None and bare.jira._site_url == SITE
 

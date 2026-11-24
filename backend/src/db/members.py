@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.emails import domain_allowed, normalise_email
-from db.models import JiraTarget, Project, ProjectInvite, ProjectMember, ProjectRepository, User
+from db.models import JiraTarget, Project, ProjectIntegration, ProjectInvite, ProjectMember, ProjectRepository, User
 
 MEMBER_LIMIT: Final = 50
 SUGGESTION_MIN_CHARS: Final = 3
@@ -347,18 +347,25 @@ async def _delete_collaborator(
         .where(ProjectRepository.project_id == project_id, ProjectRepository.added_by == user_id)
         .values(added_by=None)
     )
+    # Nor the member every integration of the project (Atlassian, GitHub, Slack) runs on (docs/mission-control).
+    await session.execute(
+        update(ProjectIntegration)
+        .where(ProjectIntegration.project_id == project_id, ProjectIntegration.user_id == user_id)
+        .values(user_id=None)
+    )
 
 
 async def remove_member(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """Delete a member row and clear them as the Jira target's acting account and as the adder of the project's GitHub
-    repositories. ``MemberNotFoundError`` when none; ``CannotRemoveOwnerError`` for the owner."""
+    """Delete a member row and clear them as the Jira target's acting account, as the adder of the project's GitHub
+    repositories and as the member of its integrations. ``MemberNotFoundError`` when none; ``CannotRemoveOwnerError``
+    for the owner."""
 
     await _delete_collaborator(session, project_id, user_id, owner_error=CannotRemoveOwnerError)
 
 
 async def leave_project(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """The caller leaves and stops being the Jira target's acting account. ``OwnerCannotLeaveError`` for the owner,
-    ``MemberNotFoundError`` for a non-member."""
+    """The caller leaves and stops being the Jira target's acting account and the member of the project's
+    integrations. ``OwnerCannotLeaveError`` for the owner, ``MemberNotFoundError`` for a non-member."""
 
     await _delete_collaborator(session, project_id, user_id, owner_error=OwnerCannotLeaveError)
 

@@ -1,6 +1,6 @@
 """``SlackThreads``: the channel flow (docs/slack/gap-answering.md "The channel flow").
 
-- **Connect.** The project owner runs ``/specflow connect <project id>`` in a channel the app is in; every open
+- **Connect.** A project member runs ``/specflow connect <project id>`` in a channel the app is in; every open
   question of the project (route ``ask``) is posted there, one message each, and so is every new one after each gap
   run. A channel belongs to one project, and the command proves the caller is in it.
 - **Answer in the thread.** Anyone in the channel answers by replying in a gap's thread: one option letter, or their
@@ -40,6 +40,9 @@ NOT_A_CHANNEL: Final = "not_a_channel"
 NOT_IN_CHANNEL: Final = "not_in_channel"
 SHARED: Final = "shared"
 TAKEN: Final = "taken"
+NO_CHANNEL: Final = "no_channel"
+UNREACHABLE: Final = "unreachable"
+LEFT_CHANNEL: Final = frozenset({"not_in_channel", "channel_not_found", "is_archived"})  # Slack's answers to a post
 PENDING_MAX: Final = 20  # replies kept per unlinked Slack user
 
 
@@ -60,6 +63,15 @@ class _Reply:
 class ChannelRefusedError(Exception):
     """The channel cannot be connected; ``code``: ``NOT_A_CHANNEL`` (a DM), ``NOT_IN_CHANNEL`` (the app is not in
     it), ``SHARED`` (shared outside the workspace) or ``TAKEN`` (connected to another project)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class WelcomeFailedError(Exception):
+    """The welcome message was not posted; ``code``: ``NO_CHANNEL`` (the project has no channel), ``NOT_IN_CHANNEL``
+    (the app left or cannot post in it) or ``UNREACHABLE`` (Slack did not answer)."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -139,6 +151,24 @@ class SlackThreads:
         return SlackChannel(channel_id, str(found.get("name", "")), bool(found.get("is_private")))
 
     # Posting ------------------------------------------------------------------------------------------------------
+
+    async def post_welcome(self, project_id: str, project_name: str) -> Binding:
+        """Post the welcome message in the project's channel so the person sees the connection work; the binding.
+        ``WelcomeFailedError`` with a closed code. The text is never logged."""
+
+        binding = await self.channels.binding(project_id)
+        if binding is None:
+            raise WelcomeFailedError(NO_CHANNEL)
+        text = f"Welcome to the workspace of project {escaped(project_name, 150)}."
+        with Contained() as posted:
+            await self._client.chat_postMessage(channel=binding.channel_id, text=text)
+        if posted.error is not None:
+            response = getattr(posted.error, "response", None)
+            reason = response.get("error") if response is not None else None
+            log_event(logger, WARNING, "api.slack.welcome_failed", project_id=project_id, error_type=posted.error_type)
+            raise WelcomeFailedError(NOT_IN_CHANNEL if reason in LEFT_CHANNEL else UNREACHABLE)
+        log_event(logger, INFO, "api.slack.welcome_posted", project_id=project_id)
+        return binding
 
     async def post_open(self, project_id: str) -> int:
         """Post the project's open questions that its channel has not seen; how many were posted."""

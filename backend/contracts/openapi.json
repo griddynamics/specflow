@@ -5051,7 +5051,9 @@
           "kind": {
             "enum": [
               "gdrive",
-              "upload"
+              "upload",
+              "confluence",
+              "jira_epic"
             ],
             "title": "Kind",
             "type": "string"
@@ -5073,6 +5075,50 @@
           "created_at"
         ],
         "title": "HolderOut",
+        "type": "object"
+      },
+      "IntegrationMemberOut": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name"
+        ],
+        "title": "IntegrationMemberOut",
+        "type": "object"
+      },
+      "IntegrationWorkspaceOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "IntegrationWorkspaceOut",
         "type": "object"
       },
       "InviteOut": {
@@ -7969,6 +8015,91 @@
         "title": "ProjectCreate",
         "type": "object"
       },
+      "ProjectIntegrationOut": {
+        "description": "One app of the project. ``available``: the server runs the app. ``connected_by``: the member whose account\nthe project's uses act as (none when not connected, or when that member left). ``health``: ``active`` when that\naccount works, ``reconnect_required`` when its connection expired, ``none`` when nothing acts.",
+        "properties": {
+          "app": {
+            "enum": [
+              "atlassian",
+              "github",
+              "slack"
+            ],
+            "title": "App",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "connected_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationMemberOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "enum": [
+              "active",
+              "reconnect_required",
+              "none"
+            ],
+            "title": "Health",
+            "type": "string"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationWorkspaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "app",
+          "available",
+          "connected_by",
+          "workspace",
+          "connected_at",
+          "health"
+        ],
+        "title": "ProjectIntegrationOut",
+        "type": "object"
+      },
+      "ProjectIntegrationsOut": {
+        "properties": {
+          "integrations": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectIntegrationOut"
+            },
+            "title": "Integrations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "integrations"
+        ],
+        "title": "ProjectIntegrationsOut",
+        "type": "object"
+      },
       "ProjectItem": {
         "properties": {
           "created_at": {
@@ -8846,7 +8977,7 @@
         "type": "object"
       },
       "SlackSettingsOut": {
-        "description": "``available``: the server runs the Slack app; ``channel`` the connected one (none when not connected);\n``editable``: the caller is the owner.",
+        "description": "``available``: the server runs the Slack app; ``channel`` the connected one (none when not connected);\n``editable``: the caller may disconnect it (every member).",
         "properties": {
           "available": {
             "title": "Available",
@@ -8873,6 +9004,24 @@
           "editable"
         ],
         "title": "SlackSettingsOut",
+        "type": "object"
+      },
+      "SlackTestOut": {
+        "description": "The welcome message was posted in ``channel``.",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/SlackChannelOut"
+          },
+          "posted": {
+            "title": "Posted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "posted",
+          "channel"
+        ],
+        "title": "SlackTestOut",
         "type": "object"
       },
       "SourceCreated": {
@@ -9017,7 +9166,9 @@
           "kind": {
             "enum": [
               "gdrive",
-              "upload"
+              "upload",
+              "confluence",
+              "jira_epic"
             ],
             "title": "Kind",
             "type": "string"
@@ -15877,6 +16028,152 @@
         ]
       }
     },
+    "/api/v1/projects/{pid}/integrations": {
+      "get": {
+        "operationId": "list_project_integrations_api_v1_projects__pid__integrations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectIntegrationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Project Integrations",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/integrations/{app}": {
+      "delete": {
+        "description": "Remove the project's connection to ``app`` (the member who made it, or the owner): everything that used it\nstops, and no other member's account takes over.",
+        "operationId": "delete_project_integration_api_v1_projects__pid__integrations__app__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "enum": [
+                "atlassian",
+                "github",
+                "slack"
+              ],
+              "title": "App",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Project Integration",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "put": {
+        "description": "Connect the project's ``app`` as the caller (their own active connection); a member of the same workspace may\ntake over a connection the earlier member left or lost. The Jira target and the repositories then act as the\ncaller.",
+        "operationId": "put_project_integration_api_v1_projects__pid__integrations__app__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "enum": [
+                "atlassian",
+                "github"
+              ],
+              "title": "App",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectIntegrationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Project Integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/projects/{pid}/invites/{invite_id}": {
       "delete": {
         "operationId": "cancel_invite_api_v1_projects__pid__invites__invite_id__delete",
@@ -16607,7 +16904,7 @@
         ]
       },
       "post": {
-        "description": "Add a repository the owner's own connection can read, then start its clone check.",
+        "description": "Add a repository the project's GitHub connection can read, then start its clone check.",
         "operationId": "create_project_repository_api_v1_projects__pid__repositories_post",
         "parameters": [
           {
@@ -16825,6 +17122,49 @@
           }
         },
         "summary": "Get Slack Settings",
+        "tags": [
+          "slack"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/slack/test": {
+      "post": {
+        "description": "Post the welcome message in the project's channel (any member, D6).",
+        "operationId": "test_slack_connection_api_v1_projects__pid__slack_test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackTestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Slack Connection",
         "tags": [
           "slack"
         ]
