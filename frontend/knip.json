@@ -26,5 +26,5 @@
     "enumMembers": "error",
     "duplicates": "error"
   },
-  "ignoreDependencies": ["@next/env", "@graphico/ui"]
+  "ignoreDependencies": ["@next/env"]
 }

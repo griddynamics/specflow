@@ -9,6 +9,7 @@ import "./globals.css"; // 0: app base (body, theme-root frame); tokens only
 import "@/styles/ds/tokens.css"; // 1: tokens first
 import "@/styles/ds/components/bundle.css"; // 2
 import "@/styles/ds-a11y.css"; // 2b: reduced-motion and focus cover of the frozen bundle copy (WCAG 2.2 SC 2.3.3, 2.4.7)
+import "@graphico/ui/styles.css"; // 3: Graphico style (Mission Control V2). Every rule sits under the `.gx` root class: no V1 screen changes.
 
 export const metadata: Metadata = {
   title: "Specflow",

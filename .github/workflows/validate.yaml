@@ -127,7 +127,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        track: [typescript-lint, typescript-scripts]
+        include:
+          - { track: typescript-lint, unit: frontend, prefix: frontend }
+          - { track: typescript-scripts, unit: frontend, prefix: frontend }
+          - { track: typescript-lint-ui, unit: ui, prefix: packages/ui }
+          - { track: typescript-scripts-ui, unit: ui, prefix: packages/ui }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -143,8 +147,8 @@ jobs:
       - if: matrix.track == 'typescript-scripts'
         run: make frontend-build
       - run: >-
-          python3 validation/ci/ci_report.py run --job static-${{ matrix.track }} --unit frontend
-          --step ${{ matrix.track }} --path-prefix frontend --findings-codes 1 2 --
+          python3 validation/ci/ci_report.py run --job static-${{ matrix.track }} --unit ${{ matrix.unit }}
+          --step ${{ matrix.track }} --path-prefix ${{ matrix.prefix }} --findings-codes 1 2 --
           make validate-${{ matrix.track }}
       - if: always()
         uses: actions/upload-artifact@v7
@@ -217,6 +221,12 @@ jobs:
           node --test --test-reporter=spec --test-reporter-destination=stdout
           --test-reporter=junit --test-reporter-destination=junit.xml
           "tests/unit/**/*.test.mjs" "tests/ui/**/*.test.mjs"
+      - run: >-
+          python3 validation/ci/ci_report.py run --job unit-typescript --unit ui --step node-test
+          --cwd packages/ui --junit junit.xml --findings-codes 1 2 --
+          node --import tsx --test --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=junit --test-reporter-destination=junit.xml
+          "tests/**/*.test.tsx"
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -377,7 +387,7 @@ jobs:
         run: >-
           python3 validation/ci/ci_report.py merge --expect
           static-python-lint static-python-scripts static-python-arch static-cypher static-sql static-licences
-          static-typescript-lint static-typescript-scripts unit-python unit-typescript
+          static-typescript-lint static-typescript-scripts static-typescript-lint-ui static-typescript-scripts-ui unit-python unit-typescript
           e2e-build
           e2e-production-shard1 e2e-production-shard2
       # Writes the tables to the run summary and file/line annotations to the pull request.

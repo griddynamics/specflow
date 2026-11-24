@@ -140,7 +140,7 @@ COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_PRO
 # `env -u VIRTUAL_ENV`: the kit tools run in the kit's own environments, not a shell's active venv.
 VALIDATION := $(CURDIR)/validation
 VALIDATE_REPORTS ?= $(CURDIR)/.validation-reports
-VALIDATE_TRACKS := python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts
+VALIDATE_TRACKS := python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts typescript-lint-ui typescript-scripts-ui
 VALIDATE_TARGETS := $(addprefix validate-,$(VALIDATE_TRACKS))
 KIT_ENV := env -u VIRTUAL_ENV
 
@@ -267,7 +267,7 @@ e2e-all:
 # ---- Validation ---------------------------------------------------------------------------
 # make validate                           every track, keeps going after a failure, lists the failed ones
 # make validate TRACKS="python-lint sql"  a subset
-# make validate-<track>                   one track: python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts
+# make validate-<track>                   one track: python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts typescript-lint-ui typescript-scripts-ui
 # make validate-install                   install the kit tools (uv sync / npm install); once, and after a kit update
 # make validate-install-python-clones     only the jscpd engine of validate-python-scripts' clones step (Node.js 24)
 # make validate-selftest                  the kit's own tests (only after editing a kit rule)
@@ -339,6 +339,17 @@ validate-typescript-lint:
 
 validate-typescript-scripts:
 	$(KIT_ENV) node $(VALIDATION)/typescript/scripts/run.mjs --config frontend/validation.config.json
+
+# The same two kit runs over packages/ui (@graphico/ui), with its own configs in that folder.
+validate-typescript-lint-ui:
+	$(KIT_ENV) node $(VALIDATION)/typescript/lint/run.mjs --project packages/ui
+
+validate-typescript-scripts-ui:
+	$(KIT_ENV) node $(VALIDATION)/typescript/scripts/run.mjs --config packages/ui/validation.config.json
+
+# Render tests of packages/ui (node:test through tsx), run by the unit-typescript CI job too.
+ui-test:
+	npm test --workspace=@graphico/ui
 
 validate-install: validate-install-python validate-install-typescript
 

@@ -1,6 +1,7 @@
 # Frontend image. The last stage (runtime) is the image; Infra and the local stack build it.
 # Build context = the repository root (npm workspace: package.json, package-lock.json, packages/ui, frontend/);
-# `docker build -f frontend/Dockerfile .`. The context is filtered by frontend/Dockerfile.dockerignore.
+# `docker build -f frontend/Dockerfile .`. The context is filtered by frontend/Dockerfile.dockerignore, which only
+# BuildKit reads: build with BuildKit, from the repository root, with `-f frontend/Dockerfile`.
 # The base tag is a literal in every FROM (no ARG), so --build-arg cannot change it.
 # runtime = the standalone Next server, started only after scripts/check-env.mjs passes.
 

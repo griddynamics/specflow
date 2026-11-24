@@ -55,4 +55,5 @@ docs/**/CHANGES.md
 # npm workspace (root install and Next build output)
 node_modules/
 .next/
-out/
+/out/
+/site/out/

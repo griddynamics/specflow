@@ -1,0 +1,13 @@
+{
+  "root": ".",
+  "checks": {
+    "tokens": false,
+    "css-usage": {
+      "src": "src",
+      "html": "src/index.ts",
+      "css": "src/**/*.css"
+    }
+  },
+  "tools": ["duplicates"],
+  "binDirs": []
+}
