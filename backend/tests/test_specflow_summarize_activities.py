@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 import logging
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from temporalio.exceptions import ApplicationError
@@ -319,7 +320,9 @@ async def test_registration_lists_the_workflow_and_activities_and_closes_everyth
     assert events == ["agent.dispose", "app.dispose"]
 
 
-async def test_the_worker_registry_loads_the_agents_registration(valid_env):
+async def test_the_worker_registry_loads_the_agents_registration(valid_env, monkeypatch):
+    # A fake object store: the real GCS client needs Application Default Credentials, which CI has not.
+    monkeypatch.setattr("storage.factory.build_object_store", lambda _s, **_kw: SimpleNamespace())
     settings = load_settings("worker", valid_env)
     reg = load_registration("agents", settings)
     try:
