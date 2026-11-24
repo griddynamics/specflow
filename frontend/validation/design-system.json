@@ -32,7 +32,7 @@
   "headerComponentNames": ["TopBar"],
   "pillComponentNames": ["Tag", "SeverityBadge"],
   "typeRoleFields": ["headline"],
-  "geometryModules": ["**/lib/theme.ts"],
+  "geometryModules": ["**/lib/theme.ts", "**/components/v2/canvas/canvas-geometry.ts"],
   "monoComponents": ["code", "pre", "kbd", "samp"],
   "monoClasses": ["mono"],
   "identifierFields": ["projectId", "documentId", "decisionId", "created_at", "updated_at"],

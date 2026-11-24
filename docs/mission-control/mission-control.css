@@ -1,0 +1,294 @@
+/* Mission Control prototype. Builds on landing.css (tokens, header, buttons, light and dark).
+   Colour has three jobs only: grey = not active yet, ink = connected and working, yellow = a person is needed now.
+   Yellow is the GD brand yellow and appears at most once per view. */
+:root { --yellow: #ffc002; --on-yellow: #0b0b0b; --tile: 84px; --hub: 124px; }
+
+/* Header: the project switcher and the app links */
+.mc-head .wrap { max-width: none; padding-left: max(24px, var(--gutter-l)); padding-right: max(24px, var(--gutter-r)); }
+.crumb { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; color: var(--ink-3); }
+.crumb::before { content: "/"; color: var(--rule); font-size: 20px; }
+.proj { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 6px; border-radius: 8px; font-weight: 700; color: var(--ink); cursor: pointer; }
+.proj:hover { background: var(--wash); }
+.proj svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+.avatar { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--paper); font: 600 12px var(--font-body); }
+@media (max-width: 720px) { .crumb { display: none; } }
+
+/* Page: the canvas fills the screen under the header, with no frame; the prototype bar is below it */
+.mc { padding: 0 max(24px, var(--gutter-l)) 48px; display: grid; gap: 18px; }
+
+/* Canvas */
+.canvas { position: relative; background: var(--paper); overflow: hidden; margin-inline: calc(-1 * max(24px, var(--gutter-l)));
+  height: max(560px, calc(100svh - var(--header-h))); }
+.canvas[data-bg="dots"] { background-image: radial-gradient(var(--rule) 1.1px, transparent 1.3px); background-size: 22px 22px; }
+.bg, .wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.canvas:not([data-bg="graph"]) .bg { display: none; }
+/* Background: filled dots and hairlines in the rule colour, never as dark as an inactive wire, never under UI (see drawBg) */
+.bg line { stroke: var(--rule); stroke-width: .75; opacity: .35; transition: opacity .6s; }
+.bg circle { fill: var(--rule); stroke: none; opacity: .35; transition: opacity .6s; }
+.bg .lit { opacity: .7; }
+.zones { position: relative; display: grid; grid-template-columns: 1.15fr 1fr 1fr; height: 100%; }
+.zone { position: relative; display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; }
+/* A thin solid divider: dashed grey means "not active", so the dividers do not use it */
+.zone + .zone { border-left: 1px solid var(--rule); }
+.zone-label { position: absolute; z-index: 1; top: 18px; left: 22px; margin: 0; font: 500 11.5px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+/* Gap: the hub sits in the middle of its zone, on the hub line; its channels are a row right under it.
+   Sources (left) and destinations (right) stay on the hub line. */
+.zone[data-zone="gap"] .zone-body { grid-template-columns: minmax(0, 1fr); position: relative; }
+#col-channels { position: absolute; left: 0; right: 0; top: calc(50% + var(--hub) / 2 + 64px); padding: 0;
+  grid-auto-flow: column; justify-content: center; align-items: start; align-content: start; gap: 18px 16px; }
+#col-channels .node, #col-channels .add { width: 124px; }
+.zone-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; padding: 24px 14px; min-height: 0; }
+.col { display: grid; justify-items: center; align-content: center; gap: 18px; min-width: 0; padding: 8px 0; }
+.col-in { max-height: 100%; overflow-y: auto; scrollbar-width: none; padding-block: 36px; } /* equal room above and below: the hanging labels stay visible and the axis stays centred */
+
+/* An app node: a big tile, its name and one status line */
+.node { display: grid; justify-items: center; gap: 3px; width: 150px; text-align: center; position: relative; }
+.tile { position: relative; display: grid; place-items: center; width: var(--tile); height: var(--tile); border-radius: 20px; border: 1.5px solid var(--ink); background: var(--paper);
+  color: var(--ink); cursor: pointer; padding: 0; box-shadow: 4px 4px 0 var(--ink); transition: transform .15s, box-shadow .15s, border-color .3s, color .3s, background-color .3s; }
+.tile:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--ink); }
+.tile svg.logo { width: 38px; height: 38px; fill: currentColor; }
+.tile svg.glyph { width: 38px; height: 38px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.node .nm { font-weight: 700; font-size: 15px; line-height: 1.25; margin-top: 8px; }
+.node .mt { font-size: 12.5px; color: var(--ink-3); line-height: 1.3; min-height: 1.3em; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node .bar { width: 96px; height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; margin-top: 4px; }
+.node .bar i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: var(--ink); transition: width .25s linear; }
+.node .bar.listing i { width: 30%; animation: listing 1.2s ease-in-out infinite; }
+@keyframes listing { from { transform: translateX(-100%); } to { transform: translateX(330%); } }
+.node:not([data-state="busy"]) .bar { visibility: hidden; height: 0; margin: 0; }
+.node .tag { font: 500 10px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; }
+/* The state badge on the tile's corner */
+.badge { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--paper); border: 1.5px solid var(--ink); }
+.badge svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.badge:empty { display: none; }
+.badge.spin { border-color: var(--rule); border-top-color: var(--ink); animation: spin .9s linear infinite; }
+.badge.stop { font: 800 13px var(--font-body); color: var(--ink); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* States. off: not connected or the stage is not built; wait: connected, the stage is not built yet */
+.node[data-state="off"] .tile, .node[data-state="wait"] .tile { box-shadow: none; border-color: var(--ink-3); color: var(--ink-3); }
+.node[data-state="off"] .tile { border-style: dashed; }
+.node[data-state="off"] .nm, .node[data-state="wait"] .nm { color: var(--ink-3); }
+.node[data-state="wait"] .tile { background: var(--wash); }
+.node[data-state="alert"] .tile { background: var(--yellow); color: var(--on-yellow); border-color: var(--ink); }
+
+/* The add tile, one in every zone */
+.add { position: relative; display: grid; justify-items: center; width: 150px; background: none; border: 0; padding: 0; cursor: pointer; color: var(--ink-3); font: 600 13.5px var(--font-body); }
+.add > span:last-child { position: absolute; top: calc(100% + 8px); left: 0; right: 0; }
+.col > .add:not(:only-child) { margin-bottom: 26px; } /* in a stack, keep room for the hanging label */
+.add .plus { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; border: 1.5px dashed var(--ink-3); font: 300 30px/1 var(--font-body); transition: color .15s, border-color .15s, background-color .15s; }
+.add:hover, .add:focus-visible { color: var(--ink); }
+.add:hover .plus { border-color: var(--ink); border-style: solid; background: var(--wash); }
+.add.big .plus { width: var(--tile); height: var(--tile); border-radius: 20px; font-size: 40px; }
+.col-sub { font: 500 10.5px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+
+/* A hub: Graphico's own engine for the stage */
+/* The hub's name and status hang below the tile, outside the layout, so hubs line up with the add tiles on one axis */
+.hub { display: grid; justify-items: center; width: 190px; text-align: center; position: relative; }
+.hub-text { position: absolute; top: calc(100% + 12px); left: 0; right: 0; display: grid; justify-items: center; gap: 3px; }
+.hub-tile { position: relative; display: grid; place-items: center; width: var(--hub); height: var(--hub); border-radius: 50%; border: 2px solid var(--ink); background: var(--paper); color: var(--ink);
+  padding: 0; cursor: pointer; transition: background-color .35s, color .35s, border-color .35s; }
+.hub-tile svg.glyph { width: 52px; height: 52px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.hub-tile svg.glyph .f { fill: currentColor; stroke: none; }
+.hub-ring { position: absolute; inset: -11px; width: calc(100% + 22px); height: calc(100% + 22px); transform: rotate(-90deg); pointer-events: none; }
+.hub-ring circle { fill: none; stroke-width: 3; }
+.hub-ring .t { stroke: transparent; }
+.hub-ring .p { stroke: var(--ink); stroke-linecap: round; transition: stroke-dashoffset .25s linear; }
+.hub .cta { display: none; font: 700 13px var(--font-body); margin-top: 2px; }
+.hub[data-state="off"] .hub-tile, .hub[data-state="wait"] .hub-tile { border-color: var(--ink-3); color: var(--ink-3); border-style: dashed; cursor: default; }
+.hub[data-state="ready"] .hub-tile { border-style: solid; }
+.hub[data-state="on"] .hub-tile { background: var(--ink); color: var(--paper); }
+.hub[data-state="busy"] .hub-tile { border-color: var(--rule); }
+/* Alternative A: the knowledge hub is the build button */
+.canvas[data-trigger="hub"] .hub[data-trigger="yes"] .hub-tile { background: var(--ink); color: var(--paper); border-color: var(--ink); border-style: solid; box-shadow: 5px 5px 0 var(--ink); cursor: pointer; }
+.canvas[data-trigger="hub"] .hub[data-yellow="yes"] .hub-tile { background: var(--yellow); color: var(--on-yellow); }
+.canvas[data-trigger="hub"] .hub[data-trigger="yes"] .cta { display: block; }
+.canvas[data-trigger="hub"] .hub[data-trigger="yes"] .hub-tile::after { content: ""; position: absolute; inset: -12px; border-radius: 50%; border: 1.5px solid var(--ink); animation: halo 2.2s ease-out infinite; }
+@keyframes halo { from { opacity: .7; transform: scale(.92); } to { opacity: 0; transform: scale(1.18); } }
+/* The count pill on a hub: critical gaps are solid ink. Yellow is kept for the two decisions (build knowledge, build plan). */
+.pill { position: absolute; top: 2px; right: 18px; font: 700 12px var(--font-body); padding: 3px 9px; border-radius: 999px; border: 1.5px solid var(--ink); background: var(--paper); color: var(--ink); white-space: nowrap; }
+.pill.alert { background: var(--ink); color: var(--paper); }
+.pill:empty { display: none; }
+
+/* Alternative B: the build button sits on the seam between Knowledge and Gap */
+/* A round gate on the dashed line: crossing it starts the next stage. Its label sits above it. */
+.seam { position: absolute; z-index: 3; transform: translate(-50%, -50%); display: none; width: 52px; height: 52px; padding: 0; border-radius: 50%; justify-content: center; }
+.seam::before { content: attr(data-label); position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 3px 8px;
+  font: 600 11px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); background: var(--paper); border: 1px solid var(--ink); border-radius: 6px; }
+.canvas[data-trigger="seam"] .seam.show { display: inline-flex; }
+/* Alternative C: a dock at the bottom of the canvas */
+.dock { position: absolute; z-index: 3; left: 50%; bottom: 18px; transform: translateX(-50%); display: none; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center;
+  padding: 10px 10px 10px 18px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--paper); box-shadow: 4px 4px 0 var(--ink); max-width: calc(100% - 32px); }
+.canvas[data-trigger="dock"] .dock { display: inline-flex; }
+.dock .say { font-size: 14px; color: var(--ink-2); }
+.dock select { border: 1px solid var(--rule); border-radius: 999px; padding: 6px 10px; background: var(--paper); font-size: 13.5px; }
+
+/* Buttons: yellow = the one action a person is needed for */
+.btn.yellow { background: var(--yellow); color: var(--on-yellow); border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.btn.yellow:hover { background: var(--yellow); color: var(--on-yellow); transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--ink); }
+.btn:disabled { opacity: .55; cursor: progress; }
+
+/* Wires */
+.wires path { fill: none; }
+.w-off { stroke: var(--rule); stroke-width: 1.5; stroke-dasharray: 3 5; }
+.w-on { stroke: var(--ink); stroke-width: 1.6; }
+.w-flow { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 7 7; animation: flow .7s linear infinite; }
+.w-flow.rev { animation-direction: reverse; }
+.w-halo { stroke: var(--yellow); stroke-width: 9; stroke-linecap: round; opacity: .55; }
+@keyframes flow { to { stroke-dashoffset: -14; } }
+.wires .end { fill: var(--paper); stroke: var(--ink); stroke-width: 1.5; }
+.w-arrow { fill: var(--ink); }
+.wires .end.off { stroke: var(--rule); }
+.wires text { font: 500 11px var(--font-mono); fill: var(--ink-3); letter-spacing: .04em; }
+
+
+/* The prototype bar: scenes and alternatives. Not part of the product. */
+.proto { border: 1.5px dashed var(--ink-3); border-radius: 14px; padding: 16px 18px; display: grid; gap: 14px; }
+.proto-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; align-items: baseline; }
+.proto-head p:last-child { font-size: 13.5px; color: var(--ink-3); }
+.proto-row { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; }
+.proto-ctl { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.proto-ctl > span { font: 500 11px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.scene-name { font-weight: 700; min-width: 17ch; }
+.seg button { font-size: 13px; padding: 5px 12px; }
+.icon-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--rule); border-radius: 50%; background: var(--paper); color: var(--ink); cursor: pointer; }
+.icon-btn:hover { border-color: var(--ink); }
+.icon-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Dialogs */
+dialog.mdl { border: 1.5px solid var(--ink); border-radius: 18px; padding: 0; width: min(720px, calc(100vw - 32px)); max-height: calc(100svh - 48px); background: var(--paper); color: var(--ink);
+  box-shadow: 8px 8px 0 var(--ink); }
+dialog.mdl::backdrop { background: rgba(10, 10, 10, .45); }
+.mdl-in { display: grid; gap: 18px; padding: 26px 28px 28px; }
+.mdl-top { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
+.mdl-top .eyebrow { margin-bottom: 6px; }
+.mdl-top h2 { font-size: 26px; line-height: 1.15; font-weight: 800; letter-spacing: -.01em; }
+.mdl-x { flex: none; width: 36px; height: 36px; border: 1px solid var(--rule); border-radius: 50%; background: var(--paper); color: var(--ink); cursor: pointer; font-size: 20px; line-height: 1; }
+.mdl-x:hover { border-color: var(--ink); }
+.mdl p.intro { color: var(--ink-2); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.ccard { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px 12px; align-items: start; text-align: left; padding: 14px; border: 1.5px solid var(--ink); border-radius: 14px; background: var(--paper);
+  color: var(--ink); cursor: pointer; font: inherit; }
+.ccard:hover { background: var(--wash); }
+.ccard .ic { grid-row: span 3; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid currentColor; }
+.ccard .ic svg { width: 22px; height: 22px; }
+.ccard .ic svg.logo { fill: currentColor; }
+.ccard .ic svg.glyph { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ccard b { font-size: 15.5px; }
+.ccard small { color: var(--ink-3); font-size: 13px; line-height: 1.35; }
+.ccard .tag { justify-self: start; margin-top: 4px; }
+.ccard[aria-disabled="true"] { border-style: dashed; border-color: var(--ink-3); color: var(--ink-3); cursor: not-allowed; background: none; }
+.cards-other summary { cursor: pointer; font-weight: 700; font-size: 14.5px; color: var(--ink-2); }
+.cards-other .cards { margin-top: 12px; }
+.always { font-size: 14px; color: var(--ink-3); border-top: 1px solid var(--rule); padding-top: 14px; }
+.form { display: grid; gap: 14px; }
+.field input { font-family: var(--font-body); }
+.drop { border: 1.5px dashed var(--ink-3); border-radius: 14px; padding: 28px; text-align: center; color: var(--ink-2); display: grid; gap: 10px; justify-items: center; }
+.copy-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; border: 1px solid var(--rule); border-radius: 10px; padding: 8px 8px 8px 12px; font: 13px var(--font-mono); min-width: 0; }
+.copy-row code { overflow-x: auto; white-space: nowrap; font-size: 13px; }
+.steps-ol { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; color: var(--ink-2); }
+/* A list of checkboxes: repositories to pick */
+.pick { border: 1px solid var(--rule); border-radius: 12px; margin: 0; padding: 6px; display: grid; }
+.pick .eyebrow { padding: 0 6px; }
+.pick-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; font: 14px var(--font-mono); cursor: pointer; }
+.pick-row:hover { background: var(--wash); }
+.pick-row input { width: 16px; height: 16px; accent-color: var(--ink); }
+/* The project menu under the project name */
+.crumb { position: relative; }
+.proj-menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; min-width: 240px; list-style: none; margin: 0; padding: 6px; background: var(--paper); border: 1.5px solid var(--ink); border-radius: 12px; box-shadow: 4px 4px 0 var(--ink); }
+.proj-menu[hidden] { display: none; }
+.proj-menu button { width: 100%; text-align: left; background: none; border: 0; padding: 9px 10px; border-radius: 8px; font: 600 14px var(--font-body); color: var(--ink); cursor: pointer; }
+.proj-menu button:hover, .proj-menu button:focus-visible { background: var(--wash); }
+.proj-menu [aria-current="true"]::after { content: " ✓"; }
+.proj-menu .sep { border-top: 1px solid var(--rule); margin: 6px 0; }
+.mdl-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+.levels { display: flex; flex-wrap: wrap; gap: 6px; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.tools code { border: 1px solid var(--rule); border-radius: 6px; padding: 2px 7px; font-size: 12.5px; }
+.note-ok { font-weight: 600; }
+
+/* Narrow screens: the zones stack and the canvas grows with them */
+@media (max-width: 900px) {
+  .canvas { height: auto; }
+  .zones { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .zone + .zone { border-left: 0; border-top: 1px solid var(--rule); }
+  .zone-label { position: static; padding: 16px 16px 0; }
+  .zone { grid-template-rows: auto auto; }
+  #col-channels { position: static; padding-top: 110px; }
+  .zone-body { padding: 8px 8px 28px; }
+  .canvas[data-trigger="dock"] .zones { padding-bottom: 96px; }
+  .dock { border-radius: 18px; }
+}
+@media (max-width: 520px) {
+  :root { --tile: 72px; --hub: 104px; }
+  .node, .add { width: 120px; }
+  .hub { width: 150px; }
+  .mc { padding-inline: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .w-flow, .badge.spin, .node .bar.listing i { animation: none !important; }
+  .w-flow { stroke-dasharray: none; marker-end: url(#w-arr); }
+}
+
+/* Header: Members opens a dialog (there is no Settings screen) */
+.nav-btn { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 15px; color: var(--ink-2); }
+.nav-btn:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+/* Members dialog: the Settings General tab, as a dialog */
+.m-name { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.m-head { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid var(--rule); padding-top: 16px; }
+.m-add { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.m-err { color: var(--ink); font-weight: 600; margin-top: -8px; }
+.m-sugg { position: absolute; z-index: 2; top: calc(100% + 4px); left: 0; right: 80px; list-style: none; margin: 0; padding: 6px; background: var(--paper);
+  border: 1.5px solid var(--ink); border-radius: 12px; box-shadow: 4px 4px 0 var(--ink); display: grid; gap: 2px; }
+.m-sugg button { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px;
+  background: none; color: var(--ink); text-align: left; cursor: pointer; }
+.m-sugg button:hover, .m-sugg button:focus-visible { background: var(--wash); }
+.m-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--rule); border-radius: 12px; max-height: 320px; overflow-y: auto; }
+.m-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 32px; gap: 12px; align-items: center; padding: 10px 12px; }
+.m-row + .m-row { border-top: 1px solid var(--rule); }
+.m-av { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--paper); font: 600 12px var(--font-body); }
+.m-av.inv { background: none; color: var(--ink-3); border: 1.5px dashed var(--ink-3); }
+.m-who { display: grid; min-width: 0; }
+.m-who b, .m-who small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-who small { color: var(--ink-3); font-size: 13px; }
+.m-inv { color: var(--ink-3); }
+.m-x { width: 32px; height: 32px; border: 1px solid transparent; border-radius: 50%; background: none; color: var(--ink-3); cursor: pointer; font-size: 18px; line-height: 1; }
+.m-x:hover { border-color: var(--ink); color: var(--ink); }
+.m-confirm { border: 1.5px solid var(--ink); border-radius: 12px; padding: 14px 16px; display: grid; gap: 8px; }
+.m-confirm p { color: var(--ink-2); }
+
+/* Integrations page: one large card per app. Grey until set up, ink when active. */
+.ig { padding: 48px max(24px, var(--gutter-l)) 64px; max-width: 1240px; margin: 0 auto; display: grid; gap: 28px; }
+.ig .section-head { margin-bottom: 0; }
+.ig-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.ig-card { display: grid; gap: 14px; align-content: start; padding: 24px; border: 1.5px dashed var(--ink-3); border-radius: 18px; background: var(--paper); color: var(--ink-3);
+  cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; min-width: 0; }
+.ig-card:hover { border-color: var(--ink); }
+.ig-card[data-on="true"] { border: 1.5px solid var(--ink); color: var(--ink); box-shadow: 6px 6px 0 var(--ink); }
+.ig-card[data-on="true"]:hover { transform: translate(-1px, -1px); box-shadow: 7px 7px 0 var(--ink); }
+.ig-card[data-soon="true"] { cursor: default; opacity: .7; }
+.ig-card[data-soon="true"]:hover { border-color: var(--ink-3); }
+.ig-top { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.ig-logos { display: flex; gap: 10px; }
+.ig-logo { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; border: 1.5px solid currentColor; }
+.ig-logo svg { width: 26px; height: 26px; }
+.ig-logo svg.logo { fill: currentColor; }
+.ig-logo svg.glyph { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ig-card[data-on="true"] .ig-status { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.ig-name { font-size: 24px; line-height: 1.15; font-weight: 800; letter-spacing: -.01em; color: inherit; }
+.ig-sub { font-size: 14px; color: var(--ink-3); }
+.ig-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid currentColor; display: inline-block; }
+.ig-ok .ig-dot { background: var(--ink); border-color: var(--ink); }
+.ig-foot { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
+.ig-builtin { display: grid; gap: 12px; border-top: 1px solid var(--rule); padding-top: 24px; }
+.ig-mini { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.ig-mini li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 2px 12px; align-items: start; }
+.ig-mini-ic { grid-row: span 2; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--ink); color: var(--paper); }
+.ig-mini-ic svg { width: 22px; height: 22px; }
+.ig-mini-ic svg.logo { fill: currentColor; }
+.ig-mini-ic svg.glyph { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ig-mini small { color: var(--ink-3); font-size: 13.5px; line-height: 1.4; }
+/* Set-up dialog */
+.ig-ok { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+@media (max-width: 1100px) { .ig-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .ig-grid, .ig-mini { grid-template-columns: minmax(0, 1fr); } .ig-card { padding: 22px; } }

@@ -43,6 +43,11 @@ Run these from the repo root before you open a pull request:
 UI work follows the design system in `docs/design-system/`. Start with its `USAGE.md`.
 The tokens are the source of truth; do not edit that folder to make a screen fit.
 
+Exception: Mission Control V2 (routes under `frontend/app/(v2)/`, components under `frontend/components/v2/`),
+`packages/ui` and `site/` follow the Graphico style in `packages/ui` (source: `docs/mission-control/landing.css`),
+not `docs/design-system/` (decision D14 in `docs/mission-control/DECISIONS.md`). Every other screen keeps the GD
+design system, and the tokens folder stays untouched.
+
 ## Never commit
 
 - Secrets, API keys or tokens.

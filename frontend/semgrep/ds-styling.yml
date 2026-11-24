@@ -31,6 +31,8 @@ rules:
         - "**/lib/markdown/scroll.ts"
         # Keeps the reader's place in the Gaps inbox while a gap run adds rows above the viewport (scroll anchoring stops at the list's box).
         - "**/components/gaps/use-keep-place.ts"
+        # Mission Control V2 canvas: wires between nodes are drawn from measured node boxes, which CSS cannot state (D14, docs/mission-control/DECISIONS.md).
+        - "**/components/v2/canvas/canvas-geometry.ts"
     pattern-either:
       - pattern: new ResizeObserver(...)
       - pattern: $EL.getBoundingClientRect()
