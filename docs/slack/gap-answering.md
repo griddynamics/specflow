@@ -57,7 +57,7 @@ stays behind `/specflow answer <project>`.
 | Step | What happens | Code |
 |---|---|---|
 | Invite | Someone runs `/invite @SpecFlow` in the team's channel | Slack |
-| Bind | The project owner picks that channel in SpecFlow: Settings, Slack tab. Only channels the app is in, and none shared outside the workspace, are listed | `PUT /projects/{pid}/slack`, `frontend/components/settings/SlackTab.tsx` |
+| Connect | The project owner runs `/specflow connect <project id>` in that channel; SpecFlow's Settings, Slack tab, shows the command ready to copy. Typing in the channel proves the caller is in it, and the linked SpecFlow user must own the project (a project that does not exist gets the same answer). A caller not linked yet gets the sign-in link and the channel connects once they have signed in. Refused: a DM, a channel the app is not in (`/invite @SpecFlow` first), one shared outside the workspace, and one connected to another project (its name is not shown). A channel belongs to one project and a project has one channel; connecting elsewhere moves it. `/specflow disconnect` in the channel, or Disconnect in Settings, undoes it (owner only). The Settings tab never lists other channels | `SlackGaps._connect`, `SlackThreads.connect`, `SlackChannels.bind`, `frontend/components/settings/SlackTab.tsx` |
 | Post | Every open question of the project (route `ask`) is posted once, as **one line** so a channel of 100 questions stays readable: a number per channel (`#12`), a severity mark, the severity and the title. Its thread starts with the details: kind, question, why, one quote, the options A-D with their edit text and how to answer; no web link, as SpecFlow is meant to run headless here. After each gap run the new ones follow with the next numbers | `SlackThreads.post_open`, `blocks.gap_headline`, `blocks.gap_details` |
 | Answer | Anyone in the channel replies in the question's thread: one letter (`B`, `b.`) picks that option; any other text is their own answer (a contradiction takes a letter only, as the service requires edits for it) | `SlackThreads.on_message`, `blocks.reply_answer` |
 | Who | The replier's Slack account must be linked to their SpecFlow user once (`/specflow link`). An unlinked replier gets the link privately in the thread; their reply waits and is recorded when they link. A replier who is not a member of the project is told so and nothing is recorded. A gap nobody was assigned to becomes the answerer's (event `assigned`), so the web shows it as theirs; an assigned gap keeps its assignee | `SlackLinks`, `SlackThreads.replay` |
@@ -68,9 +68,13 @@ Decisions changed with it:
 
 - **O1:** each answer in a thread is applied at once. `apply_now` also applies everything else staged, AI answers
   included; the owner accepted that for the pilot.
-- **O2:** the question text (title, question, quotes, options) is posted to the bound channel, so it stays in that
+- **O2:** the question text (title, question, quotes, options) is posted to the connected channel, so it stays in that
   channel's history. Use internal projects, or a channel limited to the project team; client projects need legal or
   DPA approval first.
+- **O3 (2026-11-24):** the channel is connected from inside Slack, not picked from a list in SpecFlow. A list showed
+  every channel the app was in, private ones included, to every project, and let any owner post into a channel they
+  were not in. Channel members who are not project members do see the questions: connecting is the owner's deliberate
+  choice.
 
 Scopes: reading the replies needs `channels:history` and `groups:history` and the events `message.channels` and
 `message.groups` ([manifest](../../config/slack/manifest.yaml)); the app only acts on replies in the threads of its own

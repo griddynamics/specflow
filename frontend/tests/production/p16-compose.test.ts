@@ -77,7 +77,7 @@ const http: HttpPorts = {
   },
   members: { list: never, add: never, remove: never, cancelInvite: never, leave: never, suggest: never },
   jira: { get: never, save: never, checkAccess: never, connection: never, authorize: never, disconnect: never },
-  slack: { get: never, bind: never, unbind: never },
+  slack: { get: never, unbind: never },
 };
 const ports = composeProductionPorts(http);
 

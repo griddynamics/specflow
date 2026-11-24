@@ -2,8 +2,8 @@
 
 - ``POST /integrations/slack/link``: the web app's route handler forwards the one-time nonce that Slack gave the
   person, from their signed-in session; the Slack user is then linked to the caller.
-- ``/projects/{pid}/slack``: the project's Slack channel. A member reads it (with the channels the app is in); only
-  the owner binds or unbinds it. Binding posts the project's open questions there.
+- ``/projects/{pid}/slack``: the project's Slack channel. A member reads it; only the owner disconnects it. A channel
+  is connected from inside Slack (``/specflow connect <project id>``), so no other channel is ever listed here.
 
 No nonce or Slack text is logged; events carry ids and a code.
 """
@@ -17,7 +17,7 @@ from api.contained import Contained
 from api.deps import MemberDep, OwnerDep, RuntimeDep, UserDep
 from api.errors import ApiError
 from api.slack.links import LinkRefusedError
-from api.slack.threads import ChannelRefusedError, SlackThreads
+from api.slack.threads import SlackThreads
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("api.routers.slack")
@@ -41,19 +41,12 @@ class SlackChannelOut(BaseModel):
 
 
 class SlackSettingsOut(BaseModel):
-    """``available``: the server runs the Slack app; ``channel`` the bound one (none when unbound); ``channels`` the
-    ones the app is in, to choose from; ``editable``: the caller is the owner."""
+    """``available``: the server runs the Slack app; ``channel`` the connected one (none when not connected);
+    ``editable``: the caller is the owner."""
 
     available: bool
     channel: SlackChannelOut | None
-    channels: list[SlackChannelOut]
     editable: bool
-
-
-class SlackSettingsIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    channel_id: str = Field(min_length=1, max_length=40)
 
 
 def slack_unavailable() -> ApiError:
@@ -84,13 +77,12 @@ async def link_slack(body: SlackLinkIn, runtime: RuntimeDep, user: UserDep) -> S
 
 async def _settings(threads: SlackThreads | None, project_id: str, *, editable: bool) -> SlackSettingsOut:
     if threads is None:
-        return SlackSettingsOut(available=False, channel=None, channels=[], editable=editable)
-    channels = [SlackChannelOut(id=c.channel_id, name=c.name, private=c.private) for c in await threads.available()]
+        return SlackSettingsOut(available=False, channel=None, editable=editable)
     bound = await threads.channels.binding(project_id)
-    channel = next((c for c in channels if bound is not None and c.id == bound.channel_id), None)
-    if bound is not None and channel is None:  # the app left the channel: still shown, so it can be changed
-        channel = SlackChannelOut(id=bound.channel_id, name=bound.channel_name, private=True)
-    return SlackSettingsOut(available=True, channel=channel, channels=channels, editable=editable)
+    channel = (
+        None if bound is None else SlackChannelOut(id=bound.channel_id, name=bound.channel_name, private=bound.private)
+    )
+    return SlackSettingsOut(available=True, channel=channel, editable=editable)
 
 
 def _threads(runtime: RuntimeDep) -> SlackThreads | None:
@@ -100,23 +92,6 @@ def _threads(runtime: RuntimeDep) -> SlackThreads | None:
 @router.get("/projects/{pid}/slack", response_model=SlackSettingsOut)
 async def get_slack_settings(runtime: RuntimeDep, access: MemberDep) -> SlackSettingsOut:
     return await _settings(_threads(runtime), str(access.project.id), editable=access.is_owner)
-
-
-@router.put("/projects/{pid}/slack", response_model=SlackSettingsOut)
-async def put_slack_settings(
-    body: SlackSettingsIn, runtime: RuntimeDep, user: UserDep, access: OwnerDep
-) -> SlackSettingsOut:
-    """Bind the project to the channel and post its open questions there."""
-
-    threads = _threads(runtime)
-    if threads is None:
-        raise slack_unavailable()
-    project_id = str(access.project.id)
-    try:
-        await threads.bind(project_id, body.channel_id, by=str(user.id))
-    except ChannelRefusedError:
-        raise ApiError(400, "slack_channel_invalid", "Invite the SpecFlow app to that channel first.") from None
-    return await _settings(threads, project_id, editable=True)
 
 
 @router.delete("/projects/{pid}/slack", status_code=204)

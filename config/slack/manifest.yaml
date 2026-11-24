@@ -8,7 +8,7 @@ display_information:
   description: Answer SpecFlow gap questions without leaving Slack
   long_description: >-
     SpecFlow finds open questions (gaps) in a project's specifications. This app posts each open question to the
-    channel the project owner chose in SpecFlow, and anyone on the team answers it by replying in its thread. Every
+    channel its owner connected (/specflow connect), and anyone on the team answers it by replying in its thread. Every
     answer is recorded under the person's SpecFlow account, which each person links once.
 features:
   app_home:
@@ -20,8 +20,8 @@ features:
     always_online: false
   slash_commands:
     - command: /specflow
-      description: Link your account, start the implementation plan, or answer in a form
-      usage_hint: link | plan [project] | replan [project] | answer <project>
+      description: Link your account, connect a channel, start the plan, or answer in a form
+      usage_hint: link | connect <project id> | disconnect | plan [project] | replan [project] | answer <project>
       should_escape: true
 oauth_config:
   scopes:

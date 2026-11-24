@@ -14,10 +14,11 @@ import pytest
 
 from agent_contracts import GapDetail
 from api.plan.state import NoGraphBuildError
-from api.slack.app import SlackGaps
+from api.slack.app import CONNECT_REFUSED, CONNECT_USAGE, NOT_OWNER, SlackGaps
 from api.slack.blocks import APPLY_BLOCK, APPLY_VALUE, CHOICE, OWN, SlackAnswer, answer_view, read_answers
 from api.slack.channels import Binding
 from api.slack.links import NONCE_TTL, LinkRefusedError, SlackLinks, SlackUser
+from api.slack.threads import NOT_IN_CHANNEL
 from graph.gap import StaleGapError
 from settings import ConfigurationError, SlackAppSettings, load_settings
 
@@ -400,3 +401,134 @@ async def test_plan_is_refused_without_a_link_a_project_or_a_finished_build(plan
     await planning.app._command(acked, command("plan shop"), respond, None)
     assert respond.sent[-1]["text"] == "The project has no built knowledge yet; build it in SpecFlow first."
     assert all(sent["response_type"] == "ephemeral" for sent in respond.sent)
+
+
+# /specflow connect and disconnect -----------------------------------------------------------------------------------
+
+
+class ChannelClient:
+    """The Slack calls of a connect: C1 is a channel the app is in; any other is not found."""
+
+    def __init__(self) -> None:
+        self.posted: list[dict[str, Any]] = []
+        self.private: list[dict[str, Any]] = []
+
+    async def conversations_info(self, *, channel: str) -> dict[str, Any]:
+        if channel != "C1":
+            raise RuntimeError("channel_not_found")
+        return {"channel": {"id": "C1", "name": "shop-gaps", "is_member": True, "is_private": True}}
+
+    async def _post(self, **kwargs: Any) -> dict[str, Any]:
+        self.posted.append(kwargs)
+        return {"ts": "1.1"}
+
+    async def _ephemeral(self, **kwargs: Any) -> dict[str, Any]:
+        self.private.append(kwargs)
+        return {}
+
+    def as_slack(self) -> SimpleNamespace:
+        """The client under the Slack SDK's method names."""
+
+        methods = {
+            "conversations_info": self.conversations_info,
+            "chat_postMessage": self._post,
+            "chat_postEphemeral": self._ephemeral,
+        }
+        return SimpleNamespace(**methods)
+
+
+@pytest.fixture
+def connecting(planning, monkeypatch):
+    """The planning app with a fake Slack client, a role for the caller (``rig.role``; ``None``: no member) and the
+    posting of open questions recorded instead of done."""
+
+    rig = SimpleNamespace(app=planning.app, client=ChannelClient(), role="owner", posted_for=[])
+
+    async def membership(_session: Any, _user: Any, project_id: uuid.UUID) -> Any:
+        return None if rig.role is None else (SimpleNamespace(id=project_id, name="Shop"), rig.role)
+
+    async def post_open(project_id: str) -> int:
+        rig.posted_for.append(project_id)
+        return 0
+
+    monkeypatch.setattr("api.slack.app.repo.get_membership", membership)
+    slack = rig.client.as_slack()
+    monkeypatch.setattr(planning.app.threads, "_client", slack)
+    monkeypatch.setattr(planning.app.threads, "post_open", post_open)
+    monkeypatch.setattr(type(planning.app._app), "client", property(lambda _app: slack))
+    return rig
+
+
+async def test_connect_by_the_owner_in_a_channel_binds_it_and_posts_the_questions(connecting):
+    await link(connecting.app)
+    respond = Responses()
+
+    await connecting.app._command(acked, command(f"connect {PROJECT}"), respond, None)
+
+    [said] = respond.sent
+    assert said["response_type"] == "in_channel"
+    assert said["text"].startswith("🔗 <@U1> connected this channel to the SpecFlow project *Shop*.")
+    assert (await connecting.app.threads.channels.binding(PROJECT)) == Binding(PROJECT, "C1", "shop-gaps", str(USER))
+    assert connecting.posted_for == [PROJECT]
+
+    await connecting.app._command(acked, command(f"connect {PROJECT}"), respond, None)
+    assert respond.sent[-1] == {"text": "This channel is already connected to *Shop*.", "response_type": "ephemeral"}
+
+
+async def test_connect_needs_the_project_id_its_owner_and_a_channel_the_app_is_in(connecting):
+    await link(connecting.app)
+    respond = Responses()
+
+    await connecting.app._command(acked, command("connect"), respond, None)
+    assert respond.sent[-1]["text"] == CONNECT_USAGE
+    for role, wanted in (("collaborator", PROJECT), (None, PROJECT), ("owner", "Shop")):
+        connecting.role = role
+        await connecting.app._command(acked, command(f"connect {wanted}"), respond, None)
+        assert respond.sent[-1]["text"] == NOT_OWNER  # the same answer: an outsider learns nothing
+    connecting.role = "owner"
+    await connecting.app._command(acked, command(f"connect {PROJECT}", channel="C9"), respond, None)
+    assert respond.sent[-1]["text"] == CONNECT_REFUSED[NOT_IN_CHANNEL]
+
+    assert all(sent["response_type"] == "ephemeral" for sent in respond.sent)
+    assert await connecting.app.threads.channels.binding(PROJECT) is None
+    assert connecting.posted_for == []
+
+
+async def test_an_unlinked_caller_signs_in_first_and_the_channel_connects_then(connecting):
+    respond = Responses()
+
+    await connecting.app._command(acked, command(f"connect {PROJECT}"), respond, None)
+
+    [said] = respond.sent
+    assert said["response_type"] == "ephemeral" and said["text"].startswith("Sign in to SpecFlow to connect")
+    assert await connecting.app.threads.channels.binding(PROJECT) is None
+
+    await link(connecting.app)
+    await connecting.app.linked(SLACK)
+
+    assert (await connecting.app.threads.channels.binding(PROJECT)).channel_id == "C1"
+    assert "connected this channel to the SpecFlow project *Shop*" in connecting.client.posted[-1]["text"]
+    assert connecting.client.posted[-1]["channel"] == "C1"
+    assert connecting.posted_for == [PROJECT]
+
+    await connecting.app.linked(SLACK)  # a later link connects nothing again
+    assert connecting.posted_for == [PROJECT]
+
+
+async def test_disconnect_in_the_channel_is_for_the_owner_of_its_project(connecting):
+    await link(connecting.app)
+    respond = Responses()
+    await connecting.app._command(acked, command("disconnect"), respond, None)
+    assert respond.sent[-1]["text"] == "This channel is not connected to a SpecFlow project."
+    await connecting.app.threads.channels.bind(Binding(PROJECT, "C1", "shop-gaps", str(USER)))
+
+    connecting.role = "collaborator"
+    await connecting.app._command(acked, command("disconnect"), respond, None)
+    assert respond.sent[-1]["text"] == "Only the owner of the connected SpecFlow project can disconnect it."
+    assert await connecting.app.threads.channels.binding(PROJECT) is not None
+
+    connecting.role = "owner"
+    await connecting.app._command(acked, command("disconnect"), respond, None)
+    assert respond.sent[-1]["response_type"] == "in_channel"
+    assert "disconnected this channel from SpecFlow" in respond.sent[-1]["text"]
+    assert await connecting.app.threads.channels.binding(PROJECT) is None

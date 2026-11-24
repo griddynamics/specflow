@@ -1,9 +1,10 @@
 """``SlackChannels``: the Slack channel a project is bound to and the gap message posted there for each gap
 (docs/slack/gap-answering.md "The channel flow").
 
-The project owner picks the channel in SpecFlow's Settings; every open question of the project is then posted there
-once, and a reply in its thread answers it. The store maps both ways: project to channel, and a message (channel and
-``ts``, the thread a reply names) to its gap.
+The project owner connects the channel from inside it (``/specflow connect <project id>``); every open question of the
+project is then posted there once, and a reply in its thread answers it. A project has one channel and a channel one
+project. The store maps both ways: project to channel, and a message (channel and ``ts``, the thread a reply names) to
+its gap.
 
 Spike storage: a JSON file in the graph state folder (``GRAPH_STATE_DIR``), as ``SlackLinks``; phase 1b moves it to
 tables.
@@ -26,6 +27,7 @@ class Binding:
     channel_id: str
     channel_name: str
     bound_by: str
+    private: bool = True
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,10 @@ class Posted:
     number: int = 0  # the question's number in its channel: #1, #2, ...
 
 
+class ChannelTakenError(Exception):
+    """The channel is connected to another project."""
+
+
 class SlackChannels:
     """Bindings and posted gap messages, in one JSON file."""
 
@@ -44,19 +50,30 @@ class SlackChannels:
         self._path = folder / CHANNELS_FILE
         self._lock = asyncio.Lock()
 
-    async def bind(self, binding: Binding) -> None:
-        """Bind the project to the channel (replacing an older binding); the gaps posted to an older channel are
-        forgotten, so the new channel gets every open question."""
+    async def bind(self, binding: Binding) -> Binding | None:
+        """Bind the project to the channel and return its earlier binding. ``ChannelTakenError`` when another project
+        has the channel. The same channel again changes nothing; another channel replaces the earlier one, and the
+        gaps posted there are forgotten, so the new channel gets every open question."""
 
         async with self._lock:
             data = await asyncio.to_thread(self._read)
-            data["bindings"][binding.project_id] = {
+            bindings = data["bindings"]
+            if any(
+                pid != binding.project_id and b.get("channel_id") == binding.channel_id for pid, b in bindings.items()
+            ):
+                raise ChannelTakenError
+            earlier = _binding(binding.project_id, bindings.get(binding.project_id))
+            if earlier is not None and earlier.channel_id == binding.channel_id:
+                return earlier
+            bindings[binding.project_id] = {
                 "channel_id": binding.channel_id,
                 "channel_name": binding.channel_name,
                 "bound_by": binding.bound_by,
+                "private": binding.private,
             }
             data["posts"] = {key: post for key, post in data["posts"].items() if post["p"] != binding.project_id}
             await asyncio.to_thread(self._write, data)
+            return earlier
 
     async def unbind(self, project_id: str) -> None:
         async with self._lock:
@@ -67,10 +84,7 @@ class SlackChannels:
 
     async def binding(self, project_id: str) -> Binding | None:
         data = await self._snapshot()
-        found = data["bindings"].get(project_id)
-        if found is None:
-            return None
-        return Binding(project_id, str(found["channel_id"]), str(found["channel_name"]), str(found["bound_by"]))
+        return _binding(project_id, data["bindings"].get(project_id))
 
     async def project_of(self, channel_id: str) -> str | None:
         """The project bound to ``channel_id``; ``None`` when none is."""
@@ -123,3 +137,10 @@ class SlackChannels:
         temporary = self._path.with_suffix(".tmp")
         temporary.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
         temporary.replace(self._path)
+
+
+def _binding(project_id: str, found: dict[str, Any] | None) -> Binding | None:
+    if found is None:
+        return None
+    channel_id, name, by = str(found["channel_id"]), str(found["channel_name"]), str(found["bound_by"])
+    return Binding(project_id, channel_id, name, by, bool(found.get("private", True)))

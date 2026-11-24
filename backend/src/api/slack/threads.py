@@ -1,7 +1,8 @@
 """``SlackThreads``: the channel flow (docs/slack/gap-answering.md "The channel flow").
 
-- **Bind.** The project owner picks a channel the app is in (SpecFlow Settings, Slack tab); every open question of
-  the project (route ``ask``) is posted there, one message each, and so is every new one after each gap run.
+- **Connect.** The project owner runs ``/specflow connect <project id>`` in a channel the app is in; every open
+  question of the project (route ``ask``) is posted there, one message each, and so is every new one after each gap
+  run. A channel belongs to one project, and the command proves the caller is in it.
 - **Answer in the thread.** Anyone in the channel answers by replying in a gap's thread: one option letter, or their
   own words. The reply is recorded as the replier's SpecFlow user (``via`` ``slack``) and applied at once
   (``apply_now``, one update build; a build that runs takes the next answers in one queued request).
@@ -25,7 +26,7 @@ from api.contained import Contained
 from api.gap.answering import record_answer
 from api.gap.cards import detail_user_ids, gap_detail
 from api.slack.blocks import CONTRADICTION, escaped, gap_details, gap_headline, reply_answer
-from api.slack.channels import Binding, Posted, SlackChannels
+from api.slack.channels import Binding, ChannelTakenError, Posted, SlackChannels
 from api.slack.links import SlackLinks, SlackUser
 from db import repositories as repo
 from graph.gap import AnswerInput, AnswerInvalidError, GapNotFoundError, GapStateError
@@ -35,7 +36,10 @@ logger = get_logger(__name__)
 
 ASK: Final = "ask"
 OPEN_MAX: Final = 50  # questions posted at once (a bind, a gap run); the rest follow after the next run
-CHANNELS_MAX: Final = 200
+NOT_A_CHANNEL: Final = "not_a_channel"
+NOT_IN_CHANNEL: Final = "not_in_channel"
+SHARED: Final = "shared"
+TAKEN: Final = "taken"
 PENDING_MAX: Final = 20  # replies kept per unlinked Slack user
 
 
@@ -54,7 +58,12 @@ class _Reply:
 
 
 class ChannelRefusedError(Exception):
-    """The channel is not one the app is in, or it is shared outside the workspace."""
+    """The channel cannot be connected; ``code``: ``NOT_A_CHANNEL`` (a DM), ``NOT_IN_CHANNEL`` (the app is not in
+    it), ``SHARED`` (shared outside the workspace) or ``TAKEN`` (connected to another project)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 async def assign_answerer(runner: Any, project_id: str, gap_id: str, user_id: uuid.UUID) -> None:
@@ -100,30 +109,34 @@ class SlackThreads:
 
     # Binding ------------------------------------------------------------------------------------------------------
 
-    async def available(self) -> list[SlackChannel]:
-        """The channels the app is in, not shared outside the workspace, by name."""
+    async def connect(self, project_id: str, channel_id: str, *, by: str) -> Binding | None:
+        """Connect the project to the channel and return its earlier binding (the same channel: nothing changed).
+        ``ChannelRefusedError`` for a DM, a channel the app is not in or one shared outside the workspace, and for
+        one connected to another project. The caller posts the open questions (``post_open``)."""
 
-        answer = await self._client.conversations_list(
-            types="public_channel,private_channel", exclude_archived=True, limit=CHANNELS_MAX
-        )
-        found = [
-            SlackChannel(str(c["id"]), str(c.get("name", "")), bool(c.get("is_private")))
-            for c in answer.get("channels", [])
-            if c.get("is_member") and not c.get("is_ext_shared")
-        ]
-        return sorted(found, key=lambda channel: channel.name)
-
-    async def bind(self, project_id: str, channel_id: str, *, by: str) -> Binding:
-        """Bind the project to a channel the app is in and post its open questions there."""
-
-        channel = next((c for c in await self.available() if c.channel_id == channel_id), None)
-        if channel is None:
-            raise ChannelRefusedError
-        binding = Binding(project_id, channel.channel_id, channel.name, by)
-        await self.channels.bind(binding)
+        channel = await self._channel(channel_id)
+        try:
+            earlier = await self.channels.bind(Binding(project_id, channel_id, channel.name, by, channel.private))
+        except ChannelTakenError:
+            raise ChannelRefusedError(TAKEN) from None
         log_event(logger, INFO, "api.slack.bound", project_id=project_id, user_id=by)
-        await self.post_open(project_id)
-        return binding
+        return earlier
+
+    async def _channel(self, channel_id: str) -> SlackChannel:
+        if not channel_id.startswith(("C", "G")):
+            raise ChannelRefusedError(NOT_A_CHANNEL)
+        with Contained() as asked:  # Slack answers channel_not_found for a private channel the app is not in
+            answer = await self._client.conversations_info(channel=channel_id)
+        if asked.error is not None:
+            raise ChannelRefusedError(NOT_IN_CHANNEL)
+        found = answer.get("channel") or {}
+        if found.get("is_im") or found.get("is_mpim"):
+            raise ChannelRefusedError(NOT_A_CHANNEL)
+        if found.get("is_ext_shared"):
+            raise ChannelRefusedError(SHARED)
+        if not found.get("is_member"):
+            raise ChannelRefusedError(NOT_IN_CHANNEL)
+        return SlackChannel(channel_id, str(found.get("name", "")), bool(found.get("is_private")))
 
     # Posting ------------------------------------------------------------------------------------------------------
 

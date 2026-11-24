@@ -4,6 +4,9 @@ design", the phase 0 spike).
 Socket Mode opens an outbound WebSocket to Slack: no public endpoint. What it handles:
 
 - ``/specflow link``: a one-time link (``SlackLinks``) that the person opens while signed in to SpecFlow.
+- ``/specflow connect <project id>``: run in a channel by the project's owner (the command is copied from SpecFlow's
+  Settings), it connects the channel to the project and posts its open questions there. A caller not linked yet gets
+  the link first, and the channel is connected as soon as they have signed in. ``/specflow disconnect`` undoes it.
 - ``/specflow answer [project]``: a modal opened at once ("Loading…", within the 3 s of the trigger) and filled with
   the caller's open questions, theirs first, then unassigned ones (``blocks.answer_view``).
 - The modal's submit: acknowledged at once with "Saving…", then each answer goes through ``record_answer`` as the
@@ -17,8 +20,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
@@ -37,8 +42,16 @@ from api.plan.start import (
 )
 from api.slack.blocks import CALLBACK_ID, PAGE_SIZE, SlackAnswer, answer_view, escaped, message_view, read_answers
 from api.slack.channels import SlackChannels
-from api.slack.links import SlackLinks, SlackUser
-from api.slack.threads import SlackThreads, assign_answerer
+from api.slack.links import NONCE_TTL, SlackLinks, SlackUser
+from api.slack.threads import (
+    NOT_A_CHANNEL,
+    NOT_IN_CHANNEL,
+    SHARED,
+    TAKEN,
+    ChannelRefusedError,
+    SlackThreads,
+    assign_answerer,
+)
 from db import repositories as repo
 from graph.gap import AnswerInput, AnswerInvalidError, GapNotFoundError, GapStateError, StaleGapError
 from graph.gap.assignment import NO_ASSIGNEE
@@ -52,8 +65,11 @@ LINK_PATH: Final = "/api/integrations/slack/link"
 ASK: Final = "ask"
 PROJECTS_MAX: Final = 100
 STAGED_MAX: Final = 200
+OWNER: Final = "owner"
 HELP: Final = (
     "`/specflow link`: connect your Slack account to SpecFlow (once).\n"
+    "`/specflow connect <project id>`: connect this channel to a SpecFlow project you own, so its open questions are "
+    "posted here (copy the command from SpecFlow: Settings, Slack tab); `/specflow disconnect` undoes it.\n"
     "`/specflow plan [project]`: start the implementation plan, as the Plan screen's button does "
     "(in a project's channel the project is that one); `/specflow replan [project]` recreates it.\n"
     "`/specflow answer <project>`: answer your open questions of a project in a form."
@@ -63,6 +79,29 @@ PLAN_REFUSED: Final = {
     GRAPH_BUILD_RUNNING: "The project's knowledge is being built; start the plan when the build has finished.",
     NO_GRAPH_BUILD: "The project has no built knowledge yet; build it in SpecFlow first.",
 }
+CONNECT_USAGE: Final = "Copy the command from SpecFlow (Settings, Slack tab): `/specflow connect <project id>`."
+NOT_OWNER: Final = "Only the project's owner can connect it, with the command from SpecFlow (Settings, Slack tab)."
+CONNECT_REFUSED: Final = {
+    NOT_A_CHANNEL: "Run the command in the channel to connect, not in a direct message.",
+    NOT_IN_CHANNEL: "Add SpecFlow to this channel first (`/invite @SpecFlow`), then run the command again.",
+    SHARED: "This channel is shared outside the workspace; connect an internal channel.",
+    TAKEN: "This channel is connected to another SpecFlow project; its owner must run `/specflow disconnect` first.",
+}
+
+
+class Say(Protocol):
+    """Answers the caller: ``public`` goes to the channel, else only the caller sees it."""
+
+    async def __call__(self, text: str, *, public: bool = False) -> None: ...
+
+
+@dataclass(frozen=True)
+class _Connecting:
+    """A connect waiting for its caller to sign in (in this process, as long as the link nonce)."""
+
+    project: str
+    channel_id: str
+    until: datetime
 
 
 class SlackGaps:
@@ -72,6 +111,7 @@ class SlackGaps:
         self._settings = settings
         self._runtime = runtime
         self.links = SlackLinks(state_dir)
+        self._connecting: dict[str, _Connecting] = {}
         self._app = AsyncApp(token=settings.bot_token.get_secret_value(), logger=get_logger("api.slack.bolt"))
         self.threads = SlackThreads(
             self._app.client,
@@ -102,6 +142,10 @@ class SlackGaps:
             channel=slack.user_id, text="Your Slack account is linked to SpecFlow. You can answer questions in threads."
         )
         await self.threads.replay(slack)
+        waiting = self._connecting.pop(slack.key, None)
+        user_id = await self.links.user_of(slack)
+        if waiting is not None and user_id is not None and waiting.until > datetime.now(UTC):
+            await self._connect_as(slack, user_id, waiting.project, waiting.channel_id, self._poster(slack, waiting))
 
     # /specflow ---------------------------------------------------------------------------------------------------
 
@@ -114,11 +158,102 @@ class SlackGaps:
             await respond(text=self._link_text(slack), response_type="ephemeral")
         elif action == "answer":
             await self._open(slack, words[1] if len(words) > 1 else "", str(body.get("trigger_id")), respond, client)
+        elif action == "connect":
+            wanted = words[1].strip() if len(words) > 1 else ""
+            await self._connect(slack, wanted, str(body.get("channel_id", "")), _responder(respond))
+        elif action == "disconnect":
+            await self._disconnect(slack, str(body.get("channel_id", "")), _responder(respond))
         elif action in {"plan", "replan"}:
             wanted = words[1].strip() if len(words) > 1 else ""
             await self._plan(slack, wanted, str(body.get("channel_id", "")), respond, replan=action == "replan")
         else:
             await respond(text=HELP, response_type="ephemeral")
+
+    async def _connect(self, slack: SlackUser, wanted: str, channel_id: str, say: Say) -> None:
+        if not wanted:
+            await say(CONNECT_USAGE)
+            return
+        user_id = await self.links.user_of(slack)
+        if user_id is None:
+            self._connecting[slack.key] = _Connecting(wanted, channel_id, datetime.now(UTC) + NONCE_TTL)
+            link = self._link_text(slack)
+            await say(f"Sign in to SpecFlow to connect this channel: {link} It is connected once you have.")
+            return
+        await self._connect_as(slack, user_id, wanted, channel_id, say)
+
+    async def _connect_as(self, slack: SlackUser, user_id: uuid.UUID, wanted: str, channel_id: str, say: Say) -> None:
+        """Connect the channel to the project ``wanted`` (its id) when ``user_id`` owns it, then post its open
+        questions there. A project the caller does not own and one that does not exist get the same answer."""
+
+        project = await self._owned(user_id, wanted)
+        if project is None:
+            await say(NOT_OWNER)
+            return
+        project_id = str(project.id)
+        try:
+            earlier = await self.threads.connect(project_id, channel_id, by=str(user_id))
+        except ChannelRefusedError as error:
+            log_event(
+                logger,
+                INFO,
+                "api.slack.connect_refused",
+                user_id=str(user_id),
+                project_id=project_id,
+                error_code=error.code,
+            )
+            await say(CONNECT_REFUSED[error.code])
+            return
+        name = escaped(project.name, 150)
+        if earlier is not None and earlier.channel_id == channel_id:
+            await say(f"This channel is already connected to *{name}*.")
+        else:
+            await say(
+                f"🔗 <@{slack.user_id}> connected this channel to the SpecFlow project *{name}*. Its open questions "
+                "follow; reply in a question's thread to answer it.",
+                public=True,
+            )
+        await self.threads.post_open(project_id)
+
+    async def _disconnect(self, slack: SlackUser, channel_id: str, say: Say) -> None:
+        user_id = await self.links.user_of(slack)
+        if user_id is None:
+            await say(f"First connect your account: {self._link_text(slack)}")
+            return
+        project_id = await self.threads.channels.project_of(channel_id)
+        if project_id is None:
+            await say("This channel is not connected to a SpecFlow project.")
+            return
+        if await self._owned(user_id, project_id) is None:
+            await say("Only the owner of the connected SpecFlow project can disconnect it.")
+            return
+        await self.threads.channels.unbind(project_id)
+        log_event(logger, INFO, "api.slack.unbound", project_id=project_id, user_id=str(user_id))
+        await say(
+            f"🔌 <@{slack.user_id}> disconnected this channel from SpecFlow; no more questions are posted here.",
+            public=True,
+        )
+
+    async def _owned(self, user_id: uuid.UUID, wanted: str) -> Any:
+        """The project with the id ``wanted`` when ``user_id`` owns it; ``None`` otherwise."""
+
+        try:
+            project_id = uuid.UUID(wanted)
+        except ValueError:
+            return None
+        async with self._runtime.transaction() as session:
+            found = await repo.get_membership(session, user_id, project_id)
+        return found[0] if found is not None and found[1] == OWNER else None
+
+    def _poster(self, slack: SlackUser, waiting: _Connecting) -> Say:
+        """``Say`` for a connect finished after the link: the slash command's reply is gone, so the app posts."""
+
+        async def say(text: str, *, public: bool = False) -> None:
+            if public:
+                await self._app.client.chat_postMessage(channel=waiting.channel_id, text=text)
+            else:
+                await self._app.client.chat_postEphemeral(channel=waiting.channel_id, user=slack.user_id, text=text)
+
+        return say
 
     async def _plan(self, slack: SlackUser, wanted: str, channel_id: str, respond: Any, *, replan: bool) -> None:
         """Start the project's plan run as the Plan screen's button does (``start_plan_run``), as the linked user, and
@@ -291,6 +426,13 @@ class SlackGaps:
                 return "Apply now: nothing waits to be applied (someone may have applied it already)."
             return "Apply now: not started; use “Resolve gaps” on the web."
         return f"Apply now: {len(result.gap_ids)} answers go into one update build."
+
+
+def _responder(respond: Any) -> Say:
+    async def say(text: str, *, public: bool = False) -> None:
+        await respond(text=text, response_type="in_channel" if public else "ephemeral")
+
+    return say
 
 
 async def start_slack(runtime: Any, settings: SlackAppSettings | None, state_dir: str | None) -> None:
