@@ -8,8 +8,8 @@ inside a transaction. Events carry ids and codes only.
 
 In ``oauth`` mode (docs/jira-sync/oauth.md) saving needs the project's Atlassian connection (``PUT
 /projects/{pid}/integrations/atlassian``, docs/mission-control/integrations-api.md) and makes the member it is bound to
-the target's acting account, not whoever saves; the access check runs as the caller; ``connection`` shows the acting
-account.
+the target's acting account, not whoever saves; the access check runs as that member too; ``connection`` shows the
+acting account.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ async def put_jira_settings(
 ) -> JiraSettingsOut:
     runner = jira_runner(runtime)
     pid = access.project.id
-    acting = None
+    acting = None  # token mode: the one account of the server acts and nothing reads ``connected_user_id``
     if runner.connections is not None:  # oauth: the sync acts as the member the project's Atlassian is connected by
         acting = await acting_member(runtime, pid, ATLASSIAN)
         if acting is None:
@@ -158,8 +158,14 @@ async def check_jira_access(
 ) -> JiraAccessOk | JiraAccessFailed:
     runner = jira_runner(runtime)
     result: JiraAccessOk | JiraAccessFailed
+    acting = user.id
+    if runner.connections is not None:  # oauth: the check runs as the member the sync will act as (R1), not the caller
+        bound = await acting_member(runtime, access.project.id, ATLASSIAN)
+        if bound is None:
+            raise jira_not_connected()
+        acting = bound
     try:
-        gateway = await runner.gateway_for(user.id)  # oauth: the caller's own connection
+        gateway = await runner.gateway_for(acting)  # token mode ignores the user
     except JiraError as error:
         result = not_usable(error)
     else:

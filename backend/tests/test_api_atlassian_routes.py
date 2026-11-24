@@ -396,10 +396,10 @@ async def test_a_pass_waiting_for_the_slot_acts_as_the_account_saved_while_it_wa
 # The access check per mode -----------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("status", "reason"), [(None, "jira_not_connected"), ("expired", "jira_reconnect_required")])
-async def test_the_access_check_uses_the_callers_own_connection(rig, status, reason) -> None:
-    if status is not None:
-        rig.db.add(rig.alice.id, status=status)
+@pytest.mark.parametrize(("status", "reason"), [("expired", "jira_reconnect_required")])
+async def test_the_access_check_runs_as_the_bound_member_whose_connection_is_expired(rig, status, reason) -> None:
+    rig.db.add(rig.alice.id, status=status)
+    rig.integrations.put(rig.alpha, "atlassian", rig.alice.id)
 
     answer = await call(rig, "POST", f"projects/{ALPHA}/jira/access-check", body={"jira_project": "PRJ"})
 
@@ -407,10 +407,23 @@ async def test_the_access_check_uses_the_callers_own_connection(rig, status, rea
     assert answer.json() == {"result": "failed", "reason": reason, "field": None}
 
 
-async def test_the_access_check_of_a_connected_owner_asks_their_jira(rig) -> None:
-    rig.db.add(rig.alice.id)
+async def test_the_access_check_needs_a_member_the_project_is_connected_by(rig) -> None:
+    rig.db.add(rig.alice.id)  # the caller's own connection does not count: nobody bound the project
 
-    answer = await call(rig, "POST", f"projects/{ALPHA}/jira/access-check", body={"jira_project": "PRJ"})
+    missing = await call(rig, "POST", f"projects/{ALPHA}/jira/access-check", body={"jira_project": "PRJ"})
+    rig.integrations.put(rig.alpha, "atlassian", None)  # its member left
+    gone = await call(rig, "POST", f"projects/{ALPHA}/jira/access-check", body={"jira_project": "PRJ"})
+
+    assert error_of(missing) == error_of(gone) == (409, "jira_not_connected")
+
+
+async def test_the_access_check_asks_the_jira_of_the_bound_member_not_the_callers(rig) -> None:
+    """Ben calls; only alice, the bound member, has a connection: the check is hers."""
+
+    rig.db.add(rig.alice.id)
+    rig.integrations.put(rig.alpha, "atlassian", rig.alice.id)
+
+    answer = await call(rig, "POST", f"projects/{ALPHA}/jira/access-check", BEN, {"jira_project": "PRJ"})
 
     assert answer.json() == {"result": "ok", "project_name": "Project", "epic_summary": None}
     gateway = await rig.connections.gateway(rig.alice.id)

@@ -112,9 +112,15 @@ class FakeIntegrationsDb:
         )
         return True
 
-    async def delete_integration(self, session: AsyncSession, project_id: uuid.UUID, app: str) -> bool:
+    async def delete_integration(
+        self, session: AsyncSession, project_id: uuid.UUID, app: str, *, only_user: uuid.UUID | None = None
+    ) -> bool:
         self.sessions.append(session)
-        return self.rows.pop((project_id, app), None) is not None
+        row = self.rows.get((project_id, app))
+        if row is None or (only_user is not None and row.user_id != only_user):
+            return False
+        del self.rows[project_id, app]
+        return True
 
     async def point_jira_target(self, session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID | None) -> None:
         self.sessions.append(session)

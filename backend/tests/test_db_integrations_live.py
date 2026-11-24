@@ -195,6 +195,18 @@ async def test_a_backfill_adds_a_missing_row_and_leaves_an_existing_one(factory)
     assert (first, again) == (True, False) and row is not None and row.user_id == ana
 
 
+async def test_a_conditional_delete_removes_only_the_binding_of_that_member(factory) -> None:
+    ana, bo = await new_user(factory, "Ana"), await new_user(factory, "Bo")
+    project = await new_project(factory, ana, bo)
+    await bind(factory, project, GITHUB, bo)  # bo took it over after ana's check
+
+    async with factory() as session, session.begin():
+        by_ana = await integrations.delete_integration(session, project, GITHUB, only_user=ana)
+        by_bo = await integrations.delete_integration(session, project, GITHUB, only_user=bo)
+
+    assert (by_ana, by_bo) == (False, True)
+
+
 async def test_a_binding_is_removed_once_and_only_in_its_project(factory) -> None:
     ana = await new_user(factory, "Ana")
     project, other = await new_project(factory, ana), await new_project(factory, ana)

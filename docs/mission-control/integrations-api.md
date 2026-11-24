@@ -20,6 +20,10 @@ acts as that member. The card says "by *member*".
 | `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian` or `github`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
 | `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 422 `validation_failed` (unknown `app`) |
 
+**Slack in the UI:** any member can also remove the channel with `DELETE /projects/{pid}/slack` (D6, the route of the
+Settings tab), so a screen must not tell a member that only the connector or the owner can disconnect Slack; only
+`DELETE /projects/{pid}/integrations/slack` is connector-or-owner.
+
 Slack is bound by its own command in the channel (`/specflow connect <project id>`, [../slack/gap-answering.md](../slack/gap-answering.md)),
 which records the caller as the project's Slack member; there is no `PUT` for it. The caller connects Atlassian and
 GitHub to their own account first, with the per-user routes that exist today (`/integrations/atlassian/*`,
@@ -43,17 +47,20 @@ of the configured site; the GitHub one is the account login; the Slack one the w
 
 - **Connect** (`PUT`): the caller's own connection must be `active` (else `409 <app>_not_connected`). The project has
   one workspace per app (D3): the Atlassian site, the GitHub account (login) or the Slack workspace of that connection.
-  A different workspace is `409 integration_workspace_mismatch`, unless nobody acts on the earlier one (its member
-  left), which any member then replaces. The same workspace is taken over by the caller: the row names them, and
+  A different workspace is `409 integration_workspace_mismatch` (for GitHub the workspace is the login of the connecting
+  account, so a second member who connected GitHub under another login gets it until the binding is removed), unless
+  nobody acts on the earlier one (its member left), which any member then replaces. The same workspace is taken over by the caller: the row names them, and
   `jira_targets.connected_user_id` (Atlassian) or every `project_repositories.added_by` (GitHub) is set to them in the
   same transaction, so the runners that read those columns are unchanged.
 - **Acting account** (D1): `PUT /projects/{pid}/jira` sets `connected_user_id` from the project's `atlassian` row
   (`409 jira_not_connected` when there is none), not from whoever saves. `POST /projects/{pid}/repositories` reads the
   `github` row's member's repository list and stores that member as `added_by` (`409 github_not_connected` when there
-  is none). The Jira access check still runs as the caller.
-- **Remove** (`DELETE`): the member who connected the app, or the owner (AC6). The row is deleted and the Jira target's
+  is none). The Jira access check runs as the same member (`409 jira_not_connected` when there is none), so it answers what the
+  sync will be able to do. In `token` mode nothing reads `connected_user_id`.
+- **Remove** (`DELETE`): the member who connected the app, or the owner (AC6). The check and the delete are one
+  statement (the row goes only if that member still holds it). The row is deleted and the Jira target's
   `connected_user_id` or the repositories' `added_by` becomes null in the same transaction, so everything that used the
-  account stops and no other member's account takes over (D2). For Slack the channel binding is removed too. A
+  account stops and no other member's account takes over (D2). For Slack the channel is unbound first and the row goes only once that worked. A
   member who is removed from the project or leaves it stops being the member of every row of the project in the
   same transaction.
 - No transaction is open across a call to an app; events `api.integrations.connected`, `.removed`, `.refused` carry
@@ -107,8 +114,8 @@ the graph build changes: an importer writes `parsed` documents the build already
   (`origin=connection`, `status=parsed`, `parser=<kind>-convert`, held by the source) and finishes the item
   `processed` (a duplicate of content the project holds is `duplicate`, linking the first document); `fail(...)` ends
   one item `error`. A removed source stops the importer at its next write (`SourceGoneError`).
-- A restart ends the tasks: at startup every source of those kinds still `listing` or `importing` is `failed`
-  (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once).
+- A restart ends the tasks: at startup every source of those kinds still `listing` or `importing` and not touched since
+  before this process started (less a minute) is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
 

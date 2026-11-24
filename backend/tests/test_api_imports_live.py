@@ -192,7 +192,7 @@ async def test_removing_the_source_deletes_its_documents_and_items_as_an_upload_
     assert await PostgresCorpusSource(factory).snapshot(str(project)) == []
 
 
-async def test_a_source_removed_while_importing_stops_the_import_at_its_next_write(factory, runner) -> None:
+async def test_a_source_removed_while_importing_stops_the_import_at_its_next_write(factory, runner, store) -> None:
     user, project = await member_project(factory)
     reached, go = asyncio.Event(), asyncio.Event()
 
@@ -212,6 +212,7 @@ async def test_a_source_removed_while_importing_stops_the_import_at_its_next_wri
 
     assert await scalar(factory, "SELECT count(*) FROM documents WHERE project_id = :p", p=project) == 0
     assert await scalar(factory, "SELECT count(*) FROM connections WHERE project_id = :p", p=project) == 0
+    assert store.objects == {}  # the original the importer stored before it found the source gone is deleted
 
 
 async def test_the_start_ends_interrupted_imports_of_the_imported_kinds_and_leaves_every_other_source(
@@ -243,6 +244,7 @@ async def test_the_start_ends_interrupted_imports_of_the_imported_kinds_and_leav
             {"c": ids["jira_epic", "importing"], "p": project},
         )
 
+    await age(factory, project)
     runner.start_recovery()
     await asyncio.wait_for(runner._recovery, timeout=10)
 
@@ -269,3 +271,25 @@ async def _rows(factory, statement: str, **params):
 async def _first(factory, statement: str, **params):
     async with factory() as session:
         return (await session.execute(text(statement), params)).one()
+
+
+async def age(factory, project) -> None:
+    """Make every source of the project look untouched for an hour, as one a stopped process left."""
+
+    async with factory() as session, session.begin():
+        await session.execute(
+            text("UPDATE connections SET updated_at = now() - interval '1 hour' WHERE project_id = :p"), {"p": project}
+        )
+
+
+async def test_the_recovery_never_ends_a_source_added_after_the_process_started(factory, runner) -> None:
+    user, project = await member_project(factory)
+    old = await runner.add_source(project, user, kind="confluence", name="Old", link="https://wiki.example/old")
+    await age(factory, project)
+    fresh = await runner.add_source(project, user, kind="confluence", name="Fresh", link="https://wiki.example/new")
+
+    runner.start_recovery()  # racing a request that has just added a source
+    await asyncio.wait_for(runner._recovery, timeout=10)
+
+    assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=old) == "failed"
+    assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=fresh) == "listing"

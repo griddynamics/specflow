@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -17,6 +18,10 @@ from db.models import Connection, ConnectionItem
 INTERRUPTED_REASON = "unknown_error"  # a closed reason of ``connections.failure_reason``
 ITEM_CATEGORY = "other_files"
 ITEM_PROCESSING_CLASS = "processed"
+
+
+class ItemDeclareError(Exception):
+    """An item insert that neither added the row nor found it (a concurrent removal of the source)."""
 
 
 async def declare_item(
@@ -53,18 +58,23 @@ async def declare_item(
         )
     )
     if existing is None:
-        raise RuntimeError("item declare did not settle")
+        raise ItemDeclareError
     return existing
 
 
-async def fail_interrupted(session: AsyncSession, kinds: Sequence[str]) -> list[uuid.UUID]:
-    """End every source of ``kinds`` that is still ``listing`` or ``importing`` as ``failed`` and its unfinished items
-    as ``error``: a restart killed the task that imported it, and it is added again. The ids of the sources."""
+async def fail_interrupted(session: AsyncSession, kinds: Sequence[str], *, before: datetime) -> list[uuid.UUID]:
+    """End every source of ``kinds`` that is still ``listing`` or ``importing`` and was last touched before ``before``
+    as ``failed``, and its unfinished items as ``error``: a restart killed the task that imported it, and it is added
+    again. A source touched since (a new import of this process or of another replica) is left alone. The ids."""
 
     failed = list(
         await session.scalars(
             update(Connection)
-            .where(Connection.kind.in_(list(kinds)), Connection.state.in_(("listing", "importing")))
+            .where(
+                Connection.kind.in_(list(kinds)),
+                Connection.state.in_(("listing", "importing")),
+                Connection.updated_at < before,
+            )
             .values(state="failed", failure_reason=INTERRUPTED_REASON, updated_at=func.now())
             .returning(Connection.id)
             .execution_options(synchronize_session=False)

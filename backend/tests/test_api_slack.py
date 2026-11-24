@@ -552,6 +552,19 @@ async def test_the_start_gives_a_binding_without_a_row_the_member_who_ran_the_co
     assert connecting.integrations.rows[project, "slack"].user_id == USER
 
 
+async def test_one_bad_binding_does_not_stop_the_others_from_getting_their_row(connecting, caplog):
+    app, project = connecting.app, uuid.UUID(PROJECT)
+    await app.threads.channels.bind(Binding("not-a-uuid", "C2", "odd", str(USER)))  # a hand-edited file
+    await app.threads.channels.bind(Binding(PROJECT, "C1", "shop-gaps", str(USER)))
+
+    with caplog.at_level("WARNING"):
+        await app._record_bindings()
+
+    assert set(connecting.integrations.rows) == {(project, "slack")}
+    [logged] = [r for r in caplog.records if getattr(r, "event", None) == "api.slack.integration_record_failed"]
+    assert logged.error_type == "ValueError"
+
+
 async def test_an_unlinked_caller_signs_in_first_and_the_channel_connects_then(connecting):
     respond = Responses()
 

@@ -304,6 +304,24 @@ async def test_removing_slack_unbinds_its_channel(rig) -> None:
     assert await rig.channels.binding(str(rig.alpha)) is None and rig.integrations.rows == {}
 
 
+async def test_a_slack_row_stays_when_the_channel_cannot_be_unbound(rig, monkeypatch) -> None:
+    rig.integrations.put(rig.alpha, "slack", rig.alice.id)
+    await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
+
+    async def broken(_project_id: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(rig.channels, "unbind", broken)
+
+    answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack")
+
+    assert answer.status_code == 500
+    assert (
+        rig.alpha,
+        "slack",
+    ) in rig.integrations.rows  # a row that says "connected" is never left without its channel
+
+
 async def test_a_channel_bound_before_its_row_existed_can_still_be_removed(rig) -> None:
     await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
 

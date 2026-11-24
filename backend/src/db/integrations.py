@@ -120,13 +120,18 @@ async def add_missing_integration(
     return (await session.execute(statement)).first() is not None
 
 
-async def delete_integration(session: AsyncSession, project_id: uuid.UUID, app: str) -> bool:
-    result = await session.execute(
-        delete(ProjectIntegration)
-        .where(ProjectIntegration.project_id == project_id, ProjectIntegration.app == app)
-        .returning(ProjectIntegration.app)
+async def delete_integration(
+    session: AsyncSession, project_id: uuid.UUID, app: str, *, only_user: uuid.UUID | None = None
+) -> bool:
+    """Delete the binding; with ``only_user`` only when that member holds it (one statement, so a take-over between a
+    check and the delete cannot be undone by the earlier holder). True when a row went."""
+
+    statement = delete(ProjectIntegration).where(
+        ProjectIntegration.project_id == project_id, ProjectIntegration.app == app
     )
-    return result.first() is not None
+    if only_user is not None:
+        statement = statement.where(ProjectIntegration.user_id == only_user)
+    return (await session.execute(statement.returning(ProjectIntegration.app))).first() is not None
 
 
 async def point_jira_target(session: AsyncSession, project_id: uuid.UUID, user_id: uuid.UUID | None) -> None:

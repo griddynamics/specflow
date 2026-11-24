@@ -19,6 +19,7 @@ import logging
 import re
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, get_args
 
@@ -34,6 +35,7 @@ from api.imports import (
     NotImportedKindError,
     SourceGoneError,
 )
+from api.imports.runner import RECOVERY_MARGIN
 from api.schemas import SourceKindName
 from db import imports as imports_db
 from db import sources as sources_db
@@ -53,6 +55,7 @@ class Database:
         self.created: list[dict[str, Any]] = []
         self.gone: set[uuid.UUID] = set()
         self.interrupted: list[tuple[str, ...]] = []
+        self.before: list[datetime] = []
         self.ended_by_restart: list[uuid.UUID] = []
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -72,8 +75,9 @@ class Database:
             self.created.append(values)
             return SimpleNamespace(id=uuid.uuid4()), True
 
-        async def fail_interrupted(_session: Any, kinds: Any) -> list[uuid.UUID]:
+        async def fail_interrupted(_session: Any, kinds: Any, *, before: datetime) -> list[uuid.UUID]:
             self.interrupted.append(tuple(kinds))
+            self.before.append(before)
             return self.ended_by_restart
 
         monkeypatch.setattr(sources_db, "set_connection_state", set_state)
@@ -290,3 +294,16 @@ async def test_a_source_is_added_with_a_batch_style_external_id_and_the_importin
 def test_the_imported_kinds_are_source_kinds_the_database_and_the_api_accept() -> None:
     assert set(IMPORT_KINDS) <= set(CONNECTION_KINDS) and "upload" not in IMPORT_KINDS
     assert set(get_args(SourceKindName)) == set(CONNECTION_KINDS)  # the sources status can name every kind
+
+
+async def test_the_recovery_spares_every_source_touched_since_this_process_started(database) -> None:
+    started = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    runner = ImportRunner(transaction=transaction, store=InMemoryObjectStore(app_env="local"), now=lambda: started)
+
+    runner.start_recovery()
+    await asyncio.wait_for(runner._recovery, timeout=2)
+
+    # only sources last touched before the start (less the margin) are ended: a new import of this process, or of
+    # another replica, was touched after it
+    assert database.before == [started - RECOVERY_MARGIN] and timedelta(minutes=5) > RECOVERY_MARGIN
+    await runner.aclose()

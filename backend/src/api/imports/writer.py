@@ -67,7 +67,7 @@ class ImportWriter:
         content already in the project (any source) is ``duplicate``: its document is linked and nothing is stored.
         ``SourceGoneError`` when the source is gone."""
 
-        project_id, source_id = self._job.project_id, self._job.source_id
+        project_id = self._job.project_id
         document_id = uuid.uuid4()
         key = (
             document_original_json(str(project_id), str(document_id))
@@ -75,11 +75,38 @@ class ImportWriter:
             else document_original(str(project_id), str(document_id), original_media_type)
         )
         await self._put(key, original, original_media_type)
+        try:
+            created = await self._insert(
+                item=(external_id, name),
+                stored=(key, document_id, original_media_type),
+                original=original,
+                markdown=markdown,
+            )
+        except SourceGoneError:
+            await self._drop(key)  # the source is gone: the object is an orphan
+            raise
+        if created:
+            return "added"
+        await self._drop(key)  # the content was in the project already: the object is an orphan
+        return "duplicate"
+
+    async def _insert(
+        self,
+        *,
+        item: tuple[str, str],
+        stored: tuple[str, uuid.UUID, str],
+        original: bytes,
+        markdown: str,
+    ) -> bool:
+        """The document and its item in one transaction; whether the document is new."""
+
+        project_id, source_id = self._job.project_id, self._job.source_id
+        (external_id, name), (key, document_id, media_type) = item, stored
         async with self._transaction() as session:
             if await sources_db.lock_importing_connection(session, project_id, source_id) is None:
                 raise SourceGoneError
             item_id = await imports_db.declare_item(
-                session, project_id, source_id, external_id=external_id, name=name, mime_type=original_media_type
+                session, project_id, source_id, external_id=external_id, name=name, mime_type=media_type
             )
             document, created = await sources_db.insert_connection_document(
                 session,
@@ -91,21 +118,20 @@ class ImportWriter:
                     size_bytes=len(original),
                     original_key=key,
                 ),
-                media_type=original_media_type,
+                media_type=media_type,
                 markdown=markdown,
                 parser=self._parser,
                 status="parsed",
                 source_id=source_id,
             )
-            if created:
-                await sources_db.finish_item(session, item_id, "processed", document_id=document.id)
-            else:
-                await sources_db.finish_item(session, item_id, "duplicate", document_id=document.id)
-        if created:
-            return "added"
-        with Contained():  # the content was in the project already: the object is an orphan; a leftover is harmless
+            await sources_db.finish_item(
+                session, item_id, "processed" if created else "duplicate", document_id=document.id
+            )
+        return created
+
+    async def _drop(self, key: str) -> None:
+        with Contained():  # a leftover object is harmless
             await self._store.delete(key)
-        return "duplicate"
 
     async def fail(self, external_id: str, name: str, *, reason: str, step: str) -> None:
         """End one item as ``error`` with a closed reason and step (the import goes on with the next item)."""

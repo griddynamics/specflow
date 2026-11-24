@@ -301,19 +301,31 @@ class SlackGaps:
         if team is None:
             return
         for bound in await self.threads.channels.bindings():
-            project_id, user_id = uuid.UUID(bound.project_id), uuid.UUID(bound.bound_by)
-            async with self._runtime.transaction() as session:
-                if await repo.get_membership(session, user_id, project_id) is None:
-                    continue
-                await integrations_db.add_missing_integration(
-                    session,
-                    project_id,
-                    SLACK_APP,
-                    user_id=user_id,
-                    workspace_id=team[0],
-                    workspace_name=team[1],
-                    now=datetime.now(UTC),
+            with Contained() as recorded:  # one bad binding (an odd id, a failed write) never stops the others
+                await self._record_binding(bound, team)
+            if recorded.failed:
+                log_event(
+                    logger,
+                    WARNING,
+                    "api.slack.integration_record_failed",
+                    project_id=bound.project_id,
+                    error_type=recorded.error_type,
                 )
+
+    async def _record_binding(self, bound: Any, team: tuple[str, str]) -> None:
+        project_id, user_id = uuid.UUID(bound.project_id), uuid.UUID(bound.bound_by)
+        async with self._runtime.transaction() as session:
+            if await repo.get_membership(session, user_id, project_id) is None:
+                return
+            await integrations_db.add_missing_integration(
+                session,
+                project_id,
+                SLACK_APP,
+                user_id=user_id,
+                workspace_id=team[0],
+                workspace_name=team[1],
+                now=datetime.now(UTC),
+            )
 
     async def _member(self, user_id: uuid.UUID, wanted: str) -> Any:
         """The project with the id ``wanted`` when ``user_id`` is a member of it; ``None`` otherwise."""

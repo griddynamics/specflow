@@ -192,20 +192,24 @@ async def delete_project_integration(
 
     pid = access.project.id
     threads = None if runtime.slack is None else runtime.slack.threads
-    async with runtime.transaction() as session:
-        bound = await integrations_db.get_integration(session, pid, app)
-    if bound is None:
-        if app != SLACK or threads is None or await threads.channels.binding(str(pid)) is None:
-            raise integration_not_found()
-    elif not access.is_owner and bound.user_id != user.id:
-        raise integration_forbidden()
-    async with runtime.transaction() as session:
-        await integrations_db.delete_integration(session, pid, app)
-        if app == ATLASSIAN:
-            await integrations_db.point_jira_target(session, pid, None)
-        elif app == GITHUB:
-            await integrations_db.point_repositories(session, pid, None)
+    only = None if access.is_owner else user.id  # the connector's own binding only, whatever happens meanwhile
     if app == SLACK and threads is not None:
+        # The check comes first, then the channel is unbound; the row goes only once the unbind has worked.
+        async with runtime.transaction() as session:
+            bound = await integrations_db.get_integration(session, pid, app)
+        if bound is None and await threads.channels.binding(str(pid)) is None:
+            raise integration_not_found()
+        if bound is not None and only is not None and bound.user_id != only:
+            raise integration_forbidden()
         await threads.channels.unbind(str(pid))
+    async with runtime.transaction() as session:
+        deleted = await integrations_db.delete_integration(session, pid, app, only_user=only)
+        if deleted and app == ATLASSIAN:
+            await integrations_db.point_jira_target(session, pid, None)
+        elif deleted and app == GITHUB:
+            await integrations_db.point_repositories(session, pid, None)
+        elif not deleted and app != SLACK:
+            exists = await integrations_db.get_integration(session, pid, app) is not None
+            raise integration_forbidden() if exists else integration_not_found()
     log_event(logger, INFO, "api.integrations.removed", project_id=str(pid), app=app, user_id=str(user.id))
     return Response(status_code=204)

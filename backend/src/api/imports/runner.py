@@ -7,7 +7,10 @@ its ``ImportWriter``, and the source ends ``done`` or ``failed`` (a closed reaso
 the ``api`` layer, which a worker may not import.
 
 A restart ends the tasks, so at startup (``start_recovery``) every source of those kinds still ``listing`` or
-``importing`` is marked ``failed`` and added again by the member (the import is a snapshot, not a sync). A source
+``importing`` that was last touched before this process started (less ``RECOVERY_MARGIN``) is marked ``failed`` and
+added again by the member (the import is a snapshot, not a sync). A source added since, by a request racing the
+recovery, is never touched. One API replica is assumed (``Recreate``, as for the Slack bindings): a second replica
+would fail the imports of the first at its own start only when they began before it did. A source
 removed while its task runs stops the task at its next write. Events carry ids, the kind and codes only; the text of
 an importer's error never reaches a log.
 """
@@ -18,6 +21,7 @@ import asyncio
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Protocol
 
 from api.contained import Contained
@@ -38,6 +42,7 @@ from storage.base import ObjectStore
 logger = get_logger("api.imports")
 
 MAX_CONCURRENT_IMPORTS: Final = 2
+RECOVERY_MARGIN: Final = timedelta(minutes=1)  # a source touched this close before the start is not interrupted
 UNKNOWN_REASON: Final = imports_db.INTERRUPTED_REASON
 
 
@@ -56,7 +61,9 @@ class ImportRunner:
         transaction: Callable[[], AbstractAsyncContextManager[Any]],
         store: ObjectStore,
         max_concurrent: int = MAX_CONCURRENT_IMPORTS,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
+        self._started_at = now()
         self._transaction = transaction
         self._store = store
         self._slots = asyncio.Semaphore(max_concurrent)
@@ -173,7 +180,8 @@ class ImportRunner:
     async def _recover(self) -> None:
         with Contained() as recovered:
             async with self._transaction() as session:
-                ended = await imports_db.fail_interrupted(session, IMPORT_KINDS)
+                before = self._started_at - RECOVERY_MARGIN
+                ended = await imports_db.fail_interrupted(session, IMPORT_KINDS, before=before)
             if ended:
                 log_event(logger, WARNING, "api.imports.interrupted", sources=len(ended))
         if recovered.failed:
