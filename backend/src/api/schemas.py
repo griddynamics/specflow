@@ -829,3 +829,24 @@ class ProjectRepositoriesOut(BaseModel):
     enabled: bool
     can_manage: bool
     repositories: list[ProjectRepositoryOut]
+
+
+class ConfluenceLinkIn(BaseModel):
+    """A Confluence page or space link of the configured site; ``follow`` also reads the pages and Jira issues the
+    imported pages link to (one hop)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    link: str = Field(max_length=LINK_MAX)
+    follow: bool = False
+
+
+class ConfluenceCheckOut(BaseModel):
+    """What the link would import: ``pages`` (at most the page cap, ``capped`` when there are more) and
+    ``linked_issues``, the Jira issues the first page links to (0 without ``follow`` or for a space)."""
+
+    kind: Literal["page", "space"]
+    title: str
+    pages: int
+    capped: bool
+    linked_issues: int

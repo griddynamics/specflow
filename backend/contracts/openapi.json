@@ -1563,6 +1563,65 @@
         "title": "CompleteStoryBody",
         "type": "object"
       },
+      "ConfluenceCheckOut": {
+        "description": "What the link would import: ``pages`` (at most the page cap, ``capped`` when there are more) and\n``linked_issues``, the Jira issues the first page links to (0 without ``follow`` or for a space).",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "page",
+              "space"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "linked_issues": {
+            "title": "Linked Issues",
+            "type": "integer"
+          },
+          "pages": {
+            "title": "Pages",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "pages",
+          "capped",
+          "linked_issues"
+        ],
+        "title": "ConfluenceCheckOut",
+        "type": "object"
+      },
+      "ConfluenceLinkIn": {
+        "additionalProperties": false,
+        "description": "A Confluence page or space link of the configured site; ``follow`` also reads the pages and Jira issues the\nimported pages link to (one hop).",
+        "properties": {
+          "follow": {
+            "default": false,
+            "title": "Follow",
+            "type": "boolean"
+          },
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "ConfluenceLinkIn",
+        "type": "object"
+      },
       "CountsOut": {
         "properties": {
           "already_in_project": {
@@ -17233,6 +17292,110 @@
           }
         },
         "summary": "Sources Status",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/confluence": {
+      "post": {
+        "operationId": "add_confluence_source_api_v1_projects__pid__sources_confluence_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfluenceLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Confluence Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/confluence/check": {
+      "post": {
+        "operationId": "check_confluence_link_api_v1_projects__pid__sources_confluence_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfluenceLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfluenceCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Confluence Link",
         "tags": [
           "sources"
         ]

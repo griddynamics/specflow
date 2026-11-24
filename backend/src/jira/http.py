@@ -56,7 +56,7 @@ def _object(response: httpx.Response) -> dict[str, Any]:
     return body
 
 
-def _retry_after(response: httpx.Response) -> float:
+def retry_after(response: httpx.Response) -> float:
     """Seconds to wait: ``Retry-After`` is a number of seconds or an HTTP date; anything else waits one second."""
 
     value = response.headers.get("Retry-After", "1")
@@ -92,6 +92,46 @@ def _state(issue: Mapping[str, Any]) -> IssueState:
         status=status.get("name", ""),
         blocked_by=blocked_by,
     )
+
+
+async def send_with_retries(
+    client: httpx.AsyncClient,
+    sleep: Sleep,
+    method: str,
+    path: str,
+    *,
+    body: Mapping[str, Any] | None = None,
+    params: Mapping[str, str] | None = None,
+    repeatable: bool = True,
+) -> httpx.Response:
+    """One call with the retries of sync.md#failure-handling. A call that is not ``repeatable`` (a create, a
+    comment, a link) is never sent again after a timeout or a 5xx, because Jira may have done it: the next pass
+    recovers it. A 429 is always retried, as Jira did not process that request."""
+
+    rate_tries = server_tries = 0
+    while True:
+        try:
+            response = await client.request(method, path, json=body, params=params)
+        except httpx.HTTPError:
+            response = None
+        status = response.status_code if response is not None else 0
+        if response is not None and response.is_success:
+            return response
+        if status == httpx.codes.TOO_MANY_REQUESTS and response is not None:
+            rate_tries += 1
+            wait = retry_after(response)
+            if rate_tries > RATE_TRIES or wait > RATE_WAIT_MAX:
+                raise JiraError(Reason.UNREACHABLE, http_status=status)
+            log_event(logger, WARNING, "jira.http.retry", method=method, status=status, attempt=rate_tries)
+            await sleep(wait)
+        elif status == 0 or status >= httpx.codes.INTERNAL_SERVER_ERROR:
+            server_tries += 1
+            if server_tries > SERVER_TRIES or not repeatable:
+                raise JiraError(Reason.UNREACHABLE, http_status=status or None)
+            log_event(logger, WARNING, "jira.http.retry", method=method, status=status, attempt=server_tries)
+            await sleep(2 ** (server_tries - 1))
+        else:
+            raise JiraError(reason_for_http(status), http_status=status)
 
 
 class TokenSource(Protocol):
@@ -189,34 +229,11 @@ class HttpJiraGateway:
         params: Mapping[str, str] | None = None,
         repeatable: bool = True,
     ) -> httpx.Response:
-        """One call with the retries of sync.md#failure-handling. A call that is not ``repeatable`` (a create, a
-        comment, a link) is never sent again after a timeout or a 5xx, because Jira may have done it: the next pass
-        recovers it. A 429 is always retried, as Jira did not process that request."""
+        """One call with the retries of ``send_with_retries``."""
 
-        rate_tries = server_tries = 0
-        while True:
-            try:
-                response = await self._client.request(method, path, json=body, params=params)
-            except httpx.HTTPError:
-                response = None
-            status = response.status_code if response is not None else 0
-            if response is not None and response.is_success:
-                return response
-            if status == httpx.codes.TOO_MANY_REQUESTS and response is not None:
-                rate_tries += 1
-                wait = _retry_after(response)
-                if rate_tries > RATE_TRIES or wait > RATE_WAIT_MAX:
-                    raise JiraError(Reason.UNREACHABLE, http_status=status)
-                log_event(logger, WARNING, "jira.http.retry", method=method, status=status, attempt=rate_tries)
-                await self._sleep(wait)
-            elif status == 0 or status >= httpx.codes.INTERNAL_SERVER_ERROR:
-                server_tries += 1
-                if server_tries > SERVER_TRIES or not repeatable:
-                    raise JiraError(Reason.UNREACHABLE, http_status=status or None)
-                log_event(logger, WARNING, "jira.http.retry", method=method, status=status, attempt=server_tries)
-                await self._sleep(2 ** (server_tries - 1))
-            else:
-                raise JiraError(reason_for_http(status), http_status=status)
+        return await send_with_retries(
+            self._client, self._sleep, method, path, body=body, params=params, repeatable=repeatable
+        )
 
     async def myself(self) -> str:
         return str(_object(await self._send("GET", "/rest/api/3/myself")).get("accountId", ""))

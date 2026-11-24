@@ -155,6 +155,17 @@ class AtlassianConnections:
             self._gateways[key] = self._gateway_factory(view.cloud_id, _UserTokens(self, user_id))
         return self._gateways[key]
 
+    @property
+    def site_url(self) -> str:
+        """The one Atlassian site of this deployment (``ATLASSIAN_SITE_URL``)."""
+
+        return self._site_url
+
+    def token_source(self, user_id: uuid.UUID) -> TokenSource:
+        """The tokens of ``user_id`` for a reader of its own (an importer): refreshed once on a ``401``."""
+
+        return _UserTokens(self, user_id)
+
     async def access_token(self, user_id: uuid.UUID) -> str:
         """The cached access token while it is good, else a refreshed one."""
 

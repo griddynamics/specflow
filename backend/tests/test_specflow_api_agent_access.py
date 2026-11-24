@@ -76,6 +76,7 @@ from api.routers import (
     repositories,
     slack,
     source_batches,
+    source_confluence,
     source_removal,
     sources,
     users,
@@ -176,6 +177,7 @@ ROUTER_MODULES = (
     gaps,
     sources,
     source_batches,
+    source_confluence,
     source_removal,
     slack,
 )

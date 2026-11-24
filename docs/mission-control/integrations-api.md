@@ -118,6 +118,49 @@ the graph build changes: an importer writes `parsed` documents the build already
   before this process started (less a minute) is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
+- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source" below.
+
+## Confluence source
+
+What the canvas form (check, then add) calls. Any member (D6); the import reads as the member the project's Atlassian is
+connected by (R1), runs in the API process and is the source `kind` `confluence`. What it reads, the caps and how a changed
+page is added again: [../sources/importers.md](../sources/importers.md).
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/confluence/check` | `{link, follow}` | 200 `ConfluenceCheckOut` | 404 `project_not_found`; the codes below |
+| `POST /projects/{pid}/sources/confluence` | `{link, follow}` | 201 `BatchSourceOut` (`{source: SourceSummaryOut}`, the card of the new source, `kind` `confluence`, `listing_finished` false) | as the check; 404 `source_not_found` (removed at once) |
+
+`link` is at most 2048 characters, `follow` defaults to false (the body is closed: other keys are 422 `validation_failed`).
+`ConfluenceCheckOut`: `kind` (`page` or `space`), `title` (the page title or the space name; shown, not stored), `pages`
+(how many pages an import would take, at most 100; the first page plus its descendants, or the space's pages), `capped`
+(there are more than the cap), `linked_issues` (with `follow`: the Jira issues the first page links to; else 0, and 0 for a
+space). Pages that "follow links" would add are not counted. The check reads Confluence (up to a few calls); nothing is
+stored. Adding does not repeat a source for the same link: every add is a new source (D7).
+
+**Progress and status.** The new source is a card of `GET /projects/{pid}/sources?batches=1` like any other: `kind`
+`confluence` or `jira_epic`, `name` (the title), `link` (as pasted), `added_by` (the caller), `counts` per file state,
+`total`, `listing_finished` (false while `listing`), `open` false and, when the import failed, `failure_reason` (`no_access`
+or `unknown_error`). Items appear as pages are declared and finish as they are stored, so `total` grows while the import
+runs; a page the bound member cannot see is a file in a problem state (`access_lost`). `GET /projects/{pid}/sources`
+without `batches` lists Drive sources only (as before) and counts the imported ones in its `progress` totals. Poll the
+`?batches=1` status; a card with `listing_finished` true and `counts.waiting + counts.processing = 0` is done.
+
+Codes (any 4xx here carries only a fixed sentence, never Confluence's text):
+
+| Code | HTTP | When |
+|---|---|---|
+| `atlassian_oauth_unavailable` | 503 | the server is not in Atlassian `oauth` mode |
+| `atlassian_not_connected` | 409 | the project has no Atlassian connection bound to a member (the canvas says "Set up first") |
+| `atlassian_reconnect_required` | 409 | the bound member's connection expired or Atlassian refused its token again after a refresh |
+| `atlassian_site_mismatch` | 422 | the link is on another host than `ATLASSIAN_SITE_URL` |
+| `confluence_link_invalid` | 422 | not an https page or space link of the site (including the old `/wiki/display/` form) |
+| `confluence_short_link_unsupported` | 422 | a `/wiki/x/<id>` short link: paste the full page address |
+| `confluence_not_found` | 409 | the page or space does not exist or is not visible to the bound member |
+| `confluence_forbidden` | 409 | Confluence refused the bound member (403) |
+| `atlassian_unreachable` | 502 | Atlassian could not be reached, or answered something unusable |
+
+Order of checks: project member, Atlassian bound and usable, link, Confluence.
 
 ## Plan destinations
 

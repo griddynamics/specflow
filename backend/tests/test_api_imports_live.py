@@ -21,10 +21,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.graph_build.corpus import PostgresCorpusSource
-from api.imports import ImportJob, ImportRunner, ImportWriter
-from db import removal
+from api.imports import ImportFailedError, ImportJob, ImportRunner, ImportWriter
+from api.imports.confluence import ConfluenceImport, ConfluenceImporter
+from atlassian_import_support import FakeAtlassian, FakeConnections, install, storage_page
+from db import removal, source_files
+from db import sources as sources_db
 from db.github import session_transaction
 from db.session import build_engine, build_session_factory
+from jira.confluence_links import PageTarget
 from settings import DatabaseSettings
 from specflow_live import requires_live
 from storage.keys import document_prefix
@@ -293,3 +297,64 @@ async def test_the_recovery_never_ends_a_source_added_after_the_process_started(
 
     assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=old) == "failed"
     assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=fresh) == "listing"
+
+
+async def test_a_confluence_import_is_the_corpus_and_is_listed_by_both_sources_statuses(
+    factory, runner, monkeypatch
+) -> None:
+    user, project = await member_project(factory)
+    fake = FakeAtlassian(
+        pages={
+            "5": storage_page("5", "Order limits", "<h2>Limits</h2><p>Above <b>500 EUR</b>.</p>"),
+            "6": storage_page("6", "Refunds", "<p>Back to the payment.</p>"),
+        },
+        below={"5": [{"id": "6", "title": "Refunds", "type": "page"}, {"id": "7", "title": "Hidden", "type": "page"}]},
+        status={"/wiki/api/v2/pages/7": 403},
+    )
+    install(monkeypatch, fake)
+    importer = ConfluenceImporter(FakeConnections(user_id=user), ConfluenceImport(PageTarget("5"), follow=False))
+
+    job = await run(runner, project, user, kind="confluence", name="Order limits", importer=importer)
+
+    corpus = await PostgresCorpusSource(factory).snapshot(str(project))
+    assert sorted((c.path, c.title) for c in corpus) == [
+        ("Order limits/Order limits", "Order limits"),
+        ("Order limits/Refunds", "Refunds"),
+    ]
+    assert "Above **500 EUR**." in next(c.markdown for c in corpus if c.title == "Order limits")
+    async with factory() as session:
+        progress = await sources_db.sources_progress(session, project)
+        summaries = await source_files.source_summaries(session, project)
+    (listed,) = progress.connections
+    assert (listed.connection_id, listed.state, listed.progress.total, listed.progress.finished) == (
+        job.source_id,
+        "done",
+        3,
+        3,
+    )
+    (card,) = summaries
+    assert (card.kind, card.name, card.total, card.listing_finished, card.failure_reason) == (
+        "confluence",
+        "Order limits",
+        3,
+        True,
+        None,
+    )
+    assert card.counts["done"] == 2 and sum(card.counts.values()) == 3  # the page nobody could read is a problem item
+
+
+async def test_a_failed_import_shows_its_closed_reason_in_both_sources_statuses(factory, runner) -> None:
+    user, project = await member_project(factory)
+
+    async def importer(_job: ImportJob, writer: ImportWriter) -> None:
+        await writer.declare("page:5", "Order limits")
+        raise ImportFailedError("no_access")
+
+    job = await run(runner, project, user, kind="jira_epic", name="Epic ABC-1", importer=importer)
+
+    async with factory() as session:
+        progress = await sources_db.sources_progress(session, project)
+        (card,) = await source_files.source_summaries(session, project)
+    (listed,) = progress.connections
+    assert (listed.connection_id, listed.state, listed.failure_reason) == (job.source_id, "failed", "no_access")
+    assert (card.kind, card.failure_reason, card.listing_finished) == ("jira_epic", "no_access", True)
