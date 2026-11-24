@@ -3,7 +3,8 @@
 // control port, so the shared stub never decides an outcome. Proves FR-PRJ-UI-01..08 (docs/projects/requirements.md) and, for the tab
 // Jira, FR-JIRA-UI-01, UI-03, UI-05 (docs/jira-sync/requirements.md), and the Atlassian connection of the oauth mode
 // (docs/jira-sync/oauth.md#jira-tab): connect through the consent (Atlassian's page is intercepted, never reached), the callback route,
-// its toast and disconnect.
+// its toast and disconnect. The tab Slack (docs/slack/gap-answering.md "The channel flow") shows only the project's own channel and
+// the command that connects one from inside Slack; its API answer is given here (`page.route`), as the stub has no Slack.
 import { randomBytes } from "node:crypto";
 import type { Locator, Page } from "@playwright/test";
 import {
@@ -423,5 +424,66 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     expect(new URL(res.headers().location).pathname).toBe("/login");
     expect((await stubLog()).slice(before).filter((e) => e.path.includes("atlassian"))).toHaveLength(0);
     await anonymous.dispose();
+  });
+});
+
+const SLACK_PATH = (pid: string) => `/api/backend/projects/${pid}/slack`;
+const SHOP_GAPS = { id: "C1", name: "shop-gaps", private: true };
+
+/** Answers `GET /projects/{pid}/slack` with `settings` and a `DELETE` with 204; returns the methods the tab sent. */
+async function stubSlack(page: Page, pid: string, settings: Record<string, unknown>): Promise<string[]> {
+  const sent: string[] = [];
+  await page.route(
+    (url) => url.pathname === SLACK_PATH(pid),
+    async (route) => {
+      sent.push(route.request().method());
+      if (route.request().method() === "DELETE") await route.fulfill({ status: 204 });
+      else await route.fulfill({ json: settings });
+    },
+  );
+  return sent;
+}
+
+test.describe("Project Settings, tab Slack, on production routes", { tag: "@production" }, () => {
+  test.afterEach(async () => {
+    await resetPeopleState();
+  });
+
+  test("Slack: the owner of a project with no channel gets the connect command with its id, and no channel list", async ({ page }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Slack connect") });
+    await stubSlack(page, id, { available: true, channel: null, editable: true });
+    await page.goto(`/projects/${id}/settings?tab=slack`);
+
+    const tab = page.getByTestId("slack-tab");
+    await expect(tab.getByText(`/specflow connect ${id}`, { exact: true })).toBeVisible();
+    await expect(tab.getByRole("button", { name: "Copy" })).toBeVisible();
+    await expect(tab).toContainText("/invite @SpecFlow");
+    await expect(page.getByRole("combobox")).toHaveCount(0);
+  });
+
+  test("Slack: the owner sees the connected channel and disconnects it; the command shows again", async ({ page }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Slack bound") });
+    const sent = await stubSlack(page, id, { available: true, channel: SHOP_GAPS, editable: true });
+    await page.goto(`/projects/${id}/settings?tab=slack`);
+
+    await expect(page.getByTestId("slack-bound")).toHaveText("🔒 shop-gaps");
+    await page.getByTestId("slack-unbind").click();
+
+    await expect(page.getByText("The channel is disconnected; no more questions are posted there.")).toBeVisible();
+    await expect(page.getByTestId("slack-tab").getByText(`/specflow connect ${id}`, { exact: true })).toBeVisible();
+    expect(sent).toEqual(["GET", "DELETE"]);
+  });
+
+  test("Slack: a collaborator sees the channel or that there is none, with no command and no Disconnect", async ({ page }) => {
+    await login(page);
+    const { id } = await seedMembers({ name: unique("Slack collaborator") });
+    await stubSlack(page, id, { available: true, channel: null, editable: false });
+    await page.goto(`/projects/${id}/settings?tab=slack`);
+
+    await expect(page.getByTestId("slack-bound")).toHaveText("No Slack channel yet. The project's owner connects one from Slack.");
+    await expect(page.getByTestId("slack-tab").getByText("/specflow connect")).toHaveCount(0);
+    await expect(page.getByTestId("slack-unbind")).toHaveCount(0);
   });
 });

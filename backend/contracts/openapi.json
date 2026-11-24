@@ -8381,24 +8381,8 @@
         "title": "SlackLinkOut",
         "type": "object"
       },
-      "SlackSettingsIn": {
-        "additionalProperties": false,
-        "properties": {
-          "channel_id": {
-            "maxLength": 40,
-            "minLength": 1,
-            "title": "Channel Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "channel_id"
-        ],
-        "title": "SlackSettingsIn",
-        "type": "object"
-      },
       "SlackSettingsOut": {
-        "description": "``available``: the server runs the Slack app; ``channel`` the bound one (none when unbound); ``channels`` the\nones the app is in, to choose from; ``editable``: the caller is the owner.",
+        "description": "``available``: the server runs the Slack app; ``channel`` the connected one (none when not connected);\n``editable``: the caller is the owner.",
         "properties": {
           "available": {
             "title": "Available",
@@ -8414,13 +8398,6 @@
               }
             ]
           },
-          "channels": {
-            "items": {
-              "$ref": "#/components/schemas/SlackChannelOut"
-            },
-            "title": "Channels",
-            "type": "array"
-          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
@@ -8429,7 +8406,6 @@
         "required": [
           "available",
           "channel",
-          "channels",
           "editable"
         ],
         "title": "SlackSettingsOut",
@@ -15971,57 +15947,6 @@
           }
         },
         "summary": "Get Slack Settings",
-        "tags": [
-          "slack"
-        ]
-      },
-      "put": {
-        "description": "Bind the project to the channel and post its open questions there.",
-        "operationId": "put_slack_settings_api_v1_projects__pid__slack_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "title": "Pid",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SlackSettingsIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SlackSettingsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Put Slack Settings",
         "tags": [
           "slack"
         ]

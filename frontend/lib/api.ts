@@ -167,8 +167,6 @@ export const suggestUsers = (q: string, projectId?: string) =>
 
 // The Slack channel of a project (docs/slack/gap-answering.md "The channel flow"). Bodies stay `unknown`; lib/data/http/slack.ts checks them.
 export const getSlack = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/slack`).then((r) => r.body);
-export const putSlack = (pid: string, channelId: string) =>
-  httpPut(`/projects/${encodeURIComponent(pid)}/slack`, json({ channel_id: channelId })).then((r) => r.body);
 /** 204: resolves with the HTTP status. */
 export const deleteSlack = (pid: string) => httpDelete(`/projects/${encodeURIComponent(pid)}/slack`).then((r) => r.status);
 

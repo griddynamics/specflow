@@ -299,11 +299,6 @@
       "path": "/projects/{pid}/slack"
     },
     {
-      "id": "put_slack_settings_api_v1_projects__pid__slack_put",
-      "method": "PUT",
-      "path": "/projects/{pid}/slack"
-    },
-    {
       "id": "delete_slack_settings_api_v1_projects__pid__slack_delete",
       "method": "DELETE",
       "path": "/projects/{pid}/slack"

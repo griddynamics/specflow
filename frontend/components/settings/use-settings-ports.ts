@@ -13,7 +13,7 @@ export function useJiraPort() {
   return usePorts().jira;
 }
 
-/** The Slack port (`get`, `bind`, `unbind`). */
+/** The Slack port (`get`, `unbind`). */
 export function useSlackPort() {
   return usePorts().slack;
 }

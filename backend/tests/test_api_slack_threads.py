@@ -1,7 +1,8 @@
-"""Tier 1: the Slack channel flow (``api.slack.threads``, docs/slack/gap-answering.md "The channel flow"): binding a
-channel posts the open questions once each, a reply in a question's thread is recorded as the replier's SpecFlow user
-and applied, an unlinked replier gets the link privately and is recorded once linked, and the store and the reply
-parser. A fake Slack client and a fake gap service; no Slack, no database, no graph store."""
+"""Tier 1: the Slack channel flow (``api.slack.threads``, docs/slack/gap-answering.md "The channel flow"): only an
+internal channel the app is in, and no other project's, can be connected; connecting posts the open questions once
+each, a reply in a question's thread is recorded as the replier's SpecFlow user and applied, an unlinked replier gets
+the link privately and is recorded once linked, the settings show only the project's own channel, and the store and
+the reply parser. A fake Slack client and a fake gap service; no Slack, no database, no graph store."""
 
 from __future__ import annotations
 
@@ -13,10 +14,11 @@ from typing import Any
 
 import pytest
 
+from api.routers.slack import _settings
 from api.slack.blocks import gap_details, gap_headline, reply_answer
-from api.slack.channels import Binding, Posted, SlackChannels
+from api.slack.channels import Binding, ChannelTakenError, Posted, SlackChannels
 from api.slack.links import SlackLinks, SlackUser
-from api.slack.threads import ChannelRefusedError, SlackThreads
+from api.slack.threads import NOT_A_CHANNEL, NOT_IN_CHANNEL, SHARED, TAKEN, ChannelRefusedError, SlackThreads
 from test_api_slack import detail
 
 PROJECT = str(uuid.UUID(int=7))
@@ -33,14 +35,16 @@ class FakeClient:
         self.private: list[dict[str, Any]] = []
         self._ts = 0
 
-    async def conversations_list(self, **_: Any) -> dict[str, Any]:
-        return {
-            "channels": [
-                {"id": "C1", "name": "shop-gaps", "is_member": True, "is_private": True},
-                {"id": "C2", "name": "general", "is_member": False},
-                {"id": "C3", "name": "client-shared", "is_member": True, "is_ext_shared": True},
-            ]
+    async def conversations_info(self, *, channel: str) -> dict[str, Any]:
+        channels = {
+            "C1": {"name": "shop-gaps", "is_member": True, "is_private": True},
+            "C2": {"name": "general", "is_member": False},
+            "C3": {"name": "client-shared", "is_member": True, "is_ext_shared": True},
+            "C4": {"name": "billing", "is_member": True},
         }
+        if channel not in channels:
+            raise RuntimeError("channel_not_found")  # Slack's answer for a private channel the app is not in
+        return {"channel": {"id": channel, **channels[channel]}}
 
     async def _post(self, **kwargs: Any) -> dict[str, Any]:
         self._ts += 1
@@ -59,7 +63,7 @@ class FakeClient:
         """The client as SpecFlow calls it, under the Slack SDK's method names."""
 
         methods = {
-            "conversations_list": self.conversations_list,
+            "conversations_info": self.conversations_info,
             "chat_postMessage": self._post,
             "chat_update": self.chat_update,
             "chat_postEphemeral": self._ephemeral,
@@ -160,17 +164,53 @@ def reply(text: str, thread_ts: str, *, user: str = "U1", **over: Any) -> dict[s
 
 
 async def bound(rig: Any) -> dict[str, str]:
-    await rig.threads.bind(PROJECT, "C1", by=str(OWNER))
+    await rig.threads.connect(PROJECT, "C1", by=str(OWNER))
+    await rig.threads.post_open(PROJECT)
     return {post.gap_id: post.ts for post in (await rig.threads.channels.posted_gaps(PROJECT)).values()}
 
 
 # Binding and posting --------------------------------------------------------------------------------------------------
 
 
-async def test_the_channels_to_choose_are_the_ones_the_app_is_in_and_not_shared_outside(rig):
-    assert [c.channel_id for c in await rig.threads.available()] == ["C1"]
-    with pytest.raises(ChannelRefusedError):
-        await rig.threads.bind(PROJECT, "C3", by=str(OWNER))
+@pytest.mark.parametrize(
+    ("channel", "code"),
+    [("D1", NOT_A_CHANNEL), ("C2", NOT_IN_CHANNEL), ("C9", NOT_IN_CHANNEL), ("C3", SHARED)],
+)
+async def test_only_an_internal_channel_the_app_is_in_can_be_connected(rig, channel, code):
+    with pytest.raises(ChannelRefusedError) as refused:
+        await rig.threads.connect(PROJECT, channel, by=str(OWNER))
+
+    assert refused.value.code == code
+    assert await rig.threads.channels.binding(PROJECT) is None
+
+
+async def test_a_channel_belongs_to_one_project_and_the_same_one_again_changes_nothing(rig):
+    other = str(uuid.UUID(int=99))
+    assert await rig.threads.connect(PROJECT, "C1", by=str(OWNER)) is None
+    first = await rig.threads.channels.binding(PROJECT)
+
+    with pytest.raises(ChannelRefusedError) as refused:
+        await rig.threads.connect(other, "C1", by=str(ANA))
+    assert refused.value.code == TAKEN
+    assert await rig.threads.connect(PROJECT, "C1", by=str(ANA)) == first  # nothing changed, not even who
+    assert await rig.threads.channels.binding(PROJECT) == first
+    assert await rig.threads.connect(other, "C4", by=str(ANA)) is None
+
+
+async def test_the_settings_show_only_the_projects_own_channel(rig):
+    empty = await _settings(rig.threads, PROJECT, editable=False)
+    assert (empty.available, empty.channel, empty.editable) == (True, None, False)
+    await rig.threads.connect(PROJECT, "C1", by=str(OWNER))
+    await rig.threads.connect(str(uuid.UUID(int=99)), "C4", by=str(ANA))
+
+    shown = await _settings(rig.threads, PROJECT, editable=True)
+
+    assert shown.model_dump() == {
+        "available": True,
+        "channel": {"id": "C1", "name": "shop-gaps", "private": True},
+        "editable": True,
+    }
+    assert (await _settings(None, PROJECT, editable=True)).available is False
 
 
 def lines(client: FakeClient) -> list[str]:
@@ -274,8 +314,12 @@ async def test_a_new_binding_forgets_the_old_channel_posts(tmp_path):
 
     assert await store.thread("C1", "1.1") is None
     assert (await SlackChannels(tmp_path).binding(PROJECT)) == Binding(PROJECT, "C2", "b", str(OWNER))
+    with pytest.raises(ChannelTakenError):
+        await store.bind(Binding(str(uuid.UUID(int=99)), "C2", "b", str(ANA)))
     await store.unbind(PROJECT)
     assert await store.binding(PROJECT) is None
+    await store.bind(Binding(str(uuid.UUID(int=99)), "C2", "b", str(ANA), private=False))  # free again
+    assert (await store.binding(str(uuid.UUID(int=99)))).private is False
 
 
 @pytest.mark.parametrize(
