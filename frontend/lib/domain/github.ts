@@ -1,4 +1,4 @@
-// plans/GITHUB-INTEGRATION/contract.md#api: the caller's GitHub connection, the repositories that connection can read, and the GitHub
+// docs/github/api.md: the caller's GitHub connection, the repositories that connection can read, and the GitHub
 // repositories of a project with their clone check. Screens reach them only through `GitHubPort`; the http adapter
 // (`lib/data/http/github.ts`) is the one implementation.
 

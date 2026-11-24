@@ -1,4 +1,4 @@
-// plans/GITHUB-INTEGRATION/contract.md#api: the production GitHubPort against the stub API (tests/support/stub-github.mjs). The real
+// docs/github/api.md: the production GitHubPort against the stub API (tests/support/stub-github.mjs). The real
 // `lib/api.ts` and the adapter run; only `fetch` is replaced (tests/support/stub-fetch.ts). Layer U: the wire parsers and the error map.
 // Layer P: each route's request, response and error rows. Port 3298 (stub API).
 import { test } from "node:test";

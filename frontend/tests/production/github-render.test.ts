@@ -1,4 +1,4 @@
-// plans/GITHUB-INTEGRATION/contract.md#settings-tab: the GitHub tab's pieces rendered on the server, and its rules without React. The
+// docs/github/INDEX.md: the GitHub tab's pieces rendered on the server, and its rules without React. The
 // owner's connection row (connected, expired, none) and its access line, the repository rows in each clone state (badge, facts, failure
 // reason, actions for owners only), the Add gate, the empty states, the repository picker (added, too large, no match, truncated,
 // failed, none) and the `?github=` toasts and failure mapping. The clicks run in the production e2e.

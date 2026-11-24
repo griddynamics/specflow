@@ -1,5 +1,5 @@
 "use client";
-// plans/GITHUB-INTEGRATION/contract.md#settings-tab: the GitHub tab. An owner connects their own GitHub account, picks on GitHub the
+// docs/github/INDEX.md: the GitHub tab. An owner connects their own GitHub account, picks on GitHub the
 // repositories the Specflow app may read, and adds them to the project; Specflow clones each one to check access and keeps a copy. Every
 // member sees the repositories and their clone status read-only. The rules are in github-logic.ts, the pieces in github-parts.tsx. The
 // return routes come back with `?github=<code>`, shown once as a toast and then removed from the URL. The list reloads while a clone

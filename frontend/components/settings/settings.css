@@ -214,7 +214,7 @@
   flex-shrink: 0;
   color: var(--danger);
 }
-/* plans/GITHUB-INTEGRATION/contract.md#settings-tab: the GitHub tab. The access line under the account card, the repositories head
+/* docs/github/INDEX.md: the GitHub tab. The access line under the account card, the repositories head
    (title and count on the left, Add repository on the right), a repository row (name and Private tag, sub lines that may wrap, the badge
    and the actions at the end, which drop under the text on a narrow screen) and the picker's scrolling list. */
 .settings-github-access {

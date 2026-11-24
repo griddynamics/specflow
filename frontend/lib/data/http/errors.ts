@@ -52,7 +52,7 @@ const BY_CODE: Record<string, DataErrorCode> = {
   jira_not_configured: "conflict",
   jira_not_connected: "conflict", // 409 on PUT: the caller has no active Atlassian connection (docs/jira-sync/oauth.md)
   atlassian_oauth_unavailable: "unavailable", // 503: the server is not in the oauth mode
-  // GitHub (plans/GITHUB-INTEGRATION/contract.md#api).
+  // GitHub (docs/github/api.md).
   github_unavailable: "unavailable", // 503: GitHub is not configured on this server (the GitHub tab says so)
   github_unreachable: "unavailable", // 502: GitHub did not answer
   github_auth_failed: "unavailable", // 502: GitHub refused the call for another reason (a wrong client secret, a refused list)

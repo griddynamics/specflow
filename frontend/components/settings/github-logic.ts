@@ -1,4 +1,4 @@
-// plans/GITHUB-INTEGRATION/contract.md#settings-tab: the rules of the GitHub tab, free of React. The caller's connection row, who may add
+// docs/github/INDEX.md: the rules of the GitHub tab, free of React. The caller's connection row, who may add
 // repositories, the clone status of a repository (word, tone, facts, reason), the picker's list, the `?github=` toast and what a failed
 // call means for the screen.
 import { matchesQuery } from "@/components/ui/SearchField";

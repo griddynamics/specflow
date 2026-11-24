@@ -1,4 +1,4 @@
-// plans/GITHUB-INTEGRATION/contract.md#api: the production `GitHubPort` over the caller's GitHub connection and the repositories of a
+// docs/github/api.md: the production `GitHubPort` over the caller's GitHub connection and the repositories of a
 // project. Every body is shape-checked (like the Jira port): any other shape is `invalid_response`. Failures are `DataError`s whose
 // `detail.apiCode` is the API code. URLs the browser opens or follows must be `https:` on github.com.
 import {

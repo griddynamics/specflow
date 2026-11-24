@@ -1,4 +1,4 @@
-// GitHub integration (plans/GITHUB-INTEGRATION/contract.md): the Settings tab GitHub on the PRODUCTION routes in a real browser, against
+// GitHub integration (docs/github/INDEX.md): the Settings tab GitHub on the PRODUCTION routes in a real browser, against
 // the stub API (tests/support/stub-github.mjs) through the real BFF. GitHub's own pages are intercepted and never reached: the authorize
 // page answers with the redirect to the callback route, the app's install page with the redirect to the setup route. A case seeds its own
 // project through the control port and puts the global GitHub knobs back after it.

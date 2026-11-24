@@ -1,5 +1,5 @@
 "use client";
-// plans/GITHUB-INTEGRATION/contract.md#settings-tab: the pieces of the GitHub tab. Each takes plain props and has no data access;
+// docs/github/INDEX.md: the pieces of the GitHub tab. Each takes plain props and has no data access;
 // GitHubTab wires them to the port. Design-system components only: Button, Tag, Tooltip, Icon, GlassSurface, EmptyState,
 // Skeleton, Modal, TextField; the account row and the confirmation are account-parts.tsx.
 import { markFor } from "@/components/connections/logos";

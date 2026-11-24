@@ -1,4 +1,4 @@
-// plans/GITHUB-INTEGRATION/contract.md#web-app-routes: where the two GitHub return routes send the browser. The OAuth callback
+// docs/github/oauth.md#connect-flow: where the two GitHub return routes send the browser. The OAuth callback
 // (app/api/integrations/github/callback) is the shared code flow of lib/oauth-callback.ts with the `?github=` codes; the setup route
 // (app/api/integrations/github/setup, after an app install or an update of its repositories) only has the app's signed `state` checked by
 // the API. GitHub's `installation_id` is never read or forwarded: the API lists installations through the user's token.

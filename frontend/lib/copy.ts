@@ -56,7 +56,7 @@ export const COPY = {
   atlassianUnavailable: "Atlassian connections are not set up on this Specflow server.",
   atlassianUnexpected: "Could not connect Atlassian. Try again.",
   // Screen captions:
-  // Settings > GitHub (plans/GITHUB-INTEGRATION/contract.md): the `?github=` toasts of the return routes, the API refusals and the
+  // Settings > GitHub (docs/github/INDEX.md): the `?github=` toasts of the return routes, the API refusals and the
   // reasons a clone check failed.
   githubConnected: "GitHub connected",
   githubInstalled: "GitHub repositories updated",

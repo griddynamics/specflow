@@ -103,7 +103,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const people = createMembersModel();
   /** Jira settings (docs/jira-sync/api.md#web-routes): the target of a project, the owner rule, scripted access checks. */
   const jira = createJiraModel((pid) => people.list(pid).role);
-  /** GitHub (plans/GITHUB-INTEGRATION/contract.md#api): the caller's connection, their repositories, a project's repositories. */
+  /** GitHub (docs/github/api.md): the caller's connection, their repositories, a project's repositories. */
   const github = createGitHubModel((pid) => people.list(pid).role, ME.name);
   const readJson = async (req) => {
     const chunks = [];

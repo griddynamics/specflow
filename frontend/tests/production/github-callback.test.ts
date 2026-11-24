@@ -1,4 +1,4 @@
-// plans/GITHUB-INTEGRATION/contract.md#web-app-routes: where the two GitHub return routes send the browser, decided by
+// docs/github/oauth.md#connect-flow: where the two GitHub return routes send the browser, decided by
 // lib/github-callback.ts on the shared rules of lib/oauth-callback.ts. The OAuth callback: success, GitHub's own `?error=`, each API code,
 // an unknown answer, the API down, no session, a malicious `return_to`. The setup route (after an app install): no `state`, success,
 // a refused state, and GitHub's `installation_id` never reaching the API. The routes' wiring (session, token, redirect on PUBLIC_URL)

@@ -188,7 +188,7 @@ export const authorizeAtlassian = (returnTo: string) =>
 /** 204: resolves with the HTTP status. */
 export const disconnectAtlassian = () => httpDelete("/integrations/atlassian").then((r) => r.status);
 
-// GitHub (plans/GITHUB-INTEGRATION/contract.md#api): the caller's connection, the repositories it can read and the repositories of a
+// GitHub (docs/github/api.md): the caller's connection, the repositories it can read and the repositories of a
 // project. Bodies stay `unknown`; the GitHub port (lib/data/http/github.ts) checks their shape. The OAuth callback and the setup return
 // are not here: the route handlers app/api/integrations/github/{callback,setup} call the API on the server.
 export const getGitHubConnection = () => httpGet("/integrations/github").then((r) => r.body);

@@ -1,4 +1,4 @@
-// Stub of the GitHub API of plans/GITHUB-INTEGRATION/contract.md#api, in memory: the caller's GitHub connection, the repositories that
+// Stub of the GitHub API of docs/github/api.md, in memory: the caller's GitHub connection, the repositories that
 // connection can read, and the repositories of each project with a simulated clone check. A test double next to stub-api.mjs, close
 // enough to drive the http adapter, the BFF and the Settings tab; the real API lives in backend/src/api. It never calls GitHub.
 // `state.enabled` false = GitHub is not configured (503 `github_unavailable`). The authorize and install URLs carry a `state` with
