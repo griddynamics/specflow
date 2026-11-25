@@ -326,3 +326,13 @@ ignore_imports = [
     "temporal.agents.registration -> db.session",
     "temporal.documents.registration -> db.session",
 ]
+
+# The export lift (api.exports) is destination-neutral: the runner, digest, rank planner and run status know no
+# destination. Jira (and later GitHub Projects) depend on it, never the reverse.
+[[tool.importlinter.contracts]]
+name = "The destination-neutral export code imports no destination, database or graph module"
+id = "exports-destination-neutral"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["api.exports"]
+forbidden_modules = ["api.jira", "jira", "github", "db", "graph", "agent_contracts"]

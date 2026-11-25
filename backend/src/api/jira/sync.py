@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any, Final, Literal
 
 from api.contained import Contained
+from api.exports.status import FAILED, PARTIAL, SKIPPED, SUCCEEDED
 from api.jira import content as rules
 from api.jira import rank
 from api.jira.desired import EPIC, Desired, Item, Row, SpecRef, build, content, is_deleted, spec_ids
@@ -34,7 +35,6 @@ RECOVERY_MARGIN_MINUTES: Final = 5
 SECONDS_PER_MINUTE: Final = 60
 SEARCH_INDEX_LAG_SECONDS: Final = 60  # Jira's search lists a new issue only after this long (seen live: seconds)
 REMOTE_TITLE: Final = "Specflow plan"
-SUCCEEDED, PARTIAL, FAILED, SKIPPED = "succeeded", "partial", "failed", "skipped"
 NOT_CONFIGURED, NO_PLAN, PLAN_APPLYING = "jira_not_configured", "no_plan", "plan_applying"
 TARGET_CHANGED, UNEXPECTED_ERROR = "target_changed", "unexpected_error"
 _RUN_REASONS: Final = frozenset(

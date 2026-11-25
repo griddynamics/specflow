@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from collections.abc import Mapping
 from typing import Any, Final
 
+from api.exports import digest as _digest
 from jira.adf import CommentItem
 
+canonical = _digest.canonical  # lifted to api.exports.digest; the Jira rules keep their names
+digest = _digest.digest
 MAPPING_VERSION: Final = 1
 SUMMARY_LIMIT: Final = 255
 TEXT_LIMIT: Final = 30_000
@@ -21,14 +22,6 @@ CHANGED, REMOVED, REVIVED = "changed", "removed", "revived"
 _WHITESPACE: Final = re.compile(r"\s+")
 _NOT_SLUG: Final = re.compile(r"[^a-z0-9]+")
 _ELLIPSIS: Final = "…"
-
-
-def canonical(content: Mapping[str, Any]) -> str:
-    return json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def digest(content: Mapping[str, Any]) -> str:
-    return hashlib.sha256(canonical(content).encode()).hexdigest()
 
 
 def _cut(value: str, limit: int) -> str:
