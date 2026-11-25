@@ -20,8 +20,8 @@ export {
   CodeLine,
   DialogFoot,
   Disclosure,
+  CountTable,
   FileList,
-  LineList,
   Notice,
   Page,
   Row,
@@ -30,7 +30,7 @@ export {
   Stack,
   ToolGrid,
 } from "./components/layout";
-export type { FileRowView } from "./components/layout";
+export type { CountRow, FileRowView } from "./components/layout";
 export { Menu } from "./components/menu";
 export { ShowMeHow } from "./components/show-me-how";
 export type { ShowMeHowProps } from "./components/show-me-how";

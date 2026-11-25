@@ -1,6 +1,7 @@
 // What the Gaps hub shows, from the gap run (`gaps.check`) and one page of `gaps.list`: how many were found, how many are answered, how many
 // of the open ones block work. Gaps are not answered in the app (D10): this is only the count. Pure.
-import { GAP_STATUSES, type Gap, type GapCheck, type GapPage, type GapQuery } from "@/lib/domain/gaps";
+import { GAP_KINDS, GAP_SEVERITIES, GAP_STATUSES } from "@/lib/domain/gaps";
+import type { Gap, GapCheck, GapKind, GapPage, GapQuery, GapSeverity } from "@/lib/domain/gaps";
 import type { GapRow, GapsSummary } from "./canvas-types";
 
 /** Every status, so the page counts answered gaps too; the biggest page the API gives. */
@@ -25,5 +26,28 @@ export function summarizeGaps(check: GapCheck, page: GapPage): GapsSummary {
     answered: page.gaps.filter(settled).length,
     critical: page.gaps.filter((g) => g.status === "open" && g.severity === "blocker").length,
     more: page.next !== null,
+  };
+}
+
+/** The open gaps counted by category (kind) and severity: a column for each severity some gap has, and a Total column only when there are
+ * two or more; the categories with the most gaps first, then in the API's order of kinds. */
+export interface GapCounts {
+  severities: GapSeverity[];
+  withTotal: boolean;
+  rows: { kind: GapKind; counts: number[] }[];
+}
+
+export function gapCounts(rows: readonly GapRow[]): GapCounts {
+  const severities = GAP_SEVERITIES.filter((s) => rows.some((g) => g.severity === s));
+  const withTotal = severities.length > 1;
+  const counted = GAP_KINDS.map((kind) => {
+    const ofKind = rows.filter((g) => g.kind === kind);
+    const counts = severities.map((s) => ofKind.filter((g) => g.severity === s).length);
+    return { kind, counts: withTotal ? [...counts, ofKind.length] : counts, total: ofKind.length };
+  }).filter((r) => r.total > 0);
+  return {
+    severities,
+    withTotal,
+    rows: counted.toSorted((a, b) => b.total - a.total).map(({ kind, counts }) => ({ kind, counts })),
   };
 }

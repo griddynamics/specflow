@@ -44,20 +44,44 @@ export function Notice({ role = "status", children }: Readonly<{ role?: "status"
   );
 }
 
-/** A plain list of lines, each with a title and a detail (the open gaps). */
-export function LineList({
+export interface CountRow {
+  key: string;
+  label: string;
+  counts: readonly number[];
+}
+
+/** Counts in a small table: one row per category, one column per kind of count. A zero is shown, but quieter. */
+export function CountTable({
   label,
-  items,
-}: Readonly<{ label: string; items: readonly { key: string; title: string; detail: string }[] }>): JSX.Element {
+  head,
+  columns,
+  rows,
+}: Readonly<{ label: string; head: string; columns: readonly string[]; rows: readonly CountRow[] }>): JSX.Element {
   return (
-    <ul className="gx-lines" aria-label={label}>
-      {items.map((item) => (
-        <li key={item.key}>
-          <b>{item.title}</b>
-          <small>{item.detail}</small>
-        </li>
-      ))}
-    </ul>
+    <table className="gx-counts" aria-label={label}>
+      <thead>
+        <tr>
+          <th scope="col">{head}</th>
+          {columns.map((c) => (
+            <th key={c} scope="col">
+              {c}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.key}>
+            <th scope="row">{row.label}</th>
+            {row.counts.map((n, i) => (
+              <td key={columns[i] ?? i} data-zero={n === 0 ? "" : undefined}>
+                {n}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

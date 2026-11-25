@@ -110,7 +110,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     expect(bodiesOf(posts)).toEqual([{ reasoning_level: 3 }]);
   });
 
-  test("scene 5, gaps found: Plan is the yellow decision, the Gaps hub lists the open gaps read-only, Build plan posts a plan and the wire from Gap moves", async ({
+  test("scene 5, gaps found: Plan is the yellow decision, the Gaps hub counts the open gaps by category, read-only, Build plan posts a plan and the wire from Gap moves", async ({
     page,
     requests,
   }) => {
@@ -127,7 +127,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await button(page, /^Gap$/).click();
     const gaps = dialog(page, /open gaps?$/);
     await expect(gaps.getByText("in Slack, in Jira, or by a coding agent over MCP")).toBeVisible();
-    await expect(gaps.getByRole("list", { name: "Gaps" }).getByRole("listitem").first()).toBeVisible();
+    await expect(gaps.getByRole("table", { name: "Gaps" }).getByRole("rowheader").first()).toBeVisible(); // counts by category, not a list
     await expect(gaps.getByRole("textbox")).toHaveCount(0); // gaps are not answered in the app (D10)
     await gaps.getByRole("button", { name: "Done" }).click();
     await expect(gaps).toBeHidden();

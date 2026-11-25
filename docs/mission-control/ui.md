@@ -57,8 +57,9 @@ are open the graph keeps the yellow. Graph: waits for a source, ready to build, 
 "Waits for the gap run" while the gap run was never made; "Looking for gaps" while it runs; then "N found · M answered" with a solid
 "N critical" pill. Plan: waits while gaps are found, ready to plan, planning, then "N stories · M tasks". **Update graph** is due when a source was
 added or files removed after the last build started, or the last build failed; **Replan** when a graph build finished after the screen first saw
-the plan (session-local, AC40). Pressing the Gap hub opens a read-only list of open gaps, blockers first, 50 lines (AC47): gaps are answered in
-Slack, Jira or over MCP, never here (D10).
+the plan (session-local, AC40). Pressing the Gap hub opens a read-only summary of the open gaps: a count per category, with a column for each severity that occurs (and
+Total when there are two or more). It replaced the 50-line list of AC47 (owner feedback). Gaps are answered in Slack, Jira or over MCP,
+never here (D10).
 
 **Nodes.** One node per object (D5) with the app's mark, a name, one line of meta and a state: `on` (ink), `busy` (spinner, moving wire),
 `wait` (grey, dashed wire), `stopped` (badge). A node stops only for what an API reports (D2). The wire between a node and its hub moves only
@@ -101,7 +102,7 @@ Stopped nodes: a lost Atlassian or GitHub connection (reconnect), or the closed 
 | Slack `/graphico connect` | `/specflow connect <project id>` | Main wins (AC14) |
 | A Jira plus asks for space and epic keys only | Also Check access as the bound member | Same rules as the Jira tab on main |
 | Decision buttons on a seam or a dock | On the hub (alternative A) | AC41 |
-| Gaps answered in the prototype's list | Read-only list | D10 |
+| Gaps answered in the prototype's list | Read-only counts by category | D10 |
 | Slack added after a posted test only | A channel whose test failed is already a node; the form closes and says what to fix | The binding exists once the command ran (AC49) |
 | "Set up" sets a switch | OAuth consent per app, then the canvas form | Integration flows of main (AC8) |
 | Remove on every node | Sources and repositories only; the owner | AC46 |

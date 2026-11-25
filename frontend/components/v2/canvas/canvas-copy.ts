@@ -180,7 +180,8 @@ export const CANVAS_COPY = {
   gapsCriticalLine: "{n} of them critical: they block the work they are about until they are answered.",
   gapsIntro: "Gaps are answered where the people are: in Slack, in Jira, or by a coding agent over MCP.",
   gapsNone: "No gap is open.",
-  gapsMore: "and {n} more",
+  gapsCategory: "Category",
+  gapsTotal: "Total",
 } as const;
 
 /** What each tool does when you ask your agent for it, from the definitions in `backend/src/mcp_server/descriptions.py`. */

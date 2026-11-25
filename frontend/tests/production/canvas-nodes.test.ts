@@ -2,7 +2,7 @@
 // APIs report, that a stop is only an API-reported one, and which hub presses open which dialog. Pure: no React.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { openGapRows } from "@/components/v2/canvas/canvas-gaps";
+import { gapCounts, openGapRows } from "@/components/v2/canvas/canvas-gaps";
 import { buildCanvasModel } from "@/components/v2/canvas/canvas-model";
 import type { CanvasInput, NodeView } from "@/components/v2/canvas/canvas-types";
 import { hubDialog } from "@/components/v2/canvas/CanvasScreen";
@@ -214,6 +214,29 @@ test("the open gaps list puts blockers first and leaves the settled ones out", (
     rows.map((r) => r.id),
     ["c", "a", "d"],
   );
+});
+
+test("the gap counts: one column per severity that occurs, Total only with two or more, the biggest category first", () => {
+  const row = (id: string, kind: "missing" | "open_question" | "assumption", severity: "blocker" | "major" | "minor") =>
+    ({ id, title: id, kind, severity }) as const;
+  // The owner's project: every gap Major, so one column and no Total.
+  assert.deepEqual(gapCounts([row("a", "open_question", "major"), row("b", "missing", "major"), row("c", "missing", "major")]), {
+    severities: ["major"],
+    withTotal: false,
+    rows: [
+      { kind: "missing", counts: [2] },
+      { kind: "open_question", counts: [1] },
+    ],
+  });
+  assert.deepEqual(gapCounts([row("a", "assumption", "minor"), row("b", "missing", "blocker"), row("c", "assumption", "blocker")]), {
+    severities: ["blocker", "minor"],
+    withTotal: true,
+    rows: [
+      { kind: "assumption", counts: [1, 1, 2] },
+      { kind: "missing", counts: [1, 0, 1] },
+    ],
+  });
+  assert.deepEqual(gapCounts([]), { severities: [], withTotal: false, rows: [] });
 });
 
 test("an upload is named short: the time today, the day before, a number for a same-minute batch", () => {

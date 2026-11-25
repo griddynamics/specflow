@@ -98,24 +98,40 @@
   font-size: 12.5px;
 }
 
-.gx-lines {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.gx-counts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
 }
 
-.gx-lines li {
-  display: grid;
-  gap: 2px;
-  padding-bottom: 10px;
+.gx-counts th,
+.gx-counts td {
+  padding: 9px 0;
   border-bottom: 1px solid var(--gx-rule);
+  text-align: right;
 }
 
-.gx-lines small {
+.gx-counts th:first-child {
+  text-align: left;
+}
+
+.gx-counts thead th {
   color: var(--gx-ink-3);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.gx-counts tbody th {
+  font-weight: 600;
+}
+
+.gx-counts td {
+  width: 88px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gx-counts td[data-zero] {
+  color: var(--gx-ink-3);
 }
 
 .gx-tools {

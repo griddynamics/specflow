@@ -9,6 +9,7 @@ import {
   BuiltInList,
   CodeLine,
   ConfirmPanel,
+  CountTable,
   DialogFoot,
   FileList,
   IntegrationCard,
@@ -213,6 +214,17 @@ test("ToolGrid: a labelled list, the name in mono then one sentence", () => {
   assert.equal(
     view,
     '<ul class="gx-tools" aria-label="Tools"><li><code class="gx-tools__name">list_gaps</code><span>Lists the open questions.</span></li></ul>',
+  );
+});
+
+test("CountTable: a labelled table, the categories as row heads, a zero marked to show quieter", () => {
+  const view = html(
+    <CountTable label="Gaps" head="Category" columns={["Major", "Minor"]} rows={[{ key: "m", label: "Missing", counts: [4, 0] }]} />,
+  );
+  assert.equal(
+    view,
+    '<table class="gx-counts" aria-label="Gaps"><thead><tr><th scope="col">Category</th><th scope="col">Major</th><th scope="col">Minor</th></tr></thead>' +
+      '<tbody><tr><th scope="row">Missing</th><td>4</td><td data-zero="">0</td></tr></tbody></table>',
   );
 });
 

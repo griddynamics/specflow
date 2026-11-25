@@ -134,24 +134,22 @@ test("Build the plan names the destination and the open gaps; Replan plans every
   assert.match(view.again, />Replan<\/button>/);
 });
 
-test("the Gaps dialog lists the open gaps with their kind and severity, read-only, and says where they are answered", () => {
+test("the Gaps dialog counts the open gaps by category and severity, read-only, and says where they are answered", () => {
   const rows = [
     { id: "g1", title: "Refunds for paid orders", kind: "contradiction", severity: "blocker" },
     { id: "g2", title: "Reporting API owner", kind: "missing", severity: "minor" },
+    { id: "g3", title: "Export contract", kind: "missing", severity: "minor" },
   ] as const;
   const view = html(createElement(GapsDialog, { rows, onClose: noop }));
   assert.match(view, /in Slack, in Jira, or by a coding agent over MCP/);
-  assert.match(view, /<b>Refunds for paid orders<\/b><small>Contradiction · Blocker<\/small>/);
-  assert.match(view, /<b>Reporting API owner<\/b><small>Missing · Minor<\/small>/);
+  assert.match(view, /<th scope="col">Category<\/th><th scope="col">Blocker<\/th><th scope="col">Minor<\/th><th scope="col">Total<\/th>/);
+  assert.match(
+    view,
+    /<th scope="row">Missing<\/th><td data-zero="">0<\/td><td>2<\/td><td>2<\/td><\/tr><tr><th scope="row">Contradiction<\/th>/,
+  );
+  assert.doesNotMatch(view, /Refunds for paid orders/, "a summary, not the list of gaps");
   assert.doesNotMatch(view, /<input|<textarea|Answer</, "no answering in the app (D10)");
   assert.match(html(createElement(GapsDialog, { rows: [], onClose: noop })), /No gap is open\./);
-  const many = Array.from(
-    { length: 53 },
-    (_, i) => ({ id: `g${String(i)}`, title: `Gap ${String(i)}`, kind: "missing", severity: "minor" }) as const,
-  );
-  const long = { view: html(createElement(GapsDialog, { rows: many, onClose: noop })) };
-  assert.equal(count(long.view, "<li>"), 50);
-  assert.match(long.view, /and 3 more/);
 });
 
 const form = (kind: string): FormProps => ({
