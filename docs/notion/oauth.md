@@ -71,7 +71,10 @@ sequenceDiagram
 
 The same rules as GitHub ([../github/oauth.md](../github/oauth.md#tokens)), on `notion_connections`:
 
-- the refresh token is stored encrypted; the access token lives in the process's memory only (`integrations.tokens`);
+- the refresh token is stored encrypted; the access token lives in the process's memory only (`integrations.tokens`).
+  A token answer without `expires_in` never expires: it is cached and replaced only after a `401`. An answer without a
+  refresh token still connects, as a connection that cannot be refreshed: a `401` on it sets `expired`
+  (`notion_reconnect_required`) and Notion's token endpoint is not called;
 - a refresh runs under a per-user lock and `FOR UPDATE` on the row, and the rotated refresh token is committed before the
   new access token is used;
 - a `401` refreshes once and asks once more: the REST client never retries a `401` (`notion_auth_failed`); the refreshing
@@ -80,7 +83,8 @@ The same rules as GitHub ([../github/oauth.md](../github/oauth.md#tokens)), on `
   (`notion_reconnect_required`) and the connection is never refreshed again until the user reconnects; any other refusal
   keeps it `active` (`notion_unreachable`, or `notion_auth_failed` for a wrong client secret);
 - every use reads the row first (`notion_not_connected` without one), so another replica's disconnect or reconnect is seen;
-- disconnect deletes the row, drops the cached token and calls `POST /v1/oauth/revoke` (best effort).
+- disconnect deletes the row, drops the cached token and calls `POST /v1/oauth/revoke` with it (best effort): without a
+  cached token that is still good it never refreshes just to revoke, it skips the revoke.
 
 ## Request budget
 

@@ -23,6 +23,7 @@ from pydantic import SecretStr
 
 from integrations.state import STATE_TTL_SECONDS, StateInvalidError, StateSigner
 from notion.connections import (
+    NO_EXPIRY_SECONDS,
     NotionConnections,
     NotionOAuthClient,
     RefreshingNotionGateway,
@@ -282,9 +283,7 @@ async def test_a_code_is_exchanged_with_basic_auth_the_redirect_uri_and_the_api_
     assert "access-1" not in repr(grant) and "refresh-1" not in repr(grant)  # SecretStr
 
 
-@pytest.mark.parametrize(
-    "scenario", ["unknown_code", "wrong_client", "no_identity", "no_refresh_token", "other_refusal", "not_json"]
-)
+@pytest.mark.parametrize("scenario", ["unknown_code", "wrong_client", "no_identity", "other_refusal", "not_json"])
 async def test_any_refused_exchange_is_code_invalid(scenario: str) -> None:
     notion = FakeNotion()
     code = CODE_CANARY
@@ -294,8 +293,6 @@ async def test_any_refused_exchange_is_code_invalid(scenario: str) -> None:
         notion.error = (401, "invalid_client")
     elif scenario == "no_identity":
         notion.with_identity = False
-    elif scenario == "no_refresh_token":
-        notion.with_refresh = False
     elif scenario == "other_refusal":
         notion.error = (403, "restricted_resource")
     client = notion.oauth()
@@ -340,7 +337,11 @@ async def test_a_refresh_names_a_dead_token_a_refusal_and_may_leave_out_the_iden
     notion.with_identity, notion.expires_in = False, None
     rotated = await client.refresh(grant.refresh_token.get_secret_value())
     assert notion.bodies[-1] == {"grant_type": "refresh_token", "refresh_token": "refresh-1"}
-    assert (rotated.refresh_token.get_secret_value(), rotated.expires_in, rotated.workspace_id) == ("refresh-2", 0, "")
+    assert (rotated.refresh_token.get_secret_value(), rotated.expires_in, rotated.workspace_id) == (
+        "refresh-2",
+        NO_EXPIRY_SECONDS,
+        "",
+    )
     with pytest.raises(NotionError) as dead:
         await client.refresh("refresh-1")  # rotated away
     assert dead.value.code is NotionCode.GRANT_INVALID
@@ -348,10 +349,9 @@ async def test_a_refresh_names_a_dead_token_a_refusal_and_may_leave_out_the_iden
     with pytest.raises(NotionError) as refused:
         await client.refresh("refresh-2")
     assert refused.value.code is NotionCode.REFUSED
-    notion.with_refresh = False
-    with pytest.raises(NotionError) as without:
-        await client.refresh("refresh-2")
-    assert without.value.code is NotionCode.REFUSED
+    notion.expires_in, notion.with_refresh = 0, False  # an explicit 0 is use once; no refresh token is accepted
+    last = await client.refresh("refresh-2")
+    assert (last.expires_in, last.refresh_token.get_secret_value()) == (0, "")
 
 
 async def test_revoke_is_best_effort() -> None:
@@ -473,14 +473,63 @@ async def test_an_expired_access_token_is_refreshed_and_the_rotated_refresh_toke
     assert notion.refresh == {"refresh-2"}  # the old refresh token is dead
 
 
-async def test_a_token_without_expires_in_is_used_once_and_never_cached() -> None:
+async def test_a_token_with_expires_in_zero_is_used_once_and_never_cached() -> None:
     notion, store = FakeNotion(), MemoryStore()
-    notion.expires_in = None
+    notion.expires_in = 0
     connections = await connected(notion, store)
 
     assert await connections.access_token(USER) == "access-2"
     assert await connections.access_token(USER) == "access-3"
     assert notion.refreshes == 2
+
+
+async def test_a_token_without_expires_in_never_expires_and_is_replaced_only_after_a_401() -> None:
+    notion, store, clock = FakeNotion(), MemoryStore(), Clock()
+    notion.expires_in = None
+    connections = await connected(notion, store, clock)
+    clock.now += 5 * 365 * 24 * 3600  # years later
+
+    assert await connections.access_token(USER) == "access-1" and notion.refreshes == 0
+    assert await connections.refresh(USER, used="access-1") == "access-2"  # what a 401 does
+    assert await connections.access_token(USER) == "access-2" and notion.refreshes == 1
+
+
+async def test_a_grant_with_a_refresh_token_and_an_expiry_is_refreshable() -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    connections = await connected(notion, store)
+
+    assert connections._cipher.decrypt(store.rows[USER].refresh_token).get_secret_value() == "refresh-1"
+    assert await connections.refresh(USER, used="access-1") == "access-2"
+
+
+async def test_a_grant_with_an_access_token_alone_connects_and_cannot_be_refreshed(caplog) -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    notion.with_refresh = False
+    connections = await connected(notion, store)
+
+    assert connections._cipher.decrypt(store.rows[USER].refresh_token).get_secret_value() == ""
+    assert await connections.access_token(USER) == "access-1" and store.rows[USER].status == "active"
+    calls = len(notion.requests)
+    with caplog.at_level(logging.INFO), pytest.raises(NotionError) as raised:
+        await connections.refresh(USER, used="access-1")  # a 401 on this connection
+
+    assert raised.value.code is NotionCode.RECONNECT_REQUIRED
+    assert store.rows[USER].status == "expired" and len(notion.requests) == calls  # Notion was not called
+    assert "notion.expired" in caplog.text
+
+
+async def test_a_401_through_the_gateway_of_a_non_refreshable_connection_asks_to_reconnect(inner) -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    notion.with_refresh = False
+    connections = await connected(notion, store)
+    gateway = await connections.gateway(USER)
+    inner.built[0].accepted = set()
+
+    with pytest.raises(NotionError) as raised:
+        await gateway.page("p")
+
+    assert raised.value.code is NotionCode.RECONNECT_REQUIRED
+    assert len(inner.built[0].calls) == 1 and store.rows[USER].status == "expired"
 
 
 async def test_callers_waiting_on_one_refresh_share_it() -> None:
@@ -617,6 +666,27 @@ async def test_disconnecting_an_expired_connection_deletes_it_without_a_revoke()
     assert store.rows == {} and notion.revoked == [] and notion.refreshes == 0
 
 
+async def test_disconnect_never_refreshes_just_to_revoke() -> None:
+    notion, store, clock = FakeNotion(), MemoryStore(), Clock()
+    await connected(notion, store, clock)
+    clock.now += 3600  # the cached token is no longer good
+    other_process = make(notion, store, clock)  # nothing cached at all
+
+    await other_process.disconnect(USER)
+
+    assert store.rows == {} and notion.revoked == [] and notion.refreshes == 0
+
+
+async def test_a_stale_cached_token_is_not_revoked_either() -> None:
+    notion, store, clock = FakeNotion(), MemoryStore(), Clock()
+    connections = await connected(notion, store, clock)
+    clock.now += 3600
+
+    await connections.disconnect(USER)
+
+    assert store.rows == {} and notion.revoked == [] and notion.refreshes == 0
+
+
 async def test_a_failed_revoke_still_deletes_the_connection() -> None:
     notion, store = FakeNotion(), MemoryStore()
     connections = await connected(notion, store)
@@ -654,6 +724,7 @@ class InnerGateway:
     async def _do(self, name: str, *args: Any, **kwargs: Any) -> str:
         token = await self.token()
         self.tokens_used.append(token)
+        await asyncio.sleep(0)  # a call yields while it is "on the wire"
         self.calls.append((name, args, kwargs))
         if self.fail_with is not None:
             raise NotionError(self.fail_with)
@@ -726,7 +797,7 @@ async def test_a_401_refreshes_with_the_token_it_handed_out_and_repeats_the_call
 
 async def test_the_repeat_uses_the_refreshed_token_even_when_it_is_not_cached(inner) -> None:
     notion, store = FakeNotion(), MemoryStore()
-    notion.expires_in = None  # use once: nothing is cached
+    notion.expires_in = 0  # use once: nothing is cached
     connections = await connected(notion, store)
     gateway = await connections.gateway(USER)
     inside = inner.built[0]
@@ -735,6 +806,19 @@ async def test_the_repeat_uses_the_refreshed_token_even_when_it_is_not_cached(in
     await gateway.page("p")
 
     assert inside.tokens_used == ["access-2", "access-3"] and notion.refreshes == 2
+
+
+async def test_concurrent_calls_each_refresh_with_the_token_they_were_handed(inner) -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    connections = await connected(notion, store)
+    gateway = await connections.gateway(USER)
+    inside = inner.built[0]
+    inside.accepted = {"access-2"}
+
+    answers = await asyncio.gather(gateway.page("a"), gateway.page("b"), gateway.page("c"))
+
+    assert answers == ["page"] * 3
+    assert notion.refreshes == 1  # the later 401s were of access-1, already replaced: no second rotation
 
 
 async def test_a_second_401_is_the_answer_after_one_refresh_and_one_repeat(inner) -> None:

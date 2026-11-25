@@ -16,6 +16,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, Protocol, override
@@ -55,8 +56,9 @@ def _utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class TokenGrant:
-    """What the token endpoint answered; the tokens stay ``SecretStr``. ``expires_in`` 0 = use once, not cached. A
-    refresh answer may leave the bot, workspace id and name empty: the stored row keeps them."""
+    """What the token endpoint answered; the tokens stay ``SecretStr``. ``expires_in`` 0 = use once, not cached; an
+    answer without it is stored as ``NO_EXPIRY_SECONDS``. An empty ``refresh_token`` = not refreshable. A refresh
+    answer may leave the bot, workspace id and name empty: the stored row keeps them."""
 
     access_token: SecretStr
     refresh_token: SecretStr
@@ -139,7 +141,18 @@ def _text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _seconds(value: Any) -> int:
+# A token answer without ``expires_in`` never expires: it is cached for this long (``integrations.tokens`` has no "no
+# expiry", and it is shared), and replaced only after a ``401`` through ``refresh(used=...)``.
+NO_EXPIRY_SECONDS: Final = 10 * 365 * 24 * 3600
+
+
+def _seconds(answer: Mapping[str, Any]) -> int:
+    """The lifetime of an access token: ``expires_in`` when given (0 or less, or not a number, means use once), else
+    "never expires"."""
+
+    if answer.get("expires_in") is None:
+        return NO_EXPIRY_SECONDS
+    value = answer["expires_in"]
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
@@ -194,7 +207,8 @@ class NotionOAuthClient:
 
     async def _grant(self, body: Mapping[str, str], seconds: float, *, identity: bool) -> TokenGrant:
         """A token call. ``invalid_grant`` (the code or refresh token is dead) is ``GRANT_INVALID``; any other refusal
-        or an answer without what the flow needs (a wrong client secret, no refresh token) is ``REFUSED``. The
+        or an answer without what the flow needs (a wrong client secret, no access token) is ``REFUSED``. A grant with
+        no refresh token is accepted: the connection is then not refreshable (an empty refresh token). The
         ``identity`` fields (bot and workspace) are required of a code exchange only."""
 
         response = await self._post(OAUTH_EXCHANGE_URL, body, seconds)
@@ -204,12 +218,12 @@ class NotionOAuthClient:
             raise NotionError(NotionCode.GRANT_INVALID if dead else NotionCode.REFUSED)
         access, refresh = _text(answer.get("access_token")), _text(answer.get("refresh_token"))
         bot_id, workspace_id = _text(answer.get("bot_id")), _text(answer.get("workspace_id"))
-        if not access or not refresh or (identity and not (bot_id and workspace_id)):
+        if not access or (identity and not (bot_id and workspace_id)):
             raise NotionError(NotionCode.REFUSED)
         return TokenGrant(
             access_token=SecretStr(access),
             refresh_token=SecretStr(refresh),
-            expires_in=_seconds(answer.get("expires_in")),
+            expires_in=_seconds(answer),
             bot_id=bot_id,
             workspace_id=workspace_id,
             workspace_name=_text(answer.get("workspace_name")),
@@ -256,37 +270,54 @@ def _after_refusal(code: NotionCode) -> NotionCode:
     return code if code is NotionCode.UNREACHABLE else NotionCode.AUTH_FAILED
 
 
+@dataclass
+class _Attempt:
+    """What one gateway call has been handed: the token its requests used, and a refreshed one for the repeat."""
+
+    handed: str | None = None
+    fresh: str | None = None
+
+
 class RefreshingNotionGateway:
     """The ``NotionGateway`` of one member for one pass or import: every call goes to the inner gateway (which never
     retries a ``401``); a call that raises ``notion_auth_failed`` gets one refreshed token and is repeated once. A
-    ``401`` means the call never ran, so the repeat is safe for writes. The token source of the inner gateway remembers
-    the token it handed out, which is what the refresh is told is dead; the refreshed token serves the repeat even when
-    it is not cached (``expires_in`` absent). One pass uses one wrapper in sequence."""
+    ``401`` means the call never ran, so the repeat is safe for writes. The token source of the inner gateway records
+    the token it handed out in the attempt of the call that asked (a context variable, so concurrent calls on one
+    wrapper each refresh with their own token); that token is what the refresh is told is dead, and the refreshed
+    token serves the repeat even when it is not cached. A wrapper is made for one pass or import, which runs its calls
+    in sequence; concurrent use is safe but not what it is for."""
 
     def __init__(
         self, connections: NotionConnections, user_id: uuid.UUID, build: Callable[[TokenSource], NotionGateway]
     ) -> None:
         self._connections = connections
         self._user_id = user_id
-        self._handed: str | None = None
-        self._fresh: str | None = None  # a refreshed token the repeat uses first
+        self._attempt: ContextVar[_Attempt | None] = ContextVar("notion_attempt", default=None)
         self._inner = build(self._token)
 
     async def _token(self) -> str:
-        if self._fresh is not None:
-            self._handed, self._fresh = self._fresh, None
+        attempt = self._attempt.get()
+        if attempt is not None and attempt.fresh is not None:
+            token, attempt.fresh = attempt.fresh, None
         else:
-            self._handed = await self._connections.access_token(self._user_id)
-        return self._handed
+            token = await self._connections.access_token(self._user_id)
+        if attempt is not None:
+            attempt.handed = token
+        return token
 
     async def _run[T](self, call: Callable[[NotionGateway], Awaitable[T]]) -> T:
+        attempt = _Attempt()
+        marker = self._attempt.set(attempt)
         try:
+            try:
+                return await call(self._inner)
+            except NotionError as error:
+                if error.code is not NotionCode.AUTH_FAILED:
+                    raise
+            attempt.fresh = await self._connections.refresh(self._user_id, used=attempt.handed)
             return await call(self._inner)
-        except NotionError as error:
-            if error.code is not NotionCode.AUTH_FAILED:
-                raise
-        self._fresh = await self._connections.refresh(self._user_id, used=self._handed)
-        return await call(self._inner)
+        finally:
+            self._attempt.reset(marker)
 
     async def page(self, page_id: str) -> NotionPage:
         return await self._run(lambda g: g.page(page_id))
@@ -392,18 +423,34 @@ class NotionConnections:
         return ConnectionView("active", grant.workspace_id, grant.workspace_name, now, now), return_to
 
     async def disconnect(self, user_id: uuid.UUID) -> None:
-        """Delete the connection, drop its access token and revoke the grant on Notion (best effort)."""
+        """Delete the connection, drop its access token and revoke the grant on Notion (best effort): the revoke needs
+        an access token that is cached and still good; without one it is skipped and the row is deleted all the same."""
 
-        try:
-            token: str | None = await self.access_token(user_id)  # for the revoke; a dead connection has none
-        except NotionError:
-            token = None
+        token = await self._cached_token(user_id)  # never refreshes just to revoke
         async with self._tokens.lock(user_id):
             async with self._store() as store:
                 deleted = await store.delete(user_id)
             self._forget(user_id)
         revoked = token is not None and await self._oauth.revoke(SecretStr(token))
         log_event(logger, INFO, "notion.disconnected", user_id=str(user_id), deleted=deleted, revoked=revoked)
+
+    async def _cached_token(self, user_id: uuid.UUID) -> str | None:
+        """The cached access token of the user's current grant while it is good; never a refresh."""
+
+        try:
+            row = await self._active(user_id)
+        except NotionError:
+            return None
+        if self._grants.get(user_id) != (row.bot_id, row.connected_at):
+            return None
+
+        async def no_refresh() -> TokenGrant:
+            raise NotionError(NotionCode.UNREACHABLE)
+
+        try:
+            return await self._tokens.access_token(user_id, no_refresh)
+        except NotionError:
+            return None
 
     async def get(self, user_id: uuid.UUID) -> ConnectionView | None:
         async with self._store() as store:
@@ -469,12 +516,29 @@ class NotionConnections:
         self._tokens.forget(user_id)
         self._grants.pop(user_id, None)
 
+    async def _refresh_row(self, row: StoredConnection) -> TokenGrant:
+        """One refresh of the row's grant. A grant with no refresh token (Notion gave none), or one that no longer
+        decrypts (a rotated ``NOTION_TOKEN_KEY``), cannot be refreshed: ``notion_reconnect_required`` without calling
+        Notion."""
+
+        try:
+            refresh_token = self._cipher.decrypt(row.refresh_token).get_secret_value()
+        except CipherError:
+            raise NotionError(NotionCode.RECONNECT_REQUIRED) from None
+        if not refresh_token:
+            raise NotionError(NotionCode.RECONNECT_REQUIRED)
+        try:
+            return await self._oauth.refresh(refresh_token)
+        except NotionError as error:
+            raise NotionError(_after_refusal(error.code)) from None
+
     async def _rotate(self, user_id: uuid.UUID) -> TokenGrant:
         """One refresh with the row locked ``FOR UPDATE``; the transaction commits the rotated refresh token (or the
         ``expired`` status) before this returns."""
 
         grant: TokenGrant | None = None
         refused = NotionCode.AUTH_FAILED
+        expired = False
         async with self._store() as store:
             row = await store.lock(user_id)
             if row is None:
@@ -483,24 +547,23 @@ class NotionConnections:
                 refused = NotionCode.RECONNECT_REQUIRED
             else:
                 try:
-                    grant = await self._oauth.refresh(self._cipher.decrypt(row.refresh_token).get_secret_value())
-                except CipherError:
-                    refused = NotionCode.RECONNECT_REQUIRED  # a rotated NOTION_TOKEN_KEY: every user reconnects
+                    grant = await self._refresh_row(row)
                 except NotionError as error:
-                    refused = _after_refusal(error.code)
+                    refused = error.code
                 if grant is not None:
                     self._grants[user_id] = (row.bot_id, row.connected_at)
-                    now = self._now()
                     await store.rotate(
                         user_id,
                         refresh_token=self._cipher.encrypt(grant.refresh_token),
                         refresh_expires_at=None,
-                        now=now,
+                        now=self._now(),
                     )
                 elif refused is NotionCode.RECONNECT_REQUIRED:
                     await store.expire(user_id, now=self._now())
-                    log_event(logger, WARNING, "notion.expired", user_id=str(user_id), code=refused.value)
-        if grant is None:
-            raise NotionError(refused)
-        log_event(logger, INFO, "notion.refreshed", user_id=str(user_id))
-        return grant
+                    expired = True
+        if grant is not None:
+            log_event(logger, INFO, "notion.refreshed", user_id=str(user_id))
+            return grant
+        if expired:  # after the commit: the log never says "expired" for a status that was rolled back
+            log_event(logger, WARNING, "notion.expired", user_id=str(user_id), code=refused.value)
+        raise NotionError(refused)
