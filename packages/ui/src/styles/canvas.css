@@ -681,7 +681,7 @@ button.gx-hub__tile {
 .gx-ccards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  grid-auto-rows: minmax(var(--gx-ccard-h), 1fr);
+  grid-auto-rows: var(--gx-ccard-h);
   gap: 12px;
 }
 
@@ -691,7 +691,8 @@ button.gx-hub__tile {
   grid-template-rows: auto 1fr auto;
   gap: 4px 12px;
   align-items: start;
-  min-height: var(--gx-ccard-h);
+  height: var(--gx-ccard-h);
+  overflow: hidden;
   padding: 14px;
   border: 1.5px solid var(--gx-ink);
   border-radius: 14px;
@@ -725,13 +726,20 @@ button.gx-hub__tile {
 }
 
 .gx-ccard b {
+  overflow: hidden;
   font-size: 15.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .gx-ccard small {
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--gx-ink-3);
   font-size: 13px;
   line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .gx-ccard__tag {

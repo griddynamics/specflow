@@ -21,7 +21,7 @@
   --gx-font-mono: "Fira Code", ui-monospace, sfmono-regular, menlo, consolas, monospace;
   --gx-maxw: 1200px;
   --gx-header-h: 64px;
-  --gx-ccard-h: 172px; /* one height for every connection card of the plus dialog, every stage */
+  --gx-ccard-h: 112px; /* one size for every connection card of the plus dialog: a one-line name, two lines of text, the tag */
   --gx-tile: 84px;
   --gx-hub: 124px;
 }

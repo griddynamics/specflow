@@ -93,7 +93,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(nodes(page).last()).toBeInViewport({ ratio: 1 });
   });
 
-  test("every connection card of the plus dialog has one size, in every stage and in the other stages' list", async ({ page }) => {
+  test("every connection card of the plus dialog has one size, in every stage, and its words fit without being cut", async ({ page }) => {
     await canvas(page, unique("Card size"));
     const sizes = new Set<string>();
     for (const [plus, title] of [
@@ -107,9 +107,17 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
       const boxes = await d
         .getByRole("button")
         .filter({ hasText: /(Available|Set up first|For (Graph|Gap|Plan))$/ })
-        .evaluateAll((cards) => cards.map((c) => c.getBoundingClientRect()));
+        .evaluateAll((cards) =>
+          cards.map((c) => {
+            const [name, line] = [c.children[1], c.children[2]];
+            const cut = (el: Element | undefined) =>
+              el === undefined || el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
+            return { box: c.getBoundingClientRect(), text: c.textContent, cut: cut(name) || cut(line) };
+          }),
+        );
       expect(boxes).toHaveLength(9); // all nine connections: the stage's own and the other stages'
-      for (const box of boxes) sizes.add(`${String(Math.round(box.width))}x${String(Math.round(box.height))}`);
+      expect(boxes.filter((b) => b.cut).map((b) => b.text)).toEqual([]); // the text is written to the card, never cut by it
+      for (const { box } of boxes) sizes.add(`${String(Math.round(box.width))}x${String(Math.round(box.height))}`);
       await page.keyboard.press("Escape");
       await expect(d).toBeHidden();
     }
