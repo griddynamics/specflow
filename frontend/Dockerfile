@@ -6,7 +6,7 @@
 # runtime = the standalone Next server, started only after scripts/check-env.mjs passes.
 
 # deps: the locked dependencies.
-FROM node:24.21.0-alpine AS deps
+FROM node:26.13.1-alpine AS deps
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 RUN chown node:node /app
@@ -24,7 +24,7 @@ COPY --chown=node:node . .
 RUN npm run build --workspace=frontend
 
 # runtime: standalone server + static assets + public, no node_modules install, no dev tooling.
-FROM node:24.21.0-alpine AS runtime
+FROM node:26.13.1-alpine AS runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
