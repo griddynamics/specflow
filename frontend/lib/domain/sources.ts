@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload" | "confluence";
+export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;
@@ -248,6 +248,16 @@ export interface ConfluenceCheck {
   linkedIssues: number;
 }
 
+/** What the check of a Jira epic found, nothing stored: its key and summary and the issues under it that the bound member can see (an import
+ * takes at most `EPIC_ISSUE_CAP`). */
+export interface JiraEpicCheck {
+  key: string;
+  summary: string;
+  issues: number;
+}
+/** The most issues one epic import reads (the backend's `MAX_EPIC_ISSUES`). */
+export const EPIC_ISSUE_CAP = 200;
+
 /** Collect side (D1, D6, D7): sources, sync, access, uploads and removal. The status read carries the counts per source; `files` the
  * file list of one source (sources-ux). */
 export interface SourcesPort {
@@ -276,6 +286,10 @@ export interface SourcesPort {
   checkConfluence(projectId: string, input: ConfluenceInput): Promise<ConfluenceCheck>;
   /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
   addConfluence(projectId: string, input: ConfluenceInput): Promise<void>;
+  /** Reads a Jira epic (a key such as `ABC-12`, or its link) of the project's Atlassian site and counts its issues; stores nothing. Rejects like the Confluence check. */
+  checkJiraEpic(projectId: string, keyOrLink: string): Promise<JiraEpicCheck>;
+  /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). */
+  addJiraEpic(projectId: string, keyOrLink: string): Promise<void>;
 }
 
 /** The source-aware Mission Control port (D9, D11): project status and knowledge builds. */

@@ -8,9 +8,17 @@ import { fullSourceName, progressOf, sourceState } from "@/lib/domain/source-sta
 import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
 import { CONFLUENCE_WORDS } from "./confluence-logic";
-import type { ConnectorKind, NodeMapper, NodeView, Stages } from "./canvas-types";
+import { JIRA_EPIC_WORDS } from "./jira-epic-logic";
+import type { NodeMapper, NodeView, Stages } from "./canvas-types";
 
-const APP_NAME: Partial<Record<SourceKind, string>> = { upload: "Upload", gdrive: "Google Drive", confluence: "Confluence" };
+const APP_NAME: Partial<Record<SourceKind, string>> = {
+  upload: "Upload",
+  gdrive: "Google Drive",
+  confluence: "Confluence",
+  jira_epic: "Jira",
+};
+
+const MARK = { upload: "upload", gdrive: "gdrive", confluence: "confluence", jira_epic: "jira" } as const;
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 
@@ -22,29 +30,44 @@ export function uploadName(s: Pick<Source, "addedAt" | "nameSuffix">, now: Date)
   return `Upload ${sameDay ? clock(s.addedAt) : DAY.format(added)}${suffix}`;
 }
 
-/** A Confluence source counts pages where the others count files. */
-export const unitText = (kind: SourceKind, text: string): string =>
-  kind === "confluence" ? text.replaceAll(/\bfile(s?)\b/g, "page$1") : text;
+const UNIT: Partial<Record<SourceKind, string>> = { confluence: "page", jira_epic: "issue" };
+
+/** A Confluence source counts pages and a Jira epic issues where the others count files. */
+export const unitText = (kind: SourceKind, text: string): string => {
+  const unit = UNIT[kind];
+  return unit === undefined ? text : text.replaceAll(/\bfile(s?)\b/g, `${unit}$1`);
+};
+
+/** The words of a node of an imported kind when the API reports its import failed. */
+const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess: string; failedMeta: string; failed: string }>> = {
+  confluence: CONFLUENCE_WORDS,
+  jira_epic: JIRA_EPIC_WORDS,
+};
+
+/** A node of a Jira epic is named by its key ("NWO-12: Checkout redesign" is its full name, in the label and the dialog). */
+const nodeName = (s: Source, kind: SourceKind, now: Date): string => {
+  if (kind === "upload") return uploadName(s, now);
+  return kind === "jira_epic" ? (fullSourceName(s).split(":")[0] ?? s.name) : fullSourceName(s);
+};
 
 /** Why a source stopped, in words: Drive's reasons, or for Confluence what the closed failure reason means (`no_access`, else a failed import). */
 function stoppedWords(s: Source, kind: SourceKind): { meta: string; text: string } {
-  if (kind === "confluence") {
-    return s.failure === "no_access"
-      ? { meta: CONFLUENCE_WORDS.noAccessMeta, text: CONFLUENCE_WORDS.noAccess }
-      : { meta: CONFLUENCE_WORDS.failedMeta, text: CONFLUENCE_WORDS.failed };
+  const words = IMPORT_WORDS[kind];
+  if (words !== undefined) {
+    return s.failure === "no_access" ? { meta: words.noAccessMeta, text: words.noAccess } : { meta: words.failedMeta, text: words.failed };
   }
   const meta = failedCardLine(s);
   return { meta, text: s.failure === null ? meta : driveReasonMessage(s.failure, null) };
 }
 
-function sourceNode(s: Source, kind: ConnectorKind & SourceKind, stages: Stages, now: Date): NodeView {
+function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Date): NodeView {
   const state = sourceState(s);
   const card = cardView(s);
   const app = APP_NAME[kind] ?? kind;
-  const name = kind === "upload" ? uploadName(s, now) : fullSourceName(s);
-  const named = kind === "upload" ? name : `${app} ${name}`;
+  const name = nodeName(s, kind, now);
+  const named = kind === "upload" ? name : `${app} ${fullSourceName(s)}`;
   const detail = { app, by: `${V2_COPY.addedBy} ${s.addedBy.name}`, remove: "source", reconnect: null } as const;
-  const base = { id: s.id, kind, zone: "graph", mark: kind, name, tag: undefined, addedAt: s.addedAt } as const;
+  const base = { id: s.id, kind, zone: "graph", mark: MARK[kind], name, tag: undefined, addedAt: s.addedAt } as const;
   if (state === "processing") {
     const meta = unitText(kind, card.countLine);
     const text = s.listing ? LISTING : `Importing: ${meta}`;
@@ -71,7 +94,7 @@ function sourceNode(s: Source, kind: ConnectorKind & SourceKind, stages: Stages,
       listing: false,
       label: `${named}: ${meta}`,
       wire: "off",
-      detail: { ...detail, text, reconnect: kind === "confluence" && s.failure === "no_access" ? "atlassian" : null },
+      detail: { ...detail, text, reconnect: IMPORT_WORDS[kind] !== undefined && s.failure === "no_access" ? "atlassian" : null },
     };
   }
   const count = unitText(kind, card.countLine);
@@ -90,10 +113,11 @@ function sourceNode(s: Source, kind: ConnectorKind & SourceKind, stages: Stages,
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive" | "confluence"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence" | "jira_epic"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
 export const uploadNodes: NodeMapper = sourcesOf("upload");
 export const driveNodes: NodeMapper = sourcesOf("gdrive");
 export const confluenceNodes: NodeMapper = sourcesOf("confluence");
+export const jiraEpicNodes: NodeMapper = sourcesOf("jira_epic");

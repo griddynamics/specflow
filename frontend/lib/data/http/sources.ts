@@ -10,7 +10,9 @@
 import {
   addBatchFile,
   addConfluenceSource,
+  addJiraEpicSource,
   checkConfluenceLink,
+  checkJiraEpicLink,
   endBatch,
   getDriveIdentity,
   listSourceFiles,
@@ -33,6 +35,7 @@ import {
   type DriveSaveResult,
   type DriveTestResult,
   type ConfluenceCheck,
+  type JiraEpicCheck,
   type ProcessingClass,
   type SourcesPort,
   type UploadReport,
@@ -277,7 +280,31 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
       }
     },
+    async checkJiraEpic(projectId, keyOrLink) {
+      return toJiraEpicCheck(await guard(() => checkJiraEpicLink(projectId, keyOrLink)));
+    },
+    async addJiraEpic(projectId, keyOrLink) {
+      try {
+        await guard(() => addJiraEpicSource(projectId, keyOrLink));
+      } finally {
+        opts.changed(projectId);
+      }
+    },
   };
+}
+
+/** `POST .../sources/jira-epic/check` -> `JiraEpicCheck`; any other shape is `invalid_response`. */
+export function toJiraEpicCheck(body: unknown): JiraEpicCheck {
+  expectShape(
+    isRecord(body) &&
+      isString(body.key) &&
+      body.key !== "" &&
+      isString(body.summary) &&
+      typeof body.issues === "number" &&
+      Number.isInteger(body.issues) &&
+      body.issues >= 0,
+  );
+  return { key: body.key, summary: body.summary, issues: body.issues };
 }
 
 /** `POST .../sources/confluence/check` -> `ConfluenceCheck`; any other shape is `invalid_response`. */

@@ -10,6 +10,7 @@ import type { PlanState } from "@/lib/domain/plan";
 import { useV2Ports } from "../use-v2-data";
 import { openGapRows, summarizeGaps, SUMMARY_QUERY } from "./canvas-gaps";
 import type { CanvasInput, GapRow, GapsSummary } from "./canvas-types";
+import { clearsPending, startPendingTimer } from "./pending";
 import { usePolledRead } from "./use-polled-read";
 
 const GAPS_POLL_MS = 5000;
@@ -98,8 +99,6 @@ function useNow(running: boolean): Date {
   return now;
 }
 
-const PENDING_MS = 15_000;
-
 /**
  * A start (a build, a plan) that the read side has not shown yet. `mark` remembers the state signal at the press; it is cleared when the work is
  * seen running, when the signal moves (it ended before it was seen), or after a while (the start failed: the status is the truth again).
@@ -107,17 +106,17 @@ const PENDING_MS = 15_000;
 function usePending(running: boolean, signal: string): [boolean, () => void] {
   const [mark, setMark] = useState<string | null>(null);
   useEffect(() => {
-    if (mark !== null && (running || signal !== mark)) setMark(null);
+    if (clearsPending(mark, running, signal)) setMark(null);
   }, [mark, running, signal]);
-  useEffect(() => {
-    if (mark === null) return undefined;
-    const timer = setTimeout(() => {
-      setMark(null);
-    }, PENDING_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [mark]);
+  useEffect(
+    () =>
+      mark === null
+        ? undefined
+        : startPendingTimer(() => {
+            setMark(null);
+          }),
+    [mark],
+  );
   return [
     mark !== null,
     () => {

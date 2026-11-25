@@ -14,7 +14,7 @@ import { ConnectFrame } from "./ConnectFrame";
 type Busy = "check" | "save" | null;
 
 /** What `jira.get` says about the caller: nothing yet, the server has no Atlassian account, the caller may not change the target, or may. */
-export type JiraGate = "loading" | "unavailable" | "read_only" | "open";
+export type JiraGate = "loading" | "failed" | "unavailable" | "read_only" | "open";
 
 export function gateOf(s: { available: boolean; editable: boolean } | null): JiraGate {
   if (s === null) return "loading";
@@ -24,6 +24,7 @@ export function gateOf(s: { available: boolean; editable: boolean } | null): Jir
 
 const GATE_TEXT: Record<Exclude<JiraGate, "open">, string> = {
   loading: V2_COPY.loading,
+  failed: V2_COPY.jiraReadFailed,
   unavailable: COPY.jiraUnavailable,
   read_only: V2_COPY.readOnlyJira,
 };
@@ -118,10 +119,14 @@ export function JiraFormBody({ projectId, spec, reload, onBack, onClose }: Reado
   );
 }
 
-/** The form for the caller `jira.get` describes: the fields, or one line when the server has no Atlassian account or the API refuses the caller. */
+/**
+ * The form for the caller `jira.get` describes: the fields, or one line when the server has no Atlassian account or the API refuses the
+ * caller. A read that failed (the network, not an answer) says so and offers to try again: it is not "no Atlassian account".
+ */
 export function JiraForm(props: Readonly<FormProps>) {
   const { jira } = useV2Ports();
   const [gate, setGate] = useState<JiraGate>("loading");
+  const [attempt, setAttempt] = useState(0);
   const { projectId } = props;
   useEffect(() => {
     let alive = true;
@@ -130,17 +135,31 @@ export function JiraForm(props: Readonly<FormProps>) {
         if (alive) setGate(gateOf(settings));
       },
       () => {
-        if (alive) setGate("unavailable");
+        if (alive) setGate("failed");
       },
     );
     return () => {
       alive = false;
     };
-  }, [jira, projectId]);
+  }, [jira, projectId, attempt]);
   if (gate === "open") return <JiraFormBody {...props} />;
   return (
-    <ConnectFrame onBack={props.onBack}>
-      <Notice>{GATE_TEXT[gate]}</Notice>
+    <ConnectFrame
+      onBack={props.onBack}
+      action={
+        gate === "failed" ? (
+          <Button
+            onClick={() => {
+              setGate("loading");
+              setAttempt((n) => n + 1);
+            }}
+          >
+            {V2_COPY.tryAgain}
+          </Button>
+        ) : undefined
+      }
+    >
+      <Notice role={gate === "failed" ? "alert" : "status"}>{GATE_TEXT[gate]}</Notice>
     </ConnectFrame>
   );
 }

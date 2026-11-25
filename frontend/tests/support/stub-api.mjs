@@ -5,7 +5,8 @@ import crypto from "node:crypto";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
-import { checkConfluence } from "./stub-confluence.mjs";
+import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
+import { checkJiraEpic } from "./stub-jira-epic.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
@@ -852,16 +853,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   }
 
   /**
-   * The source an import of a Confluence link makes (`kind` confluence, no folder): it lists, then imports its pages for `parseMs`, then is done.
+   * The source an import of a Confluence link or a Jira epic makes (`kind` confluence, no folder): it lists, then imports its pages for `parseMs`, then is done.
    * The card is the same summary the unified status gives.
    */
-  function confluenceSource(pid, link, checked) {
+  function importedSource(pid, { kind, name, link, pages }) {
     const row = {
       id: crypto.randomUUID(),
-      kind: "confluence",
+      kind,
       folder_id: null,
       link,
-      name: checked.title,
+      name,
       state: "listing",
       failure_reason: null,
       connected_by: "11111111-1111-4111-8111-111111111111",
@@ -872,12 +873,12 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     sourcesOf(pid).push(model.stamp(row));
     setTimeout(() => {
       row.state = "importing";
-      row.progress = { listing_finished: true, total: checked.pages, finished: 1 };
+      row.progress = { listing_finished: true, total: pages, finished: 1 };
     }, 300);
     if (Number.isFinite(state.parseMs)) {
       setTimeout(() => {
         row.state = "done";
-        row.progress = { listing_finished: true, total: checked.pages, finished: checked.pages };
+        row.progress = { listing_finished: true, total: pages, finished: pages };
       }, state.parseMs);
     }
     return model.summaries(pid).find((s) => s.id === row.id);
@@ -911,9 +912,23 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           typeof body?.link === "string" ? checkConfluence(body.link, body.follow === true) : { status: 422, code: "validation_failed" };
         if (!("body" in checked)) return err(res, checked.status, checked.code);
         if (action === "check") return json(res, 200, checked.body);
-        return json(res, 201, { source: confluenceSource(pid, body.link, checked.body) });
+        return json(res, 201, {
+          source: importedSource(pid, { kind: "confluence", name: checked.body.title, link: body.link, pages: checked.body.pages }),
+        });
       }
-      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence") {
+      if (did === "jira-epic" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const checked =
+          typeof body?.key_or_link === "string" ? checkJiraEpic(body.key_or_link) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        const { key, summary, issues } = checked.body;
+        const link = `https://${SITE_HOST}/browse/${key}`;
+        return json(res, 201, {
+          source: importedSource(pid, { kind: "jira_epic", name: `${key}: ${summary}`, link, pages: Math.min(issues, 200) }),
+        });
+      }
+      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic") {
         if (!action && req.method === "DELETE") {
           await drain();
           model.remove(pid, did);

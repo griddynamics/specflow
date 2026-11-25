@@ -224,7 +224,7 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     const shared = await seedMembers({ name: unique("Shared"), role: "collaborator" });
     await seedIntegrations({
       pid: owned.id,
-      atlassian: { by: ALEX, health: "active", workspace: { id: "c", name: "northwind.atlassian.net" } },
+      atlassian: { by: ALEX, health: "active", workspace: { id: "c", name: "northwind.atlassian.test" } },
       github: { by: ALEX, health: "reconnect_required" },
       slack: null,
     });
@@ -239,7 +239,7 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await expect(card(page, "Slack")).toHaveAttribute(STATE, "off");
     await card(page, ATLASSIAN).getByRole("button", { name: "Manage" }).click();
     const set = dialog(page, ATLASSIAN);
-    await expect(set).toContainText("northwind.atlassian.net · Connected by Sam Ortiz");
+    await expect(set).toContainText("northwind.atlassian.test · Connected by Sam Ortiz");
     await set.getByRole("button", { name: "Disconnect" }).click();
     await expect(set.getByRole("alertdialog", { name: "Disconnect Atlassian?" })).toBeVisible();
     await set.getByRole("alertdialog").getByRole("button", { name: "Disconnect" }).click();

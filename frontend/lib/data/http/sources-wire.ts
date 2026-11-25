@@ -59,7 +59,7 @@ export function toProgress(v: unknown): { listingFinished: boolean; total: numbe
 
 function toRef(v: Record<string, unknown>, addedAt: unknown): SourceRef {
   expectShape(
-    (v.kind === "gdrive" || v.kind === "upload" || v.kind === "confluence") &&
+    (v.kind === "gdrive" || v.kind === "upload" || v.kind === "confluence" || v.kind === "jira_epic") &&
       isString(v.id) &&
       v.id !== "" &&
       isString(v.name) &&
@@ -79,7 +79,7 @@ function toRef(v: Record<string, unknown>, addedAt: unknown): SourceRef {
 
 /** A source of a kind this client does not know (a newer API) is skipped by the status instead of rejecting it. */
 export const isUnknownKind = (v: unknown): boolean =>
-  isRecord(v) && isString(v.kind) && v.kind !== "gdrive" && v.kind !== "upload" && v.kind !== "confluence";
+  isRecord(v) && isString(v.kind) && v.kind !== "gdrive" && v.kind !== "upload" && v.kind !== "confluence" && v.kind !== "jira_epic";
 
 /** `SourceSummaryOut` -> `Source`. A failure reason outside the Drive set reads as `unknown_error`. */
 export function toSource(v: unknown): Source {

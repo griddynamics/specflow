@@ -179,7 +179,7 @@ test("cards, nothing connected: three grey cards in order, Set up on each, no ta
 
 test("cards, connected: ink, the health word of the API, Connected by <name>", () => {
   const { html: out } = cards([
-    base("atlassian", { connectedBy: ALEX, workspace: { id: "c", name: "northwind.atlassian.net" }, health: "active" }),
+    base("atlassian", { connectedBy: ALEX, workspace: { id: "c", name: "northwind.atlassian.test" }, health: "active" }),
     base("github"),
     base("slack"),
   ]);

@@ -88,6 +88,7 @@ export const V2_COPY = {
     slack_unreachable: "Slack could not be reached. Try again.",
   },
   readOnlyGithub: "Only the project's owner can add repositories.",
+  jiraReadFailed: "The Jira settings could not be read. Check your connection and try again.",
   readOnlyJira: "Only the project's owner can change where the plan goes.",
   planRunning: "A plan is already being made. Wait for it to finish.",
   slackUnreachable: "Slack could not be checked just now. The form keeps trying; run the command in the channel when you can.",

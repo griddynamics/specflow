@@ -15,12 +15,17 @@ export const NOW = new Date("2026-10-26T09:05:00Z");
 export const STARTED = "2026-10-26T09:00:00Z";
 export const FINISHED = "2026-10-26T09:12:00Z";
 
-const NAMES = { gdrive: "Specs folder", upload: "Local files", confluence: "Ordering space" } as const;
+const NAMES = {
+  gdrive: "Specs folder",
+  upload: "Local files",
+  confluence: "Ordering space",
+  jira_epic: "NWO-12: Checkout redesign",
+} as const;
 
 /** One source of the sources API (`GET /sources?batches=1`): `kind` upload or gdrive, files by state. */
 export const wireSource = (
   id: string,
-  kind: "upload" | "gdrive" | "confluence",
+  kind: "upload" | "gdrive" | "confluence" | "jira_epic",
   counts: Partial<typeof COUNTS>,
   over: Record<string, unknown> = {},
 ) => {
@@ -166,7 +171,7 @@ export const integration = (app: Integration["app"], over: Partial<Integration> 
 export const jiraTarget = (over: Partial<JiraSettings> = {}): JiraSettings => ({
   available: true,
   editable: true,
-  siteUrl: "https://northwind.atlassian.net",
+  siteUrl: "https://northwind.atlassian.test",
   jiraProject: "NWO",
   epicKey: "NWO-1",
   createdEpicKey: null,

@@ -22,7 +22,7 @@ import {
   test,
 } from "./support";
 
-const SITE = "https://northwind.atlassian.net";
+const SITE = "https://northwind.atlassian.test";
 const PAGE = `${SITE}/wiki/spaces/ORD/pages/12345/Checkout`;
 const ALEX = { user_id: "u-alex", name: "Alex Kim" };
 const CHANNEL = { id: "C0NWO", name: "northwind-specs", private: false };
@@ -41,7 +41,9 @@ const jiraTarget = (sync?: Record<string, unknown>) => ({
   sync,
 });
 const CHECK_ACCESS = "Check access";
+const ADD_SOURCE = "Add a source";
 const CHECK_LINK = "Check link";
+const CHECK_EPIC = "Check epic";
 const ADD_SELECTED = "Add selected";
 const button = (from: Pick<Page, "getByRole">, name: string | RegExp) => from.getByRole("button", { name });
 
@@ -214,7 +216,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
   }) => {
     const pid = await canvas(page, unique("GitHub form"));
     await page.getByRole("button", { name: ADD.source }).click();
-    const plus = dialog(page, "Add a source");
+    const plus = dialog(page, ADD_SOURCE);
     await expect(plus.getByRole("button", { name: /^GitHub repository/ })).toContainText("Set up first");
     await page.keyboard.press("Escape");
     await seedGitHub({ connection: { status: "active", login: "alex-kim" } });
@@ -262,7 +264,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     });
     await page.goto(`/projects/${pid}`);
     await page.getByRole("button", { name: ADD.source }).click();
-    await dialog(page, "Add a source")
+    await dialog(page, ADD_SOURCE)
       .getByRole("button", { name: /^GitHub repository/ })
       .click();
     const form = dialog(page, "Add repositories");
@@ -288,7 +290,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await seedIntegrations({ pid, github: { by: ALEX, health: "active" }, atlassian: { by: ALEX, health: "active" } });
     await page.goto(`/projects/${pid}`);
     await page.getByRole("button", { name: ADD.source }).click();
-    await dialog(page, "Add a source")
+    await dialog(page, ADD_SOURCE)
       .getByRole("button", { name: /^GitHub repository/ })
       .click();
     const github = dialog(page, "Add repositories");
@@ -316,7 +318,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/); // the refused checks are answers
     const pid = await canvas(page, unique("Confluence form"));
     await page.getByRole("button", { name: ADD.source }).click();
-    const plus = dialog(page, "Add a source");
+    const plus = dialog(page, ADD_SOURCE);
     await expect(plus.getByRole("button", { name: /^Confluence link/ })).toContainText("Set up first");
     await plus.getByRole("button", { name: /^Confluence link/ }).click();
     await expect(page).toHaveURL(
@@ -357,6 +359,57 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await node.getByRole("button").click();
     const detail = dialog(page, "Checkout notes");
     await expect(detail.getByText(/^4 pages\. Imported when it was added/)).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Remove" })).toBeVisible();
+  });
+
+  test("Jira epic: no Atlassian on the project says Set up first and comes back with the form open; a key or link is checked (the closed codes in words), then added as a source that imports its issues", async ({
+    page,
+    requests,
+  }) => {
+    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/); // the refused checks are answers
+    const pid = await canvas(page, unique("Jira epic form"));
+    await page.getByRole("button", { name: ADD.source }).click();
+    const plus = dialog(page, ADD_SOURCE);
+    await expect(plus.getByRole("button", { name: /^Jira epic/ })).toContainText("Set up first");
+    await plus.getByRole("button", { name: /^Jira epic/ }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/projects/${pid}/integrations\\?setup=atlassian&next=%2Fprojects%2F${pid}%3Fadd%3Djira_epic$`),
+    );
+    await seedIntegrations({ pid, atlassian: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=jira_epic`);
+    const form = dialog(page, "Add a Jira epic");
+    await expect(form.getByRole("button", { name: CHECK_EPIC })).toBeDisabled();
+    const key = form.getByLabel("Epic key or link");
+    for (const [text, words] of [
+      ["https://evil.example.com/browse/NWO-12", /another Atlassian site/],
+      ["not an epic key", /not an epic key/],
+      ["NWO-13", /not an epic/],
+      ["NWO-404", /no issue with this key/],
+      ["NWO-403", /not allowed to read this epic/],
+    ] as const) {
+      await key.fill(text);
+      await form.getByRole("button", { name: CHECK_EPIC }).click();
+      await expect(form.getByRole("alert")).toContainText(words);
+      await expect(form.getByRole("button", { name: CHECK_EPIC })).toBeVisible(); // still a check: nothing to add
+    }
+    await key.fill("NWO-250");
+    await form.getByRole("button", { name: CHECK_EPIC }).click();
+    await expect(form.getByText(/250 issues \(the first 200 are read\)/)).toBeVisible();
+    await key.fill(`${SITE}/browse/NWO-12`); // a different key is a new check
+    await expect(form.getByRole("button", { name: CHECK_EPIC })).toBeVisible();
+    await form.getByRole("button", { name: CHECK_EPIC }).click();
+    await expect(form.getByText("NWO-12 · Checkout redesign · 18 issues.")).toBeVisible();
+    await form.getByRole("button", { name: "Add source" }).click();
+    await expect(form).toBeHidden();
+    const node = nodes(page).filter({ hasText: "NWO-12" });
+    await expect(node).toHaveAttribute(STATE, "busy");
+    await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
+    await expect(node).toContainText("18 issues · Jira");
+    const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/jira-epic`);
+    expect(bodiesOf(adds)).toEqual([{ key_or_link: `${SITE}/browse/NWO-12` }]);
+    await node.getByRole("button").click();
+    const detail = dialog(page, "NWO-12");
+    await expect(detail.getByText(/^18 issues\. Imported when it was added/)).toBeVisible();
     await expect(detail.getByRole("button", { name: "Remove" })).toBeVisible();
   });
 

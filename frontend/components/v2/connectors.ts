@@ -1,10 +1,11 @@
 // The connector registry (06a, D5, D20): every kind of connection the canvas offers, in the order its plus dialog lists them. Only kinds of
 // V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
-// link (08); the Jira epic, Jira for gaps and GitHub Projects in the sessions of those connectors. To add one: write its form component and its node
+// link (08), the Jira epic (09); Jira for gaps and GitHub Projects in the sessions of those connectors. To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
-import { confluenceNodes, driveNodes, uploadNodes } from "./canvas/nodes-sources";
+import { confluenceNodes, driveNodes, jiraEpicNodes, uploadNodes } from "./canvas/nodes-sources";
 import { githubNodes } from "./canvas/nodes-github";
 import { ConfluenceForm } from "./canvas/ConfluenceForm";
+import { JiraEpicForm } from "./canvas/JiraEpicForm";
 import { jiraNodes } from "./canvas/nodes-jira";
 import { slackNodes } from "./canvas/nodes-slack";
 import { GitHubForm } from "./canvas/GitHubForm";
@@ -64,6 +65,18 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     check: { test: "Check link", testing: "Checking…", add: "Add source" },
     Form: ConfluenceForm,
     nodes: confluenceNodes,
+  },
+  {
+    kind: "jira_epic",
+    zone: "graph",
+    name: "Jira epic",
+    line: "An epic and every issue under it",
+    mark: "jira",
+    app: "atlassian",
+    title: "Add a Jira epic",
+    check: { test: "Check epic", testing: "Checking…", add: "Add source" },
+    Form: JiraEpicForm,
+    nodes: jiraEpicNodes,
   },
   // The Slack channel IS the project's Slack integration (it is bound from inside Slack), so the form needs no app first.
   {

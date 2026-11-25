@@ -158,7 +158,11 @@ export function CanvasDialogs({
       };
     }
     if (s.type === "gaps") {
-      return { title: gapsTitle(input.gapRows), eyebrow: stageOf("gap"), body: <GapsDialog rows={input.gapRows} onClose={close} /> };
+      return {
+        title: gapsTitle(input.gapRows, input.gaps),
+        eyebrow: stageOf("gap"),
+        body: <GapsDialog rows={input.gapRows} onClose={close} />,
+      };
     }
     return null;
   };

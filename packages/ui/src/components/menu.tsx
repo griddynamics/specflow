@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { focusLeftMenu } from "./menu-focus";
 import type { FocusEvent, JSX, KeyboardEvent, ReactNode } from "react";
 
 export interface MenuItem {
@@ -60,8 +61,8 @@ export function Menu({ trigger, label, look = "project", items }: Readonly<MenuP
   };
   // The focus left the list for something outside the menu (Tab, a click elsewhere): close it, and leave the focus where it went.
   const onBlur = (e: FocusEvent) => {
-    if (pressing.current) return;
-    if (!(e.relatedTarget instanceof Node && root.current?.contains(e.relatedTarget) === true)) setOpen(false);
+    const inside = e.relatedTarget instanceof Node && root.current?.contains(e.relatedTarget) === true;
+    if (focusLeftMenu(pressing.current, inside)) setOpen(false);
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {

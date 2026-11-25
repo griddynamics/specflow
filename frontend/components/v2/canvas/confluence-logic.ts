@@ -22,6 +22,7 @@ const FAILURE: Record<string, string> = {
   confluence_short_link_unsupported: "Short links are not supported. Paste the full address of the page.",
   confluence_not_found: "Confluence has no page or space at this link, or the connected account cannot see it.",
   confluence_forbidden: "The connected account is not allowed to read this.",
+  source_not_found: "The source was removed. Add the link again.",
 };
 
 /** What a failed check or add says, from the API's closed code; anything else is the general failure. */

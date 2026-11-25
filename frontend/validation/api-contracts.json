@@ -204,6 +204,16 @@
       "path": "/projects/{pid}/sources/confluence"
     },
     {
+      "id": "add_jira_epic_source_api_v1_projects__pid__sources_jira_epic_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/jira-epic"
+    },
+    {
+      "id": "check_jira_epic_api_v1_projects__pid__sources_jira_epic_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/jira-epic/check"
+    },
+    {
       "id": "check_confluence_link_api_v1_projects__pid__sources_confluence_check_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/confluence/check"

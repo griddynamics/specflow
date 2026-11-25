@@ -56,6 +56,8 @@ const http: HttpPorts = {
     saveDrive: never,
     checkConfluence: never,
     addConfluence: never,
+    checkJiraEpic: never,
+    addJiraEpic: never,
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },

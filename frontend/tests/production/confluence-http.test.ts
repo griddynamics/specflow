@@ -15,7 +15,7 @@ const { sent } = ctx;
 const changed: string[] = [];
 const sources = createHttpSources({ changed: (pid) => changed.push(pid) });
 const { createProject } = createHttpProjects();
-const SITE = "https://northwind.atlassian.net";
+const SITE = "https://northwind.atlassian.test";
 const PAGE = `${SITE}/wiki/spaces/ORD/pages/12345/Checkout`;
 const last = () => sent[sent.length - 1];
 
@@ -58,9 +58,10 @@ test("a check answer keeps kind, title, pages, the cap and the linked issues; an
   }
 });
 
-test("the status reads a Confluence source as a source; a kind the client does not know (a Jira epic until its own session) is still skipped", () => {
+test("the status reads a Confluence source as a source; a kind the client does not know is still skipped", () => {
   assert.equal(isUnknownKind({ kind: "confluence" }), false);
-  assert.equal(isUnknownKind({ kind: "jira_epic" }), true);
+  assert.equal(isUnknownKind({ kind: "jira_epic" }), false);
+  assert.equal(isUnknownKind({ kind: "something_new" }), true);
   const wire = {
     id: "s1",
     kind: "confluence",
@@ -113,7 +114,7 @@ test("the closed codes reach the caller as the API's code: another site, a short
   assert.equal(await code(`${SITE}/wiki/spaces/ORD/pages/404`), "confluence_not_found");
   assert.equal(await code(`${SITE}/wiki/spaces/ORD/pages/403`), "confluence_forbidden");
   assert.equal(await code("not a link"), "confluence_link_invalid");
-  assert.equal(await code(`http://northwind.atlassian.net/wiki/spaces/ORD`), "confluence_link_invalid");
+  assert.equal(await code(`http://northwind.atlassian.test/wiki/spaces/ORD`), "confluence_link_invalid");
 });
 
 test("add posts the same body, tells the knowledge port the sources changed, and the source is in the status as kind confluence", async () => {

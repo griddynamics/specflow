@@ -97,7 +97,9 @@ export function SlackForm({ projectId, spec, reload, onBack, onClose }: Readonly
   useEffect(() => {
     let alive = true;
     let misses = 0;
+    let bound = false;
     const ask = () => {
+      if (bound) return; // nothing more to wait for
       slack.get(projectId).then(
         (s) => {
           if (!alive) return;
@@ -107,6 +109,7 @@ export function SlackForm({ projectId, spec, reload, onBack, onClose }: Readonly
           if (s.channel !== null) {
             setChannel(s.channel);
             reload.current();
+            bound = true;
           }
         },
         () => {
@@ -124,6 +127,7 @@ export function SlackForm({ projectId, spec, reload, onBack, onClose }: Readonly
   }, [slack, projectId, reload]);
 
   const test = () => {
+    if (testing) return; // a second press while the message is going out
     setTesting(true);
     setResult(null);
     slack.test(projectId).then(

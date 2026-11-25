@@ -58,6 +58,9 @@ export const CANVAS_COPY = {
   confluenceNote:
     "The page and its sub-pages, or every page of the space, are read once when it is added. Add the link again to read a newer version.",
   confluenceAdding: "Adding…",
+  // Jira epic
+  jiraEpicSource: "Epic key or link",
+  jiraEpicSourceHint: "The epic and every issue under it are read, with their comments, once when it is added.",
   // Slack channel
   slackInvite: "In Slack, invite the app to the channel where the people who can answer talk.",
   slackConnect: "In the same channel, connect it to this project. One channel per project.",

@@ -285,13 +285,18 @@ test("a plan start the API refuses with a conflict says a plan is already runnin
 });
 
 test("the Gaps title says what the list holds: the open gaps, counted as the list shows them", () => {
-  assert.equal(gapsTitle([]), "Gaps");
-  assert.equal(gapsTitle([{ id: "a", title: "t", kind: "missing", severity: "blocker" }]), "1 open gap");
+  assert.equal(gapsTitle([], null), "Gaps");
+  assert.equal(gapsTitle([{ id: "a", title: "t", kind: "missing", severity: "blocker" }], null), "1 open gap");
   const five = Array.from(
     { length: 5 },
     (_, i) => ({ id: String(i), title: "t", kind: "missing", severity: i === 0 ? "blocker" : "minor" }) as const,
   );
-  assert.equal(gapsTitle(five), "5 open gaps");
+  assert.equal(gapsTitle(five, null), "5 open gaps");
+  // With the API's counts the title is the total of open gaps, not the first page: 14 found, 2 settled = 12 open, "+" when the page was full.
+  assert.equal(gapsTitle(five, { ...GAPS, total: 14, answered: 2, more: false }), "12 open gaps");
+  assert.equal(gapsTitle(five, { ...GAPS, total: 200, answered: 2, more: true }), "198+ open gaps");
+  assert.equal(gapsTitle(five, { ...GAPS, total: 3, answered: 3, more: false }), "Gaps");
+  assert.equal(gapsTitle(five, { ...GAPS, total: 1, answered: 0, more: false }), "1 open gap");
   const view = html(createElement(GapsDialog, { rows: five, onClose: noop }));
   assert.match(view, /1 of them critical: they block the work they are about until they are answered\./);
   const minor = [{ id: "m", title: "t", kind: "missing", severity: "minor" }] as const;

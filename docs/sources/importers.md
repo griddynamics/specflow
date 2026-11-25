@@ -84,6 +84,8 @@ Item names: `page:<id>` is the item's `external_id`, the page title its name; fo
 `POST /projects/{pid}/sources/jira-epic/check` and `POST /projects/{pid}/sources/jira-epic`, both `{key_or_link}`, any
 member. Shapes and codes: [integrations-api.md](../mission-control/integrations-api.md) "Jira epic source".
 
+**In the canvas** (the plus of the Graph stage, "Jira epic"; it needs the project's Atlassian integration, else the card says "Set up first" and returns with the form open): one field for the epic key or link, **Check epic** (says `KEY · summary · N issues`, and over the cap that the first 200 are read), then **Add source**. Changing the key or link asks for a new check. A refused check or add says its closed code in words (another site, not an epic key, not an epic, no such issue, not allowed, Atlassian not connected or in need of a reconnect). The node is named by the key and counts issues while it imports; it stops only when the API reports the import failed (`no_access` offers Reconnect Atlassian). Remove deletes the source and its documents.
+
 `key_or_link` is an issue key (`ABC-12`, any case) or a link of the configured site (`/browse/ABC-12`, or a board link with
 `selectedIssue=ABC-12`). The issue must be an epic (`issuetype.hierarchyLevel` 1, or named `Epic`), else
 `jira_epic_not_an_epic`. The source is named `KEY: summary` and its `link` is `https://<site>/browse/KEY`.
