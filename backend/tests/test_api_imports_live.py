@@ -400,3 +400,90 @@ async def test_a_jira_epic_import_is_the_corpus_with_its_issues_and_comments(fac
         (summary,) = await source_files.source_summaries(session, project)
     assert (listed.connection_id, listed.state, listed.progress.total) == (job.source_id, "done", 2)
     assert (summary.kind, summary.counts["done"], summary.failure_reason) == ("jira_epic", 2, None)
+
+
+# Notion (stream D1): the Notion importer over the fixture-backed gateway and the real writer ---------------------------
+
+
+async def test_a_notion_import_is_the_corpus_with_slim_originals_and_a_skipped_page_is_a_problem_item(
+    factory, runner, store
+) -> None:
+    from api.imports.notion import NotionImport, NotionImporter
+    from notion.fake import WIKI_PAGE_ID
+    from notion.links import NotionLink
+    from test_api_import_notion import FAKE_CONVERTER, ONBOARDING
+    from notion_support import FakeNotionConnections
+
+    user, project = await member_project(factory)
+    connections = FakeNotionConnections()
+    connections.users = {user: "active"}
+    connections.fake.unshare(ONBOARDING)
+    importer = NotionImporter(connections, NotionImport(NotionLink(WIKI_PAGE_ID)), FAKE_CONVERTER)
+
+    job = await run(runner, project, user, kind="notion", name="Engineering Wiki", importer=importer)
+
+    corpus = await PostgresCorpusSource(factory).snapshot(str(project))
+    assert sorted(c.title for c in corpus) == ["Engineering Wiki", "Runbook - Points backfill", "Runbooks"]
+    assert all("<page" not in c.markdown for c in corpus)
+    assert (
+        await scalar(
+            factory, "SELECT count(*) FROM documents WHERE project_id = :p AND parser = 'notion-convert'", p=project
+        )
+        == 3
+    )
+    async with factory() as session:
+        (card,) = await source_files.source_summaries(session, project)
+    assert (card.kind, card.name, card.total, card.listing_finished, card.failure_reason) == (
+        "notion",
+        "Engineering Wiki",
+        4,
+        True,
+        None,
+    )
+    assert card.counts["done"] == 3 and sum(card.counts.values()) == 4  # the page nobody shared is a problem item
+    assert job.source_id is not None and all(b"person@example.com" not in blob for blob in store.objects.values())
+
+
+async def test_a_notion_import_of_an_unshared_link_fails_the_source_with_no_access(factory, runner) -> None:
+    from api.imports.notion import NotionImport, NotionImporter
+    from notion.fake import PRD_PAGE_ID
+    from notion.links import NotionLink
+    from notion_support import FakeNotionConnections
+    from test_api_import_notion import FAKE_CONVERTER
+
+    user, project = await member_project(factory)
+    connections = FakeNotionConnections()
+    connections.users = {user: "active"}
+    connections.fake.unshare(PRD_PAGE_ID)
+
+    job = await run(
+        runner,
+        project,
+        user,
+        kind="notion",
+        name="PRD",
+        importer=NotionImporter(connections, NotionImport(NotionLink(PRD_PAGE_ID)), FAKE_CONVERTER),
+    )
+
+    assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=job.source_id) == "failed"
+    assert await scalar(factory, "SELECT failure_reason FROM connections WHERE id = :i", i=job.source_id) == "no_access"
+
+
+async def test_the_start_ends_an_interrupted_notion_import(factory, runner) -> None:
+    user, project = await member_project(factory)
+    source = uuid.uuid4()
+    async with factory() as session, session.begin():
+        await session.execute(
+            text(
+                "INSERT INTO connections (id, project_id, kind, external_id, name, state, connected_by) "
+                "VALUES (:id, :p, 'notion', :e, 'S', 'importing', :u)"
+            ),
+            {"id": source, "p": project, "e": str(uuid.uuid4()), "u": user},
+        )
+
+    await age(factory, project)
+    await runner.start_recovery()
+    await asyncio.wait_for(runner._recovery, timeout=10)
+
+    assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=source) == "failed"
+    assert await scalar(factory, "SELECT failure_reason FROM connections WHERE id = :i", i=source) == "unknown_error"

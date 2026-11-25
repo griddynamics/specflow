@@ -18,8 +18,8 @@ shape as a Confluence link. Decisions: N2 to N6.
   `notion.links.parse_link` accepts `https` links of `notion.so`, `www.notion.so`, `app.notion.com` and `*.notion.site`; the
   object id is the last 32 hex digits of the path; `?v=` marks a database. Anything else is `notion_link_invalid`.
 - `POST /projects/{pid}/sources/notion/check` `{link}` reads the object as the bound member and answers
-  `{kind: page | database, title, pages, capped}`: `pages` counts the page and its sub-pages, or the database's rows, at
-  most the cap; `capped` is true when there are more. A page or database that does not exist or was not ticked in the
+  `{kind: page | database, title, pages, capped}`: `pages` is at least the count of the page and the pages and databases it names, or of the
+  first page of the database's rows, at most the cap; `capped` is true when there may be more. A page or database that does not exist or was not ticked in the
   picker is `409 notion_not_shared`.
 - `POST /projects/{pid}/sources/notion` `{link}` checks again, creates the source for the caller (`connected_by`),
   starts the import and answers the source card. `external_id` is a fresh uuid, `link` as pasted. Any member may call both
