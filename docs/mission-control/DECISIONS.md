@@ -73,5 +73,7 @@ Jira for now is read and written through the Atlassian app, not through MCP.
 
 ## Still open
 
-- Which landing-page copy is the base for `site/` (three copies exist; the renamed one is in the `relaxed-bohr-ca4f18` worktree).
-- Who may remove an integration another member set up.
+Both questions were answered during the build as agent choices. The owner reviews them in the pull request.
+
+- Which landing-page copy is the base for `site/`. **Agent choice AC3:** the `relaxed-bohr-ca4f18` copy (final polish and the Graphico rename), frozen into `landing-source/`. It is the newest and uses the same `landing.css` as the prototype.
+- Who may remove an integration another member set up. **Agent choice AC6:** the member who connected it, or the owner. Removing stops everything that uses it (D2), so not every member.

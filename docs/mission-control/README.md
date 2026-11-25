@@ -130,11 +130,13 @@ A new source added after a build makes the button "Update graph". Sources are re
 
 ## Alternatives to decide
 
-| Question | Options in the prototype |
-|---|---|
-| Where are the two decision buttons? | A: the hub itself (Graph, then Plan) turns yellow. B: a round gate on the line before the stage it starts (Graph\|Gap, then Gap\|Plan). C: a dock at the bottom of the canvas, with the reasoning level inline |
-| Graph icon | A graph or a brain |
-| Background | A graph that grows with the knowledge, a dot grid, or plain |
+| Question | Options in the prototype | Built (agent choice, owner reviews) |
+|---|---|---|
+| Where are the two decision buttons? | A: the hub itself (Graph, then Plan) turns yellow. B: a round gate on the line before the stage it starts (Graph\|Gap, then Gap\|Plan). C: a dock at the bottom of the canvas, with the reasoning level inline | A: the hub carries the decision (AC41); the reasoning level is chosen in the Build dialog |
+| Graph icon | A graph or a brain | A small graph glyph (a hub with satellites) of `packages/ui` |
+| Background | A graph that grows with the knowledge, a dot grid, or plain | The growing graph, decorative (AC10) |
+
+The screens as built, their words and the differences from this prototype: [ui.md](ui.md).
 
 ## Style
 

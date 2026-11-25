@@ -29,6 +29,10 @@ const PASS_TEXT: Record<string, string> = {
   github_item_invalid: "GitHub did not accept an item of the plan.",
   github_issue_gone: "An issue was deleted on GitHub. It is not created again.",
   github_projects_not_configured: "The destination is not set up.",
+  no_plan: "Waits for the plan",
+  plan_applying: "The plan is being applied",
+  target_changed: "The destination changed; the next pass uses the new one",
+  unexpected_error: "The last pass failed for a reason Graphico does not know. The next pass tries again.",
 };
 
 /** What a failed check or save says, from the API's closed code; anything else is the general failure. */

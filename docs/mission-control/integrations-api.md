@@ -12,6 +12,10 @@ the signed-in web user. An **integration** is the project's connection to one ap
 connection to the project, and every use of the app in the project (a Jira target, a repository, a Slack channel)
 acts as that member. The card says "by *member*".
 
+The screens that call these routes: [ui.md](ui.md). The connector docs: [../sources/importers.md](../sources/importers.md) (Confluence, Jira epic),
+[../slack/gap-answering.md](../slack/gap-answering.md) (Slack channel), [../jira-sync/gaps.md](../jira-sync/gaps.md) (Jira gap channel),
+[../jira-sync/INDEX.md](../jira-sync/INDEX.md) (Jira plan destination), [../github/INDEX.md](../github/INDEX.md) (repositories, GitHub Projects).
+
 ## Routes
 
 | Method, path | Who | Success | Errors |

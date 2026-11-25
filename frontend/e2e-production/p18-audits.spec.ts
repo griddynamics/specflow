@@ -3,7 +3,7 @@
 // (empty state and Ready) and the production user menu. Stub API through the real BFF (scripts/serve-production.mjs); no model call.
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { colourViolations, fontViolations, tabWalk } from "./audits";
+import { colourViolations, fontViolations, tabWalk, tabWalkProblems } from "./audits";
 import { createViaNew, expect, expectUploadReady, login, pickLocalPdf, setTheme, test } from "./support";
 
 test.describe("P18 audits on production routes", { tag: "@production" }, () => {
@@ -73,16 +73,10 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
     test(`FE-DOD-05.AC1, AC2 [${sc.id}]: the Tab walk reaches visible stops that all show the 2px solid focus ring`, async ({ page }) => {
       await setTheme(page, "light");
       await sc.setup(page);
-      const stops = await tabWalk(page);
-      expect(stops.length, "the page has Tab stops").toBeGreaterThanOrEqual(sc.minStops);
-      expect(
-        stops.filter((s) => !s.visible).map((s) => `${s.id} "${s.label}"`),
-        "invisible tab stops",
-      ).toEqual([]);
-      expect(
-        stops.filter((s) => s.ring === "none").map((s) => `${s.id} "${s.label}"`),
-        "stops without the 2px focus ring",
-      ).toEqual([]);
+      const walk = await tabWalkProblems(page);
+      expect(walk.stops, "the page has Tab stops").toBeGreaterThanOrEqual(sc.minStops);
+      expect(walk.invisible, "invisible tab stops").toEqual([]);
+      expect(walk.noRing, "stops without the 2px focus ring").toEqual([]);
     });
 
     test(`FE-DOD-04 [${sc.id}]: no horizontal scroll at this viewport`, async ({ page }) => {

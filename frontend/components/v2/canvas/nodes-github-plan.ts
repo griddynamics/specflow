@@ -47,6 +47,7 @@ function planNode(g: GitHubProjects, input: CanvasInput, stages: Stages): NodeVi
     return stopped(V2_COPY.stoppedReconnect, V2_COPY.stoppedBody, "github");
   if (failed) return stopped(V2_COPY.githubPlanStopped, githubPassText(code), null);
   if (!g.enabled) return quiet(V2_COPY.githubPlanOff);
+  if (sync?.status === "skipped" && code !== null) return quiet(githubPassText(code));
   if (!stages.planOn) return quiet(V2_COPY.waitsForPlan);
   if (sync?.status === "running") {
     return {

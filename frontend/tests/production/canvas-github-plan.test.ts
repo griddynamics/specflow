@@ -82,8 +82,22 @@ test("it stops only for what the API reports: a lost GitHub connection offers Re
   assert.deepEqual([permissions.state, permissions.meta, permissions.detail.reconnect], ["stopped", "Stopped", null]);
   assert.match(permissions.detail.text, /Approve the new permissions .* Issues .* Organization projects/);
   assert.equal(nodeOf(sync({ status: "failed", errorCode: "github_issue_gone" })).detail.text, githubPassText("github_issue_gone"));
-  // A pass that is only waiting for the plan is not a stop.
-  assert.equal(nodeOf(sync({ status: "skipped", errorCode: "no_plan", counts: null })).state, "on");
+  const unknown = nodeOf(sync({ status: "failed", errorCode: "unexpected_error" }));
+  assert.deepEqual([unknown.state, unknown.meta, unknown.detail.reconnect], ["stopped", "Stopped", null]);
+  assert.match(unknown.detail.text, /reason Graphico does not know/);
+});
+
+test("a skipped pass is a wait with the words of its code, not a stop and not 'Not synced yet'", () => {
+  const skipped = (errorCode: string) => nodeOf(sync({ status: "skipped", errorCode, counts: null }));
+  for (const [code, words] of [
+    ["no_plan", "Waits for the plan"],
+    ["plan_applying", "The plan is being applied"],
+    ["target_changed", "The destination changed; the next pass uses the new one"],
+  ] as const) {
+    const n = skipped(code);
+    assert.deepEqual([n.state, n.badge, n.wire, n.meta], ["wait", null, "off", words]);
+  }
+  assert.equal(githubPassText("unexpected_error").length > 0, true);
 });
 
 test("each closed code has its own words; github_permissions_missing says what to approve; an unknown one is the general failure", () => {
