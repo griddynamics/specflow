@@ -112,7 +112,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await gap.getByText("Connections for the other stages").click();
     await expect(gap.getByRole("button", { name: /^Upload/ })).toHaveAttribute("aria-disabled", "true");
     await expect(gap.getByText("For Graph")).toHaveCount(5);
-    await expect(gap.getByText("For Plan")).toHaveCount(1);
+    await expect(gap.getByText("For Plan")).toHaveCount(2);
   });
 
   test("Upload: pick a file in the form, the dialog closes, the batch is a node that finishes importing", async ({ page, requests }) => {

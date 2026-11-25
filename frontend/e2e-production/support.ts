@@ -281,6 +281,7 @@ export const STUB_TIMING = {
   summarizeMs: 1500,
   parseOutcome: "parsed",
   graphMs: 1500,
+  gapMs: 1000,
   graphOutcome: "succeeded",
   graphStartFail: null,
   planMs: 2000,
@@ -413,6 +414,26 @@ export interface SeedJiraGaps extends Record<string, unknown> {
 }
 export async function seedJiraGaps(spec: SeedJiraGaps): Promise<void> {
   await control("POST", "/seed-jira-gaps", spec);
+}
+
+/** The GitHub Projects destination of one seeded project (`POST /seed-github-projects`, tests/support/stub-github-projects.mjs `seed`). */
+export interface SeedGitHubProjects extends Record<string, unknown> {
+  pid?: string;
+  available?: boolean;
+  /** null = the repository belongs to a user. */
+  organization?: string | null;
+  target?: {
+    repository_id: string;
+    repository: string;
+    project_node_id: string;
+    project_title: string;
+    enabled?: boolean;
+    sync?: Record<string, unknown>;
+  } | null;
+  access?: "ok" | { reason: string; field?: string | null };
+}
+export async function seedGitHubProjects(spec: SeedGitHubProjects): Promise<void> {
+  await control("POST", "/seed-github-projects", spec);
 }
 
 /** The GitHub stub (`POST /seed-github`, tests/support/stub-github.mjs `seed`): global knobs and, with `pid`, a project's repositories. */

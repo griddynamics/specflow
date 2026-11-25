@@ -2,20 +2,16 @@
 // after its read, and the shared read gate. Pure and server-rendered: no browser.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createElement, type ReactElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
 import { buildCanvasModel } from "@/components/v2/canvas/canvas-model";
 import type { CanvasInput, NodeView } from "@/components/v2/canvas/canvas-types";
 import { JiraGapFormBody } from "@/components/v2/canvas/JiraGapForm";
 import { ReadGate } from "@/components/v2/canvas/ReadGate";
-import type { FormProps } from "@/components/v2/connector-types";
 import { CONNECTORS, NODE_MAPPERS } from "@/components/v2/connectors";
-import { DataContext, type DataContextValue } from "@/lib/data/provider";
-import type { DataPorts } from "@/lib/data/ports";
-import { createUiHandoff, createUiStore } from "@/lib/data/ui-store";
 import type { JiraGaps } from "@/lib/domain/jira-gaps";
-import { routesFor } from "@/lib/routes";
+import { COPY } from "@/lib/copy";
 import { defined } from "../support/defined";
+import { formProps, html, noop } from "./canvas-form-support";
 import { BUILT, GAPS, integration } from "./canvas-fixtures";
 
 const TARGET: JiraGaps = {
@@ -83,6 +79,8 @@ test("it stops only for what the API reports: a lost Atlassian connection offers
   const forbidden = nodeOf({ errorCode: "jira_forbidden" });
   assert.deepEqual([forbidden.state, forbidden.meta, forbidden.detail.reconnect], ["stopped", "Stopped", null]);
   assert.match(forbidden.detail.text, /\w/);
+  const off = nodeOf({ errorCode: "jira_unavailable" });
+  assert.deepEqual([off.state, off.meta, off.detail.reconnect, off.detail.text], ["stopped", "Stopped", null, COPY.jiraUnavailable]);
 });
 
 test("the registry has the Jira sub-tasks under Gaps, needing Atlassian, with the add label Add channel", () => {
@@ -91,23 +89,8 @@ test("the registry has the Jira sub-tasks under Gaps, needing Atlassian, with th
   assert.deepEqual(spec.check, { test: "Check access", testing: "Checking…", add: "Add channel" });
 });
 
-const noop = () => undefined;
-const noPorts: Partial<DataPorts> = {};
-const ui = createUiStore();
-const context: DataContextValue = { ui, ports: noPorts as DataPorts, routes: routesFor("production"), handoff: createUiHandoff(ui) };
-const html = (node: ReactElement): string => renderToStaticMarkup(createElement(DataContext.Provider, { value: context }, node));
-const props = (): FormProps => ({
-  projectId: "p1",
-  zone: "gap",
-  spec: defined(CONNECTORS.find((c) => c.kind === "jira_gap")),
-  mcp: { mcpUrl: "", clientId: "", serverName: "" },
-  reload: { current: noop },
-  onBack: noop,
-  onClose: noop,
-});
-
 test("the form asks for the space key and the grouping, says how often answers are read (from the API), and Check access is off until there is a key", () => {
-  const view = html(createElement(JiraGapFormBody, { ...props(), pollSeconds: 45 }));
+  const view = html(createElement(JiraGapFormBody, { ...formProps("gap", "jira_gap"), pollSeconds: 45 }));
   assert.match(view, />Jira space key<\/label>/);
   assert.match(view, />Sub-tasks<\/label>/);
   assert.match(view, /<option value="one" selected="">One per question<\/option>/);

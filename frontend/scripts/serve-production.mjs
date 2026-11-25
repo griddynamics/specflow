@@ -112,7 +112,7 @@ const control = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const t = JSON.parse(Buffer.concat(chunks).toString() || "{}");
-    for (const k of ["parseMs", "summarizeMs", "graphMs"]) if (t[k] === null) t[k] = Infinity; // JSON has no Infinity: null keeps work running
+    for (const k of ["parseMs", "summarizeMs", "graphMs", "gapMs"]) if (t[k] === null) t[k] = Infinity; // JSON has no Infinity: null keeps work running
     api.setTiming(t);
     return send(200, { ok: true });
   }

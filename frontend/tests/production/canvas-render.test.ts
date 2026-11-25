@@ -120,7 +120,17 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
   };
   assert.deepEqual(
     [...view.graph.matchAll(/<b>([^<]+)<\/b>/g)].map((m) => m[1]),
-    ["Upload", "Google Drive", "GitHub repository", "Confluence link", "Jira epic", "Slack channel", "Jira sub-tasks", "Jira"],
+    [
+      "Upload",
+      "Google Drive",
+      "GitHub repository",
+      "Confluence link",
+      "Jira epic",
+      "Slack channel",
+      "Jira sub-tasks",
+      "Jira",
+      "GitHub Projects",
+    ],
     "its own stage first, then the others",
   );
   assert.equal(count(view.graph, "Available"), 5);
@@ -129,9 +139,9 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
   assert.doesNotMatch(view.gap, /Nothing can be added/);
   assert.match(view.none, /Nothing can be added to this stage yet/);
   assert.match(view.gap, /Connections for the other stages<\/summary>/);
-  assert.equal(count(view.gap, 'aria-disabled="true"'), 6);
+  assert.equal(count(view.gap, 'aria-disabled="true"'), 7);
   assert.equal(count(view.gap, "For Graph"), 5);
-  assert.equal(count(view.gap, "For Plan"), 1);
+  assert.equal(count(view.gap, "For Plan"), 2);
 });
 
 test("a connection whose app is not connected says 'Set up first' and names the app", () => {

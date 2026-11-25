@@ -84,6 +84,17 @@ export const CANVAS_COPY = {
   jiraGapGroupingArea: "One per work area, its questions numbered",
   jiraGapNote:
     "The open questions are posted as sub-tasks of one Story in this space. Answers are read from the sub-tasks about every {n} seconds.",
+  // GitHub Projects plan destination
+  githubPlanRepository: "Repository",
+  githubPlanProject: "Project",
+  githubPlanPick: "Pick a project",
+  githubPlanNew: "Create “{name}”",
+  githubPlanNewHint:
+    "A new project with the name of this one is created in the organization of the repository when you add the destination.",
+  githubPlanNoRepositories: "Add a GitHub repository to the project first. The stories become issues in it.",
+  githubPlanUser: "This repository belongs to a person. Only organization projects can be used.",
+  githubPlanListFailed: "The projects of the organization could not be read.",
+  githubPlanLoadingProjects: "Reading the projects…",
   // Dialogs
   close: "Cancel",
   remove: "Remove",

@@ -86,6 +86,17 @@ The same as the Jira sync ([../jira-sync/sync.md](../jira-sync/sync.md#triggers-
 starts are merged, one pass runs per process, `running` is stored before the slot. Logs `api.github_projects.sync.*` carry ids, codes and
 counts only.
 
+## In the canvas
+
+The plus of the Plan stage lists **GitHub Projects** next to Jira; it needs the project's GitHub integration, else the card says "Set up first".
+The form asks for a repository of the project and a project: one of the organization's open projects, or (the default) a new one named after the
+Graphico project, sent as `new_project_title`. A repository of a person is refused in words. **Check access** runs as the member GitHub is
+connected by (any member may press it); a changed repository or project asks for a new check, and a refusal is shown in words
+(`github_permissions_missing` says to approve the Issues and Organization projects permissions of the GitHub App for the installation).
+**Add destination** saves it turned on; the pass runs in the background. The node is named `GitHub · <project>`, waits for the plan, counts the issues
+made (`sync.counts.created`), and while `sync.status` is `running` the canvas reads `GET` every 3 seconds and the wire moves. It stops only for what the
+API reports: `github_not_connected` or `github_reconnect_required` (or a lost binding) offer Reconnect GitHub, any other closed code says what it is.
+
 ## Codes
 
 | Code | Where | Meaning |

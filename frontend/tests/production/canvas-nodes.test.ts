@@ -162,6 +162,15 @@ test("a failed gap run found nothing: no 'found', no yellow Build plan, no MCP; 
   assert.equal(m.zones.gap.live, false);
 });
 
+test("a built graph whose gap run was never made: the Gap hub waits for the run (not on), nothing is found and Build plan is not offered", () => {
+  const m = buildCanvasModel(BUILT({ gaps: { ...GAPS, phase: "never", total: 0, answered: 0, critical: 0 } }), NODE_MAPPERS);
+  assert.deepEqual([m.hubs.gap.state, m.hubs.gap.tooltip, m.hubs.gap.pill], ["wait", "Waits for the gap run", undefined]);
+  assert.equal(m.hubs.plan.decision, undefined);
+  assert.equal(m.zones.gap.live, false);
+  const done = buildCanvasModel(BUILT({ gaps: { ...GAPS, phase: "done" } }), NODE_MAPPERS);
+  assert.equal(done.hubs.gap.state, "on");
+});
+
 test("the hub names are the stage names: Graph, Gap, Plan", () => {
   const m = buildCanvasModel(BUILT({ gaps: GAPS }), NODE_MAPPERS);
   assert.deepEqual(

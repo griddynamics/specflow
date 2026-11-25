@@ -79,6 +79,7 @@ const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
  * parseMs/summarizeMs = Infinity keeps the work "in progress" forever (stuck tests).
  * Knowledge build knobs on `state` (see `graphRoute`): graphMs (a build resolves when it has run that long; Infinity = never),
  * graphOutcome ("succeeded" | "partially_succeeded" | "failed") and graphStartFail (null | an API code: the POST answers 503 with it).
+ * Gap knob: gapMs (the gap run a finished build queues completes after that long; Infinity = never).
  * Plan knob: planMs (a plan run takes that long, its ten steps evenly spread; see `planRoute`).
  */
 export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
@@ -91,6 +92,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     summarizeMs,
     parseOutcome,
     graphMs: 1500,
+    gapMs: 1000,
     graphOutcome: "succeeded",
     graphStartFail: null,
     planMs: 2000,
@@ -164,7 +166,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       g.status = state.graphOutcome;
       g.finished_at = new Date().toISOString();
       if (g.status === "failed") g.error_code = "stub_failure";
-      else g.succeededBefore = true;
+      else {
+        g.succeededBefore = true;
+        queueGapRun(pid);
+      }
     }
     graphs.set(pid, g);
     return g;
@@ -473,6 +478,53 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const gapSets = new Map(); // pid -> {gaps, run, rules, reverted: AiAnswer[], seq}
   const gapsOf = (pid) =>
     gapSets.get(pid) ?? gapSets.set(pid, { gaps: [], run: { status: "idle", result: null }, rules: [], reverted: [], seq: 0 }).get(pid);
+  /**
+   * The gap run a finished build queues, as the API's `after_build` does (a run that was never made only: a seeded run is the truth). It is
+   * queued at once, runs for the second half of `state.gapMs` and then completes with no gap of its own; it is resolved when it is read
+   * (`settleStubRun`), like the build.
+   */
+  function queueGapRun(pid) {
+    const set = gapsOf(pid);
+    if (set.run.status !== "idle") return;
+    set.run = {
+      status: "queued",
+      run_id: "run-stub",
+      mode: "full",
+      step: null,
+      steps_done: 0,
+      steps_total: 7,
+      step_items_done: null,
+      step_items_total: null,
+      started_at: new Date().toISOString(),
+      result: null,
+    };
+    set.stubRunMs = Date.now();
+  }
+  function settleStubRun(set) {
+    if (set.stubRunMs === undefined || set.run.status === "completed") return;
+    const spent = Date.now() - set.stubRunMs;
+    if (spent >= state.gapMs) {
+      set.run = {
+        ...set.run,
+        status: "completed",
+        step: "finish",
+        steps_done: 7,
+        finished_at: new Date().toISOString(),
+        result: {
+          run_id: set.run.run_id,
+          mode: "full",
+          build_id: null,
+          status: "completed",
+          counts: {},
+          cost: {},
+          noise: { sections: [] },
+          deferred_sites: [],
+          held_tasks: [],
+          warnings: [],
+        },
+      };
+    } else if (spent >= state.gapMs / 2) set.run = { ...set.run, status: "running", step: "investigate", steps_done: 3 };
+  }
   const SEVERITY_RANK = { blocker: 0, major: 1, minor: 2 };
   const STUB_FIELDS = new Set(["stories", "old_ids"]);
   const publicGap = (g, full) => {
@@ -813,7 +865,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (b === "gap") {
       for await (const c of req) void c;
       if (req.method !== "GET" || did !== "runs") return err(res, 404, "not_found");
-      if (action === "latest") return json(res, 200, set.run);
+      if (action === "latest") {
+        settleStubRun(set);
+        return json(res, 200, set.run);
+      }
       if (rest === "noise" && set.run.result && set.run.result.run_id === decodeURIComponent(action))
         return json(res, 200, set.run.result.noise);
       return err(res, 404, "gap_run_not_found");
@@ -1423,7 +1478,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     seedGaps: (pid, seed) => {
       const mine = gapsOf(pid);
       if (seed.gaps) mine.gaps = seed.gaps;
-      if (seed.run) mine.run = seed.run;
+      if (seed.run) {
+        mine.run = seed.run;
+        mine.stubRunMs = undefined; // a seeded run is the truth: the stub no longer moves it
+      }
       if (seed.rules) mine.rules = seed.rules;
     },
     settleGaps,

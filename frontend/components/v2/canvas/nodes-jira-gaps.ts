@@ -2,6 +2,7 @@
 // as sub-tasks and the ones answered. It stops only for what the API reports: an Atlassian connection that expired or went, or a closed code the
 // last pass ended on. The wire moves only while a gap run goes on (questions go out).
 import { syncErrorText } from "@/components/settings/jira-logic";
+import { COPY } from "@/lib/copy";
 import type { JiraGaps } from "@/lib/domain/jira-gaps";
 import { V2_COPY } from "../v2-copy";
 import type { CanvasInput, NodeMapper, NodeView, Stages } from "./canvas-types";
@@ -35,6 +36,7 @@ function gapNode(j: JiraGaps, input: CanvasInput, stages: Stages): NodeView {
   });
   if (stoppedIntegration(input, "atlassian") !== undefined || (j.errorCode !== null && RECONNECT.has(j.errorCode)))
     return stopped(V2_COPY.stoppedReconnect, V2_COPY.stoppedBody, "atlassian");
+  if (j.errorCode === "jira_unavailable") return stopped(V2_COPY.jiraGapsStopped, COPY.jiraUnavailable, null);
   if (j.errorCode !== null) return stopped(V2_COPY.jiraGapsStopped, syncErrorText(j.errorCode, true), null);
   if (!j.enabled) return quiet(V2_COPY.jiraGapsOff, V2_COPY.jiraGapsOff);
   const g = input.gaps;

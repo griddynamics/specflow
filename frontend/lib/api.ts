@@ -199,6 +199,26 @@ export const putJiraGaps = (pid: string, jiraProject: string, grouping: string, 
 export const checkJiraGapsAccess = (pid: string, jiraProject: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/jira-gaps/access-check`, json({ jira_project: jiraProject })).then((r) => r.body);
 
+// The GitHub Projects plan destination of a project (docs/github/projects.md). Bodies stay `unknown`; lib/data/http/github-projects.ts checks them.
+/** The project is named by `nodeId` (an existing one) or `newTitle` (created in the organization at save): the body names exactly one. */
+const projectBody = (pick: { nodeId: string } | { newTitle: string }) =>
+  "nodeId" in pick ? { project_node_id: pick.nodeId } : { new_project_title: pick.newTitle };
+export const getGitHubProjects = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/github-projects`).then((r) => r.body);
+export const listGitHubProjects = (pid: string, repositoryId: string) =>
+  httpGet(`/projects/${encodeURIComponent(pid)}/github-projects/projects?repository_id=${encodeURIComponent(repositoryId)}`).then(
+    (r) => r.body,
+  );
+export const putGitHubProjects = (pid: string, repositoryId: string, pick: { nodeId: string } | { newTitle: string }, enabled: boolean) =>
+  httpPut(
+    `/projects/${encodeURIComponent(pid)}/github-projects`,
+    json({ repository_id: repositoryId, ...projectBody(pick), enabled }),
+  ).then((r) => r.body);
+export const checkGitHubProjectsAccess = (pid: string, repositoryId: string, pick: { nodeId: string } | { newTitle: string }) =>
+  httpPost(
+    `/projects/${encodeURIComponent(pid)}/github-projects/access-check`,
+    json({ repository_id: repositoryId, ...projectBody(pick) }),
+  ).then((r) => r.body);
+
 // The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
 // app/api/integrations/atlassian/callback calls the API on the server.
 export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);

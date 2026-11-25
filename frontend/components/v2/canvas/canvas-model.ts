@@ -85,6 +85,7 @@ function gapHub(input: CanvasInput, stages: Stages): HubView {
   if (!stages.built) return { ...base, state: "off", tooltip: "Waits for the graph" };
   if (g === null) return { ...base, state: "wait", tooltip: "Reading the gaps" };
   if (g.phase === "failed") return { ...base, state: "wait", tooltip: "The gap run failed" };
+  if (g.phase === "never") return { ...base, state: "wait", tooltip: "Waits for the gap run" };
   if (GAP_RUN_WORKING.has(g.phase) || g.phase === "building") {
     const progress = g.stepsTotal > 0 ? g.stepsDone / g.stepsTotal : "unknown";
     return { ...base, state: "busy", tooltip: "Looking for gaps", progress };

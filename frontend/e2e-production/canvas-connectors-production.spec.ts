@@ -12,6 +12,7 @@ import {
   loginV2,
   seedGaps,
   seedGitHub,
+  seedGitHubProjects,
   seedIntegrations,
   seedJira,
   seedJiraGaps,
@@ -44,6 +45,7 @@ const jiraTarget = (sync?: Record<string, unknown>) => ({
 const CHECK_ACCESS = "Check access";
 const SPACE_KEY = "Jira space key";
 const ADD_SOURCE = "Add a source";
+const SET_UP_FIRST = "Set up first";
 const CHECK_LINK = "Check link";
 const CHECK_EPIC = "Check epic";
 const ADD_SELECTED = "Add selected";
@@ -60,6 +62,7 @@ test.afterEach(async () => {
   await seedSlack({ pid: "none", channel: null, available: true, test: "ok" });
   await seedJira({ pid: "none", mode: "token", connection: null });
   await seedJiraGaps({ pid: "none", available: true });
+  await seedGitHubProjects({ available: true, organization: "acme" });
 });
 
 /** A project with sources the build can read: a Drive folder and one parsed document. */
@@ -220,7 +223,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     const pid = await canvas(page, unique("GitHub form"));
     await page.getByRole("button", { name: ADD.source }).click();
     const plus = dialog(page, ADD_SOURCE);
-    await expect(plus.getByRole("button", { name: /^GitHub repository/ })).toContainText("Set up first");
+    await expect(plus.getByRole("button", { name: /^GitHub repository/ })).toContainText(SET_UP_FIRST);
     await page.keyboard.press("Escape");
     await seedGitHub({ connection: { status: "active", login: "alex-kim" } });
     await seedIntegrations({ pid, github: { by: ALEX, health: "active" } });
@@ -322,7 +325,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     const pid = await canvas(page, unique("Confluence form"));
     await page.getByRole("button", { name: ADD.source }).click();
     const plus = dialog(page, ADD_SOURCE);
-    await expect(plus.getByRole("button", { name: /^Confluence link/ })).toContainText("Set up first");
+    await expect(plus.getByRole("button", { name: /^Confluence link/ })).toContainText(SET_UP_FIRST);
     await plus.getByRole("button", { name: /^Confluence link/ }).click();
     await expect(page).toHaveURL(
       new RegExp(`/projects/${pid}/integrations\\?setup=atlassian&next=%2Fprojects%2F${pid}%3Fadd%3Dconfluence$`),
@@ -373,7 +376,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     const pid = await canvas(page, unique("Jira epic form"));
     await page.getByRole("button", { name: ADD.source }).click();
     const plus = dialog(page, ADD_SOURCE);
-    await expect(plus.getByRole("button", { name: /^Jira epic/ })).toContainText("Set up first");
+    await expect(plus.getByRole("button", { name: /^Jira epic/ })).toContainText(SET_UP_FIRST);
     await plus.getByRole("button", { name: /^Jira epic/ }).click();
     await expect(page).toHaveURL(
       new RegExp(`/projects/${pid}/integrations\\?setup=atlassian&next=%2Fprojects%2F${pid}%3Fadd%3Djira_epic$`),
@@ -455,6 +458,81 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(wire(page, "slack-C0NWO")).toHaveAttribute(MOTION, "off");
   });
 
+  test("GitHub Projects: no GitHub on the project says Set up first; the repository, the project (a new one named after this project) and Check access are asked, a missing permission says what to approve, Add destination saves it and the node counts the issues made", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await gapsFound(page, "GitHub plan form");
+    await buildGraphAndPlan(page, pid);
+    await seedGitHub({ connection: { status: "active", login: "alex-kim" } });
+    await seedGitHub({ pid, repositories: [{ full_name: "northwind/ordering" }] });
+    await page.goto(`/projects/${pid}`);
+    await page.getByRole("button", { name: ADD.destination }).click();
+    const plus = dialog(page, "Add a plan destination");
+    await expect(plus.getByRole("button", { name: /^GitHub Projects/ })).toContainText(SET_UP_FIRST);
+    await plus.getByRole("button", { name: /^GitHub Projects/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=github`));
+    await seedIntegrations({ pid, github: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=github_plan`);
+    const form = dialog(page, "Send the plan to GitHub Projects");
+    await expect(form.getByLabel("Repository")).toHaveValue(/.+/);
+    await expect(form.getByLabel("Project").getByRole("option", { name: "Roadmap" })).toBeAttached();
+    const creating = form.getByLabel("Project").getByRole("option", { name: /^Create “GitHub plan form / });
+    await expect(creating).toBeAttached();
+    const name = ((await creating.textContent()) ?? "").slice("Create “".length, -1); // the project's own name
+    await seedGitHubProjects({ pid, access: { reason: "github_permissions_missing" } });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByRole("alert")).toContainText("Approve the new permissions of the Specflow GitHub App");
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible(); // still a check: nothing to add yet
+    await seedGitHubProjects({ pid, access: { reason: "github_project_not_found", field: "project" } });
+    await form.getByLabel("Project").selectOption({ label: "Roadmap" });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByRole("alert")).toContainText("no open project with this title");
+    await seedGitHubProjects({ pid, access: "ok" });
+    await form.getByLabel("Project").selectOption({ label: `Create “${name}”` });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByText(`Organization acme. A project named “${name}” will be created.`)).toBeVisible();
+    await form.getByRole("button", { name: "Add destination" }).click();
+    await expect(form).toBeHidden();
+    const saves = requests.filter((r) => r.method === "PUT" && r.path === `/api/backend/projects/${pid}/github-projects`);
+    const [body] = bodiesOf(saves) as { repository_id: string; new_project_title: string; enabled: boolean }[];
+    expect([body.new_project_title, body.enabled]).toEqual([name, true]);
+    const node = nodes(page).filter({ hasText: `GitHub · ${name}` });
+    await expect(node).toHaveAttribute(STATE, "on");
+    await expect(node).toContainText("In sync");
+    // A pass that runs moves the wire and is read again until it ends.
+    const target = {
+      repository_id: body.repository_id,
+      repository: "northwind/ordering",
+      project_node_id: "PVT_new1",
+      project_title: name,
+    };
+    await seedGitHubProjects({ pid, target: { ...target, sync: { status: "running", counts: null } } });
+    await page.reload();
+    await expect(node).toHaveAttribute(STATE, "busy");
+    await expect(wire(page, "github-plan")).toHaveAttribute(MOTION, "flow");
+    await seedGitHubProjects({
+      pid,
+      target: {
+        ...target,
+        sync: { status: "succeeded", counts: { created: 6, updated: 0, commented: 0, removed: 0, ranked: 6, unchanged: 0, failed: 0 } },
+      },
+    });
+    await expect(node).toContainText("6 issues · GitHub", { timeout: 15_000 });
+    await expect(wire(page, "github-plan")).toHaveAttribute(MOTION, "on");
+  });
+
+  test("a finished build queues the gap run by itself, and once it is done the Gap hub is on and Build plan is offered", async ({
+    page,
+  }) => {
+    const { pid } = await readyProject(page, "Gap run after build");
+    await buildGraph(page, pid);
+    await page.goto(`/projects/${pid}`);
+    await expect(hub(page, "plan")).toHaveAttribute(STATE, /wait|ready/);
+    await expect(hub(page, "gap")).toHaveAttribute(STATE, "on", { timeout: 15_000 });
+    await expect(button(page, "Plan. Build plan")).toBeVisible();
+  });
+
   test("Jira gaps: no Atlassian on the project says Set up first and comes back with the form open; the space is checked, the grouping chosen, Add channel saves it and the node counts what was posted and answered", async ({
     page,
     requests,
@@ -462,7 +540,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     const pid = await gapsFound(page, "Jira gaps form");
     await page.getByRole("button", { name: ADD.channel }).click();
     const plus = dialog(page, "Add a gap channel");
-    await expect(plus.getByRole("button", { name: /^Jira sub-tasks/ })).toContainText("Set up first");
+    await expect(plus.getByRole("button", { name: /^Jira sub-tasks/ })).toContainText(SET_UP_FIRST);
     await plus.getByRole("button", { name: /^Jira sub-tasks/ }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=atlassian&next=%2Fprojects%2F${pid}%3Fadd%3Djira_gap$`));
     await seedIntegrations({ pid, atlassian: { by: ALEX, health: "active" } });
