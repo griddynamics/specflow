@@ -18,7 +18,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import NotionPlanItem, NotionPlanTarget
+from db.models import NotionPlanItem, NotionPlanTarget, Project
 
 # The columns ``update_item`` sets; one left out is not touched (None is a value there).
 ITEM_COLUMNS: Final = ("page_id", "content", "content_hash", "removed_at", "error_code", "synced_at")
@@ -33,6 +33,7 @@ class PlanTargetView:
     """The target row: the parent page and, once the first pass made it, the database."""
 
     project_id: uuid.UUID
+    project_name: str  # the project's own name (the plan database is titled after it)
     parent_page_id: str
     parent_page_title: str
     parent_page_url: str
@@ -68,16 +69,19 @@ class TargetSaved:
     keys_changed: bool
 
 
-def _view(target: NotionPlanTarget) -> PlanTargetView:
-    return PlanTargetView(
-        **{column.name: getattr(target, column.name) for column in NotionPlanTarget.__table__.columns}
-    )
+def _view(target: NotionPlanTarget, project_name: str) -> PlanTargetView:
+    columns = {column.name: getattr(target, column.name) for column in NotionPlanTarget.__table__.columns}
+    return PlanTargetView(project_name=project_name, **columns)
 
 
 async def get_target(session: AsyncSession, project_id: uuid.UUID) -> PlanTargetView | None:
-    statement = select(NotionPlanTarget).where(NotionPlanTarget.project_id == project_id)
-    row = (await session.execute(statement)).scalar_one_or_none()
-    return None if row is None else _view(row)
+    statement = (
+        select(NotionPlanTarget, Project.name)
+        .join(Project, Project.id == NotionPlanTarget.project_id)
+        .where(NotionPlanTarget.project_id == project_id)
+    )
+    row = (await session.execute(statement)).first()
+    return None if row is None else _view(*row)
 
 
 async def save_target(
