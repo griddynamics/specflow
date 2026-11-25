@@ -56,6 +56,9 @@ export const CANVAS_COPY = {
   slackInvite: "In Slack, invite the app to the channel where the people who can answer talk.",
   slackConnect: "In the same channel, connect it to this project. One channel per project.",
   slackConnected: "is connected.",
+  slackTestStep: "Test it: Graphico posts a welcome message in the channel.",
+  slackTestPosted: "Posted in {channel}: “Welcome to the workspace of project {name}.” If it arrived, add the channel.",
+  slackTestPostedNoName: "Posted in {channel}: the welcome message. If it arrived, add the channel.",
   slackInviteName: "invite command",
   slackConnectName: "connect command",
   // Jira plan

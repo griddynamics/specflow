@@ -12,7 +12,7 @@ import { GitHubForm, offerOf, withoutAdded } from "@/components/v2/canvas/GitHub
 import { gateOf, JiraForm, JiraFormBody } from "@/components/v2/canvas/JiraForm";
 import { NodeDialog } from "@/components/v2/canvas/NodeDialog";
 import { PlanDialog, planStartFailure } from "@/components/v2/canvas/PlanDialog";
-import { SlackForm } from "@/components/v2/canvas/SlackForm";
+import { SlackForm, SlackSteps, type SlackStepsProps } from "@/components/v2/canvas/SlackForm";
 import type { FormProps } from "@/components/v2/connector-types";
 import { CONNECTORS, NODE_MAPPERS } from "@/components/v2/connectors";
 import { DataContext, type DataContextValue } from "@/lib/data/provider";
@@ -179,7 +179,50 @@ test("the Slack form shows the invite and the connect command of main with a Cop
   assert.match(view, /<code[^>]*>\/specflow connect p1<\/code>/);
   assert.equal(count(view, ">Copy<"), 2);
   assert.match(view, /Waiting for the channel\./);
-  assert.doesNotMatch(view, /Test connection/, "the test message arrives with session 07");
+  assert.match(view, /<li>Test it: Graphico posts a welcome message in the channel\.<\/li>/);
+  assert.match(view, /disabled=""[^>]*>Test connection<\/button>/, "Test connection waits for the binding");
+});
+
+const steps = (over: Partial<SlackStepsProps> = {}): string =>
+  html(
+    createElement(SlackSteps, {
+      projectId: "p1",
+      channel: { id: "C1", name: "northwind-specs", private: false },
+      unreachable: false,
+      labels: { test: "Test connection", testing: "Posting…", add: "Add channel" },
+      testing: false,
+      result: null,
+      onTest: noop,
+      onAdd: noop,
+      onBack: noop,
+      ...over,
+    }),
+  );
+
+test("Slack step 3: once the channel is bound Test connection is on; while it posts it says so; a failure keeps Test connection and says why", () => {
+  const view = {
+    bound: steps(),
+    posting: steps({ testing: true }),
+    failed: steps({ result: { ok: false, text: "The app is not in the channel any more. Invite it again." } }),
+  };
+  assert.match(view.bound, /#northwind-specs is connected\./);
+  assert.match(view.bound, /<button type="button" class="gx-btn">Test connection<\/button>/);
+  assert.match(view.posting, /aria-busy="true"[^>]*>Posting…<\/button>/);
+  assert.match(view.failed, /role="alert">The app is not in the channel any more/);
+  assert.match(view.failed, />Test connection<\/button>/);
+  assert.doesNotMatch(view.failed, />Add channel</);
+});
+
+test("Slack step 3: a posted test names the channel and the project, and the button becomes Add channel", () => {
+  const view = steps({
+    result: {
+      ok: true,
+      text: "Posted in #northwind-specs: “Welcome to the workspace of project Northwind ordering.” If it arrived, add the channel.",
+    },
+  });
+  assert.match(view, /Posted in #northwind-specs: “Welcome to the workspace of project Northwind ordering\.”/);
+  assert.match(view, /<button type="button" class="gx-btn">Add channel<\/button>/);
+  assert.doesNotMatch(view, />Test connection<\/button>/);
 });
 
 test("the Jira form asks for the space and an optional epic; 'Check access' is off until there is a space; before `jira.get` answers it only loads", () => {

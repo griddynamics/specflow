@@ -61,7 +61,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "slack",
     app: null,
     title: "Connect a Slack channel",
-    check: null,
+    check: { test: "Test connection", testing: "Posting…", add: "Add channel" },
     Form: SlackForm,
     nodes: slackNodes,
   },

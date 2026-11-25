@@ -128,6 +128,7 @@ test("the registry lists each kind once, in V2's scope; only MCP is automatic, e
   assert.equal(NODE_MAPPERS.length, 6);
   assert.equal(CONNECTORS.find((c) => c.kind === "gdrive")?.check?.add, "Add source");
   assert.equal(CONNECTORS.find((c) => c.kind === "jira")?.check?.test, "Check access");
+  assert.deepEqual(CONNECTORS.find((c) => c.kind === "slack")?.check, { test: "Test connection", testing: "Posting…", add: "Add channel" });
 });
 
 test("the canvas route carries the form to open after the Integrations round trip", () => {

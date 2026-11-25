@@ -306,9 +306,11 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(detail.getByRole("button", { name: "Remove" })).toHaveCount(0);
   });
 
-  test("Slack: the form shows the invite and the connect command, waits, and names the channel once it is bound in Slack; the channel is a node under Gap", async ({
+  test("Slack: the form shows the invite and the connect command, waits, and names the channel once it is bound in Slack, then Test connection posts the welcome message (or says why not) and Add channel closes; the channel is a node under Gap", async ({
     page,
+    requests,
   }) => {
+    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 409/); // the refused test is an answer, not a bug
     const pid = await canvas(page, unique("Slack form"));
     await page.getByRole("button", { name: ADD.channel }).click();
     await dialog(page, "Add a gap channel")
@@ -318,10 +320,25 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(form.getByText("/invite @SpecFlow", { exact: true })).toBeVisible();
     await expect(form.getByText(`/specflow connect ${pid}`, { exact: true })).toBeVisible();
     await expect(form.getByText("Waiting for the channel.")).toBeVisible();
-    await expect(form.getByRole("button", { name: /Test connection/ })).toHaveCount(0);
+    await expect(form.getByText("Test it: Graphico posts a welcome message in the channel.")).toBeVisible();
+    await expect(form.getByRole("button", { name: "Test connection" })).toBeDisabled(); // nothing to post in before the binding
     await seedSlack({ pid, channel: CHANNEL });
     await expect(form.getByText("#northwind-specs is connected.")).toBeVisible({ timeout: 15_000 });
-    await form.getByRole("button", { name: "Done" }).click();
+    await expect(form.getByRole("button", { name: "Test connection" })).toBeEnabled();
+    // The app is not in the channel: the API's word, and Test connection stays to try again.
+    await seedSlack({ pid, channel: CHANNEL, test: "slack_not_in_channel" });
+    await form.getByRole("button", { name: "Test connection" }).click();
+    await expect(form.getByRole("alert")).toContainText("The app is not in the channel any more");
+    await expect(form.getByRole("button", { name: "Add channel" })).toHaveCount(0);
+    await seedSlack({ pid, channel: CHANNEL, test: "ok" });
+    await form.getByRole("button", { name: "Test connection" }).click();
+    await expect(form.getByText(/^Posted in #northwind-specs: “Welcome to the workspace of project /)).toBeVisible();
+    await expect(form.getByText(/If it arrived, add the channel\.$/)).toBeVisible();
+    await form.getByRole("button", { name: "Add channel" }).click();
+    await expect(form).toBeHidden();
+    const tests = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/slack/test`);
+    expect(tests).toHaveLength(2);
+    expect(tests.every((r) => r.postData === null || r.postData === "")).toBe(true); // no body: the server writes the message
     const node = nodes(page).filter({ hasText: "#northwind-specs" });
     await expect(node).toHaveAttribute(STATE, "wait");
     await expect(node).toContainText("Waits for gaps");
