@@ -138,5 +138,11 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
     }
   }
 
-  return { state, list, connect, disconnect, slackGet, slackUnbind, slackTest, seed };
+  /** Whether the project's Atlassian binding can act now (a member is bound and their connection is active). */
+  const atlassianActive = (pid) => {
+    const row = mine(pid).atlassian;
+    return row !== null && healthOf("atlassian", row) === "active";
+  };
+
+  return { state, atlassianActive, list, connect, disconnect, slackGet, slackUnbind, slackTest, seed };
 }

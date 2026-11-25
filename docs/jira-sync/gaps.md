@@ -28,6 +28,17 @@ number of the question in the sub-task, `posted_at` and `answered_at`. No Jira t
 Changing the Jira project forgets the rows, the Story and the cursor (the open questions are posted again to the new
 project); changing the grouping keeps what was posted, the new grouping applies to questions posted later.
 
+## In the canvas
+
+The plus of the Gaps stage lists **Jira sub-tasks** next to the Slack channel; it needs the project's Atlassian integration, else the card says
+"Set up first" and returns with the form open. The form asks for the Jira space key and the grouping (a sub-task per question, or per work
+area), says "answers are read about every N seconds" (N is `poll_seconds` of `GET`), and runs **Check access** (as the member Atlassian is
+connected by, any member may press it); a changed key or grouping asks for a new check. **Add channel** saves the target turned on; the questions
+are posted in the background. Any member can use it: a server without Atlassian OAuth or gap runs says so in one line. The node is named
+`Jira · <space> gaps`, waits for the gaps, then counts `posted` and `answered` (the canvas reads the target every 5 seconds while it is on).
+It stops only for what the API reports: `jira_not_connected` or `jira_reconnect_required` (or a lost Atlassian binding) offer Reconnect Atlassian;
+any other closed code on the target says what it is.
+
 ## Acting account
 
 The member the project's Atlassian is connected by (`project_integrations`, R1) posts and comments, with their own OAuth

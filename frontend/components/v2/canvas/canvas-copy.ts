@@ -78,6 +78,12 @@ export const CANVAS_COPY = {
   jiraSpaceLine: "Jira space",
   jiraEpicLine: "Epic",
   jiraSaving: "Saving…",
+  // Jira gap sub-tasks
+  jiraGapGrouping: "Sub-tasks",
+  jiraGapGroupingOne: "One per question",
+  jiraGapGroupingArea: "One per work area, its questions numbered",
+  jiraGapNote:
+    "The open questions are posted as sub-tasks of one Story in this space. Answers are read from the sub-tasks about every {n} seconds.",
   // Dialogs
   close: "Cancel",
   remove: "Remove",

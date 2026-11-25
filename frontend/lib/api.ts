@@ -192,6 +192,13 @@ export const checkJiraAccess = (pid: string, jiraProject: string, epicKey: strin
     (r) => r.body,
   );
 
+// The Jira gap channel of a project (docs/jira-sync/gaps.md). Bodies stay `unknown`; lib/data/http/jira-gaps.ts checks them.
+export const getJiraGaps = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/jira-gaps`).then((r) => r.body);
+export const putJiraGaps = (pid: string, jiraProject: string, grouping: string, enabled: boolean) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/jira-gaps`, json({ jira_project: jiraProject, grouping, enabled })).then((r) => r.body);
+export const checkJiraGapsAccess = (pid: string, jiraProject: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/jira-gaps/access-check`, json({ jira_project: jiraProject })).then((r) => r.body);
+
 // The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
 // app/api/integrations/atlassian/callback calls the API on the server.
 export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);

@@ -10,6 +10,7 @@ import { useV2Ports } from "../use-v2-data";
 import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
+import { ReadGate, readGateState } from "./ReadGate";
 
 type Busy = "check" | "save" | null;
 
@@ -144,22 +145,14 @@ export function JiraForm(props: Readonly<FormProps>) {
   }, [jira, projectId, attempt]);
   if (gate === "open") return <JiraFormBody {...props} />;
   return (
-    <ConnectFrame
+    <ReadGate
+      state={readGateState(gate)}
+      text={GATE_TEXT[gate]}
       onBack={props.onBack}
-      action={
-        gate === "failed" ? (
-          <Button
-            onClick={() => {
-              setGate("loading");
-              setAttempt((n) => n + 1);
-            }}
-          >
-            {V2_COPY.tryAgain}
-          </Button>
-        ) : undefined
-      }
-    >
-      <Notice role={gate === "failed" ? "alert" : "status"}>{GATE_TEXT[gate]}</Notice>
-    </ConnectFrame>
+      onRetry={() => {
+        setGate("loading");
+        setAttempt((n) => n + 1);
+      }}
+    />
   );
 }

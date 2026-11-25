@@ -9,6 +9,7 @@ import type { GapsPort } from "@/lib/domain/gaps";
 import type { GitHubPort } from "@/lib/domain/github";
 import type { IntegrationsPort } from "@/lib/domain/integrations";
 import type { JiraPort } from "@/lib/domain/jira";
+import type { JiraGapsPort } from "@/lib/domain/jira-gaps";
 import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
 import type { PlanPort } from "@/lib/domain/plan";
@@ -36,6 +37,7 @@ export interface DataPorts {
   work: WorkPort; // MCP-TOOLING session 10: findings list and claims board of the Plan page
   members: MembersPort; // project collaborators: Settings (General tab) and the Create Project suggestions
   jira: JiraPort; // the Jira export target of a project: Settings (Jira tab)
+  jiraGaps: JiraGapsPort; // the Jira gap channel of a project: the V2 canvas (Gaps stage)
   slack: SlackPort; // the Slack channel of a project: Settings (Slack tab)
   github: GitHubPort; // the caller's GitHub connection and the GitHub repositories of a project: Settings (GitHub tab)
   integrations: IntegrationsPort; // who each app is connected by for a project: the V2 Integrations page

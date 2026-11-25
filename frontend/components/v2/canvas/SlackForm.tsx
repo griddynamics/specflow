@@ -97,9 +97,7 @@ export function SlackForm({ projectId, spec, reload, onBack, onClose }: Readonly
   useEffect(() => {
     let alive = true;
     let misses = 0;
-    let bound = false;
     const ask = () => {
-      if (bound) return; // nothing more to wait for
       slack.get(projectId).then(
         (s) => {
           if (!alive) return;
@@ -109,7 +107,7 @@ export function SlackForm({ projectId, spec, reload, onBack, onClose }: Readonly
           if (s.channel !== null) {
             setChannel(s.channel);
             reload.current();
-            bound = true;
+            clearInterval(timer); // bound: nothing more to wait for
           }
         },
         () => {
@@ -118,8 +116,8 @@ export function SlackForm({ projectId, spec, reload, onBack, onClose }: Readonly
         },
       );
     };
-    ask();
     const timer = setInterval(ask, SLACK_POLL_MS);
+    ask();
     return () => {
       alive = false;
       clearInterval(timer);

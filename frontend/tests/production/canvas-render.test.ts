@@ -120,7 +120,7 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
   };
   assert.deepEqual(
     [...view.graph.matchAll(/<b>([^<]+)<\/b>/g)].map((m) => m[1]),
-    ["Upload", "Google Drive", "GitHub repository", "Confluence link", "Jira epic", "Slack channel", "Jira"],
+    ["Upload", "Google Drive", "GitHub repository", "Confluence link", "Jira epic", "Slack channel", "Jira sub-tasks", "Jira"],
     "its own stage first, then the others",
   );
   assert.equal(count(view.graph, "Available"), 5);

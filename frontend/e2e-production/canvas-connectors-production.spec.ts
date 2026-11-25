@@ -14,6 +14,7 @@ import {
   seedGitHub,
   seedIntegrations,
   seedJira,
+  seedJiraGaps,
   seedMembers,
   seedSlack,
   seedSource,
@@ -41,6 +42,7 @@ const jiraTarget = (sync?: Record<string, unknown>) => ({
   sync,
 });
 const CHECK_ACCESS = "Check access";
+const SPACE_KEY = "Jira space key";
 const ADD_SOURCE = "Add a source";
 const CHECK_LINK = "Check link";
 const CHECK_EPIC = "Check epic";
@@ -57,6 +59,7 @@ test.afterEach(async () => {
   await seedIntegrations({ reset: true });
   await seedSlack({ pid: "none", channel: null, available: true, test: "ok" });
   await seedJira({ pid: "none", mode: "token", connection: null });
+  await seedJiraGaps({ pid: "none", available: true });
 });
 
 /** A project with sources the build can read: a Drive folder and one parsed document. */
@@ -302,7 +305,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await dialog(page, "Add a plan destination").getByRole("button", { name: /^Jira/ }).click();
     const jira = dialog(page, "Send the plan to Jira");
     await expect(jira.getByText("Only the project's owner can change where the plan goes.")).toBeVisible();
-    await expect(jira.getByLabel("Jira space key")).toHaveCount(0);
+    await expect(jira.getByLabel(SPACE_KEY)).toHaveCount(0);
     await expect(jira.getByRole("button", { name: CHECK_ACCESS })).toHaveCount(0);
     await page.keyboard.press("Escape");
     await nodes(page).filter({ hasText: "ordering" }).getByRole("button").click();
@@ -452,6 +455,49 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(wire(page, "slack-C0NWO")).toHaveAttribute(MOTION, "off");
   });
 
+  test("Jira gaps: no Atlassian on the project says Set up first and comes back with the form open; the space is checked, the grouping chosen, Add channel saves it and the node counts what was posted and answered", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await gapsFound(page, "Jira gaps form");
+    await page.getByRole("button", { name: ADD.channel }).click();
+    const plus = dialog(page, "Add a gap channel");
+    await expect(plus.getByRole("button", { name: /^Jira sub-tasks/ })).toContainText("Set up first");
+    await plus.getByRole("button", { name: /^Jira sub-tasks/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=atlassian&next=%2Fprojects%2F${pid}%3Fadd%3Djira_gap$`));
+    await seedIntegrations({ pid, atlassian: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=jira_gap`);
+    const form = dialog(page, "Send gaps to Jira");
+    await expect(form.getByText(/about every 60 seconds/)).toBeVisible();
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeDisabled();
+    await form.getByLabel(SPACE_KEY).fill("nwo");
+    await seedJiraGaps({ pid, access: { reason: "jira_forbidden", field: "jira_project" } });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByText("The Specflow account may not create, edit, link or rank issues in this space.")).toBeVisible();
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible(); // still a check: nothing to add yet
+    await seedJiraGaps({ pid, access: "ok" });
+    await form.getByLabel("Sub-tasks").selectOption("area");
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByText("Jira space Northwind.")).toBeVisible();
+    await form.getByLabel(SPACE_KEY).fill("nwo "); // a changed value is a new check
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible();
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await form.getByRole("button", { name: "Add channel" }).click();
+    await expect(form).toBeHidden();
+    const saves = requests.filter((r) => r.method === "PUT" && r.path === `/api/backend/projects/${pid}/jira-gaps`);
+    expect(bodiesOf(saves)).toEqual([{ jira_project: "NWO", grouping: "area", enabled: true }]);
+    const node = nodes(page).filter({ hasText: "Jira · NWO gaps" });
+    await expect(node).toHaveAttribute(STATE, "on");
+    await expect(node).toContainText("0 posted · 0 answered");
+    await seedJiraGaps({
+      pid,
+      target: { jira_project: "NWO", grouping: "area", enabled: true, story_key: "NWO-5", posted: 7, answered: 2 },
+    });
+    await expect(node).toContainText("7 posted · 2 answered", { timeout: 15_000 });
+    await node.getByRole("button").click();
+    await expect(dialog(page, "Jira · NWO gaps").getByText(/Story NWO-5\./)).toBeVisible();
+  });
+
   test("Jira plan: the space and epic keys, Check access, then Add destination saves the target and shows its node; a failed check names the field", async ({
     page,
     requests,
@@ -463,13 +509,13 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await dialog(page, "Add a plan destination").getByRole("button", { name: /^Jira/ }).click();
     const form = dialog(page, "Send the plan to Jira");
     await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeDisabled();
-    await form.getByLabel("Jira space key").fill("nwo");
+    await form.getByLabel(SPACE_KEY).fill("nwo");
     await seedJira({ pid, access: { reason: "jira_not_found", field: "jira_project" } });
     await form.getByRole("button", { name: CHECK_ACCESS }).click();
     await expect(form.getByText(/space/i).first()).toBeVisible();
     await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible(); // still a check: nothing to add yet
     await seedJira({ pid, access: "ok" });
-    await form.getByLabel("Jira space key").fill("nwo");
+    await form.getByLabel(SPACE_KEY).fill("nwo");
     await form.getByLabel("Epic key").fill("nwo-1");
     await form.getByRole("button", { name: CHECK_ACCESS }).click();
     await expect(form.getByText(/Jira space/)).toBeVisible();

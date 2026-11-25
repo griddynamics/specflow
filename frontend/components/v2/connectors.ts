@@ -1,14 +1,16 @@
 // The connector registry (06a, D5, D20): every kind of connection the canvas offers, in the order its plus dialog lists them. Only kinds of
 // V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
-// link (08), the Jira epic (09); Jira for gaps and GitHub Projects in the sessions of those connectors. To add one: write its form component and its node
+// link (08), the Jira epic (09), the Jira gap sub-tasks (10); GitHub Projects in the session of that connector. To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
 import { confluenceNodes, driveNodes, jiraEpicNodes, uploadNodes } from "./canvas/nodes-sources";
 import { githubNodes } from "./canvas/nodes-github";
 import { ConfluenceForm } from "./canvas/ConfluenceForm";
 import { JiraEpicForm } from "./canvas/JiraEpicForm";
 import { jiraNodes } from "./canvas/nodes-jira";
+import { jiraGapNodes } from "./canvas/nodes-jira-gaps";
 import { slackNodes } from "./canvas/nodes-slack";
 import { GitHubForm } from "./canvas/GitHubForm";
+import { JiraGapForm } from "./canvas/JiraGapForm";
 import { JiraForm } from "./canvas/JiraForm";
 import { SlackForm } from "./canvas/SlackForm";
 import { mcpNodes } from "./canvas/nodes-mcp";
@@ -90,6 +92,18 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     check: { test: "Test connection", testing: "Posting…", add: "Add channel" },
     Form: SlackForm,
     nodes: slackNodes,
+  },
+  {
+    kind: "jira_gap",
+    zone: "gap",
+    name: "Jira sub-tasks",
+    line: "Gaps become sub-tasks of one Story; answers come back as comments",
+    mark: "jira",
+    app: "atlassian",
+    title: "Send gaps to Jira",
+    check: { test: "Check access", testing: "Checking…", add: "Add channel" },
+    Form: JiraGapForm,
+    nodes: jiraGapNodes,
   },
   {
     kind: "jira",

@@ -12,6 +12,7 @@ import type { PeoplePort } from "@/lib/domain/people";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
 import type { PlanPort } from "@/lib/domain/plan";
 import type { ProjectsPort } from "@/lib/domain/projects";
+import type { JiraGapsPort } from "@/lib/domain/jira-gaps";
 import type { SlackPort } from "@/lib/domain/slack";
 import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
@@ -24,6 +25,7 @@ import { createHttpMembers } from "./members";
 import { createHttpPeople } from "./me";
 import { createHttpPlan } from "./plan";
 import { createHttpProjects } from "./projects";
+import { createHttpJiraGaps } from "./jira-gaps";
 import { createHttpSlack } from "./slack";
 import { createHttpSources } from "./sources";
 import { createHttpWork } from "./work";
@@ -41,6 +43,7 @@ export interface HttpPorts {
   gaps: GapsPort;
   members: MembersPort;
   jira: JiraPort;
+  jiraGaps: JiraGapsPort;
   slack: SlackPort;
   github: GitHubPort;
   integrations: IntegrationsPort;
@@ -66,6 +69,7 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     gaps: createHttpGaps(),
     members: createHttpMembers(),
     jira: createHttpJira(),
+    jiraGaps: createHttpJiraGaps(),
     slack: createHttpSlack(),
     github: createHttpGitHub(),
     integrations: createHttpIntegrations(),

@@ -4,6 +4,7 @@ import type { CanvasState, CanvasZoneId, NodeBadge, VendorKind, WireMotion } fro
 import type { GapCheck, GapKind, GapSeverity } from "@/lib/domain/gaps";
 import type { ProjectRepositories } from "@/lib/domain/github";
 import type { JiraSettings } from "@/lib/domain/jira";
+import type { JiraGaps } from "@/lib/domain/jira-gaps";
 import type { SlackSettings } from "@/lib/domain/slack";
 import type { Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { PlanState } from "@/lib/domain/plan";
@@ -13,7 +14,7 @@ export type ZoneId = CanvasZoneId;
 
 /** The kinds of connection the canvas knows. A session that registers one adds its name here, its spec to `connectors.ts` and its node
  * mapper to the list `CONNECTORS` gives the model. */
-export type ConnectorKind = "upload" | "gdrive" | "github" | "confluence" | "jira_epic" | "slack" | "jira" | "mcp";
+export type ConnectorKind = "upload" | "gdrive" | "github" | "confluence" | "jira_epic" | "slack" | "jira_gap" | "jira" | "mcp";
 
 /** What the open gaps say, from `gaps.check` and the first page of `gaps.list` (`more`: the page was full, so the counts are "at least"). */
 export interface GapsSummary {
@@ -52,6 +53,8 @@ export interface CanvasInput {
   github: ProjectRepositories | null;
   /** The project's Jira target and its sync. */
   jira: JiraSettings | null;
+  /** The Jira gap channel of the project (sub-tasks of one Story). */
+  jiraGaps: JiraGaps | null;
   /** The Slack channel of the project. */
   slack: SlackSettings | null;
 }

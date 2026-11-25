@@ -81,6 +81,7 @@ const http: HttpPorts = {
   },
   members: { list: never, add: never, remove: never, cancelInvite: never, leave: never, suggest: never },
   jira: { get: never, save: never, checkAccess: never, connection: never, authorize: never, disconnect: never },
+  jiraGaps: { get: never, save: never, checkAccess: never },
   slack: { get: never, unbind: never, test: never },
   integrations: { list: never, connect: never, disconnect: never },
   github: {
@@ -110,6 +111,7 @@ test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects
   assert.equal(ports.gaps, http.gaps); // FR-GWEB-04: the Gaps screen reads the real gap routes (no unavailable port)
   assert.equal(ports.members, http.members);
   assert.equal(ports.jira, http.jira);
+  assert.equal(ports.jiraGaps, http.jiraGaps);
   assert.equal(ports.slack, http.slack);
   assert.equal(ports.github, http.github);
   assert.equal(ports.integrations, http.integrations);
@@ -186,6 +188,7 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "github",
       "integrations",
       "jira",
+      "jiraGaps",
       "knowledge",
       "members",
       "missionControl",

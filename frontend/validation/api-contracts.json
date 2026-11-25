@@ -294,6 +294,21 @@
       "path": "/projects/{pid}/jira/access-check"
     },
     {
+      "id": "get_jira_gaps_api_v1_projects__pid__jira_gaps_get",
+      "method": "GET",
+      "path": "/projects/{pid}/jira-gaps"
+    },
+    {
+      "id": "put_jira_gaps_api_v1_projects__pid__jira_gaps_put",
+      "method": "PUT",
+      "path": "/projects/{pid}/jira-gaps"
+    },
+    {
+      "id": "check_jira_gaps_access_api_v1_projects__pid__jira_gaps_access_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/jira-gaps/access-check"
+    },
+    {
       "id": "get_atlassian_connection_api_v1_integrations_atlassian_get",
       "method": "GET",
       "path": "/integrations/atlassian"

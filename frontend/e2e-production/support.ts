@@ -396,6 +396,25 @@ export async function seedJira(spec: SeedJira): Promise<void> {
   await control("POST", "/seed-jira", spec);
 }
 
+/** The Jira gap channel of one seeded project (`POST /seed-jira-gaps`, tests/support/stub-jira-gaps.mjs `seed`). `target: null` removes it; `access` scripts the next checks. */
+export interface SeedJiraGaps extends Record<string, unknown> {
+  pid: string;
+  available?: boolean;
+  target?: {
+    jira_project: string;
+    grouping: "one" | "area";
+    enabled: boolean;
+    story_key?: string | null;
+    posted?: number;
+    answered?: number;
+    error_code?: string | null;
+  } | null;
+  access?: "ok" | { reason: string; field?: string | null };
+}
+export async function seedJiraGaps(spec: SeedJiraGaps): Promise<void> {
+  await control("POST", "/seed-jira-gaps", spec);
+}
+
 /** The GitHub stub (`POST /seed-github`, tests/support/stub-github.mjs `seed`): global knobs and, with `pid`, a project's repositories. */
 export interface SeedGitHub extends Record<string, unknown> {
   /** Put every global knob back first. */

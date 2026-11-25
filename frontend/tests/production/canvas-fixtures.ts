@@ -113,6 +113,7 @@ export const input = (over: Partial<CanvasInput> = {}): CanvasInput => ({
   integrations: null,
   github: null,
   jira: null,
+  jiraGaps: null,
   slack: null,
   ...over,
 });
