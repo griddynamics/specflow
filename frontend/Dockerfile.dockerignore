@@ -5,6 +5,7 @@
 !package-lock.json
 !packages/
 !frontend/
+!site/package.json
 **/node_modules
 **/.next
 **/.env*

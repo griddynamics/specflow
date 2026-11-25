@@ -1,0 +1,96 @@
+/* Header: brand, theme switch, GitHub link and the demo button. */
+.site-header {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 20;
+  background: var(--gx-paper);
+  border-bottom: 1px solid var(--gx-rule);
+}
+.site-header .wrap {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: var(--gx-header-h);
+}
+.head-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+}
+.head-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none;
+  font-size: 15px;
+  color: var(--gx-ink-2);
+}
+.head-nav a:hover {
+  color: var(--gx-ink);
+  text-decoration: underline;
+}
+.head-nav .gh {
+  margin-left: 0;
+}
+.theme-btn {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 24px;
+  margin-left: 0;
+  padding: 0 0 0 18px;
+  border: 0;
+  border-left: 1px solid var(--gx-rule);
+  border-radius: 0;
+  background: none;
+  color: var(--gx-ink-2);
+  cursor: pointer;
+}
+.theme-btn:hover {
+  color: var(--gx-ink);
+}
+.theme-btn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.theme-btn .i-sun,
+:root[data-theme="dark"] .theme-btn .i-moon {
+  display: none;
+}
+.gh-mark {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+@media (max-width: 720px) {
+  .gh-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .theme-btn {
+    padding-left: 12px;
+  }
+}
+@media (max-width: 560px) {
+  .site-header .wrap {
+    gap: 10px;
+  }
+  .head-nav {
+    gap: 10px;
+  }
+  .head-nav a {
+    font-size: 14px;
+  }
+  .theme-btn {
+    padding-left: 10px;
+  }
+}

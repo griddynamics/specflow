@@ -1,0 +1,17 @@
+# Per-Dockerfile ignore file (BuildKit). The build context is the repository root: send only the workspace manifests,
+# packages/ui and site/ (never .claude/ worktrees, backend, plans, .git). npm ci also needs frontend/package.json.
+*
+!package.json
+!package-lock.json
+!frontend/package.json
+!packages/ui/
+!site/
+**/node_modules
+**/.next
+**/out
+**/.env*
+**/npm-debug.log*
+# not part of an image
+site/Dockerfile*
+site/tests
+site/eslint.config.mjs

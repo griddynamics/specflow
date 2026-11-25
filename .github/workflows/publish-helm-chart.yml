@@ -41,7 +41,7 @@ jobs:
           set -euo pipefail
           helm lint --strict "$CHART_PATH"
           helm template helm-test "$CHART_PATH" >/dev/null
-          for component in api frontend mcp worker-agent worker-parse; do
+          for component in api frontend mcp site worker-agent worker-parse; do
             helm template "specflow-${component}" "$CHART_PATH" \
               --namespace specflow \
               --values "${CHART_PATH}/examples/components/${component}.yaml" >/dev/null

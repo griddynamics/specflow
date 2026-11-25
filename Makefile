@@ -152,7 +152,7 @@ BACKEND_TARGETS := setup models lint unit-test check test-graph-live graph-bench
 	api worker temporal-check rss-test
 
 .PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env check-graph-store-env up down down-volumes logs ps images \
-	frontend-setup frontend-dev frontend-lint frontend-build e2e e2e-production e2e-all
+	frontend-setup frontend-dev frontend-lint frontend-build e2e e2e-production e2e-all site-lint site-build site-test
 
 $(BACKEND_TARGETS):
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) $@
@@ -350,6 +350,18 @@ validate-typescript-scripts-ui:
 # Render tests of packages/ui (node:test through tsx), run by the unit-typescript CI job too.
 ui-test:
 	npm test --workspace=@graphico/ui
+
+# The public landing page (site/, a static export): lint and tsc, the export into site/out, and its tests (run after site-build).
+# The root `npm ci` (make frontend-setup) installs it with the rest of the workspace.
+site-lint:
+	npm --prefix site run lint
+	npm --prefix site run typecheck
+
+site-build:
+	npm --prefix site run build
+
+site-test:
+	npm --prefix site test
 
 validate-install: validate-install-python validate-install-typescript
 
