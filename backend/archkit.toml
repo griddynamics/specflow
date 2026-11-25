@@ -121,6 +121,7 @@ codes = [
     { code = "notion_auth_failed", http = 502 },
     { code = "notion_link_invalid", http = 422 },
     { code = "notion_not_shared", http = 409 },
+    { code = "notion_rate_limited", http = 503 },
     { code = "notion_parent_not_a_page", http = 422 },
     { code = "notion_permissions_missing", http = 409 },
     { code = "internal_error", http = 500 },
@@ -226,6 +227,7 @@ probes = [
     { name = "probe-91", class = "api.errors:ApiError", args = [409, "notion_not_shared", "The page or database does not exist, or you did not share it with Graphico when you connected Notion."] },
     { name = "probe-92", class = "api.errors:ApiError", args = [422, "notion_parent_not_a_page", "The link is a database. Paste the link of a page."] },
     { name = "probe-93", class = "api.errors:ApiError", args = [409, "notion_permissions_missing", "The Notion connection cannot insert or update content. Connect Notion again and allow it."] },
+    { name = "probe-94", class = "api.errors:ApiError", args = [503, "notion_rate_limited", "Notion is busy right now. Try again in a minute."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

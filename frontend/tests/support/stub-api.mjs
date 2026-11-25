@@ -12,7 +12,7 @@ import { createJiraModel } from "./stub-jira.mjs";
 import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
-import { checkNotion, createNotionModel, createNotionPlanModel } from "./stub-notion.mjs";
+import { bindingRefusal, checkNotion, createNotionModel, createNotionPlanModel } from "./stub-notion.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
@@ -122,7 +122,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   /** Project integrations (docs/mission-control/integrations-api.md): who each app is connected by, and the Slack channel of a project. */
   const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, notion, displayName: ME.name });
   /** Notion plan destination: any member; acts as the project's Notion binding. */
-  const notionPlan = createNotionPlanModel((pid) => integrations.notionActive(pid));
+  const notionPlan = createNotionPlanModel((pid) => integrations.notionHealth(pid));
   /** The Jira gap channel: any member; acts as the project's Atlassian binding. */
   const jiraGaps = createJiraGapsModel((pid) => integrations.atlassianActive(pid));
   /** GitHub Projects plan destination: any member; acts as the project's GitHub binding; the repository is one of the project's. */
@@ -996,7 +996,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       }
       if (did === "notion" && req.method === "POST" && (action === undefined || action === "check")) {
         const body = await readJson();
-        const checked = typeof body?.link === "string" ? checkNotion(body.link) : { status: 422, code: "validation_failed" };
+        const checked =
+          typeof body?.link === "string"
+            ? (bindingRefusal(integrations.notionHealth(pid)) ?? checkNotion(body.link))
+            : { status: 422, code: "validation_failed" };
         if (!("body" in checked)) return err(res, checked.status, checked.code);
         if (action === "check") return json(res, 200, checked.body);
         return json(res, 201, {

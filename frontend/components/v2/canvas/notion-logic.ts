@@ -15,7 +15,7 @@ export const NOTION_WORDS = {
 const FAILURE: Record<string, string> = {
   notion_not_connected: "Connect Notion in Integrations first.",
   notion_reconnect_required: "The Notion connection needs a reconnect in Integrations.",
-  notion_unavailable: "Notion is not set up on this server.",
+  notion_unavailable: V2_COPY.notionPlanUnavailable,
   notion_unreachable: "Notion did not answer. Try again in a minute.",
   notion_auth_failed: "Notion refused the request of this server.",
   notion_link_invalid: "This is not a link to a Notion page or database.",

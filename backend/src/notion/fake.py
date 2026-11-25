@@ -117,6 +117,12 @@ class FakeNotionGateway:
             raise NotionError(NotionCode.NOT_SHARED)
         return found
 
+    def _not_a_database(self, found: str) -> None:
+        """Notion answers a database id on a page route with 400 ``validation_error``: ``notion_parent_not_a_page``."""
+
+        if found in self.databases:
+            raise NotionError(NotionCode.NOT_A_PAGE)
+
     def _new_id(self) -> str:
         self._created += 1
         return normal(f"fa4e0000{self._created:024x}")
@@ -126,6 +132,7 @@ class FakeNotionGateway:
     async def page(self, page_id: str) -> NotionPage:
         self._enter("page", page_id)
         found = self._visible(page_id)
+        self._not_a_database(found)
         if found not in self.pages:
             raise NotionError(NotionCode.NOT_SHARED)
         return self.pages[found]
@@ -133,6 +140,8 @@ class FakeNotionGateway:
     async def database(self, database_id: str) -> NotionDatabase:
         self._enter("database", database_id)
         found = self._visible(database_id)
+        if found in self.pages:  # a page: the object exists but is not a database
+            raise NotionError(NotionCode.LINK_INVALID)
         if found not in self.databases:
             raise NotionError(NotionCode.NOT_SHARED)
         return self.databases[found]
@@ -147,6 +156,7 @@ class FakeNotionGateway:
     async def page_markdown(self, page_id: str) -> PageMarkdown:
         self._enter("page_markdown", page_id)
         found = self._visible(page_id)
+        self._not_a_database(found)
         if found not in self.markdown:
             raise NotionError(NotionCode.NOT_SHARED)
         return self.markdown[found]

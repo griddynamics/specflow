@@ -68,10 +68,8 @@ export const CANVAS_COPY = {
   confluenceAdding: "Adding…",
   // Notion link and plan destination
   notionLink: "Notion page or database link",
-  notionNote:
-    "The page and its sub-pages, or every row of the database, are read once when it is added. Only pages you shared with Graphico when you connected Notion can be read.",
+  notionNote: "The page and its sub-pages, or every row of the database, are read once when it is added.",
   notionPlanParent: "Parent page link",
-  notionPlanNote: "The plan becomes a Notion database under a page you name. Stories and tasks are rows, kept up to date.",
   // Jira epic
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",

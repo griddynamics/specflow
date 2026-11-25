@@ -86,6 +86,7 @@ const http: HttpPorts = {
   jira: { get: never, save: never, checkAccess: never, connection: never, authorize: never, disconnect: never },
   githubProjects: { get: never, projects: never, save: never, checkAccess: never },
   notionPlan: { get: never, save: never, checkAccess: never },
+  notionConnection: { connection: never, authorize: never, disconnect: never },
   jiraGaps: { get: never, save: never, checkAccess: never },
   slack: { get: never, unbind: never, test: never },
   integrations: { list: never, connect: never, disconnect: never },
@@ -118,6 +119,7 @@ test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects
   assert.equal(ports.jira, http.jira);
   assert.equal(ports.githubProjects, http.githubProjects);
   assert.equal(ports.notionPlan, http.notionPlan);
+  assert.equal(ports.notionConnection, http.notionConnection);
   assert.equal(ports.jiraGaps, http.jiraGaps);
   assert.equal(ports.slack, http.slack);
   assert.equal(ports.github, http.github);
@@ -200,6 +202,7 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "knowledge",
       "members",
       "missionControl",
+      "notionConnection",
       "notionPlan",
       "people",
       "plan",

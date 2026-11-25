@@ -96,7 +96,7 @@ stored `running`); starts are merged, one pass runs per process, `running` is st
 |---|---|
 | `GET /projects/{pid}/notion-plan` | the destination: `available`, the parent page, `database_url`, `enabled`, `sync` (status, counts), who it acts as |
 | `PUT /projects/{pid}/notion-plan` `{link, enabled}` | resolve the parent page as the bound member, save the target, tell the runner after the commit; never waits for a pass |
-| `POST /projects/{pid}/notion-plan/access-check` `{link}` | read the parent page as the bound member: `{result: ok, parent_page_title}` or `{result: failed, reason}` (a closed `notion_*` reason) |
+| `POST /projects/{pid}/notion-plan/access-check` `{link}` | read the parent page as the bound member: `{result: ok, parent_page_title}` or `{result: failed, reason}` (a closed `notion_*` reason, including `notion_not_connected` and `notion_reconnect_required`); a database link is `notion_parent_not_a_page` |
 
 `503 notion_unavailable` when the integration is off. No Notion call is made inside a transaction.
 
@@ -104,8 +104,9 @@ stored `running`); starts are merged, one pass runs per process, `running` is st
 
 The plus of the Plan stage lists **Notion** next to Jira and GitHub Projects; it needs the project's Notion integration, else
 the card says "Set up first". The form asks for a **parent page link**. **Check access** runs as the member Notion is
-connected by; **Add destination** saves it turned on and the pass runs in the background. The node is named
-`Notion · <project>`, waits for the plan, counts the rows made (`sync.counts.created`), and while `sync.status` is `running`
+connected by (an unbound project or an expired connection comes back as `{result: failed, reason: notion_not_connected |
+notion_reconnect_required}`, not as an error; the save answers them with 409); **Add destination** saves it turned on and the pass runs in the background. The node is named
+`Notion · <parent page title>`, waits for the plan, counts the rows made (`sync.counts.created`), and while `sync.status` is `running`
 the canvas reads `GET` every 3 seconds. It stops only for what the API reports: `notion_not_connected` or
 `notion_reconnect_required` offer Reconnect Notion; any other closed code says what it is.
 

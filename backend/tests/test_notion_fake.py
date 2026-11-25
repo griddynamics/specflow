@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from db.models import NOTION_RUN_STATUSES
 from notion import fake as fake_module
 from notion.fake import (
     ADR_PAGE_ID,
@@ -125,6 +126,30 @@ async def test_the_fake_writes_a_database_a_row_a_body_and_a_comment_and_reads_t
     assert fake.comments == [(row.id, "changed")] and [r.id for r in found.rows] == [row.id]
     assert {"Parent", "Name"} <= set((await fake.data_source(source_id)).properties)
     assert [call.method for call in fake.calls][:2] == ["create_database", "update_data_source"]
+
+
+async def test_a_database_id_on_a_page_route_is_not_a_page_and_a_page_id_on_the_database_route_is_not_a_link() -> None:
+    fake = FakeNotionGateway()
+
+    with pytest.raises(NotionError) as page:
+        await fake.page(REQUIREMENTS_DATABASE_ID)
+    with pytest.raises(NotionError) as markdown:
+        await fake.page_markdown(REQUIREMENTS_DATABASE_ID)
+    with pytest.raises(NotionError) as database:
+        await fake.database(PRD_PAGE_ID)
+
+    assert page.value.code is NotionCode.NOT_A_PAGE and markdown.value.code is NotionCode.NOT_A_PAGE
+    assert database.value.code is NotionCode.LINK_INVALID
+
+
+def test_the_run_statuses_of_the_model_are_the_migrations_and_the_hosts_include_notion_com() -> None:
+    text = (Path(__file__).resolve().parent.parent / "migrations" / "versions" / "0011_notion.py").read_text("utf-8")
+    declared = re.search(r"RUN_STATUSES = \(([^)]*)\)", text)
+
+    assert declared is not None
+    assert tuple(re.findall(r'"(\w+)"', declared.group(1))) == NOTION_RUN_STATUSES
+    assert parse_link("https://www.notion.com/Page-423ed33606458163a8dde12275fc660d").id == PRD_PAGE_ID
+    assert parse_link("https://notion.com/423ed33606458163a8dde12275fc660d").id == PRD_PAGE_ID
 
 
 async def test_an_unshared_page_and_an_injected_failure_raise_closed_codes() -> None:

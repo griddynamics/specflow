@@ -35,7 +35,9 @@ Pages are read as Markdown, never as a block tree: `GET /v1/pages/{id}/markdown?
 - every `<database url=… data-source-url="collection://…">` line: the rows of that data source, through
   `POST /v1/data_sources/{id}/query` (100 per page, the gateway pages by cursor).
 
-A link to a database imports its rows. A visited set stops cycles; depth is bounded by the cap. A database row's document is
+A link to a database imports its rows. Which of the two a link is, is read from Notion: page first; when that read says
+`notion_parent_not_a_page` (Notion answers 400 for a database id on a page route), the link is read as a database. A link
+without `?v=` can be either. A visited set stops cycles; depth is bounded by the cap. A database row's document is
 `# Title`, a table of its properties and then its body (N3): people as display names, relations and files by name, no e-mail
 and no user id.
 
@@ -55,9 +57,13 @@ A page nested too deeply is `MarkupTooDeepError`.
 
 ## Originals (N5)
 
-`ImportWriter.add(original=…)` stores JSON `{page, markdown}` per page: Notion's page object and the Markdown, after
-`scrub_original` removed every e-mail (a user mention carries `user://<id>/<email>` even when the connection asks for user
-information without e-mail). The GFM goes to the document.
+`ImportWriter.add(original=…)` stores JSON `{page: {id, url, title, last_edited_time}, markdown}` per page, where `markdown`
+is `scrub_original(nfm)`: every e-mail is removed (a user mention carries `user://<id>/<email>` even when the connection
+asks for user information without e-mail). Notion's `properties`, `created_by` and `last_edited_by` are never stored: they
+carry people and e-mails. The GFM goes to the document.
+
+A database row's properties reach the document through `render_row`, which shows `people` as display names only and an
+`email`-type property as "(e-mail hidden)"; a user id is never shown.
 
 ## Failures (N6)
 

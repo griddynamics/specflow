@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { authorizeNotion, disconnectNotion, getNotionConnection } from "@/lib/api";
+import { createHttpNotionConnection, toNotionAuthorize, toNotionConnection } from "@/lib/data/http/notion-connection";
 import { createHttpNotionPlan, toNotionPlan, toNotionPlanAccess } from "@/lib/data/http/notion-plan";
 import { createHttpProjects } from "@/lib/data/http/projects";
 import { createHttpSources, toNotionCheck } from "@/lib/data/http/sources";
@@ -88,10 +89,38 @@ test("a project with no destination reads as available and empty; saving needs t
   await rejects(plan.save(pid, { link: PAGE, enabled: true }), "conflict", "notion_not_connected");
 
   assert.deepEqual([empty.available, empty.enabled, empty.parentPageTitle, empty.sync], [true, false, null, null]);
-  assert.deepEqual(
-    await plan.checkAccess(pid, PAGE).catch((e: unknown) => (isDataError(e) ? e.detail?.apiCode : e)),
-    "notion_not_connected",
-  );
+  assert.deepEqual(await plan.checkAccess(pid, PAGE), { result: "failed", reason: "notion_not_connected" });
+  await rejects(sources.checkNotion(pid, PAGE), "conflict", "notion_not_connected");
+});
+
+test("an expired Notion connection: the source and the save are 409 notion_reconnect_required, the access check says it as an answer", async () => {
+  const pid = await project(false);
+  ctx.api.integrations.seed({ pid, notion: { health: "reconnect_required" } });
+
+  await rejects(sources.checkNotion(pid, PAGE), "conflict", "notion_reconnect_required");
+  await rejects(sources.addNotion(pid, PAGE), "conflict", "notion_reconnect_required");
+  await rejects(plan.save(pid, { link: PAGE, enabled: true }), "conflict", "notion_reconnect_required");
+  assert.deepEqual(await plan.checkAccess(pid, PAGE), { result: "failed", reason: "notion_reconnect_required" });
+});
+
+test("the connection port reads the caller's connection, asks Notion's page and forgets the connection", async () => {
+  const port = createHttpNotionConnection();
+  ctx.api.notion.state.connection = { status: "active", workspace_name: "Sample Workspace" };
+
+  const mine = await port.connection();
+  const asked = await port.authorize("/projects/p1/integrations");
+  await port.disconnect();
+
+  assert.deepEqual([mine.enabled, mine.connected, mine.status, mine.workspaceName], [true, true, "active", "Sample Workspace"]);
+  assert.match(asked.url, /^https:\/\/api\.notion\.com\/v1\/oauth\/authorize\?state=/);
+  assert.equal((await port.connection()).connected, false);
+  for (const bad of [null, { enabled: true, connected: true, status: null }, { enabled: true, connected: false, status: "gone" }]) {
+    assert.throws(
+      () => toNotionConnection(bad),
+      (e) => isDataError(e) && e.code === "invalid_response",
+    );
+  }
+  assert.throws(() => toNotionAuthorize({ url: "http://x.test" }));
 });
 
 test("save stores the parent page, turns the pass on and the check answers ok or a closed reason", async () => {

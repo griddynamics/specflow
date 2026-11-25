@@ -4,6 +4,9 @@ tests and the offline tiers use. Every method acts as one member's connection (t
 the rate limit and the retries of ``docs/notion/oauth.md`` applied, and raises ``notion.reasons.NotionError`` with one
 closed code and nothing else: a page that does not exist or is not shared is ``notion_not_shared``.
 
+A deleted or archived page or database is read through ``in_trash`` of what ``page`` and ``database`` answer, never from
+Notion's message text.
+
 Ids are Notion ids with or without dashes; the gateway answers them with dashes. Properties and schemas are Notion's
 own JSON (API version 2026-03-11).
 """
@@ -24,17 +27,21 @@ class NotionGateway(Protocol):
     # Read ------------------------------------------------------------------------------------------------------
 
     async def page(self, page_id: str) -> NotionPage:
-        """One page or database row (``GET /v1/pages/{id}``)."""
+        """One page or database row (``GET /v1/pages/{id}``). The id of a database is ``notion_parent_not_a_page``
+        (Notion answers 400 ``validation_error`` for it, so the HTTP client confirms with one ``database`` call)."""
 
     async def database(self, database_id: str) -> NotionDatabase:
-        """One database with its data sources (``GET /v1/databases/{id}``)."""
+        """One database with its data sources (``GET /v1/databases/{id}``). The id of a page is
+        ``notion_link_invalid`` (Notion's 400 ``validation_error``, confirmed with one ``page`` call): the object
+        exists but is not what the caller asked for."""
 
     async def data_source(self, data_source_id: str) -> NotionDataSource:
         """One data source with its schema (``GET /v1/data_sources/{id}``)."""
 
     async def page_markdown(self, page_id: str) -> PageMarkdown:
         """The page as Markdown v2 (``GET /v1/pages/{id}/markdown?markdown_version=v2``), with the ``truncated`` and
-        ``unknown_block_ids`` follow-up already done (see ``PageMarkdown``)."""
+        ``unknown_block_ids`` follow-up already done (see ``PageMarkdown``). The id of a database is
+        ``notion_parent_not_a_page``, as for ``page``."""
 
     async def query_data_source(
         self,

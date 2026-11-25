@@ -22,6 +22,8 @@ class NotionCode(StrEnum):
     NOT_A_PAGE = "notion_parent_not_a_page"  # the plan destination's parent is a database, not a page
     PERMISSIONS_MISSING = "notion_permissions_missing"  # the connection lacks a capability (insert/update content)
     RATE_LIMITED = "notion_rate_limited"  # the pass waited its whole budget (60 s) for the request limit
+    # "Gone" is read from ``in_trash`` (or ``archived``) of what ``page()`` and ``database()`` answer, never from
+    # Notion's message text.
     PAGE_GONE = "notion_page_gone"  # a person deleted or archived a row the export made
     DATABASE_GONE = "notion_database_gone"  # a person deleted or archived the plan database
     ITEM_INVALID = "notion_item_invalid"  # Notion refused the content of one row (400)

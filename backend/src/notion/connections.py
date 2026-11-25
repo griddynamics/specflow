@@ -211,9 +211,13 @@ class NotionConnections:
         raise NotImplementedError("C1 fills NotionConnections.refresh")
 
     async def gateway(self, user_id: uuid.UUID) -> NotionGateway:
-        """The ``NotionGateway`` that acts as ``user_id``: a ``401`` refreshes the token once; the requests go through
-        the limiter of the connection's bot (shared by import and export). A fresh ``WaitBudget`` per call, so per
-        import or per pass."""
+        """The ``NotionGateway`` that acts as ``user_id``. It is ``HttpNotionGateway`` (stream A, which never retries a
+        ``401``) inside a refreshing wrapper defined in this file: the wrapper's token source (the ``token`` callable
+        of ``HttpNotionGateway``, called once per request) is ``access_token(user_id)`` and remembers the token it
+        handed out; when a call raises ``notion_auth_failed`` the wrapper calls ``refresh(user_id, used=<that token>)``
+        once and repeats the call once. A ``401`` means the call never ran, so the repeat is safe for writes too.
+        Requests go through the limiter of the connection's bot (shared by import and export), with a fresh
+        ``WaitBudget`` per call, so per import or per pass."""
 
         raise NotImplementedError("C1 fills NotionConnections.gateway")
 

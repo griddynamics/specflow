@@ -23,11 +23,20 @@ _ERRORS: Final[dict[NotionCode, tuple[int, str]]] = {
         409,
         "The page or database does not exist, or you did not share it with Graphico when you connected Notion.",
     ),
+    NotionCode.RATE_LIMITED: (503, "Notion is busy right now. Try again in a minute."),
     NotionCode.NOT_A_PAGE: (422, "The link is a database. Paste the link of a page."),
     NotionCode.PERMISSIONS_MISSING: (
         409,
         "The Notion connection cannot insert or update content. Connect Notion again and allow it.",
     ),
+}
+
+
+# Codes of a pass or an item that a route can still meet: they answer with the closest code of their own.
+_ALIAS: Final[dict[NotionCode, NotionCode]] = {
+    NotionCode.PAGE_GONE: NotionCode.NOT_SHARED,
+    NotionCode.DATABASE_GONE: NotionCode.NOT_SHARED,
+    NotionCode.ITEM_INVALID: NotionCode.LINK_INVALID,
 }
 
 
@@ -38,7 +47,8 @@ def notion_unavailable() -> ApiError:
 def notion_error(error: NotionError) -> ApiError:
     """The API error of a Notion failure; a code without its own answer is ``notion_auth_failed``."""
 
-    code = error.code if error.code in _ERRORS else NotionCode.AUTH_FAILED
+    code = _ALIAS.get(error.code, error.code)
+    code = code if code in _ERRORS else NotionCode.AUTH_FAILED
     status, message = _ERRORS[code]
     return ApiError(status, code.value, message)
 

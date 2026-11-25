@@ -3,13 +3,13 @@
 // canvas"). Stream E2 owns this file; this is the minimal valid placeholder that renders in the plus dialog.
 import { Notice } from "@graphico/ui";
 import type { FormProps } from "../connector-types";
-import { CANVAS_COPY } from "./canvas-copy";
+import { V2_COPY } from "../v2-copy";
 import { ConnectFrame } from "./ConnectFrame";
 
 export function NotionPlanForm({ onBack }: Readonly<FormProps>) {
   return (
     <ConnectFrame onBack={onBack}>
-      <Notice>{CANVAS_COPY.notionPlanNote}</Notice>
+      <Notice>{V2_COPY.notionPlanExports}</Notice>
     </ConnectFrame>
   );
 }

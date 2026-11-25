@@ -162,11 +162,30 @@ export function createIntegrationsModel({ roleOf, jira, github, notion, displayN
     return row !== null && healthOf("github", row) === "active";
   };
 
+  /** The health of the project's Notion binding: "active", "reconnect_required" (the connection expired) or "none" (unbound, or no connection). */
+  const notionHealth = (pid) => {
+    const row = mine(pid).notion;
+    return row === null ? "none" : healthOf("notion", row);
+  };
+
   /** Whether the project's Notion binding can act now (a member is bound and their connection is active). */
   const notionActive = (pid) => {
     const row = mine(pid).notion;
     return row !== null && healthOf("notion", row) === "active";
   };
 
-  return { state, atlassianActive, githubActive, notionActive, list, connect, disconnect, slackGet, slackUnbind, slackTest, seed };
+  return {
+    state,
+    atlassianActive,
+    githubActive,
+    notionActive,
+    notionHealth,
+    list,
+    connect,
+    disconnect,
+    slackGet,
+    slackUnbind,
+    slackTest,
+    seed,
+  };
 }

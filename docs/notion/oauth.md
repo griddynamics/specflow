@@ -74,7 +74,9 @@ The same rules as GitHub ([../github/oauth.md](../github/oauth.md#tokens)), on `
 - the refresh token is stored encrypted; the access token lives in the process's memory only (`integrations.tokens`);
 - a refresh runs under a per-user lock and `FOR UPDATE` on the row, and the rotated refresh token is committed before the
   new access token is used;
-- a `401` refreshes once and asks once more; `invalid_grant` or a refresh token that no longer decrypts sets `expired`
+- a `401` refreshes once and asks once more: the REST client never retries a `401` (`notion_auth_failed`); the refreshing
+  wrapper that `NotionConnections.gateway` returns refreshes with the token it handed out as `used` and repeats the call
+  once (a `401` means the call never ran, so a repeat is safe for writes); `invalid_grant` or a refresh token that no longer decrypts sets `expired`
   (`notion_reconnect_required`) and the connection is never refreshed again until the user reconnects; any other refusal
   keeps it `active` (`notion_unreachable`, or `notion_auth_failed` for a wrong client secret);
 - every use reads the row first (`notion_not_connected` without one), so another replica's disconnect or reconnect is seen;

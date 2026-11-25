@@ -22,12 +22,12 @@ API error code (`api.notion` turns it into an `ApiError` with fixed text), a run
 | `notion_auth_failed` | 502 | all | Notion refused this server's credentials or a fresh token (a setup problem); also the answer for any code without its own |
 | `notion_link_invalid` | 422 | source check and add, plan check and save | the text is not a link to a Notion page or database |
 | `notion_not_shared` | 409 | source check and add, plan check and save, item | no such page or database, or the member did not tick it in the page picker (Notion answers both with 404) |
-| `notion_parent_not_a_page` | 422 | plan check and save | the parent link is a database; the plan database needs a page |
+| `notion_parent_not_a_page` | 422 | plan check and save; gateway `page` and `page_markdown` | the id is a database (Notion answers 400 `validation_error`; the client confirms with one `database` call, never from message text); the plan database needs a page, the source probe then reads it as a database. `database()` on a page id is `notion_link_invalid` |
 | `notion_permissions_missing` | 409 | plan check, save, pass | the connection lacks a capability (insert or update content, Notion's 403) |
-| `notion_rate_limited` | run code | plan pass | the pass waited its 60 s budget for the request limit |
-| `notion_page_gone` | run code, item | plan pass | a person deleted or archived a row the export made |
-| `notion_database_gone` | run code | plan pass | a person deleted or archived the plan database |
-| `notion_item_invalid` | run code, item | plan pass | Notion refused the content of one row (400) |
+| `notion_rate_limited` | 503 | all (a route that meets the limit), run code | the wait for the request limit did not fit its 60 s budget |
+| `notion_page_gone` | run code, item | plan pass | a person deleted or archived a row the export made (read from `in_trash` of `page()`, never from message text); on a route it answers as `notion_not_shared` |
+| `notion_database_gone` | run code | plan pass | a person deleted or archived the plan database (from `in_trash` of `database()`); on a route it answers as `notion_not_shared` |
+| `notion_item_invalid` | run code, item | plan pass | Notion refused the content of one row (400); on a route it answers as `notion_link_invalid` |
 | `notion_grant_invalid`, `notion_refused` | inside only | connections | a dead refresh token (becomes `notion_reconnect_required`); any other refusal of the token endpoint (becomes `notion_code_invalid` in the sign-in, `notion_auth_failed` elsewhere) |
 
 Other run codes of the pass (not `notion_*`): `notion_plan_not_configured`, `no_plan`, `plan_applying`, `target_changed`,

@@ -3,6 +3,9 @@
 // (`/projects/{pid}/notion-plan`). Nothing calls Notion. Close enough to drive the http adapter, the BFF and the V2 pages; the real API lives in
 // backend/src/api. The acting member is the Notion binding of the project (the integrations stub): without one a PUT is 409 `notion_not_connected`
 // and the check says so as an answer. Reserved source links (host `www.notion.so`, id = the last 32 hex digits of the path):
+// The project's binding comes first, as in the API (`health(pid)` is the integrations stub's `notionHealth`): an unbound project (or a bound one
+// whose member has no connection) is 409 notion_not_connected, an expired connection 409 notion_reconnect_required, on the source check and add and
+// on the plan PUT; the plan access check answers them as {result: "failed", reason}, not as an error.
 //   ...0404 (the id ends in 0404) 409 notion_not_shared      ...0403 409 notion_not_shared (the member did not tick it)
 //   ...00db (ends in 00db)        a database "Requirements", 42 rows      ...0b16 a database, 100 rows, capped
 //   any other id                  a page "Engineering Wiki", 4 pages       another host or no id: 422 notion_link_invalid
@@ -26,6 +29,13 @@ const ID = /([0-9a-f]{32})\/?$/i;
 const validation = (...errors) => new StubError(422, "validation_failed", { errors });
 const only = (body, keys) =>
   typeof body === "object" && body !== null && !Array.isArray(body) && Object.keys(body).every((k) => keys.includes(k));
+
+const REFUSED = { none: "notion_not_connected", reconnect_required: "notion_reconnect_required" };
+
+/** The refusal the project's Notion binding gives before anything else: `health` is "active", "reconnect_required" or "none". @returns {{status: number, code: string} | null} */
+export function bindingRefusal(health) {
+  return health === "active" ? null : { status: 409, code: REFUSED[health] ?? "notion_not_connected" };
+}
 
 /** The check of a source link. @returns {{status: number, code: string} | {status: 200, body: object}} */
 export function checkNotion(link) {
@@ -98,8 +108,8 @@ export function createNotionModel() {
   return { state, connection, authorize, callback, disconnect };
 }
 
-/** `bound(pid)` is whether the project has a Notion binding that can act. */
-export function createNotionPlanModel(bound) {
+/** `health(pid)` is the health of the project's Notion binding ("active", "reconnect_required", "none"). */
+export function createNotionPlanModel(health) {
   const state = { available: true };
   const targets = new Map(); // pid -> {parent_page_id, parent_page_title, parent_page_url, database_url, enabled, sync}
   const access = new Map(); // pid -> "ok" | {reason}
@@ -156,7 +166,8 @@ export function createNotionPlanModel(bound) {
   function put(pid, body) {
     if (!state.available) throw new StubError(503, "notion_unavailable");
     const spec = parse(body, true);
-    if (!bound(pid)) throw new StubError(409, "notion_not_connected");
+    const unbound = bindingRefusal(health(pid));
+    if (unbound !== null) throw new StubError(unbound.status, unbound.code);
     const refused = access.get(pid) ?? "ok";
     if (refused !== "ok") throw new StubError(...(ERRORS[refused.reason] ?? [502, "notion_auth_failed"]));
     const parent = page(spec.link);
@@ -176,7 +187,8 @@ export function createNotionPlanModel(bound) {
   function check(pid, body) {
     if (!state.available) throw new StubError(503, "notion_unavailable");
     const spec = parse(body, false);
-    if (!bound(pid)) throw new StubError(409, "notion_not_connected");
+    const unbound = bindingRefusal(health(pid));
+    if (unbound !== null) return { result: "failed", reason: unbound.code };
     const refused = access.get(pid) ?? "ok";
     if (refused !== "ok") return { result: "failed", reason: refused.reason };
     try {

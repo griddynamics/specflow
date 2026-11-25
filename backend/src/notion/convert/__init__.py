@@ -39,7 +39,8 @@ def to_markdown(nfm: str) -> ConvertedPage:
 
 def render_row(title: str, properties: Mapping[str, Any], body: ConvertedPage) -> str:
     """The document of a database row: ``# <title>``, a table of its properties (Notion's property map; people as
-    display names, relations and files by name, no e-mail, no user id), then the converted ``body``."""
+    display names only; an ``email`` property is shown as "(e-mail hidden)"; relations and files by name; no user id),
+    then the converted ``body``."""
 
     raise NotImplementedError("stream B fills render_row")
 

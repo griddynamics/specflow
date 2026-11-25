@@ -3,12 +3,14 @@
 Rules to implement: ``Notion-Version: 2026-03-11`` and the member's bearer token on every request (``token`` is called
 per request, so a refresh is seen); every request takes a place from the bot's ``RateLimiter`` first; ``429`` and
 ``529`` are retried always (``Retry-After`` through ``RateLimiter.hold``), ``5xx`` for ``GET`` only, five attempts
-with exponential backoff and jitter; ``401`` is ``notion_auth_failed`` (the caller refreshes once); a ``404`` is
-``notion_not_shared``; any other refusal is one ``NotionCode`` from ``notion.reasons.code_of_status`` and never
-carries Notion's text. ``page_markdown`` follows ``unknown_block_ids`` (see ``PageMarkdown``). Pagination is the
+with exponential backoff and jitter; ``401`` is ``notion_auth_failed`` and is NEVER retried here (the refreshing
+wrapper of ``NotionConnections.gateway`` owns the refresh and the one retry); a ``404`` is ``notion_not_shared``; a
+``400`` ``validation_error`` on ``GET`` page or markdown is confirmed with one ``database(id)`` call (found: raise
+``notion_parent_not_a_page``), and on ``GET`` database with one ``page(id)`` call (found: ``notion_link_invalid``):
+the message text is never parsed; any other refusal is one ``NotionCode`` from ``notion.reasons.code_of_status`` and
+never carries Notion's text. ``page_markdown`` follows ``unknown_block_ids`` (see ``PageMarkdown``). Pagination is the
 caller's: ``query_data_source`` answers one page. The tests are ``test_notion_http.py`` (respx),
-``test_notion_fake_parity.py`` and the live ``test_notion_http_live.py``.
-"""
+``test_notion_fake_parity.py`` and the live ``test_notion_http_live.py``."""
 
 from __future__ import annotations
 

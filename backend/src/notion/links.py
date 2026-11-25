@@ -4,8 +4,8 @@
 ``notion_link_invalid``. No request is made: whether the id is a page or a database, and whether the member shared it
 with the connection, is read from Notion afterwards. The id is the last 32 hex digits of the last path segment
 (``/Title-<id>``, ``/<id>``, ``/p/<Title>-<id>``); a ``?v=<view id>`` marks a database link (``view`` is set). Only
-``notion.so``, ``www.notion.so``, ``app.notion.com`` and ``*.notion.site`` over ``https`` are links of Notion.
-"""
+``notion.so``, ``notion.com`` (and their ``www.``), ``app.notion.com`` and ``*.notion.site`` over ``https`` are links
+of Notion."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from notion.reasons import NotionCode, NotionError
 
-_HOSTS: Final = frozenset({"notion.so", "www.notion.so", "app.notion.com"})
+_HOSTS: Final = frozenset({"notion.so", "www.notion.so", "notion.com", "www.notion.com", "app.notion.com"})
 _PLAIN_ID: Final = r"(?:^|[-/])([0-9a-fA-F]{32})$"
 _DASHED_ID: Final = r"^([0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})$"
 _ID_AT_END: Final = re.compile(f"{_PLAIN_ID}|{_DASHED_ID}")

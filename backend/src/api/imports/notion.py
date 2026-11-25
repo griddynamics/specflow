@@ -7,9 +7,11 @@ it holds are followed, and so are the rows of the ``<database>`` lines (``query_
 properties table and its body). A visited set and ``MAX_PAGES`` (pages and rows together, N4) bound the walk; a cap
 that is hit is logged (counts only). A page the member cannot see is an item ``no_access`` (step ``read``); a link
 that cannot be read at all fails the source ``no_access``; Notion down or throttled is ``unknown_error``; a page too
-deep to convert is an item ``convert_failed`` (step ``convert``) (N6). The original stored per page is JSON ``{page,
-markdown}`` with e-mails removed (N5). Titles and text live in documents only: events carry ids, kinds and counts.
-"""
+deep to convert is an item ``convert_failed`` (step ``convert``) (N6). The original stored per page is JSON ``{page:
+{id, url, title, last_edited_time}, markdown: scrub_original(nfm)}`` (N5): never Notion's ``properties``,
+``created_by`` or ``last_edited_by``, which carry people and e-mails. The probe order of a link is page first, then
+database when the page read says ``notion_parent_not_a_page``. Titles and text live in documents only: events carry
+ids, kinds and counts."""
 
 from __future__ import annotations
 

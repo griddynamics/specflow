@@ -388,6 +388,7 @@ INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "notion")
 # Notion tables (docs/notion/oauth.md, docs/notion/plan.md; migration 0011_notion).
 NOTION_CONNECTION_STATUSES: Final = ("active", "expired")
 NOTION_PLAN_TRIGGERS: Final = ("plan_run", "settings", "recovery")
+NOTION_RUN_STATUSES: Final = ("running", "succeeded", "partial", "failed", "skipped")  # as the migration says
 NOTION_PLAN_ITEM_KINDS: Final = ("story", "task")
 JIRA_GAP_GROUPINGS: Final = ("one", "area")
 GITHUB_PROJECT_TRIGGERS: Final = ("plan_run", "settings", "recovery")
@@ -839,7 +840,7 @@ class NotionPlanTarget(Base):
 
     __tablename__ = "notion_plan_targets"
     __table_args__ = (
-        CheckConstraint(_one_of("last_status", JIRA_RUN_STATUSES), name="last_status"),
+        CheckConstraint(_one_of("last_status", NOTION_RUN_STATUSES), name="last_status"),
         CheckConstraint(_one_of("last_trigger", NOTION_PLAN_TRIGGERS), name="last_trigger"),
     )
 
