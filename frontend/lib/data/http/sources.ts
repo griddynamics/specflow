@@ -11,8 +11,10 @@ import {
   addBatchFile,
   addConfluenceSource,
   addJiraEpicSource,
+  addNotionSource,
   checkConfluenceLink,
   checkJiraEpicLink,
+  checkNotionLink,
   endBatch,
   getDriveIdentity,
   listSourceFiles,
@@ -39,6 +41,7 @@ import {
   type ConfluenceCheck,
   type JiraEpicCheck,
   type JiraEpicChild,
+  type NotionCheck,
   type ProcessingClass,
   type SourcesPort,
   type UploadReport,
@@ -324,6 +327,16 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         opts.changed(projectId);
       }
     },
+    async checkNotion(projectId, link) {
+      return toNotionCheck(await guard(() => checkNotionLink(projectId, link)));
+    },
+    async addNotion(projectId, link) {
+      try {
+        await guard(() => addNotionSource(projectId, link));
+      } finally {
+        opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
+      }
+    },
   };
 }
 
@@ -369,4 +382,18 @@ export function toConfluenceCheck(body: unknown): ConfluenceCheck {
       body.linked_issues >= 0,
   );
   return { kind: body.kind, title: body.title, pages: body.pages, capped: body.capped, linkedIssues: body.linked_issues };
+}
+
+/** `POST .../sources/notion/check` -> `NotionCheck`; any other shape is `invalid_response`. */
+export function toNotionCheck(body: unknown): NotionCheck {
+  expectShape(
+    isRecord(body) &&
+      (body.kind === "page" || body.kind === "database") &&
+      isString(body.title) &&
+      typeof body.pages === "number" &&
+      Number.isInteger(body.pages) &&
+      body.pages >= 0 &&
+      typeof body.capped === "boolean",
+  );
+  return { kind: body.kind, title: body.title, pages: body.pages, capped: body.capped };
 }

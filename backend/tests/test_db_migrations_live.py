@@ -70,6 +70,9 @@ APP_TABLES = [
     "jira_gap_targets",
     "jira_issues",
     "jira_targets",
+    "notion_connections",
+    "notion_plan_items",
+    "notion_plan_targets",
     "project_integrations",
     "project_invites",
     "project_members",
@@ -86,7 +89,8 @@ HEAD_0006 = "0006_atlassian_connections"
 HEAD_0007 = "0007_github"
 HEAD_0008 = "0008_project_integrations"
 HEAD_0009 = "0009_jira_gaps"
-HEAD = "0010_github_projects"
+HEAD_0010 = "0010_github_projects"
+HEAD = "0011_notion"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
@@ -1117,9 +1121,9 @@ def test_l32_0010_adds_the_projects_tables_scoped_to_the_agent_role_and_its_down
     ana = insert_user(scratch_database, "ana@example.com")
     project = insert_project(scratch_database, ana, role="owner")
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_0010)
 
-    assert stamped_versions(scratch_database) == [HEAD]
+    assert stamped_versions(scratch_database) == [HEAD_0010]
     for table in ("github_project_targets", "github_project_items"):
         assert run_app(
             scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
@@ -1168,4 +1172,57 @@ def test_l32_0010_adds_the_projects_tables_scoped_to_the_agent_role_and_its_down
     command.downgrade(cfg, "-1")
 
     assert stamped_versions(scratch_database) == [HEAD_0009]
+    assert fingerprint(scratch_database) == before
+
+
+# Notion, added by revision 0011 on top of 0010 --------------------------------------------------------------
+
+
+def test_l33_0011_adds_the_notion_tables_and_widens_the_app_and_kind_checks_and_its_downgrade_returns_to_0010(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0010)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+    binding = (
+        "INSERT INTO project_integrations (project_id, app, workspace_id, workspace_name, connected_at) "
+        "VALUES (:p, 'notion', 'w', 'W', now())"
+    )
+    with pytest.raises(IntegrityError):  # the app is not allowed before 0011
+        run_app(scratch_database, binding, p=project)
+
+    command.upgrade(cfg, "head")
+
+    assert stamped_versions(scratch_database) == [HEAD]
+    for table in ("notion_connections", "notion_plan_targets", "notion_plan_items"):
+        assert run_app(
+            scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
+        ) == ["true"]
+        assert run_app(
+            scratch_database,
+            "SELECT has_table_privilege(:role, :table, 'SELECT,INSERT,UPDATE,DELETE')::text",
+            role=SESSION_AGENT_ROLE,
+            table=table,
+        ) == ["false"]
+    assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = 'notion_connections'") == [
+        0
+    ]  # not project-scoped: no policy, no grant
+    for table in ("notion_plan_targets", "notion_plan_items"):
+        assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = :table", table=table) == [
+            1
+        ]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    run_app(scratch_database, binding, p=project)  # the app is allowed now
+    item = "INSERT INTO notion_plan_items (project_id, node_id, kind, requested_at) VALUES (:p, :node, :kind, now())"
+    with pytest.raises(IntegrityError):  # a closed set of kinds
+        run_app(scratch_database, item, p=project, node="X", kind="subtask")
+    run_app(scratch_database, item, p=project, node="STORY::A", kind="story")
+    with pytest.raises(IntegrityError):  # one row per node
+        run_app(scratch_database, item, p=project, node="STORY::A", kind="task")
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0010]
     assert fingerprint(scratch_database) == before

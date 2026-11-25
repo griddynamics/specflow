@@ -54,6 +54,8 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](#jira-sync) (`oauth` mode, which wins over the one account). The client ID turns it on and then needs the secret, a Fernet key, `ATLASSIAN_SITE_URL` and `PUBLIC_URL`. |
 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_TOKEN_KEY` | api, worker-agents | The GitHub App of the [GitHub integration](#github-integration). The client ID turns it on and then needs the secret, the app slug, a Fernet key and `PUBLIC_URL`. |
 
+| `NOTION_OAUTH_CLIENT_ID`, `NOTION_OAUTH_CLIENT_SECRET`, `NOTION_TOKEN_KEY` | api | The public Notion connection of the [Notion integration](#notion-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. |
+
 ## Settings with a default (D)
 
 | Name | Default | Read by | Meaning |
@@ -681,6 +683,28 @@ private key: Specflow does not use one. On the local stack the URLs start with `
 
 The api and the worker must reach `github.com` and `api.github.com` directly: their clients ignore `HTTPS_PROXY` and
 the other proxy variables (and `.netrc`).
+
+## Notion integration
+
+The [Notion integration](notion/INDEX.md) lets each user connect their own Notion account, add a Notion page or
+database as a project source and export the plan to a Notion database. It uses one **public connection** (OAuth 2.0)
+of the deployment; only the api talks to Notion.
+
+| Name | Rule |
+|---|---|
+| `NOTION_OAUTH_CLIENT_ID` | The OAuth client ID of the public connection. A non-blank value turns the integration on. |
+| `NOTION_OAUTH_CLIENT_SECRET` | The OAuth client secret. A secret: keep it in the cluster's secret store. |
+| `NOTION_TOKEN_KEY` | A Fernet key that encrypts the users' refresh tokens and signs the OAuth `state`. Own key: rotating it expires only the Notion connections. |
+| `NOTION_REQUESTS_PER_MINUTE` | Requests per minute one Notion connection (one `bot_id`) may send in the api process; import and export share it. Default 150 (Notion allows 180 on Free and Plus workspaces, 600 on Business and Enterprise). 1 to 600. |
+| `PUBLIC_URL` | The web app's public address. The redirect URI is `{PUBLIC_URL}/api/integrations/notion/callback`. |
+
+With the client ID unset the integration is off: the Notion card says so and the Notion routes answer 503
+`notion_unavailable`. A partial set stops the role at start and names the missing variables. Make the key as for
+`GITHUB_TOKEN_KEY`. Register the redirect URI and the capabilities in [oauth.md](notion/oauth.md#settings).
+
+`NOTION_API_TOKEN` is not a product setting. It is the token of an internal Notion connection that the live tests use
+to record the fixtures of `backend/src/notion/fixtures/` and to check the client against a test workspace
+(`test_notion_http_live.py`, skipped without it). Keep it in `.env.local` only.
 
 ## Document parsing
 

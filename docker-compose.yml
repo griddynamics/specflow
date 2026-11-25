@@ -465,6 +465,11 @@ services:
       GITHUB_APP_CLIENT_SECRET: "${GITHUB_APP_CLIENT_SECRET:-}"
       GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-}"
       GITHUB_TOKEN_KEY: "${GITHUB_TOKEN_KEY:-}"
+      # Notion integration: the client ID turns it on (docs/configuration.md "Notion integration"); the api only.
+      NOTION_OAUTH_CLIENT_ID: "${NOTION_OAUTH_CLIENT_ID:-}"
+      NOTION_OAUTH_CLIENT_SECRET: "${NOTION_OAUTH_CLIENT_SECRET:-}"
+      NOTION_TOKEN_KEY: "${NOTION_TOKEN_KEY:-}"
+      NOTION_REQUESTS_PER_MINUTE: "${NOTION_REQUESTS_PER_MINUTE:-}"
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     volumes:

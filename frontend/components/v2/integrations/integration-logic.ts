@@ -3,7 +3,7 @@
 import { atlassianToast } from "@/components/settings/jira-logic";
 import { githubToast } from "@/components/settings/github-logic";
 import { isDataError } from "@/lib/domain/errors";
-import type { Integration, IntegrationApp } from "@/lib/domain/integrations";
+import type { BindableApp, Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { IntegrationState } from "@graphico/ui";
 import { V2_COPY } from "../v2-copy";
 
@@ -33,17 +33,24 @@ export function cardViewOf(i: Integration): CardView {
 /** Slack's channel is removed through its own web route; the other apps go through the integrations route. */
 export const disconnectsThroughSlackRoute = (app: IntegrationApp): boolean => app === "slack";
 
-/** The toast of `?github=` or `?atlassian=` on the way back from an app. */
-export function returnToast(app: "atlassian" | "github", code: string): { title: string; tone: "success" | "danger" } {
+/** The toast of `?notion=` on the way back from Notion: connected, or what failed (stream C2 owns the words). */
+function notionToast(code: string): { title: string; tone: "success" | "danger" } {
+  return code === "connected" ? { title: V2_COPY.connectedToast, tone: "success" } : { title: V2_COPY.actionFailed, tone: "danger" };
+}
+
+/** The toast of `?github=`, `?atlassian=` or `?notion=` on the way back from an app. */
+export function returnToast(app: BindableApp, code: string): { title: string; tone: "success" | "danger" } {
+  if (app === "notion") return notionToast(code);
   return app === "github" ? githubToast(code) : atlassianToast(code);
 }
 
-/** Both apps come back with `connected` once the account is linked; GitHub also with `installed` after its repositories changed. */
+/** Every app comes back with `connected` once the account is linked; GitHub also with `installed` after its repositories changed. */
 export const isLinked = (code: string): boolean => code === "connected";
 
 const FAILURE: Record<string, string> = {
   atlassian_not_connected: V2_COPY.notConnectedFirst,
   github_not_connected: V2_COPY.notConnectedFirst,
+  notion_not_connected: V2_COPY.notConnectedFirst,
   integration_workspace_mismatch: V2_COPY.workspaceMismatch,
   integration_already_connected: V2_COPY.alreadyConnected,
   integration_forbidden: V2_COPY.notAllowedToRemove,

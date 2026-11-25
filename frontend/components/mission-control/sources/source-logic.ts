@@ -30,6 +30,7 @@ export const KIND_LINE: Record<Exclude<SourceKind, "upload">, string> = {
   github: "GitHub",
   confluence: "Confluence",
   jira_epic: "Jira epic",
+  notion: "Notion",
 };
 /** The small label above the name in the details modal. */
 export const KIND_LABEL = {
@@ -38,6 +39,7 @@ export const KIND_LABEL = {
   upload: "Upload",
   confluence: "Confluence",
   jira_epic: "Jira epic",
+  notion: "Notion",
 } as const satisfies Record<SourceKind, string>;
 
 // ---- The card (FR-SRC-0001..0004, NFR-USE-0003) ----

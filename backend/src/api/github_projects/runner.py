@@ -7,10 +7,9 @@ project's GitHub is connected by), and what a status looks like. Rules: docs/git
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from typing import Any, cast, override
@@ -20,7 +19,7 @@ from api.exports.status import run_state
 from api.github_projects.gateway import MemberGateway, ProjectsGateway
 from api.github_projects.store import DbStore, ProjectsStore
 from api.github_projects.sync import NOT_CONFIGURED, PushDeps, PushResult, push_once
-from api.jira.desired import SpecRef
+from api.plan_graph import PlanGraph
 from api.schemas import GitHubProjectsCounts, GitHubProjectsState, GitHubProjectsStatus
 from db import github_projects as projects_db
 from db import integrations as integrations_db
@@ -30,10 +29,6 @@ from github.client import WaitBudget
 from github.codes import GitHubCode, GitHubError
 from github.connections import GitHubConnections
 from github.projects import ProjectsApi
-from graph.core import load_ontology
-from graph.core.reader import GraphReader
-from graph.core.store import as_executor
-from graph.plan.reader import LoadedPlan, load_plan
 from logger.logger import get_logger
 
 logger = get_logger("api.github_projects.runner")
@@ -81,15 +76,15 @@ class GitHubProjectsRunner(ExportRunner[ProjectTargetView | None, GitHubProjects
     ) -> None:
         super().__init__(closed_error=GitHubProjectsClosedError, now=now)
         self._transaction = transaction
-        self._graph = graph_store
+        graph = PlanGraph(graph_store)
         self._push = push
         self._connections = connections
         self._store: ProjectsStore = DbStore(transaction)
         self._deps = PushDeps(
             store=self._store,
             gateway_for=self._gateway_for,
-            load_plan=self._load_plan,
-            spec_names=self._spec_names,
+            load_plan=graph.load_plan,
+            spec_names=graph.spec_names,
             now=now,
         )
 
@@ -125,21 +120,6 @@ class GitHubProjectsRunner(ExportRunner[ProjectTargetView | None, GitHubProjects
     @staticmethod
     def _live(status: GitHubProjectsStatus, project: ProjectRun) -> GitHubProjectsStatus:
         return status.model_copy(update={"trigger": project.pass_trigger, "started_at": project.queued_at})
-
-    async def _load_plan(self, project_id: str) -> LoadedPlan:
-        return await load_plan(as_executor(self._graph), project_id)
-
-    async def _spec_names(self, project_id: str, ids: Sequence[str]) -> Mapping[str, SpecRef]:
-        """Each asked spec id (an alias too) to the current id and name of its node; an unknown id is left out."""
-
-        ontology = await asyncio.to_thread(load_ontology)
-        found = await GraphReader(as_executor(self._graph), ontology).nodes_by_spec_ids(project_id, ids)
-        refs = {
-            name: SpecRef(node.spec_id, node.name)
-            for node in found.values()
-            for name in (node.spec_id, *node.spec_id_aliases)
-        }
-        return {name: refs[name] for name in ids if name in refs}
 
     # The hooks of the runner ---------------------------------------------------
 

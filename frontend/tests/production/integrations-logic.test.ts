@@ -122,15 +122,18 @@ test("V2 routes: the canvas and the Integrations page; `/` stays home", () => {
 
 test("the Integrations query: return codes, the app to open and a same-site `next` only", () => {
   const q = (s: string) => parseIntegrationsQuery(new URLSearchParams(s));
-  assert.deepEqual(q(""), { github: null, atlassian: null, setup: null, next: null });
+  assert.deepEqual(q(""), { github: null, atlassian: null, notion: null, setup: null, next: null });
   assert.deepEqual(q("github=connected&setup=github&next=/projects/p1"), {
     github: "connected",
     atlassian: null,
+    notion: null,
     setup: "github",
     next: "/projects/p1",
   });
   assert.equal(q("atlassian=atlassian_consent_denied").atlassian, "atlassian_consent_denied");
-  assert.equal(q("setup=notion").setup, null);
+  assert.equal(q("setup=notion").setup, "notion");
+  assert.equal(q("setup=linear").setup, null);
+  assert.equal(q("notion=connected").notion, "connected");
   for (const bad of ["//evil.example", "https://evil.example", "/a/../b", "/\\evil"])
     assert.equal(q(`next=${encodeURIComponent(bad)}`).next, null, bad);
 });

@@ -12,6 +12,7 @@ import { createJiraModel } from "./stub-jira.mjs";
 import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
+import { checkNotion, createNotionModel, createNotionPlanModel } from "./stub-notion.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
@@ -116,8 +117,12 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const jira = createJiraModel((pid) => people.list(pid).role);
   /** GitHub (docs/github/api.md): the caller's connection, their repositories, a project's repositories. */
   const github = createGitHubModel((pid) => people.list(pid).role, ME.name);
+  /** Notion (docs/notion/oauth.md): the caller's connection. */
+  const notion = createNotionModel();
   /** Project integrations (docs/mission-control/integrations-api.md): who each app is connected by, and the Slack channel of a project. */
-  const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, displayName: ME.name });
+  const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, notion, displayName: ME.name });
+  /** Notion plan destination: any member; acts as the project's Notion binding. */
+  const notionPlan = createNotionPlanModel((pid) => integrations.notionActive(pid));
   /** The Jira gap channel: any member; acts as the project's Atlassian binding. */
   const jiraGaps = createJiraGapsModel((pid) => integrations.atlassianActive(pid));
   /** GitHub Projects plan destination: any member; acts as the project's GitHub binding; the repository is one of the project's. */
@@ -989,6 +994,15 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           source: importedSource(pid, { kind: "confluence", name: checked.body.title, link: body.link, pages: checked.body.pages }),
         });
       }
+      if (did === "notion" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const checked = typeof body?.link === "string" ? checkNotion(body.link) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        return json(res, 201, {
+          source: importedSource(pid, { kind: "notion", name: checked.body.title, link: body.link, pages: checked.body.pages }),
+        });
+      }
       if (did === "jira-epic" && req.method === "POST" && (action === undefined || action === "check")) {
         const body = await readJson();
         const checked =
@@ -1010,7 +1024,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           }),
         });
       }
-      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic") {
+      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic" && did !== "notion") {
         if (!action && req.method === "DELETE") {
           await drain();
           model.remove(pid, did);
@@ -1219,6 +1233,32 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/projects/{pid}/notion-plan[/access-check]` (docs/notion/plan.md): the destination and the check. */
+  async function notionPlanRoute({ req, res, pid, did }) {
+    const m = req.method;
+    people.list(pid); // a non-member is a 404
+    if (!did && m === "GET") return json(res, 200, notionPlan.get(pid));
+    if (!did && m === "PUT") return json(res, 200, notionPlan.put(pid, await readJson(req)));
+    if (did === "access-check" && m === "POST") return json(res, 200, notionPlan.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
+  /** `/integrations/notion[/authorize|/callback]` (docs/notion/oauth.md "Routes"): the caller's Notion connection. */
+  async function notionRoute({ req, res, action }) {
+    const m = req.method;
+    if (!action && m === "GET") return json(res, 200, notion.connection());
+    if (!action && m === "DELETE") {
+      notion.disconnect();
+      res.writeHead(204);
+      return res.end();
+    }
+    if (action === "authorize" && m === "POST") return json(res, 200, notion.authorize(await readJson(req)));
+    if (action === "callback" && m === "POST") return json(res, 200, notion.callback(await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   /** `/integrations/atlassian[/authorize|/callback]` (docs/jira-sync/oauth.md#routes): the caller's Atlassian connection. */
   async function atlassianRoute({ req, res, action }) {
     const m = req.method;
@@ -1378,6 +1418,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     }
     if (a === "integrations" && pid === "atlassian") return atlassianRoute({ req, res, action: b });
     if (a === "integrations" && pid === "github") return githubRoute({ req, res, action: b });
+    if (a === "integrations" && pid === "notion") return notionRoute({ req, res, action: b });
     if (a !== "projects") return err(res, 404, "not_found");
     if (!pid) {
       if (req.method === "GET")
@@ -1407,6 +1448,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (b === "jira") return jiraRoute({ req, res, pid, did });
     if (b === "jira-gaps") return jiraGapsRoute({ req, res, pid, did });
     if (b === "github-projects") return githubProjectsRoute({ req, res, url, pid, did });
+    if (b === "notion-plan") return notionPlanRoute({ req, res, pid, did });
     if (b === "integrations") return integrationsRoute({ req, res, pid, did });
     if (b === "slack") return slackRoute({ req, res, pid, did });
     if (b === "repositories") return repositoriesRoute({ req, res, pid, did, action });
@@ -1492,9 +1534,13 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     jiraGaps,
     /** GitHub Projects destination: `githubProjects.state` (available, organization) and `githubProjects.seed({pid, available, organization, target, access})`. */
     githubProjects,
+    /** Notion: `notion.state` (enabled, connection, callbackError). */
+    notion,
+    /** Notion plan destination: `notionPlan.state` (available) and `notionPlan.seed({pid, available, target, access})`. */
+    notionPlan,
     /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
     github,
-    /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, ...})`. */
+    /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, notion, ...})`. */
     integrations,
     /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */
     seedProject: (name, spec) => {

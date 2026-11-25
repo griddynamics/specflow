@@ -138,10 +138,11 @@ const JIRA_POLL_MS = 5000;
 const SLACK_POLL_MS = 5000;
 const JIRA_GAPS_POLL_MS = 5000;
 const GITHUB_PROJECTS_POLL_MS = 3000;
+const NOTION_PLAN_POLL_MS = 3000;
 
 /** The project's repositories, Jira target and Slack channel, each read again while it changes (a clone runs, a sync runs, a channel is awaited). */
 function useConnectionReads(projectId: string) {
-  const { github, githubProjects, jira, jiraGaps, slack } = useV2Ports();
+  const { github, githubProjects, notionPlan, jira, jiraGaps, slack } = useV2Ports();
   const repos = usePolledRead(
     useCallback(() => github.list(projectId), [github, projectId]),
     (v) => (isCloning(v) ? GITHUB_POLL_MS : null),
@@ -154,6 +155,10 @@ function useConnectionReads(projectId: string) {
     useCallback(() => githubProjects.get(projectId), [githubProjects, projectId]),
     (v) => (v?.sync?.status === "running" ? GITHUB_PROJECTS_POLL_MS : null),
   );
+  const notionDestination = usePolledRead(
+    useCallback(() => notionPlan.get(projectId), [notionPlan, projectId]),
+    (v) => (v?.sync?.status === "running" ? NOTION_PLAN_POLL_MS : null),
+  );
   const gapChannel = usePolledRead(
     useCallback(() => jiraGaps.get(projectId), [jiraGaps, projectId]),
     (v) => (v?.enabled === true ? JIRA_GAPS_POLL_MS : null),
@@ -162,7 +167,7 @@ function useConnectionReads(projectId: string) {
     useCallback(() => slack.get(projectId), [slack, projectId]),
     (v) => (v?.channel === null || v === null ? SLACK_POLL_MS : null),
   );
-  return { repos, target, channel, gapChannel, planProject };
+  return { repos, target, channel, gapChannel, planProject, notionDestination };
 }
 
 export function useCanvasData(projectId: string) {
@@ -171,7 +176,7 @@ export function useCanvasData(projectId: string) {
   const gapsRead = useGapsRead(projectId, status?.ready === true, status?.build != null);
   const plan = usePlanState(projectId);
   const integrations = useIntegrationList(projectId);
-  const { repos, target, channel, gapChannel, planProject } = useConnectionReads(projectId);
+  const { repos, target, channel, gapChannel, planProject, notionDestination } = useConnectionReads(projectId);
   const now = useNow(status?.build != null);
   const planStale = usePlanStale(status?.lastBuild?.finishedAt ?? null, status !== null, plan?.phase === "ready");
   const [pendingBuild, markBuild] = usePending(
@@ -192,6 +197,7 @@ export function useCanvasData(projectId: string) {
       github: repos.value,
       jira: target.value,
       githubProjects: planProject.value,
+      notionPlan: notionDestination.value,
       jiraGaps: gapChannel.value,
       slack: channel.value,
     }),
@@ -207,6 +213,7 @@ export function useCanvasData(projectId: string) {
       repos.value,
       target.value,
       planProject.value,
+      notionDestination.value,
       gapChannel.value,
       channel.value,
     ],
@@ -220,6 +227,7 @@ export function useCanvasData(projectId: string) {
       repos.reload();
       target.reload();
       planProject.reload();
+      notionDestination.reload();
       gapChannel.reload();
       channel.reload();
     };

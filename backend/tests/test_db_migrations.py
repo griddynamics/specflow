@@ -60,7 +60,8 @@ HEAD_0006 = "0006_atlassian_connections"
 HEAD_0007 = "0007_github"
 HEAD_0008 = "0008_project_integrations"
 HEAD_0009 = "0009_jira_gaps"
-HEAD = "0010_github_projects"
+HEAD_0010 = "0010_github_projects"
+HEAD = "0011_notion"
 # SHA-256 of versions/0001_initial.py as 2.0.0 shipped it; a mismatch means a frozen revision was edited.
 FROZEN_0001_SHA256 = "ebc6d2e0f6ca8eef9bcbc5acde990ed151fe17fbc1945c75e5d6289a455948dc"
 INITIAL_TABLES = (
@@ -100,6 +101,10 @@ INTEGRATIONS = "project_integrations"
 JIRA_GAP_TABLES = ("jira_gap_targets", "jira_gap_issues")
 # The GitHub Projects destination's target and plan-to-issue map (project-scoped), added by 0010.
 GITHUB_PROJECT_TABLES = ("github_project_targets", "github_project_items")
+# The users' Notion connections (no policy) and the Notion plan destination's target and map (project-scoped), added by
+# 0011.
+NOTION_CONNECTIONS = "notion_connections"
+NOTION_PLAN_TABLES = ("notion_plan_targets", "notion_plan_items")
 APP_TABLES = (
     *INITIAL_TABLES,
     "project_invites",
@@ -112,6 +117,8 @@ APP_TABLES = (
     INTEGRATIONS,
     *JIRA_GAP_TABLES,
     *GITHUB_PROJECT_TABLES,
+    NOTION_CONNECTIONS,
+    *NOTION_PLAN_TABLES,
 )
 SCOPED_TABLES = (
     ("projects", "id"),
@@ -129,6 +136,7 @@ SCOPED_TABLES = (
             INTEGRATIONS,
             *JIRA_GAP_TABLES,
             *GITHUB_PROJECT_TABLES,
+            *NOTION_PLAN_TABLES,
         )
     ),
 )
@@ -159,6 +167,7 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_bases() == [FIRST]
     assert [revision.revision for revision in script.walk_revisions()] == [
         HEAD,
+        HEAD_0010,
         HEAD_0009,
         HEAD_0008,
         HEAD_0007,
@@ -178,7 +187,8 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_revision(HEAD_0007).down_revision == HEAD_0006
     assert script.get_revision(HEAD_0008).down_revision == HEAD_0007
     assert script.get_revision(HEAD_0009).down_revision == HEAD_0008
-    assert script.get_revision(HEAD).down_revision == HEAD_0009
+    assert script.get_revision(HEAD_0010).down_revision == HEAD_0009
+    assert script.get_revision(HEAD).down_revision == HEAD_0010
 
 
 # T9 ------------------------------------------------------------------------
@@ -333,7 +343,7 @@ def test_offline_upgrade_enables_rls_and_creates_the_policy_on_each_scoped_table
             f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
         )
     assert sql.count("CREATE POLICY agent_project_scope") == len(SCOPED_TABLES) + 1
-    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 3  # + invites, 2 connection tables
+    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 4  # + invites, 3 connection tables
     assert "users ENABLE ROW LEVEL SECURITY" not in sql  # users is not project-scoped
 
 
@@ -925,7 +935,7 @@ def github_projects_sql() -> str:
     """The SQL of revision 0010 alone."""
 
     cfg, buffer = offline_config()
-    command.upgrade(cfg, f"{HEAD_0009}:{HEAD}", sql=True)
+    command.upgrade(cfg, f"{HEAD_0009}:{HEAD_0010}", sql=True)
     return buffer.getvalue()
 
 
@@ -954,10 +964,72 @@ def test_0010_creates_the_two_projects_tables_with_their_keys_and_scopes_them_to
 def test_the_downgrade_of_0010_drops_both_tables_and_says_what_is_lost() -> None:
     cfg, buffer = offline_config()
 
-    command.downgrade(cfg, f"{HEAD}:{HEAD_0009}", sql=True)
+    command.downgrade(cfg, f"{HEAD_0010}:{HEAD_0009}", sql=True)
 
     sql = buffer.getvalue()
     assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == ["github_project_items", "github_project_targets"]
     assert "UPDATE alembic_version SET version_num='0009_jira_gaps'" in sql
     doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0010_github_projects.py").read_text("utf-8")
     assert "Every GitHub Projects target and the whole plan-to-issue map is lost" in doc
+
+
+# Notion, added by revision 0011 on top of 0010 --------------------------------------------------
+
+
+def notion_sql() -> str:
+    """The SQL of revision 0011 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{HEAD_0010}:{HEAD}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0011_creates_the_notion_tables_with_their_keys_and_scopes_the_plan_tables_to_the_agent_role() -> None:
+    sql = notion_sql()
+
+    created = re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql)
+    assert created == [NOTION_CONNECTIONS, *NOTION_PLAN_TABLES]
+    assert "CONSTRAINT pk_notion_connections PRIMARY KEY (user_id)" in sql
+    assert "CONSTRAINT pk_notion_plan_targets PRIMARY KEY (project_id)" in sql
+    assert "CONSTRAINT pk_notion_plan_items PRIMARY KEY (project_id, node_id)" in sql
+    assert "CONSTRAINT uq_notion_plan_items_project_id UNIQUE (project_id, page_id)" in sql
+    assert "CONSTRAINT ck_notion_plan_items_kind CHECK (kind IN ('story', 'task'))" in sql
+    assert "CONSTRAINT ck_notion_connections_status CHECK (status IN ('active', 'expired'))" in sql
+    assert "CONSTRAINT ck_notion_plan_targets_last_trigger CHECK (last_trigger IN ('plan_run', 'settings'" in sql
+    assert "REFERENCES users (id) ON DELETE CASCADE" in sql
+    scope = "nullif(current_setting('app.project_id', true), '')::uuid"
+    for table in NOTION_PLAN_TABLES:
+        assert f"CONSTRAINT fk_{table}_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in sql
+        assert (
+            f'CREATE POLICY agent_project_scope ON {table} TO "specflow_agent" '
+            f"USING (project_id = {scope}) WITH CHECK (project_id = {scope});"
+        ) in sql
+    assert f"ALTER TABLE {NOTION_CONNECTIONS} ENABLE ROW LEVEL SECURITY" in sql
+    assert f"CREATE POLICY agent_project_scope ON {NOTION_CONNECTIONS}" not in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("CREATE TABLE notion_connections")
+    assert "GRANT" not in sql.upper()
+    assert "UPDATE alembic_version SET version_num='0011_notion'" in sql
+
+
+def test_0011_widens_the_app_and_source_kind_checks_with_notion() -> None:
+    sql = notion_sql()
+
+    assert "ADD CONSTRAINT ck_project_integrations_app CHECK (app IN ('atlassian', 'github', 'slack', 'notion'))" in sql
+    assert (
+        "ADD CONSTRAINT ck_connections_kind CHECK (kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'notion'))"
+    ) in sql
+
+
+def test_the_downgrade_of_0011_drops_the_tables_removes_notion_rows_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD}:{HEAD_0010}", sql=True)
+
+    sql = buffer.getvalue()
+    dropped = re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql)
+    assert dropped == ["notion_plan_items", "notion_plan_targets", NOTION_CONNECTIONS]
+    assert "DELETE FROM project_integrations WHERE project_integrations.app = 'notion'" in sql
+    assert "DELETE FROM connections WHERE connections.kind = 'notion'" in sql
+    assert "UPDATE alembic_version SET version_num='0010_github_projects'" in sql
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0011_notion.py").read_text("utf-8")
+    assert "every Notion connection" in doc

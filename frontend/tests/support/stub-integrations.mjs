@@ -2,32 +2,39 @@
 // connect (`PUT`), remove (`DELETE`) and the Slack routes (`GET`/`DELETE /projects/{pid}/slack`, `POST /projects/{pid}/slack/test`). A test
 // double next to stub-api.mjs, close enough to drive the http adapter, the BFF and the V2 Integrations page; the real API lives in backend/src/api.
 // The caller is `u1` (the stub's `/me`). A binding the caller made takes its health from the caller's own Atlassian or GitHub connection (the
-// Jira and GitHub stubs); a seeded binding of another member carries its own `health`. Slack is bound by `seed` (the command in the channel).
+// Jira, GitHub and Notion stubs); a seeded binding of another member carries its own `health`. Slack is bound by `seed` (the command in the channel).
 import { StubError } from "./stub-members.mjs";
 
 const ME_ID = "u1";
-const APPS = ["atlassian", "github", "slack"];
-const BINDABLE = ["atlassian", "github"];
-const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected" };
-const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable" };
+const APPS = ["atlassian", "github", "slack", "notion"];
+const BINDABLE = ["atlassian", "github", "notion"];
+const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected", notion: "notion_not_connected" };
+const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable", notion: "notion_unavailable" };
 const TEST_STATUS = { slack_not_connected: 409, slack_not_in_channel: 409, slack_unreachable: 502, slack_unavailable: 503 };
 const validation = (...errors) => new StubError(422, "validation_failed", { errors });
 
 /**
- * `roleOf(pid)` is the caller's role ("owner" or "collaborator"; throws 404 for a non-member). `jira` and `github` are the stub models whose
+ * `roleOf(pid)` is the caller's role ("owner" or "collaborator"; throws 404 for a non-member). `jira`, `github` and `notion` are the stub models whose
  * `state.connection` is the caller's own connection. `displayName` is the caller's name.
  */
-export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
+export function createIntegrationsModel({ roleOf, jira, github, notion, displayName }) {
   const state = { slackAvailable: true, slackTest: "ok" };
-  const projects = new Map(); // pid -> {atlassian, github, slack: row | null, channel: {id, name, private} | null}
+  const projects = new Map(); // pid -> {atlassian, github, slack, notion: row | null, channel: {id, name, private} | null}
   const mine = (pid) => {
-    if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, channel: null });
+    if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, notion: null, channel: null });
     return projects.get(pid);
   };
 
   const availableOf = (app) =>
-    app === "atlassian" ? jira.state.mode === "oauth" : app === "github" ? github.state.enabled : state.slackAvailable;
-  const callerConnection = (app) => (app === "atlassian" ? jira.state.connection : github.state.connection);
+    app === "atlassian"
+      ? jira.state.mode === "oauth"
+      : app === "github"
+        ? github.state.enabled
+        : app === "notion"
+          ? notion.state.enabled
+          : state.slackAvailable;
+  const callerConnection = (app) =>
+    app === "atlassian" ? jira.state.connection : app === "notion" ? notion.state.connection : github.state.connection;
 
   function healthOf(app, row) {
     if (row === null) return "none";
@@ -62,7 +69,12 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
     if (!availableOf(app)) throw new StubError(503, UNAVAILABLE[app]);
     const own = callerConnection(app);
     if (own === null || own.status !== "active") throw new StubError(409, NOT_CONNECTED[app]);
-    const workspace = app === "atlassian" ? { id: "cloud-stub", name: "example.atlassian.net" } : { id: own.login, name: own.login };
+    const workspace =
+      app === "atlassian"
+        ? { id: "cloud-stub", name: "example.atlassian.net" }
+        : app === "notion"
+          ? { id: "notion-stub", name: own.workspace_name }
+          : { id: own.login, name: own.login };
     const p = mine(pid);
     const current = p[app];
     if (current !== null && current.user_id !== null && current.workspace.id !== workspace.id)
@@ -106,7 +118,7 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
 
   /**
    * Test seam (`POST /seed-integrations`): `slackAvailable`, `slackTest` ("ok" or an API code the next test messages answer with) and, with
-   * `pid`, the bindings of one project: `atlassian` and `github` are null (none) or {by?: {user_id, name} | null, workspace?: {id, name},
+   * `pid`, the bindings of one project: `atlassian`, `github` and `notion` are null (none) or {by?: {user_id, name} | null, workspace?: {id, name},
    * health?}; `slack` is null or {channel: {id, name, private}, by?}. `by: null` is a binding whose member left.
    */
   /** @param {{pid?: string, reset?: boolean, slackAvailable?: boolean, slackTest?: string, [app: string]: any}} spec */
@@ -150,5 +162,11 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
     return row !== null && healthOf("github", row) === "active";
   };
 
-  return { state, atlassianActive, githubActive, list, connect, disconnect, slackGet, slackUnbind, slackTest, seed };
+  /** Whether the project's Notion binding can act now (a member is bound and their connection is active). */
+  const notionActive = (pid) => {
+    const row = mine(pid).notion;
+    return row !== null && healthOf("notion", row) === "active";
+  };
+
+  return { state, atlassianActive, githubActive, notionActive, list, connect, disconnect, slackGet, slackUnbind, slackTest, seed };
 }

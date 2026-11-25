@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic";
+export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "notion";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;
@@ -287,6 +287,14 @@ export interface JiraEpicChild {
 /** The most issues one epic import reads (the backend's `MAX_EPIC_ISSUES`). */
 export const EPIC_ISSUE_CAP = 200;
 
+/** What a Notion link would import (docs/notion/source.md): a page with its sub-pages or a database with its rows; `capped` when there are more than the cap. */
+export interface NotionCheck {
+  kind: "page" | "database";
+  title: string;
+  pages: number;
+  capped: boolean;
+}
+
 /** Collect side (D1, D6, D7): sources, sync, access, uploads and removal. The status read carries the counts per source; `files` the
  * file list of one source (sources-ux). */
 export interface SourcesPort {
@@ -324,6 +332,11 @@ export interface SourcesPort {
   /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). `exclude` are the keys of the children not to import (the epic
    * itself is always imported); a key that is not a child rejects `validation`. */
   addJiraEpic(projectId: string, keyOrLink: string, exclude?: readonly string[]): Promise<void>;
+  /** Reads a Notion page or database link as the member the project's Notion is connected by and counts what an import would take; stores nothing. A refusal
+   * rejects a `DataError` whose `detail.apiCode` is the closed code (`notion_link_invalid`, `notion_not_shared`, `notion_not_connected`, ...). */
+  checkNotion(projectId: string, link: string): Promise<NotionCheck>;
+  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
+  addNotion(projectId: string, link: string): Promise<void>;
 }
 
 /** The source-aware Mission Control port (D9, D11): project status and knowledge builds. */

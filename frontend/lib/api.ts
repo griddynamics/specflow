@@ -219,6 +219,13 @@ export const checkGitHubProjectsAccess = (pid: string, repositoryId: string, pic
     json({ repository_id: repositoryId, ...projectBody(pick) }),
   ).then((r) => r.body);
 
+// The Notion plan destination of a project (docs/notion/plan.md). Bodies stay `unknown`; lib/data/http/notion-plan.ts checks them.
+export const getNotionPlan = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/notion-plan`).then((r) => r.body);
+export const putNotionPlan = (pid: string, link: string, enabled: boolean) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/notion-plan`, json({ link, enabled })).then((r) => r.body);
+export const checkNotionPlanAccess = (pid: string, link: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/notion-plan/access-check`, json({ link })).then((r) => r.body);
+
 // The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
 // app/api/integrations/atlassian/callback calls the API on the server.
 export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);
@@ -246,6 +253,14 @@ export const removeProjectRepository = (pid: string, rid: string) =>
   httpDelete(`/projects/${encodeURIComponent(pid)}/repositories/${encodeURIComponent(rid)}`).then((r) => r.status);
 export const cloneProjectRepository = (pid: string, rid: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/repositories/${encodeURIComponent(rid)}/clone`).then((r) => r.body);
+
+// The caller's Notion connection (docs/notion/oauth.md "Routes"). The consent callback is not here: the route handler
+// app/api/integrations/notion/callback calls the API on the server.
+export const getNotionConnection = () => httpGet("/integrations/notion").then((r) => r.body);
+export const authorizeNotion = (returnTo: string) =>
+  httpPost("/integrations/notion/authorize", json({ return_to: returnTo })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const disconnectNotion = () => httpDelete("/integrations/notion").then((r) => r.status);
 
 // Sources (GDRIVE plan 04, architecture-notes B4). Bodies are returned as `unknown`: the http adapter (lib/data/http/sources.ts)
 // checks their shape. POSTs go through `call`, so they carry the CSRF header.
@@ -295,6 +310,10 @@ export const addJiraEpicSource = (pid: string, keyOrLink: string, exclude: reado
     `/projects/${encodeURIComponent(pid)}/sources/jira-epic`,
     json(exclude.length === 0 ? { key_or_link: keyOrLink } : { key_or_link: keyOrLink, exclude }),
   ).then((r) => r.body);
+export const checkNotionLink = (pid: string, link: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/notion/check`, json({ link })).then((r) => r.body);
+export const addNotionSource = (pid: string, link: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/notion`, json({ link })).then((r) => r.body);
 // Knowledge build (`/graph_build`): the GET is the build state, the POST starts a build. Bodies stay `unknown`; the knowledge port
 // (lib/data/http/knowledge.ts) checks their shape. The reasoning level is an integer 1..5 (the backend only logs it).
 export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);

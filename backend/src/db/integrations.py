@@ -1,9 +1,10 @@
 """Application-role data access for the project integrations (migration ``0008_project_integrations``).
 
-A row binds a member's per-user connection (Atlassian, GitHub) or Slack channel binding to a project: the member is the
-account every use of the app in the project acts as, and the row names the project's one workspace (Atlassian site,
-GitHub account, Slack workspace). The acting account the runners read stays where it was (``jira_targets``
-``connected_user_id``, ``project_repositories`` ``added_by``): ``point_*`` copies the bound member there.
+A row binds a member's per-user connection (Atlassian, GitHub, Notion) or Slack channel binding to a project: the
+member is the account every use of the app in the project acts as, and the row names the project's one workspace
+(Atlassian site, GitHub account, Slack workspace). The acting account the runners read stays where it was
+(``jira_targets`` ``connected_user_id``, ``project_repositories`` ``added_by``): ``point_*`` copies the bound member
+there.
 
 Same rules as ``db.atlassian``: every function runs inside the caller's session and transaction, flushes and never
 commits; every statement filters on the project it is given. Nothing here holds or logs a token.
@@ -20,9 +21,17 @@ from sqlalchemy import delete, exists, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import AtlassianConnection, GitHubConnection, JiraTarget, ProjectIntegration, ProjectRepository, User
+from db.models import (
+    AtlassianConnection,
+    GitHubConnection,
+    JiraTarget,
+    NotionConnection,
+    ProjectIntegration,
+    ProjectRepository,
+    User,
+)
 
-ATLASSIAN, GITHUB, SLACK = "atlassian", "github", "slack"
+ATLASSIAN, GITHUB, SLACK, NOTION = "atlassian", "github", "slack", "notion"
 
 
 class WorkspaceMismatchError(Exception):
@@ -76,6 +85,8 @@ async def _holds(session: AsyncSession, app: str, user_id: uuid.UUID) -> bool:
         probe = exists().where(AtlassianConnection.user_id == user_id, AtlassianConnection.status == "active")
     elif app == GITHUB:
         probe = exists().where(GitHubConnection.user_id == user_id, GitHubConnection.status == "active")
+    elif app == NOTION:
+        probe = exists().where(NotionConnection.user_id == user_id, NotionConnection.status == "active")
     else:
         return True
     return bool((await session.execute(select(probe))).scalar())

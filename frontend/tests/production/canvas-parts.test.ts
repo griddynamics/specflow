@@ -103,10 +103,10 @@ test("the plan is due for a replan only when a graph build finished after this s
   assert.equal(isPlanStale("t1", "t2", false), false, "no plan");
 });
 
-test("the registry lists each kind once, in V2's scope; only MCP is automatic, each kind has a mapper and the apps are the ones D20 allows", () => {
+test("the registry lists each kind once; only MCP is automatic, each kind has a mapper and the apps are the ones D20 and the Notion pull request allow", () => {
   assert.deepEqual(
     CONNECTORS.map((c) => c.kind),
-    ["upload", "gdrive", "github", "confluence", "jira_epic", "slack", "jira_gap", "jira", "github_plan", "mcp"],
+    ["upload", "gdrive", "github", "confluence", "jira_epic", "notion", "slack", "jira_gap", "jira", "github_plan", "notion_plan", "mcp"],
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === null).map((c) => c.kind),
@@ -114,13 +114,14 @@ test("the registry lists each kind once, in V2's scope; only MCP is automatic, e
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === "graph").map((c) => c.app),
-    [null, null, "github", "atlassian", "atlassian"],
+    [null, null, "github", "atlassian", "atlassian", "notion"],
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === "plan").map((c) => [c.kind, c.app]),
     [
       ["jira", "atlassian"],
       ["github_plan", "github"],
+      ["notion_plan", "notion"],
     ],
   );
   assert.equal(
@@ -128,9 +129,15 @@ test("the registry lists each kind once, in V2's scope; only MCP is automatic, e
     null,
     "the channel is the Slack integration: it is bound from inside Slack",
   );
-  assert.equal(NODE_MAPPERS.length, 10);
+  assert.equal(NODE_MAPPERS.length, 12);
   assert.equal(CONNECTORS.find((c) => c.kind === "gdrive")?.check?.add, "Add source");
   assert.equal(CONNECTORS.find((c) => c.kind === "jira")?.check?.test, "Check access");
+  assert.deepEqual(CONNECTORS.find((c) => c.kind === "notion")?.check, { test: "Check link", testing: "Checking…", add: "Add source" });
+  assert.deepEqual(CONNECTORS.find((c) => c.kind === "notion_plan")?.check, {
+    test: "Check access",
+    testing: "Checking…",
+    add: "Add destination",
+  });
   assert.deepEqual(CONNECTORS.find((c) => c.kind === "slack")?.check, { test: "Test connection", testing: "Posting…", add: "Add channel" });
 });
 

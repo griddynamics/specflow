@@ -66,6 +66,12 @@ export const CANVAS_COPY = {
   confluenceNote:
     "The page and its sub-pages, or every page of the space, are read once when it is added. Add the link again to read a newer version.",
   confluenceAdding: "Adding…",
+  // Notion link and plan destination
+  notionLink: "Notion page or database link",
+  notionNote:
+    "The page and its sub-pages, or every row of the database, are read once when it is added. Only pages you shared with Graphico when you connected Notion can be read.",
+  notionPlanParent: "Parent page link",
+  notionPlanNote: "The plan becomes a Notion database under a page you name. Stories and tasks are rows, kept up to date.",
   // Jira epic
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",
@@ -128,6 +134,10 @@ export const CANVAS_COPY = {
     "Press Choose repositories on GitHub. There, install the app on your account or organization and pick the repositories it may read.",
     "Return here and tick the repositories to add.",
   ],
+  howNotion: [
+    "Press Connect Notion and approve the access Graphico asks for with your own Notion account.",
+    "On Notion's page, tick the pages and databases Graphico may read and write. Graphico brings you back here.",
+  ],
   howAtlassian: [
     "Press Connect with Atlassian.",
     "Sign in to Atlassian and approve the access Graphico asks for.",
@@ -147,7 +157,7 @@ export const CANVAS_COPY = {
   app: "App",
   removeFailed: "It could not be removed. Try again.",
   // The files inside a source, and renaming an upload
-  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues" },
+  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues", notion: "Pages" },
   filesLabel: "Files in this source",
   filesNone: "Nothing in this source yet.",
   filesFailed: "The files could not be read.",

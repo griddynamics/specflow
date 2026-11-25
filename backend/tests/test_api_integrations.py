@@ -32,6 +32,7 @@ from atlassian_support import CLOUD, FakeAtlassianDb, FakeOAuthClient, oauth_env
 from github.connections import GitHubConnections
 from github_support import CODE_CANARY, USER_ID, FakeGitHub, MemoryStore, github_settings
 from integrations_db_fakes import FakeIntegrationsDb
+from notion_support import FakeNotionConnections
 from specflow_api_agent_support import ALPHA, agent_env, serve_agent
 from test_api_atlassian_routes import call, error_of
 
@@ -41,8 +42,8 @@ SITE_HOST = "example.atlassian.net"
 
 @pytest_asyncio.fixture
 async def rig(monkeypatch, valid_env, tmp_path):
-    """The app with Atlassian (oauth mode), GitHub and Slack on: ``rig.atlassian`` and ``rig.github_store`` hold the
-    members' connections, ``rig.integrations`` the project rows, ``rig.channels`` the Slack bindings."""
+    """The app with Atlassian (oauth mode), GitHub, Slack and Notion on: ``rig.atlassian`` and ``rig.github_store``
+    hold the members' connections, ``rig.integrations`` the project rows, ``rig.channels`` the Slack bindings."""
 
     async with serve_agent(monkeypatch, agent_env(valid_env, **oauth_env())) as served:
         atlassian = FakeAtlassianDb()
@@ -58,6 +59,7 @@ async def rig(monkeypatch, valid_env, tmp_path):
         github, store = FakeGitHub(), MemoryStore()
         github_connections = GitHubConnections(github_settings(), store=store.transaction, client=github.client())
         runtime.github = github_connections
+        runtime.notion = notion = FakeNotionConnections()
         channels = SlackChannels(tmp_path)
         runtime.slack = SimpleNamespace(threads=SimpleNamespace(channels=channels))
         ben = await repo.upsert_user(None, SimpleNamespace(subject=f"user:{BEN}", email=BEN, name=None))
@@ -73,6 +75,7 @@ async def rig(monkeypatch, valid_env, tmp_path):
             atlassian=atlassian,
             github=github,
             github_store=store,
+            notion=notion,
             integrations=integrations,
             channels=channels,
             alpha=alpha,
@@ -100,10 +103,10 @@ def apps(response: httpx.Response) -> dict[str, dict[str, Any]]:
 # GET ------------------------------------------------------------------------------------------------------------------
 
 
-async def test_a_project_without_connections_lists_the_three_apps_with_nothing_acting(rig) -> None:
+async def test_a_project_without_connections_lists_the_four_apps_with_nothing_acting(rig) -> None:
     answer = await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN)
 
-    assert [item["app"] for item in answer.json()["integrations"]] == ["atlassian", "github", "slack"]
+    assert [item["app"] for item in answer.json()["integrations"]] == ["atlassian", "github", "slack", "notion"]
     assert list(apps(answer).values()) == [
         {
             "app": app,
@@ -113,7 +116,7 @@ async def test_a_project_without_connections_lists_the_three_apps_with_nothing_a
             "connected_at": None,
             "health": "none",
         }
-        for app in ("atlassian", "github", "slack")
+        for app in ("atlassian", "github", "slack", "notion")
     ]
 
 
@@ -123,6 +126,8 @@ async def test_a_connected_app_names_the_member_its_workspace_and_the_health_of_
     rig.integrations.put(rig.alpha, "atlassian", rig.alice.id, workspace_id=CLOUD, workspace_name="stored")
     rig.integrations.put(rig.alpha, "github", rig.ben.id, workspace_id="octo-ben", workspace_name="octo-ben")
     rig.integrations.put(rig.alpha, "slack", rig.alice.id, workspace_id="T1", workspace_name="Shop")
+    rig.notion.users[rig.ben.id] = "active"
+    rig.integrations.put(rig.alpha, "notion", rig.ben.id, workspace_id="ws-1", workspace_name="Sample Workspace")
     await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
 
     listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN))
@@ -132,8 +137,10 @@ async def test_a_connected_app_names_the_member_its_workspace_and_the_health_of_
     assert listed["github"]["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
     assert listed["github"]["workspace"] == {"id": "octo-ben", "name": "octo-ben"}
     assert listed["slack"]["workspace"] == {"id": "T1", "name": "Shop"}
+    assert listed["notion"]["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
+    assert listed["notion"]["workspace"] == {"id": "ws-1", "name": "Sample Workspace"}
     assert {app: item["health"] for app, item in listed.items()} == dict.fromkeys(
-        ("atlassian", "github", "slack"), "active"
+        ("atlassian", "github", "slack", "notion"), "active"
     )
     assert all(item["connected_at"] is not None for item in listed.values())
 
@@ -155,12 +162,13 @@ async def test_an_expired_connection_asks_to_reconnect_and_a_missing_one_or_memb
 async def test_an_app_the_server_does_not_run_is_unavailable(rig) -> None:
     rig.runtime.github = None
     rig.runtime.slack = None
+    rig.runtime.notion = None
     rig.runtime.jira = SimpleNamespace(connections=None)  # token mode: one account for the server, no per-user ones
 
     listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))
 
     assert {app: item["available"] for app, item in listed.items()} == dict.fromkeys(
-        ("atlassian", "github", "slack"), False
+        ("atlassian", "github", "slack", "notion"), False
     )
 
 
@@ -321,7 +329,11 @@ async def test_removing_what_is_not_connected_is_404_and_an_unknown_app_is_422(r
         404,
         "integration_not_found",
     )
-    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")) == (422, "validation_failed")
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")) == (
+        404,
+        "integration_not_found",
+    )
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/linear")) == (422, "validation_failed")
 
 
 async def test_removing_slack_unbinds_its_channel(rig) -> None:

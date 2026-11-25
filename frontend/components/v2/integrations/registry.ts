@@ -1,10 +1,11 @@
 // The cards of the Integrations page, one per app. Later sessions that add a connector to an existing app change its Setup component;
-// a new app is one more entry here and in `lib/domain/integrations.ts` (no new app is in V2: D20).
+// a new app is one more entry here and in `lib/domain/integrations.ts` (Notion is the one added after V2: D20).
 import type { ComponentType } from "react";
 import type { VendorKind } from "@graphico/ui";
 import type { IntegrationApp } from "@/lib/domain/integrations";
 import { AtlassianSetup } from "./AtlassianSetup";
 import { GitHubSetup } from "./GitHubSetup";
+import { NotionSetup } from "./NotionSetup";
 import { SlackSetup } from "./SlackSetup";
 import type { SetupProps } from "./setup-props";
 
@@ -19,4 +20,5 @@ export const INTEGRATION_CARDS: readonly CardSpec[] = [
   { app: "atlassian", marks: ["jira", "confluence"], Setup: AtlassianSetup },
   { app: "github", marks: ["github"], Setup: GitHubSetup },
   { app: "slack", marks: ["slack"], Setup: SlackSetup },
+  { app: "notion", marks: ["notion"], Setup: NotionSetup },
 ];

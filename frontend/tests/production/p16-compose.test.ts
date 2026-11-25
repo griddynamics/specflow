@@ -59,6 +59,8 @@ const http: HttpPorts = {
     addConfluence: never,
     checkJiraEpic: never,
     addJiraEpic: never,
+    checkNotion: never,
+    addNotion: never,
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
@@ -83,6 +85,7 @@ const http: HttpPorts = {
   members: { list: never, add: never, remove: never, cancelInvite: never, leave: never, suggest: never },
   jira: { get: never, save: never, checkAccess: never, connection: never, authorize: never, disconnect: never },
   githubProjects: { get: never, projects: never, save: never, checkAccess: never },
+  notionPlan: { get: never, save: never, checkAccess: never },
   jiraGaps: { get: never, save: never, checkAccess: never },
   slack: { get: never, unbind: never, test: never },
   integrations: { list: never, connect: never, disconnect: never },
@@ -114,6 +117,7 @@ test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects
   assert.equal(ports.members, http.members);
   assert.equal(ports.jira, http.jira);
   assert.equal(ports.githubProjects, http.githubProjects);
+  assert.equal(ports.notionPlan, http.notionPlan);
   assert.equal(ports.jiraGaps, http.jiraGaps);
   assert.equal(ports.slack, http.slack);
   assert.equal(ports.github, http.github);
@@ -196,6 +200,7 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "knowledge",
       "members",
       "missionControl",
+      "notionPlan",
       "people",
       "plan",
       "projects",

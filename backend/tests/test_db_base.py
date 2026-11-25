@@ -73,6 +73,9 @@ def test_the_base_metadata_holds_exactly_the_app_tables() -> None:
         "jira_gap_issues",
         "github_project_targets",
         "github_project_items",
+        "notion_connections",
+        "notion_plan_targets",
+        "notion_plan_items",
     }
 
 
