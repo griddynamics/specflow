@@ -22,6 +22,8 @@ import {
   test,
 } from "./support";
 
+const SITE = "https://northwind.atlassian.net";
+const PAGE = `${SITE}/wiki/spaces/ORD/pages/12345/Checkout`;
 const ALEX = { user_id: "u-alex", name: "Alex Kim" };
 const CHANNEL = { id: "C0NWO", name: "northwind-specs", private: false };
 const running = (progress: { step: string; done: number; total: number } | null) => ({
@@ -39,6 +41,7 @@ const jiraTarget = (sync?: Record<string, unknown>) => ({
   sync,
 });
 const CHECK_ACCESS = "Check access";
+const CHECK_LINK = "Check link";
 const ADD_SELECTED = "Add selected";
 const button = (from: Pick<Page, "getByRole">, name: string | RegExp) => from.getByRole("button", { name });
 
@@ -304,6 +307,57 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     const detail = dialog(page, "ordering");
     await expect(detail.getByRole("button", { name: "Done" })).toBeVisible();
     await expect(detail.getByRole("button", { name: "Remove" })).toHaveCount(0);
+  });
+
+  test("Confluence: no Atlassian on the project says Set up first and comes back with the form open; a link is checked (the closed codes in words), then added as a source that imports its pages", async ({
+    page,
+    requests,
+  }) => {
+    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/); // the refused checks are answers
+    const pid = await canvas(page, unique("Confluence form"));
+    await page.getByRole("button", { name: ADD.source }).click();
+    const plus = dialog(page, "Add a source");
+    await expect(plus.getByRole("button", { name: /^Confluence link/ })).toContainText("Set up first");
+    await plus.getByRole("button", { name: /^Confluence link/ }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/projects/${pid}/integrations\\?setup=atlassian&next=%2Fprojects%2F${pid}%3Fadd%3Dconfluence$`),
+    );
+    await seedIntegrations({ pid, atlassian: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=confluence`);
+    const form = dialog(page, "Add a Confluence link");
+    await expect(form.getByRole("button", { name: CHECK_LINK })).toBeDisabled();
+    const link = form.getByLabel("Confluence page or space link");
+    for (const [text, words] of [
+      ["https://evil.example.com/wiki/spaces/ORD", /another Atlassian site/],
+      [`${SITE}/wiki/x/AbCdEf`, /Paste the full address/],
+      [`${SITE}/wiki/spaces/ORD/pages/404`, /no page or space at this link/],
+      [`${SITE}/wiki/spaces/ORD/pages/403`, /not allowed to read/],
+    ] as const) {
+      await link.fill(text);
+      await form.getByRole("button", { name: CHECK_LINK }).click();
+      await expect(form.getByRole("alert")).toContainText(words);
+      await expect(form.getByRole("button", { name: CHECK_LINK })).toBeVisible(); // still a check: nothing to add
+    }
+    await link.fill(PAGE);
+    await form.getByRole("button", { name: CHECK_LINK }).click();
+    await expect(form.getByText("Page Checkout notes · 4 pages, 3 linked Jira issues.")).toBeVisible();
+    await expect(form.getByRole("button", { name: "Add source" })).toBeVisible();
+    await form.getByLabel("Follow links to other pages and Jira issues").uncheck(); // a different choice is a new check
+    await expect(form.getByRole("button", { name: CHECK_LINK })).toBeVisible();
+    await form.getByRole("button", { name: CHECK_LINK }).click();
+    await expect(form.getByText("Page Checkout notes · 4 pages.")).toBeVisible();
+    await form.getByRole("button", { name: "Add source" }).click();
+    await expect(form).toBeHidden();
+    const node = nodes(page).filter({ hasText: "Checkout notes" });
+    await expect(node).toHaveAttribute(STATE, "busy");
+    await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
+    await expect(node).toContainText("4 pages · Confluence");
+    const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/confluence`);
+    expect(bodiesOf(adds)).toEqual([{ link: PAGE, follow: false }]);
+    await node.getByRole("button").click();
+    const detail = dialog(page, "Checkout notes");
+    await expect(detail.getByText(/^4 pages\. Imported when it was added/)).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Remove" })).toBeVisible();
   });
 
   test("Slack: the form shows the invite and the connect command, waits, and names the channel once it is bound in Slack, then Test connection posts the welcome message (or says why not) and Add channel closes; the channel is a node under Gap", async ({

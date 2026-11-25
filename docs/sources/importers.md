@@ -45,6 +45,8 @@ Rules shared by every importer:
 `POST /projects/{pid}/sources/confluence/check` and `POST /projects/{pid}/sources/confluence`, both
 `{link, follow}`, any member. Shapes and codes: [integrations-api.md](../mission-control/integrations-api.md) "Confluence source".
 
+**In the canvas** (the plus of the Graph stage, "Confluence link"; it needs the project's Atlassian integration, else the card says "Set up first" and returns with the form open): a link field and "Follow links" (on), **Check link** (counts the pages an import would take, and with follow the Jira issues the first page links to), then **Add source**. Changing the link or the choice asks for a new check. A refused check or add says its closed code in words (another site, a short link, not found, not allowed, Atlassian not connected or in need of a reconnect). The node is named after the page or space and counts pages while it imports; it stops only when the API reports the import failed (`no_access` offers Reconnect Atlassian). Remove deletes the source and its documents; to read a changed page, add the link again.
+
 | Link | Imports |
 |---|---|
 | a page URL (`/wiki/spaces/<KEY>/pages/<id>/<title>`, `/wiki/pages/viewpage.action?pageId=<id>`) | the page and every page below it (descendants; folders, databases and whiteboards are left out) |

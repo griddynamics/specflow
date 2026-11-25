@@ -52,6 +52,12 @@ export const CANVAS_COPY = {
   githubChoose: "Choose on GitHub in Integrations.",
   githubLegend: "From your GitHub account",
   githubConnectFirst: "Connect your own GitHub account in Integrations first.",
+  // Confluence link
+  confluenceLink: "Confluence page or space link",
+  confluenceFollow: "Follow links to other pages and Jira issues",
+  confluenceNote:
+    "The page and its sub-pages, or every page of the space, are read once when it is added. Add the link again to read a newer version.",
+  confluenceAdding: "Adding…",
   // Slack channel
   slackInvite: "In Slack, invite the app to the channel where the people who can answer talk.",
   slackConnect: "In the same channel, connect it to this project. One channel per project.",

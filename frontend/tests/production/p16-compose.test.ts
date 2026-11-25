@@ -54,6 +54,8 @@ const http: HttpPorts = {
     driveIdentity: never,
     testDrive: never,
     saveDrive: never,
+    checkConfluence: never,
+    addConfluence: never,
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },

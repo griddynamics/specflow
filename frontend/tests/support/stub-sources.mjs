@@ -42,7 +42,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     const b = batchesOf(pid).find((x) => x.id === id);
     if (b) return { id: b.id, kind: "upload", name: "Local files", name_suffix: b.suffix, created_at: b.created_at };
     const row = sourcesOf(pid).find((x) => x.id === id);
-    return row ? { id: row.id, kind: "gdrive", name: row.name, name_suffix: 1, created_at: row.created_at } : null;
+    return row ? { id: row.id, kind: row.kind ?? "gdrive", name: row.name, name_suffix: 1, created_at: row.created_at } : null;
   };
   const fileOfItem = (pid, item) => {
     if (item.fixed)
@@ -112,7 +112,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     const total = STATES.reduce((n, s) => n + counts[s], 0);
     return {
       id: row.id,
-      kind: "gdrive",
+      kind: row.kind ?? "gdrive",
       name: row.name,
       name_suffix: 1,
       added_by: { ...USER, id: row.connected_by },

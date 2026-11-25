@@ -15,13 +15,20 @@ export const NOW = new Date("2026-10-26T09:05:00Z");
 export const STARTED = "2026-10-26T09:00:00Z";
 export const FINISHED = "2026-10-26T09:12:00Z";
 
+const NAMES = { gdrive: "Specs folder", upload: "Local files", confluence: "Ordering space" } as const;
+
 /** One source of the sources API (`GET /sources?batches=1`): `kind` upload or gdrive, files by state. */
-export const wireSource = (id: string, kind: "upload" | "gdrive", counts: Partial<typeof COUNTS>, over: Record<string, unknown> = {}) => {
+export const wireSource = (
+  id: string,
+  kind: "upload" | "gdrive" | "confluence",
+  counts: Partial<typeof COUNTS>,
+  over: Record<string, unknown> = {},
+) => {
   const c = { ...COUNTS, ...counts };
   return {
     id,
     kind,
-    name: kind === "gdrive" ? "Specs folder" : "Local files",
+    name: NAMES[kind],
     name_suffix: 1,
     added_by: { id: "u1", display_name: "dev" },
     created_at: `2026-10-26T08:0${id.slice(-1)}:00Z`,

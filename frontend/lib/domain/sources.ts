@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload";
+export type SourceKind = LinkKind | "upload" | "confluence";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;
@@ -233,6 +233,21 @@ export interface UploadReport {
   tooLarge?: TooLargeFile[]; // the refused files among `notAdded` that are over their cap; absent when none
 }
 
+/** What a Confluence link import needs: the link as pasted and whether the pages and Jira issues it links to are read too (one hop). */
+export interface ConfluenceInput {
+  link: string;
+  follow: boolean;
+}
+/** What the check of a Confluence link found, nothing stored: a page (with its descendants) or a space; `pages` an import would take (at most
+ * the cap), `capped` = there are more; `linkedIssues` the Jira issues the first page links to (only with follow). */
+export interface ConfluenceCheck {
+  kind: "page" | "space";
+  title: string;
+  pages: number;
+  capped: boolean;
+  linkedIssues: number;
+}
+
 /** Collect side (D1, D6, D7): sources, sync, access, uploads and removal. The status read carries the counts per source; `files` the
  * file list of one source (sources-ux). */
 export interface SourcesPort {
@@ -256,6 +271,11 @@ export interface SourcesPort {
   testDrive(projectId: string, link: string): Promise<DriveTestResult>;
   /** Adds the folder as a source and starts its import (FR-GDUI-0017). The UI owns the 60 s and 30 s cutoffs. */
   saveDrive(projectId: string, link: string): Promise<DriveSaveResult>;
+  /** Reads a Confluence page or space link of the project's Atlassian site and counts what an import would take; stores nothing. A refusal rejects
+   * a `DataError` whose `detail.apiCode` is the closed code (`confluence_not_found`, `atlassian_not_connected`, ...). */
+  checkConfluence(projectId: string, input: ConfluenceInput): Promise<ConfluenceCheck>;
+  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
+  addConfluence(projectId: string, input: ConfluenceInput): Promise<void>;
 }
 
 /** The source-aware Mission Control port (D9, D11): project status and knowledge builds. */

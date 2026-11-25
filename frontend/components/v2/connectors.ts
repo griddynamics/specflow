@@ -1,9 +1,10 @@
 // The connector registry (06a, D5, D20): every kind of connection the canvas offers, in the order its plus dialog lists them. Only kinds of
-// V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b); the Confluence
-// link, Jira epic, Jira for gaps and GitHub Projects in the sessions of those connectors. To add one: write its form component and its node
+// V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
+// link (08); the Jira epic, Jira for gaps and GitHub Projects in the sessions of those connectors. To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
-import { driveNodes, uploadNodes } from "./canvas/nodes-sources";
+import { confluenceNodes, driveNodes, uploadNodes } from "./canvas/nodes-sources";
 import { githubNodes } from "./canvas/nodes-github";
+import { ConfluenceForm } from "./canvas/ConfluenceForm";
 import { jiraNodes } from "./canvas/nodes-jira";
 import { slackNodes } from "./canvas/nodes-slack";
 import { GitHubForm } from "./canvas/GitHubForm";
@@ -51,6 +52,18 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     check: null,
     Form: GitHubForm,
     nodes: githubNodes,
+  },
+  {
+    kind: "confluence",
+    zone: "graph",
+    name: "Confluence link",
+    line: "A page or a space, following its links",
+    mark: "confluence",
+    app: "atlassian",
+    title: "Add a Confluence link",
+    check: { test: "Check link", testing: "Checking…", add: "Add source" },
+    Form: ConfluenceForm,
+    nodes: confluenceNodes,
   },
   // The Slack channel IS the project's Slack integration (it is bound from inside Slack), so the form needs no app first.
   {

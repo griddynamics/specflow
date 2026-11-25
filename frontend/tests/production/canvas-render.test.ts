@@ -120,17 +120,17 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
   };
   assert.deepEqual(
     [...view.graph.matchAll(/<b>([^<]+)<\/b>/g)].map((m) => m[1]),
-    ["Upload", "Google Drive", "GitHub repository", "Slack channel", "Jira"],
+    ["Upload", "Google Drive", "GitHub repository", "Confluence link", "Slack channel", "Jira"],
     "its own stage first, then the others",
   );
-  assert.equal(count(view.graph, "Available"), 3);
+  assert.equal(count(view.graph, "Available"), 4);
   assert.equal(count(view.graph, "MCP"), 0);
   assert.match(view.gap, /<b>Slack channel<\/b>/);
   assert.doesNotMatch(view.gap, /Nothing can be added/);
   assert.match(view.none, /Nothing can be added to this stage yet/);
   assert.match(view.gap, /Connections for the other stages<\/summary>/);
-  assert.equal(count(view.gap, 'aria-disabled="true"'), 4);
-  assert.equal(count(view.gap, "For Graph"), 3);
+  assert.equal(count(view.gap, 'aria-disabled="true"'), 5);
+  assert.equal(count(view.gap, "For Graph"), 4);
   assert.equal(count(view.gap, "For Plan"), 1);
 });
 

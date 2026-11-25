@@ -199,6 +199,16 @@
       "path": "/projects/{pid}/sources/gdrive/test"
     },
     {
+      "id": "add_confluence_source_api_v1_projects__pid__sources_confluence_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/confluence"
+    },
+    {
+      "id": "check_confluence_link_api_v1_projects__pid__sources_confluence_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/confluence/check"
+    },
+    {
       "id": "start_upload_batch_api_v1_projects__pid__sources_uploads_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/uploads"

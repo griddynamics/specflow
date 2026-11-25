@@ -9,6 +9,8 @@
 //  - Links are never logged or rebuilt: `SourceOut.link` is used as it comes.
 import {
   addBatchFile,
+  addConfluenceSource,
+  checkConfluenceLink,
   endBatch,
   getDriveIdentity,
   listSourceFiles,
@@ -30,6 +32,7 @@ import {
   type DriveReason,
   type DriveSaveResult,
   type DriveTestResult,
+  type ConfluenceCheck,
   type ProcessingClass,
   type SourcesPort,
   type UploadReport,
@@ -264,5 +267,32 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         return { ok: false, reason: reasonOfError(e) };
       }
     },
+    async checkConfluence(projectId, { link, follow }) {
+      return toConfluenceCheck(await guard(() => checkConfluenceLink(projectId, link, follow)));
+    },
+    async addConfluence(projectId, { link, follow }) {
+      try {
+        await guard(() => addConfluenceSource(projectId, link, follow));
+      } finally {
+        opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
+      }
+    },
   };
+}
+
+/** `POST .../sources/confluence/check` -> `ConfluenceCheck`; any other shape is `invalid_response`. */
+export function toConfluenceCheck(body: unknown): ConfluenceCheck {
+  expectShape(
+    isRecord(body) &&
+      (body.kind === "page" || body.kind === "space") &&
+      isString(body.title) &&
+      typeof body.pages === "number" &&
+      Number.isInteger(body.pages) &&
+      body.pages >= 0 &&
+      typeof body.capped === "boolean" &&
+      typeof body.linked_issues === "number" &&
+      Number.isInteger(body.linked_issues) &&
+      body.linked_issues >= 0,
+  );
+  return { kind: body.kind, title: body.title, pages: body.pages, capped: body.capped, linkedIssues: body.linked_issues };
 }

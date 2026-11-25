@@ -7,9 +7,10 @@ import { cardView, failedCardLine } from "@/components/mission-control/sources/s
 import { fullSourceName, progressOf, sourceState } from "@/lib/domain/source-state";
 import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
+import { CONFLUENCE_WORDS } from "./confluence-logic";
 import type { ConnectorKind, NodeMapper, NodeView, Stages } from "./canvas-types";
 
-const APP_NAME: Partial<Record<SourceKind, string>> = { upload: "Upload", gdrive: "Google Drive" };
+const APP_NAME: Partial<Record<SourceKind, string>> = { upload: "Upload", gdrive: "Google Drive", confluence: "Confluence" };
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 
@@ -21,6 +22,21 @@ export function uploadName(s: Pick<Source, "addedAt" | "nameSuffix">, now: Date)
   return `Upload ${sameDay ? clock(s.addedAt) : DAY.format(added)}${suffix}`;
 }
 
+/** A Confluence source counts pages where the others count files. */
+export const unitText = (kind: SourceKind, text: string): string =>
+  kind === "confluence" ? text.replaceAll(/\bfile(s?)\b/g, "page$1") : text;
+
+/** Why a source stopped, in words: Drive's reasons, or for Confluence what the closed failure reason means (`no_access`, else a failed import). */
+function stoppedWords(s: Source, kind: SourceKind): { meta: string; text: string } {
+  if (kind === "confluence") {
+    return s.failure === "no_access"
+      ? { meta: CONFLUENCE_WORDS.noAccessMeta, text: CONFLUENCE_WORDS.noAccess }
+      : { meta: CONFLUENCE_WORDS.failedMeta, text: CONFLUENCE_WORDS.failed };
+  }
+  const meta = failedCardLine(s);
+  return { meta, text: s.failure === null ? meta : driveReasonMessage(s.failure, null) };
+}
+
 function sourceNode(s: Source, kind: ConnectorKind & SourceKind, stages: Stages, now: Date): NodeView {
   const state = sourceState(s);
   const card = cardView(s);
@@ -30,7 +46,7 @@ function sourceNode(s: Source, kind: ConnectorKind & SourceKind, stages: Stages,
   const detail = { app, by: `${V2_COPY.addedBy} ${s.addedBy.name}`, remove: "source", reconnect: null } as const;
   const base = { id: s.id, kind, zone: "graph", mark: kind, name, tag: undefined, addedAt: s.addedAt } as const;
   if (state === "processing") {
-    const meta = card.countLine;
+    const meta = unitText(kind, card.countLine);
     const text = s.listing ? LISTING : `Importing: ${meta}`;
     return {
       ...base,
@@ -45,8 +61,7 @@ function sourceNode(s: Source, kind: ConnectorKind & SourceKind, stages: Stages,
     };
   }
   if (state === "failed") {
-    const meta = failedCardLine(s);
-    const text = s.failure === null ? meta : driveReasonMessage(s.failure, null);
+    const { meta, text } = stoppedWords(s, kind);
     return {
       ...base,
       meta,
@@ -56,10 +71,11 @@ function sourceNode(s: Source, kind: ConnectorKind & SourceKind, stages: Stages,
       listing: false,
       label: `${named}: ${meta}`,
       wire: "off",
-      detail: { ...detail, text },
+      detail: { ...detail, text, reconnect: kind === "confluence" && s.failure === "no_access" ? "atlassian" : null },
     };
   }
-  const meta = `${card.countLine} · ${app}`;
+  const count = unitText(kind, card.countLine);
+  const meta = `${count} · ${app}`;
   return {
     ...base,
     meta,
@@ -67,16 +83,17 @@ function sourceNode(s: Source, kind: ConnectorKind & SourceKind, stages: Stages,
     badge: "ok",
     progress: null,
     listing: false,
-    label: `${named}: ${card.countLine}`,
+    label: `${named}: ${count}`,
     wire: stages.graphBuilding ? "flow" : "on",
-    detail: { ...detail, text: `${card.countLine}. ${V2_COPY.importedOnce}` },
+    detail: { ...detail, text: `${count}. ${V2_COPY.importedOnce}` },
   };
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
 export const uploadNodes: NodeMapper = sourcesOf("upload");
 export const driveNodes: NodeMapper = sourcesOf("gdrive");
+export const confluenceNodes: NodeMapper = sourcesOf("confluence");

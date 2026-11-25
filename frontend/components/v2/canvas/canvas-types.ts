@@ -13,7 +13,7 @@ export type ZoneId = CanvasZoneId;
 
 /** The kinds of connection the canvas knows. A session that registers one adds its name here, its spec to `connectors.ts` and its node
  * mapper to the list `CONNECTORS` gives the model. */
-export type ConnectorKind = "upload" | "gdrive" | "github" | "slack" | "jira" | "mcp";
+export type ConnectorKind = "upload" | "gdrive" | "github" | "confluence" | "slack" | "jira" | "mcp";
 
 /** What the open gaps say, from `gaps.check` and the first page of `gaps.list` (`more`: the page was full, so the counts are "at least"). */
 export interface GapsSummary {
