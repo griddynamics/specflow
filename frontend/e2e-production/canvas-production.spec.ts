@@ -16,6 +16,10 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
       await expect(hub(page, id)).toHaveAttribute(STATE, "off");
       await expect(hub(page, id)).toHaveAttribute(YELLOW, "false");
     }
+    // One line: the three hubs are on the same horizontal axis.
+    const hubs = await Promise.all((["graph", "gap", "plan"] as const).map((id) => hub(page, id).boundingBox()));
+    const axes = hubs.map((b) => (b === null ? Number.NaN : b.y + b.height / 2));
+    expect(Math.max(...axes) - Math.min(...axes)).toBeLessThanOrEqual(1);
     await expect(nodes(page)).toHaveCount(0);
     for (const key of ["graph-gap", "gap-plan"]) await expect(wire(page, key)).toHaveAttribute(MOTION, "off");
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(0);
@@ -78,6 +82,15 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(page.getByText("Update graph")).toHaveCount(0);
     await expect(page.getByTestId("hub-plan")).not.toContainText("Build plan");
     await expect(v2Header(page).getByRole("link", { name: "Mission Control" })).toHaveAttribute("aria-current", "page");
+  });
+
+  test("four sources do not push the plus off the screen: its label stays fully visible", async ({ page }) => {
+    const pid = await canvas(page, unique("Four sources"));
+    for (let i = 0; i < 4; i += 1) await seedSource(pid, { kind: "upload", files: done(1) });
+    await page.goto(`/projects/${pid}`);
+    await expect(nodes(page)).toHaveCount(4);
+    await expect(page.getByText(ADD.source, { exact: true })).toBeInViewport({ ratio: 1 });
+    await expect(nodes(page).last()).toBeInViewport({ ratio: 1 });
   });
 
   test("the plus dialog lists its stage first, the others dashed; a connection that needs an app says Set up first; MCP is not listed", async ({

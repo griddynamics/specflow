@@ -139,6 +139,13 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await page.keyboard.press("Tab");
     await expect(menu).toHaveCount(0);
     await projectsButton(page).click();
+    // Safari and Firefox on macOS do not focus a button on click: the list is blurred with no related target before the click lands.
+    await page.evaluate(() => {
+      for (const item of document.querySelectorAll('[role="menuitemradio"]'))
+        item.addEventListener("mousedown", () => {
+          if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        });
+    });
     await menu.getByRole("menuitemradio", { name: b.name, exact: true }).click();
     await expect(page).toHaveURL(CANVAS(b.id));
     await expect(projectsButton(page)).toHaveText(b.name);

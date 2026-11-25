@@ -87,6 +87,10 @@ export const V2_COPY = {
     slack_not_in_channel: "The app is not in the channel any more. Invite it again.",
     slack_unreachable: "Slack could not be reached. Try again.",
   },
+  readOnlyGithub: "Only the project's owner can add repositories.",
+  readOnlyJira: "Only the project's owner can change where the plan goes.",
+  planRunning: "A plan is already being made. Wait for it to finish.",
+  slackUnreachable: "Slack could not be checked just now. The form keeps trying; run the command in the channel when you can.",
   slackLanding: {
     linked: "Slack linked to your account. Run the connect command in the channel again.",
     slack_link_invalid: "The Slack link expired. Run /specflow link in Slack again.",

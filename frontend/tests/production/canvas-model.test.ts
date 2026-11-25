@@ -258,3 +258,21 @@ test("every node of a source reads the same text as the V1 card and names its ap
   assert.match(upload.name, /^Upload /, "short enough for a node: no long stamp");
   assert.equal(upload.label.startsWith("Upload "), true);
 });
+
+test("a build just started here shows busy at once, with no decision, until the status catches up", () => {
+  const m = model(input({ ...SCENE_3, pending: { build: true, plan: false } }));
+  assert.equal(m.hubs.graph.state, "busy");
+  assert.equal(m.hubs.graph.decision, undefined);
+  assert.equal(m.hubs.graph.progress, "unknown");
+  assert.equal(yellows(m), 0);
+  assert.equal(wire(m, "s1"), "flow");
+  assert.equal(model(SCENE_3).hubs.graph.decision?.label, "Build graph");
+});
+
+test("a plan just started here shows busy at once and offers no decision, with the wire from Gap moving", () => {
+  const m = model(BUILT({ gaps: GAPS, pending: { build: false, plan: true } }));
+  assert.equal(m.hubs.plan.state, "busy");
+  assert.equal(m.hubs.plan.decision, undefined);
+  assert.equal(wire(m, "gap-plan"), "flow");
+  assert.equal(yellows(m), 0);
+});

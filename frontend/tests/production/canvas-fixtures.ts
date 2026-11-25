@@ -92,6 +92,7 @@ export const READY_PLAN: PlanState = {
 
 export const input = (over: Partial<CanvasInput> = {}): CanvasInput => ({
   now: NOW,
+  pending: { build: false, plan: false },
   status: null,
   gaps: null,
   gapRows: [],

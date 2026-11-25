@@ -16,14 +16,17 @@ export function BuildDialog({
   projectId,
   status,
   update,
+  onStarted,
   onClose,
-}: Readonly<{ projectId: string; status: ProjectSourcesStatus; update: boolean; onClose: () => void }>) {
+}: Readonly<{ projectId: string; status: ProjectSourcesStatus; update: boolean; onStarted: () => void; onClose: () => void }>) {
   const { knowledge } = useV2Ports();
   const build = useBuild(knowledge, projectId);
   const [level, setLevel] = useState<ReasoningLevel>(DEFAULT_LEVEL);
   const docs = status.totals.documents;
+  // The nodes count files, so the text does: the files that are done.
+  const files = status.sources.reduce((n, s) => n + s.counts.done, 0);
   const intro = (update ? CANVAS_COPY.updateIntro : CANVAS_COPY.buildIntro)
-    .replace("{docs}", plural(docs, "document"))
+    .replace("{docs}", plural(files, "file"))
     .replace("{sources}", plural(status.sources.length, "source"));
   return (
     <Stack>
@@ -57,6 +60,7 @@ export function BuildDialog({
         <Button
           variant="yellow"
           onClick={() => {
+            onStarted();
             void build(level);
             onClose();
           }}

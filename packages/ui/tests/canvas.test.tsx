@@ -154,3 +154,20 @@ test("canvas.css: every animation stops under reduced motion, a moving wire beco
   assert.equal(yellowRules.length, 1);
   assert.match(yellowRules[0] ?? "", /\.gx-hub\[data-yellow="true"\] \.gx-hub__tile/);
 });
+
+test("a dense column packs four sources or more; the pill has a paper ring that keeps it apart from an ink hub; a command wraps instead of being cut off", () => {
+  assert.match(
+    html(
+      <CanvasColumn variant="scroll" dense>
+        x
+      </CanvasColumn>,
+    ),
+    /class="gx-col gx-col--scroll gx-col--dense"/,
+  );
+  assert.doesNotMatch(html(<CanvasColumn variant="scroll">x</CanvasColumn>), /dense/);
+  const pill = css.slice(css.indexOf(".gx-hub__pill {"), css.indexOf("}", css.indexOf(".gx-hub__pill {")));
+  assert.match(pill, /box-shadow: 0 0 0 3px var\(--gx-paper\)/);
+  const text = css.slice(css.indexOf(".gx-copyrow__text {"), css.indexOf("}", css.indexOf(".gx-copyrow__text {")));
+  assert.match(text, /overflow-wrap: anywhere/);
+  assert.doesNotMatch(text, /white-space: nowrap|overflow-x/);
+});

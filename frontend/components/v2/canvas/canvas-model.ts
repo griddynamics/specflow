@@ -26,9 +26,9 @@ export function stagesOf(input: CanvasInput): Stages {
   const built = input.status?.ready === true;
   return {
     built,
-    graphBuilding: input.status?.build != null,
+    graphBuilding: input.status?.build != null || input.pending.build,
     gapsFound: built && input.gaps !== null && GAP_RUN_DONE.has(input.gaps.phase),
-    planBuilding: input.plan?.phase === "creating",
+    planBuilding: input.plan?.phase === "creating" || input.pending.plan,
     planOn: input.plan?.phase === "ready",
   };
 }
@@ -50,7 +50,7 @@ export function sourcesChanged(status: ProjectSourcesStatus): boolean {
 export function graphDecisionOf(input: CanvasInput): Decision | null {
   const s = input.status;
   if (s === null) return null;
-  const view = buildButtonView(s, input.now);
+  const view = buildButtonView(s, input.now, input.pending.build);
   if (view.mode === null || view.busy) return null;
   if (view.mode === "first") return { label: "Build graph", yellow: true };
   return s.buildFailure !== null || sourcesChanged(s) ? { label: "Update graph", yellow: true } : null;
@@ -71,7 +71,7 @@ function graphHub(input: CanvasInput, stages: Stages, decision: Decision | null)
   const base = { id: "graph", label: NAMES.graph, progress: null } as const;
   const s = input.status;
   if (s === null || s.sources.length === 0) return { ...base, state: "off", tooltip: "Add a source to start" };
-  const view = buildButtonView(s, input.now);
+  const view = buildButtonView(s, input.now, input.pending.build);
   if (stages.graphBuilding) return { ...base, state: "busy", tooltip: view.detail, progress: "unknown" };
   const importing = s.sources.filter((x) => sourceState(x) === "processing").length;
   if (importing > 0) return { ...base, state: "wait", tooltip: `Importing ${String(importing)} of ${plural(s.sources.length, "source")}…` };
@@ -102,6 +102,7 @@ function planHub(input: CanvasInput, stages: Stages, decision: Decision | null):
   if (plan?.phase === "creating") {
     return { ...base, state: "busy", tooltip: "Planning stories and tasks", progress: plan.total > 0 ? plan.step / plan.total : "unknown" };
   }
+  if (stages.planBuilding) return { ...base, state: "busy", tooltip: "Planning stories and tasks", progress: "unknown" };
   if (plan?.phase === "ready") {
     const quality = `${plural(plan.plan.stories.length, "story", "stories")} · ${plural(plan.plan.tasks.length, "task")}`;
     if (decision !== null) return { ...base, state: "ready", tooltip: `New information · ${quality}`, decision };

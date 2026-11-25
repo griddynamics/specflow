@@ -43,6 +43,8 @@ export interface CanvasInput {
   /** The open gaps of the first page, for the Gaps dialog. */
   gapRows: readonly GapRow[];
   plan: PlanState | null;
+  /** A build or a plan was just started here and the status has not shown it yet: the hub already looks busy and offers no decision. */
+  pending: { build: boolean; plan: boolean };
   /** A graph build finished after the plan was seen: the plan is due for a replan (D9). */
   planStale: boolean;
   integrations: readonly Integration[] | null;

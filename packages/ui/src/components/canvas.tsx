@@ -153,12 +153,13 @@ export function CanvasZone({
 
 const COLUMN_CLASS = { plain: "", scroll: "gx-col--scroll", row: "gx-col--row" } as const;
 
-/** A column of a zone; `row` is the gap stage's row of channels under its hub; `scroll` scrolls when the sources outgrow the screen. */
+/** A column of a zone; `dense` packs four sources or more tighter; `row` is the gap stage's row of channels under its hub; `scroll` scrolls when the sources outgrow the screen. */
 export function CanvasColumn({
   variant = "plain",
+  dense = false,
   children,
-}: Readonly<{ variant?: "plain" | "scroll" | "row"; children: ReactNode }>): JSX.Element {
-  return <div className={cx("gx-col", COLUMN_CLASS[variant])}>{children}</div>;
+}: Readonly<{ variant?: "plain" | "scroll" | "row"; dense?: boolean; children: ReactNode }>): JSX.Element {
+  return <div className={cx("gx-col", COLUMN_CLASS[variant], dense && "gx-col--dense")}>{children}</div>;
 }
 
 export interface HubProps {

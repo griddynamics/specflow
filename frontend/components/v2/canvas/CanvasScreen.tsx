@@ -36,7 +36,7 @@ function useReturnedForm(projectId: string, onOpen: (state: DialogState) => void
 
 export function CanvasScreen({ mcp }: Readonly<{ mcp: McpAddress }>) {
   const { projectId } = useParams<{ projectId: string }>();
-  const { input, reload } = useCanvasData(projectId);
+  const { input, reload, markBuild, markPlan } = useCanvasData(projectId);
   const model = useMemo(() => buildCanvasModel(input, NODE_MAPPERS), [input]);
   const rootRef = useRef<HTMLElement>(null);
   const geometry = useCanvasGeometry(rootRef, model.wires, model.reveal);
@@ -67,7 +67,16 @@ export function CanvasScreen({ mcp }: Readonly<{ mcp: McpAddress }>) {
               };
         }}
       />
-      <CanvasDialogs projectId={projectId} mcp={mcp} reload={reload} input={input} model={model} state={dialog} onState={setDialog} />
+      <CanvasDialogs
+        projectId={projectId}
+        mcp={mcp}
+        reload={reload}
+        input={input}
+        model={model}
+        state={dialog}
+        onState={setDialog}
+        onStarted={{ build: markBuild, plan: markPlan }}
+      />
     </>
   );
 }

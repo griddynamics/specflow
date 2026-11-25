@@ -47,9 +47,10 @@ export const CANVAS_COPY = {
   // GitHub repository
   githubTitle: "Add repositories",
   githubNote: "Each repository becomes its own node. It is cloned; the build does not read it yet.",
-  githubAdd: "Add repositories",
+  githubAdd: "Add selected",
   githubAdding: "Adding…",
-  githubChoose: "Choose repositories on GitHub in Integrations.",
+  githubChoose: "Choose on GitHub in Integrations.",
+  githubLegend: "From your GitHub account",
   githubConnectFirst: "Connect your own GitHub account in Integrations first.",
   // Slack channel
   slackInvite: "In Slack, invite the app to the channel where the people who can answer talk.",
@@ -100,7 +101,7 @@ export const CANVAS_COPY = {
   planFailed: "The plan could not be started. Try again.",
   // Gaps
   gapsTitle: "Gaps",
-  gapsCriticalTitle: "{n} critical gaps",
+  gapsCriticalLine: "{n} of them critical: they block the work they are about until they are answered.",
   gapsIntro: "Gaps are answered where the people are: in Slack, in Jira, or by a coding agent over MCP.",
   gapsNone: "No gap is open.",
   gapsMore: "and {n} more",

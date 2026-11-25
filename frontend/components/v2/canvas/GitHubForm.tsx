@@ -1,7 +1,8 @@
 "use client";
 // GitHub repository: the repositories the caller's GitHub connection can read and the project does not have yet. Each one picked is added to
 // the project (its clone check starts) and becomes its own node. The build does not read the clone (D19). Which repositories the app may see
-// is chosen on GitHub, from Integrations.
+// is chosen on GitHub, from Integrations. What the API says about the caller decides what the form offers: a member it refuses sees one
+// read-only line (`canManage`), nothing is guessed from a role here.
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button, Notice, PickList, PickRow } from "@graphico/ui";
@@ -13,14 +14,21 @@ import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
 
-interface Offer {
+export interface Offer {
   active: boolean;
+  /** The caller may add repositories (`github.list`'s `canManage`). */
+  canManage: boolean;
   rows: Pick[];
 }
 
 /** What the picker offers: the repositories the caller can read, minus those the project has; the ones over the size cap are listed but not pickable. */
-function offerOf(active: boolean, available: GitHubRepositoryList, added: ReadonlySet<number>): Offer {
-  return { active, rows: pickRowsOf(available.repositories, "", added).filter((r) => r.blocked !== "added") };
+export function offerOf(active: boolean, canManage: boolean, available: GitHubRepositoryList, added: ReadonlySet<number>): Offer {
+  return { active, canManage, rows: pickRowsOf(available.repositories, "", added).filter((r) => r.blocked !== "added") };
+}
+
+/** After a failed add: the offer without the repositories that did get in, and the picks without them. */
+export function withoutAdded(offer: Offer, added: ReadonlySet<number>): Offer {
+  return { ...offer, rows: offer.rows.filter((r) => !added.has(r.repo.githubRepoId)) };
 }
 
 export function GitHubForm({ projectId, reload, onBack, onClose }: Readonly<FormProps>) {
@@ -35,8 +43,9 @@ export function GitHubForm({ projectId, reload, onBack, onClose }: Readonly<Form
     let alive = true;
     Promise.all([github.connection(), github.available(), github.list(projectId)]).then(
       ([connection, available, list]) => {
-        if (alive)
-          setOffer(offerOf(githubRowOf(connection).kind === "connected", available, new Set(list.repositories.map((r) => r.githubRepoId))));
+        if (!alive) return;
+        const added = new Set(list.repositories.map((r) => r.githubRepoId));
+        setOffer(offerOf(githubRowOf(connection).kind === "connected", list.canManage, available, added));
       },
       () => {
         if (alive) setOffer("failed");
@@ -50,12 +59,20 @@ export function GitHubForm({ projectId, reload, onBack, onClose }: Readonly<Form
   const add = async () => {
     setBusy(true);
     setProblem(null);
+    const added = new Set<number>();
     try {
-      for (const id of picked) await github.add(projectId, id);
+      for (const id of picked) {
+        await github.add(projectId, id);
+        added.add(id);
+      }
       reload.current();
       onClose();
     } catch (e) {
+      // Some may be in: read the canvas again, and leave only the ones that are not.
+      reload.current();
       setBusy(false);
+      setOffer((o) => (o === null || o === "failed" ? o : withoutAdded(o, added)));
+      setPicked((now) => new Set([...now].filter((id) => !added.has(id))));
       const f = githubFailureOf(e);
       setProblem(f.kind === "gone" ? V2_COPY.actionFailed : f.text);
     }
@@ -67,11 +84,12 @@ export function GitHubForm({ projectId, reload, onBack, onClose }: Readonly<Form
   let body;
   if (offer === null) body = <Notice>{V2_COPY.loading}</Notice>;
   else if (offer === "failed") body = <Notice role="alert">{V2_COPY.repositoriesFailed}</Notice>;
+  else if (!offer.canManage) body = <Notice>{V2_COPY.readOnlyGithub}</Notice>;
   else if (!offer.active) body = <Notice>{CANVAS_COPY.githubConnectFirst}</Notice>;
   else if (offer.rows.length === 0) body = <Notice>{V2_COPY.noRepositories}</Notice>;
   else {
     body = (
-      <PickList legend={V2_COPY.repositories}>
+      <PickList legend={CANVAS_COPY.githubLegend}>
         {offer.rows.map(({ repo, blocked }) => (
           <PickRow
             key={repo.githubRepoId}
@@ -87,21 +105,26 @@ export function GitHubForm({ projectId, reload, onBack, onClose }: Readonly<Form
       </PickList>
     );
   }
+  const refused = offer !== null && offer !== "failed" && !offer.canManage;
   return (
     <ConnectFrame
       onBack={onBack}
       action={
-        <Button disabled={busy || picked.size === 0} onClick={() => void add()}>
-          {busy ? CANVAS_COPY.githubAdding : CANVAS_COPY.githubAdd}
-        </Button>
+        refused ? undefined : (
+          <Button disabled={busy || picked.size === 0} onClick={() => void add()}>
+            {busy ? CANVAS_COPY.githubAdding : CANVAS_COPY.githubAdd}
+          </Button>
+        )
       }
     >
       {body}
-      <Notice>{CANVAS_COPY.githubNote}</Notice>
+      {refused ? null : <Notice>{CANVAS_COPY.githubNote}</Notice>}
       {problem === null ? null : <Notice role="alert">{problem}</Notice>}
-      <Notice>
-        <Link href={routes.integrations(projectId, { setup: "github" })}>{CANVAS_COPY.githubChoose}</Link>
-      </Notice>
+      {refused ? null : (
+        <Notice>
+          <Link href={routes.integrations(projectId, { setup: "github" })}>{CANVAS_COPY.githubChoose}</Link>
+        </Notice>
+      )}
     </ConnectFrame>
   );
 }

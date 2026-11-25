@@ -98,6 +98,34 @@ function useNow(running: boolean): Date {
   return now;
 }
 
+const PENDING_MS = 15_000;
+
+/**
+ * A start (a build, a plan) that the read side has not shown yet. `mark` remembers the state signal at the press; it is cleared when the work is
+ * seen running, when the signal moves (it ended before it was seen), or after a while (the start failed: the status is the truth again).
+ */
+function usePending(running: boolean, signal: string): [boolean, () => void] {
+  const [mark, setMark] = useState<string | null>(null);
+  useEffect(() => {
+    if (mark !== null && (running || signal !== mark)) setMark(null);
+  }, [mark, running, signal]);
+  useEffect(() => {
+    if (mark === null) return undefined;
+    const timer = setTimeout(() => {
+      setMark(null);
+    }, PENDING_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [mark]);
+  return [
+    mark !== null,
+    () => {
+      setMark(signal);
+    },
+  ];
+}
+
 const GITHUB_POLL_MS = 3000;
 const JIRA_POLL_MS = 5000;
 const SLACK_POLL_MS = 5000;
@@ -129,9 +157,15 @@ export function useCanvasData(projectId: string) {
   const { repos, target, channel } = useConnectionReads(projectId);
   const now = useNow(status?.build != null);
   const planStale = usePlanStale(status?.lastBuild?.finishedAt ?? null, status !== null, plan?.phase === "ready");
+  const [pendingBuild, markBuild] = usePending(
+    status?.build != null,
+    `${status?.lastBuild?.finishedAt ?? ""}|${status?.buildFailure?.code ?? ""}`,
+  );
+  const [pendingPlan, markPlan] = usePending(plan?.phase === "creating", plan?.phase === "ready" ? plan.plan.planId : (plan?.phase ?? ""));
   const input = useMemo<CanvasInput>(
     () => ({
       now,
+      pending: { build: pendingBuild, plan: pendingPlan },
       status,
       gaps: gapsRead?.summary ?? null,
       gapRows: gapsRead?.rows ?? [],
@@ -142,7 +176,7 @@ export function useCanvasData(projectId: string) {
       jira: target.value,
       slack: channel.value,
     }),
-    [now, status, gapsRead, plan, planStale, integrations.value, repos.value, target.value, channel.value],
+    [now, pendingBuild, pendingPlan, status, gapsRead, plan, planStale, integrations.value, repos.value, target.value, channel.value],
   );
   // One handle for every form: it reads the sources, repositories, target and channel again.
   const reload = useRef<() => void>(() => undefined);
@@ -155,5 +189,5 @@ export function useCanvasData(projectId: string) {
       channel.reload();
     };
   });
-  return { input, reload };
+  return { input, reload, markBuild, markPlan };
 }

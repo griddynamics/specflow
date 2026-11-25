@@ -30,6 +30,9 @@ export function Menu({ trigger, label, look = "project", items }: Readonly<MenuP
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
   const list = useRef<HTMLUListElement>(null);
+  // A press inside the list: browsers that do not focus a button on click (Safari, Firefox on macOS) blur the list with no `relatedTarget`
+  // before the click lands, so a blur during a press is not "the focus left".
+  const pressing = useRef(false);
   const id = useId();
 
   useEffect(() => {
@@ -38,9 +41,16 @@ export function Menu({ trigger, label, look = "project", items }: Readonly<MenuP
     const away = (e: PointerEvent) => {
       if (root.current !== null && e.target instanceof Node && !root.current.contains(e.target)) setOpen(false);
     };
+    const released = () => {
+      requestAnimationFrame(() => {
+        pressing.current = false; // after the click that follows the release
+      });
+    };
     document.addEventListener("pointerdown", away);
+    document.addEventListener("pointerup", released);
     return () => {
       document.removeEventListener("pointerdown", away);
+      document.removeEventListener("pointerup", released);
     };
   }, [open]);
 
@@ -50,6 +60,7 @@ export function Menu({ trigger, label, look = "project", items }: Readonly<MenuP
   };
   // The focus left the list for something outside the menu (Tab, a click elsewhere): close it, and leave the focus where it went.
   const onBlur = (e: FocusEvent) => {
+    if (pressing.current) return;
     if (!(e.relatedTarget instanceof Node && root.current?.contains(e.relatedTarget) === true)) setOpen(false);
   };
   const onKey = (e: KeyboardEvent) => {
@@ -88,7 +99,18 @@ export function Menu({ trigger, label, look = "project", items }: Readonly<MenuP
         ) : null}
       </button>
       {open ? (
-        <ul className="gx-menu__list" id={id} role="menu" aria-label={label} ref={list} onKeyDown={onKey} onBlur={onBlur}>
+        <ul
+          className="gx-menu__list"
+          id={id}
+          role="menu"
+          aria-label={label}
+          ref={list}
+          onKeyDown={onKey}
+          onBlur={onBlur}
+          onPointerDown={() => {
+            pressing.current = true;
+          }}
+        >
           {items.map((item) => (
             <li key={item.key} role="none" className={item.separatorBefore === true ? "gx-menu__sep" : undefined}>
               <button

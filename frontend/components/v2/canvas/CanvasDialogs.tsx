@@ -36,6 +36,7 @@ export function CanvasDialogs({
   model,
   state,
   onState,
+  onStarted,
 }: Readonly<{
   projectId: string;
   mcp: McpAddress;
@@ -44,6 +45,8 @@ export function CanvasDialogs({
   model: CanvasModel;
   state: DialogState | null;
   onState: (next: DialogState | null) => void;
+  /** A build or a plan was just started from a dialog. */
+  onStarted: { build: () => void; plan: () => void };
 }>) {
   const routes = useV2Routes();
   const router = useRouter();
@@ -133,7 +136,7 @@ export function CanvasDialogs({
       return {
         title: update ? CANVAS_COPY.updateTitle : CANVAS_COPY.buildTitle,
         eyebrow: stageOf("graph"),
-        body: <BuildDialog projectId={projectId} status={input.status} update={update} onClose={close} />,
+        body: <BuildDialog projectId={projectId} status={input.status} update={update} onStarted={onStarted.build} onClose={close} />,
       };
     }
     if (s.type === "plan") {
@@ -142,11 +145,20 @@ export function CanvasDialogs({
       return {
         title: replan ? CANVAS_COPY.replanTitle : CANVAS_COPY.planTitle,
         eyebrow: stageOf("plan"),
-        body: <PlanDialog projectId={projectId} replan={replan} gaps={input.gaps} destination={destination} onClose={close} />,
+        body: (
+          <PlanDialog
+            projectId={projectId}
+            replan={replan}
+            gaps={input.gaps}
+            destination={destination}
+            onStarted={onStarted.plan}
+            onClose={close}
+          />
+        ),
       };
     }
     if (s.type === "gaps") {
-      return { title: gapsTitle(input.gaps), eyebrow: stageOf("gap"), body: <GapsDialog rows={input.gapRows} onClose={close} /> };
+      return { title: gapsTitle(input.gapRows), eyebrow: stageOf("gap"), body: <GapsDialog rows={input.gapRows} onClose={close} /> };
     }
     return null;
   };

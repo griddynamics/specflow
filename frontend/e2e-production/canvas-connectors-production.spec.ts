@@ -5,13 +5,16 @@ import type { Page } from "@playwright/test";
 import { ADD, bodiesOf, canvas, dialog, done, hub, MOTION, nodes, parsed, SPECS, STATE, unique, wire, YELLOW } from "./canvas-support";
 import { FINISHED_RUN, shopGaps } from "./gaps-fixtures";
 import {
+  allowConsoleErrors,
   buildGraph,
   buildGraphAndPlan,
   expect,
+  loginV2,
   seedGaps,
   seedGitHub,
   seedIntegrations,
   seedJira,
+  seedMembers,
   seedSlack,
   seedSource,
   stubTiming,
@@ -35,6 +38,8 @@ const jiraTarget = (sync?: Record<string, unknown>) => ({
   acting: "me" as const,
   sync,
 });
+const CHECK_ACCESS = "Check access";
+const ADD_SELECTED = "Add selected";
 const button = (from: Pick<Page, "getByRole">, name: string | RegExp) => from.getByRole("button", { name });
 
 test.beforeEach(async () => {
@@ -109,7 +114,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(hub(page, "gap")).toContainText(/\d critical/);
 
     await button(page, /^Gap$/).click();
-    const gaps = dialog(page, /critical gaps?$/);
+    const gaps = dialog(page, /open gaps?$/);
     await expect(gaps.getByText("in Slack, in Jira, or by a coding agent over MCP")).toBeVisible();
     await expect(gaps.getByRole("list", { name: "Gaps" }).getByRole("listitem").first()).toBeVisible();
     await expect(gaps.getByRole("textbox")).toHaveCount(0); // gaps are not answered in the app (D10)
@@ -218,9 +223,9 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(form.getByLabel("acme/payments-api")).toBeEnabled();
     await expect(form.getByLabel("acme/monorepo")).toBeDisabled();
     await expect(form.getByText("over 1 GB")).toBeVisible();
-    await expect(form.getByRole("button", { name: "Add repositories" })).toBeDisabled();
+    await expect(form.getByRole("button", { name: ADD_SELECTED })).toBeDisabled();
     await form.getByLabel("acme/payments-api").check();
-    await form.getByRole("button", { name: "Add repositories" }).click();
+    await form.getByRole("button", { name: ADD_SELECTED }).click();
     await expect(form).toBeHidden();
     const node = nodes(page).filter({ hasText: "payments-api" });
     await expect(node).toHaveAttribute(STATE, "busy");
@@ -232,6 +237,73 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await node.getByRole("button").click();
     const detail = dialog(page, "payments-api");
     await expect(detail.getByText(/The build does not read repositories yet\./)).toBeVisible();
+  });
+
+  test("GitHub: when the second add fails the first stays added and leaves the form; the second pick stays and the error is said", async ({
+    page,
+  }) => {
+    const pid = await canvas(page, unique("GitHub partial"));
+    await seedGitHub({ connection: { status: "active", login: "alex-kim" } });
+    await seedIntegrations({ pid, github: { by: ALEX, health: "active" } });
+    allowConsoleErrors(page, /Failed to load resource/);
+    let adds = 0;
+    await page.route(`**/api/backend/projects/${pid}/repositories`, (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      adds += 1;
+      if (adds === 1) return route.fallback();
+      return route.fulfill({
+        status: 502,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "github_unreachable", message: "github_unreachable", details: {} } }),
+      });
+    });
+    await page.goto(`/projects/${pid}`);
+    await page.getByRole("button", { name: ADD.source }).click();
+    await dialog(page, "Add a source")
+      .getByRole("button", { name: /^GitHub repository/ })
+      .click();
+    const form = dialog(page, "Add repositories");
+    await form.getByLabel("acme/payments-api").check();
+    await form.getByLabel("acme/web-app").check();
+    await form.getByRole("button", { name: ADD_SELECTED }).click();
+    await expect(form.getByRole("alert")).toBeVisible();
+    await expect(form.getByLabel("acme/payments-api")).toHaveCount(0); // it got in: no longer offered
+    await expect(form.getByLabel("acme/web-app")).toBeChecked(); // still picked, to try again
+    await expect(form.getByRole("button", { name: ADD_SELECTED })).toBeEnabled();
+    await form.getByRole("button", { name: "Close" }).click();
+    await expect(nodes(page).filter({ hasText: "payments-api" })).toHaveCount(1); // the canvas read again
+    await expect(nodes(page).filter({ hasText: "web-app" })).toHaveCount(0);
+  });
+
+  test("a member the API refuses sees one read-only line in the GitHub and Jira forms, no picker, no submit, and no Remove on a repository", async ({
+    page,
+  }) => {
+    await loginV2(page);
+    const { id: pid } = await seedMembers({ name: unique("Member"), role: "collaborator" });
+    await seedGitHub({ connection: { status: "active", login: "sam-ortiz" } });
+    await seedGitHub({ pid, repositories: [{ full_name: "northwind/ordering" }] });
+    await seedIntegrations({ pid, github: { by: ALEX, health: "active" }, atlassian: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}`);
+    await page.getByRole("button", { name: ADD.source }).click();
+    await dialog(page, "Add a source")
+      .getByRole("button", { name: /^GitHub repository/ })
+      .click();
+    const github = dialog(page, "Add repositories");
+    await expect(github.getByText("Only the project's owner can add repositories.")).toBeVisible();
+    await expect(github.getByRole("checkbox")).toHaveCount(0);
+    await expect(github.getByRole("button", { name: ADD_SELECTED })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: ADD.destination }).click();
+    await dialog(page, "Add a plan destination").getByRole("button", { name: /^Jira/ }).click();
+    const jira = dialog(page, "Send the plan to Jira");
+    await expect(jira.getByText("Only the project's owner can change where the plan goes.")).toBeVisible();
+    await expect(jira.getByLabel("Jira space key")).toHaveCount(0);
+    await expect(jira.getByRole("button", { name: CHECK_ACCESS })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await nodes(page).filter({ hasText: "ordering" }).getByRole("button").click();
+    const detail = dialog(page, "ordering");
+    await expect(detail.getByRole("button", { name: "Done" })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Remove" })).toHaveCount(0);
   });
 
   test("Slack: the form shows the invite and the connect command, waits, and names the channel once it is bound in Slack; the channel is a node under Gap", async ({
@@ -266,16 +338,16 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await page.getByRole("button", { name: ADD.destination }).click();
     await dialog(page, "Add a plan destination").getByRole("button", { name: /^Jira/ }).click();
     const form = dialog(page, "Send the plan to Jira");
-    await expect(form.getByRole("button", { name: "Check access" })).toBeDisabled();
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeDisabled();
     await form.getByLabel("Jira space key").fill("nwo");
     await seedJira({ pid, access: { reason: "jira_not_found", field: "jira_project" } });
-    await form.getByRole("button", { name: "Check access" }).click();
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
     await expect(form.getByText(/space/i).first()).toBeVisible();
-    await expect(form.getByRole("button", { name: "Check access" })).toBeVisible(); // still a check: nothing to add yet
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible(); // still a check: nothing to add yet
     await seedJira({ pid, access: "ok" });
     await form.getByLabel("Jira space key").fill("nwo");
     await form.getByLabel("Epic key").fill("nwo-1");
-    await form.getByRole("button", { name: "Check access" }).click();
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
     await expect(form.getByText(/Jira space/)).toBeVisible();
     await form.getByRole("button", { name: "Add destination" }).click();
     await expect(form).toBeHidden();

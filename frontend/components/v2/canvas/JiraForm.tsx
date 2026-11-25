@@ -1,15 +1,32 @@
 "use client";
 // Jira plan destination: the space key and an optional epic key, a check of access, then Add destination (the V1 Jira tab's rules,
 // `jira-logic.ts`). The target is saved on, and the plan syncs to it once it exists; the acting account is the project's Atlassian integration.
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button, Field, Notice, TextInput } from "@graphico/ui";
 import { failureOf, outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/settings/jira-logic";
+import { COPY } from "@/lib/copy";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";
+import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
 
 type Busy = "check" | "save" | null;
+
+/** What `jira.get` says about the caller: nothing yet, the server has no Atlassian account, the caller may not change the target, or may. */
+export type JiraGate = "loading" | "unavailable" | "read_only" | "open";
+
+export function gateOf(s: { available: boolean; editable: boolean } | null): JiraGate {
+  if (s === null) return "loading";
+  if (!s.available) return "unavailable";
+  return s.editable ? "open" : "read_only";
+}
+
+const GATE_TEXT: Record<Exclude<JiraGate, "open">, string> = {
+  loading: V2_COPY.loading,
+  unavailable: COPY.jiraUnavailable,
+  read_only: V2_COPY.readOnlyJira,
+};
 
 /** What a passed check says. */
 const okText = (o: Extract<Outcome, { kind: "ok" }>, epic: string): string =>
@@ -17,7 +34,8 @@ const okText = (o: Extract<Outcome, { kind: "ok" }>, epic: string): string =>
     .filter(Boolean)
     .join(" ");
 
-export function JiraForm({ projectId, spec, reload, onBack, onClose }: Readonly<FormProps>) {
+/** The fields and the check of the form, once the API has said the caller may change the target. */
+export function JiraFormBody({ projectId, spec, reload, onBack, onClose }: Readonly<FormProps>) {
   const { jira } = useV2Ports();
   const [project, setProject] = useState("");
   const [epic, setEpic] = useState("");
@@ -96,6 +114,33 @@ export function JiraForm({ projectId, spec, reload, onBack, onClose }: Readonly<
         {outcome?.kind === "ok" ? <Notice>{okText(outcome, target.epicKey ?? "")}</Notice> : null}
         {texts.alert === undefined || texts.alert === "" ? null : <Notice role="alert">{texts.alert}</Notice>}
       </div>
+    </ConnectFrame>
+  );
+}
+
+/** The form for the caller `jira.get` describes: the fields, or one line when the server has no Atlassian account or the API refuses the caller. */
+export function JiraForm(props: Readonly<FormProps>) {
+  const { jira } = useV2Ports();
+  const [gate, setGate] = useState<JiraGate>("loading");
+  const { projectId } = props;
+  useEffect(() => {
+    let alive = true;
+    jira.get(projectId).then(
+      (settings) => {
+        if (alive) setGate(gateOf(settings));
+      },
+      () => {
+        if (alive) setGate("unavailable");
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [jira, projectId]);
+  if (gate === "open") return <JiraFormBody {...props} />;
+  return (
+    <ConnectFrame onBack={props.onBack}>
+      <Notice>{GATE_TEXT[gate]}</Notice>
     </ConnectFrame>
   );
 }

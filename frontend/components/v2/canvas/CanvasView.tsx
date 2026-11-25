@@ -64,6 +64,9 @@ function Add({ zone, onAdd }: Readonly<{ zone: ZoneView; onAdd: CanvasViewProps[
   );
 }
 
+/** A stage with more nodes than this packs them tighter. */
+const DENSE_FROM = 3;
+
 export function CanvasView({ model, geometry, rootRef, onAdd, onNode, onHub }: Readonly<CanvasViewProps>) {
   const { graph, gap, plan } = model.zones;
   return (
@@ -74,7 +77,7 @@ export function CanvasView({ model, geometry, rootRef, onAdd, onNode, onHub }: R
       wires={{ width: geometry.width, height: geometry.height, items: geometry.wires }}
     >
       <CanvasZone id="graph" label={graph.label} live={graph.live}>
-        <CanvasColumn variant="scroll">
+        <CanvasColumn variant="scroll" dense={graph.nodes.length > DENSE_FROM}>
           <Nodes nodes={graph.nodes} onNode={onNode} />
           <Add zone={graph} onAdd={onAdd} />
         </CanvasColumn>
