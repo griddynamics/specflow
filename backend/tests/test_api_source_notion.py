@@ -68,7 +68,7 @@ async def test_the_check_of_a_page_answers_its_title_and_the_pages_of_its_tree_a
         response = await call(rig, "POST", path(rig, "/check"), who, {"link": WIKI_LINK})
 
         assert response.status_code == 200
-        assert response.json() == {"kind": "page", "title": "Engineering Wiki", "pages": 4, "capped": False}
+        assert response.json() == {"kind": "page", "title": "Engineering Wiki", "pages": 3, "capped": False}
     assert set(rig.connections.gateways_asked) == {ACTING}
 
 
@@ -77,6 +77,19 @@ async def test_the_check_of_a_database_link_answers_the_database_with_its_rows(r
         response = await call(rig, "POST", path(rig, "/check"), ALICE, {"link": link})
 
         assert response.json() == {"kind": "database", "title": "Requirements DB", "pages": 3, "capped": False}
+
+
+async def test_the_check_is_a_probe_and_the_add_only_opens_the_link(rig) -> None:
+    await call(rig, "POST", path(rig, "/check"), ALICE, {"link": WIKI_LINK})
+    checked = [c.method for c in rig.fake.calls]
+    rig.fake.calls.clear()
+    await call(rig, "POST", path(rig), ALICE, {"link": WIKI_LINK})
+    added = [c.method for c in rig.fake.calls]
+    rig.fake.calls.clear()
+    await call(rig, "POST", path(rig), ALICE, {"link": link_of(REQUIREMENTS_DATABASE_ID, "v1")})
+
+    assert checked == ["page", "page_markdown"] and added == ["page"]
+    assert [c.method for c in rig.fake.calls] == ["page", "database"]
 
 
 async def test_a_non_member_is_a_stranger_to_the_project(rig) -> None:

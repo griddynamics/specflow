@@ -29,7 +29,7 @@ from logger.logger import WARNING, get_logger, log_event
 from notion import convert
 from notion.convert import ConvertedPage, MarkupTooDeepError
 from notion.gateway import NotionGateway
-from notion.links import NotionLink, dashed
+from notion.links import NotionLink, dashed, parse_link
 from notion.model import NotionPage
 from notion.reasons import NotionCode, NotionError
 
@@ -44,7 +44,11 @@ CONVERT_STEP: Final = "convert"
 UNTITLED: Final = "Untitled"
 # What a member not seeing an item means: that item is skipped. Everything else a read raises stops the source.
 _SKIPPABLE: Final = frozenset({NotionCode.NOT_SHARED, NotionCode.PAGE_GONE, NotionCode.DATABASE_GONE})
-_NO_ACCESS_CODES: Final = _SKIPPABLE | {NotionCode.NOT_CONNECTED, NotionCode.RECONNECT_REQUIRED}
+_NO_ACCESS_CODES: Final = _SKIPPABLE | {
+    NotionCode.NOT_CONNECTED,
+    NotionCode.RECONNECT_REQUIRED,
+    NotionCode.LINK_INVALID,
+}
 _HEX32: Final = re.compile(r"^[0-9a-fA-F]{32}$")
 
 
@@ -142,6 +146,14 @@ class _Row:
 
 
 @dataclass(frozen=True)
+class _DatabaseRef:
+    """A ``<database>`` line without a ``data-source-url``: its data sources are read from the database."""
+
+    url: str
+    title: str
+
+
+@dataclass(frozen=True)
 class _Rows:
     data_source_id: str
     title: str
@@ -154,6 +166,9 @@ def _key(object_id: str) -> str:
 
 
 def _page_record(page: NotionPage | _Page) -> dict[str, Any]:
+    """The fields stored of a page. A sub-page has no ``last_edited_time`` (null on purpose): reading it would cost one
+    more request per page and the import runs once (D7)."""
+
     edited = getattr(page, "last_edited_time", None)
     return {"id": page.id, "url": page.url, "title": page.title, "last_edited_time": edited and edited.isoformat()}
 
@@ -165,9 +180,10 @@ class _Walk:
     def __init__(self, gateway: NotionGateway, converter: Converter) -> None:
         self._gateway = gateway
         self._converter = converter
-        self._queue: deque[_Page | _Rows | _Row | NotionPage] = deque()
+        self._queue: deque[_Page | _Rows | _Row | _DatabaseRef | NotionPage] = deque()
         self._seen: set[str] = set()
         self._sources: set[str] = set()
+        self.root_sources: tuple[str, ...] = ()  # data sources of a target database
         self._root: str | None = None  # the target page: when it cannot be read the source fails
         self.capped = False
 
@@ -194,6 +210,7 @@ class _Walk:
         database = await self._gateway.database(link.id)
         if database.in_trash:
             raise NotionError(NotionCode.NOT_SHARED)
+        self.root_sources = tuple(source.id for source in database.data_sources)
         for source in database.data_sources:
             if _key(source.id) not in self._sources:
                 self._sources.add(_key(source.id))
@@ -205,6 +222,9 @@ class _Walk:
             item = self._queue.popleft()
             if isinstance(item, _Rows):
                 async for event in self._rows(item):
+                    yield event
+            elif isinstance(item, _DatabaseRef):
+                async for event in self._database(item):
                     yield event
             else:
                 async for event in self._read(item):
@@ -239,6 +259,24 @@ class _Walk:
                 raise
             yield _Skipped(f"database:{source.data_source_id}", source.title or UNTITLED, NO_ACCESS, READ_STEP)
 
+    async def _database(self, ref: _DatabaseRef) -> AsyncIterator[_Event]:
+        """The data sources of a database the Markdown names without one: queued as rows to read."""
+
+        try:
+            database = await self._gateway.database(parse_link(ref.url).id)
+        except NotionError as error:
+            if error.code not in _SKIPPABLE | {NotionCode.LINK_INVALID}:
+                raise
+            yield _Skipped(f"database:{_key(ref.url)}", ref.title or UNTITLED, NO_ACCESS, READ_STEP)
+            return
+        if database.in_trash:
+            yield _Skipped(f"database:{database.id}", ref.title or UNTITLED, NO_ACCESS, READ_STEP)
+            return
+        for source in database.data_sources:
+            if _key(source.id) not in self._sources:
+                self._sources.add(_key(source.id))
+                self._queue.append(_Rows(source.id, ref.title or database.title, root=False))
+
     async def _read(self, item: _Page | _Row | NotionPage) -> AsyncIterator[_Event]:
         row = item.page if isinstance(item, _Row) else None
         item = row or item
@@ -267,21 +305,43 @@ class _Walk:
                 yield _Found(f"page:{ref.id}", ref.title or UNTITLED)
                 self._queue.append(_Page(ref.id, ref.title, ref.url))
         for database in converted.databases:
-            if database.data_source_id and _key(database.data_source_id) not in self._sources:
+            if database.data_source_id is None:
+                self._queue.append(_DatabaseRef(database.url, database.title))
+            elif _key(database.data_source_id) not in self._sources:
                 self._sources.add(_key(database.data_source_id))
                 self._queue.append(_Rows(database.data_source_id, database.title, root=False))
 
 
+async def open_link(gateway: NotionGateway, source: NotionImport) -> tuple[Literal["page", "database"], str]:
+    """What the link names and its title, from one read (two for a database): a page first, then a database.
+    ``NotionError`` when it cannot be read."""
+
+    return await _Walk(gateway, default_converter()).open(source.link)
+
+
 async def inspect(gateway: NotionGateway, source: NotionImport) -> Inspection:
-    """Read the target and report what an import would take. ``NotionError`` when a read is refused
-    (``notion_not_shared`` for a page or database the member cannot see)."""
+    """Probe the target for the check, cheaply: a page is one ``page`` and one ``page_markdown`` (the page, its
+    ``<page>`` and ``<database>`` lines; ``capped`` when a database line may hold more), a database is one page of rows
+    (``capped`` when there is another). The count is a lower bound; the import walks the tree once. ``NotionError``
+    when a read is refused (``notion_not_shared`` for a page or database the member cannot see)."""
 
     walk = _Walk(gateway, default_converter())
     kind, title = await walk.open(source.link)
-    pages = 0
-    async for event in walk.events():
-        pages += isinstance(event, _Doc)
-    return Inspection(kind, title, pages, walk.capped)
+    if kind == "database":
+        if not walk.root_sources:
+            return Inspection(kind, title, 0, False)
+        found = await gateway.query_data_source(walk.root_sources[0])
+        return Inspection(
+            kind, title, min(len(found.rows), MAX_PAGES), found.next_cursor is not None or len(found.rows) > MAX_PAGES
+        )
+    found_pages, found_databases = 0, 0
+    try:
+        converted = default_converter().to_markdown((await gateway.page_markdown(source.link.id)).markdown)
+        found_pages, found_databases = len(converted.sub_pages), len(converted.databases)
+    except MarkupTooDeepError:  # the page is one item in error in the import; its links are not followed
+        pass
+    total = 1 + found_pages + found_databases
+    return Inspection(kind, title, min(total, MAX_PAGES), total > MAX_PAGES or found_databases > 0)
 
 
 class NotionImporter:

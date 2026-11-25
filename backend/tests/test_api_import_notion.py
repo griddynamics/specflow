@@ -41,7 +41,7 @@ from notion_support import ACTING, FakeNotionConnections, RecordingWriter, as_wr
 
 PAGE_TAG = re.compile(r'<page url="([^"]+)">\s*(.*?)\s*</page>', re.S)
 DATABASE_TAG = re.compile(
-    r'<database url="([^"]+)" data-source-url="collection://([^"]+)">\s*(.*?)\s*</database>', re.S
+    r'<database url="([^"]+)" data-source-url="collection://([^"]*)">\s*(.*?)\s*</database>', re.S
 )
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 TOO_DEEP = "<<too-deep>>"
@@ -63,7 +63,7 @@ def to_markdown(nfm: str) -> ConvertedPage:
     if TOO_DEEP in nfm:
         raise MarkupTooDeepError
     pages = tuple(PageRef(id_of(url), title, url) for url, title in PAGE_TAG.findall(nfm))
-    databases = tuple(DatabaseRef(title, url, source) for url, source, title in DATABASE_TAG.findall(nfm))
+    databases = tuple(DatabaseRef(title, url, source or None) for url, source, title in DATABASE_TAG.findall(nfm))
     text = DATABASE_TAG.sub(lambda m: m[3], PAGE_TAG.sub(lambda m: m[2], nfm))
     return ConvertedPage(f"[converted] {text}".strip(), pages, databases)
 
@@ -408,44 +408,86 @@ async def test_a_second_run_after_a_restart_names_the_same_items_and_a_gone_sour
         )
 
 
-async def test_inspect_counts_the_page_and_its_tree_without_storing_anything(monkeypatch) -> None:
+async def test_inspect_probes_a_page_with_one_page_read_and_one_markdown_read(monkeypatch) -> None:
     monkeypatch.setattr("api.imports.notion.default_converter", lambda: FAKE_CONVERTER)
     gateway = FakeNotionConnections().fake
 
     found = await inspect(gateway, NotionImport(NotionLink(WIKI_PAGE_ID)))
 
-    assert (found.kind, found.title, found.pages, found.capped) == ("page", "Engineering Wiki", 4, False)
+    assert (found.kind, found.title, found.pages, found.capped) == ("page", "Engineering Wiki", 3, False)
+    assert [c.method for c in gateway.calls] == ["page", "page_markdown"]
 
 
-async def test_inspect_of_a_database_counts_its_rows_and_reads_a_page_first(monkeypatch) -> None:
+async def test_inspect_probes_a_database_with_one_page_of_rows(monkeypatch) -> None:
     monkeypatch.setattr("api.imports.notion.default_converter", lambda: FAKE_CONVERTER)
     gateway = FakeNotionConnections().fake
 
     found = await inspect(gateway, NotionImport(NotionLink(REQUIREMENTS_DATABASE_ID)))
 
     assert (found.kind, found.title, found.pages, found.capped) == ("database", "Requirements DB", 3, False)
-    assert [c.method for c in gateway.calls][:2] == ["page", "database"]
+    assert [c.method for c in gateway.calls] == ["page", "database", "query_data_source"]
 
 
-async def test_inspect_says_capped_when_there_is_more_than_the_cap(monkeypatch) -> None:
-    monkeypatch.setattr("api.imports.notion.default_converter", lambda: FAKE_CONVERTER)
-    monkeypatch.setattr(notion_module, "MAX_PAGES", 2)
-    gateway = FakeNotionConnections().fake
-
-    found = await inspect(gateway, NotionImport(NotionLink(WIKI_PAGE_ID)))
-
-    assert (found.pages, found.capped) == (2, True)
-
-
-async def test_inspect_does_not_count_a_page_it_cannot_convert_and_refuses_an_unseen_target(monkeypatch) -> None:
+async def test_inspect_says_capped_for_a_database_line_a_next_cursor_and_more_than_the_cap(monkeypatch) -> None:
     monkeypatch.setattr("api.imports.notion.default_converter", lambda: FAKE_CONVERTER)
     fake = FakeNotionConnections()
-    fake.fake.markdown[RUNBOOKS] = PageMarkdown(TOO_DEEP)
+    line = f'<database url="https://app.notion.com/p/x" data-source-url="collection://{REQUIREMENTS_DATA_SOURCE_ID}">\nD\n</database>'
+    fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(f"{page_line(ONBOARDING, 'Onboarding')}\n{line}")
+    with_database = await inspect(fake.fake, NotionImport(NotionLink(WIKI_PAGE_ID)))
+    monkeypatch.setattr(notion_module, "MAX_PAGES", 2)
+    over = await inspect(FakeNotionConnections().fake, NotionImport(NotionLink(WIKI_PAGE_ID)))
+    fake.fake.rows[REQUIREMENTS_DATA_SOURCE_ID] = [add_page(fake.fake, pid(n), f"R{n}", "x") for n in range(130)]
+    monkeypatch.setattr(notion_module, "MAX_PAGES", 500)
+    rows = await inspect(fake.fake, NotionImport(NotionLink(REQUIREMENTS_DATABASE_ID)))
+
+    assert (with_database.pages, with_database.capped) == (3, True)
+    assert (over.pages, over.capped) == (2, True)
+    assert (rows.pages, rows.capped) == (100, True)
+
+
+async def test_inspect_of_a_page_too_deep_to_convert_counts_the_page_only_and_refuses_an_unseen_target(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("api.imports.notion.default_converter", lambda: FAKE_CONVERTER)
+    fake = FakeNotionConnections()
+    fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(TOO_DEEP)
 
     found = await inspect(fake.fake, NotionImport(NotionLink(WIKI_PAGE_ID)))
     fake.fake.unshare(PRD_PAGE_ID)
 
-    assert found.pages == 2  # the wiki and Onboarding; Runbooks and below are not reached
+    assert found.pages == 1
     with pytest.raises(Exception) as refused:
         await inspect(fake.fake, NotionImport(NotionLink(PRD_PAGE_ID)))
     assert str(refused.value) == "notion_not_shared"
+
+
+async def test_a_database_line_without_a_data_source_url_reads_the_database_for_its_data_sources() -> None:
+    fake = FakeNotionConnections()
+    line = f'<database url="https://app.notion.com/p/{REQUIREMENTS_DATABASE_ID.replace("-", "")}" data-source-url="collection://">\nD\n</database>'
+    fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(line)
+
+    writer = await run(WIKI_PAGE_ID, fake)
+
+    assert len(writer.added) == 1 + 3 and len(fake.fake.called("database")) == 1
+
+
+async def test_a_database_line_without_a_data_source_url_that_is_not_shared_is_a_skipped_item() -> None:
+    fake = FakeNotionConnections()
+    fake.fake.unshare(REQUIREMENTS_DATABASE_ID)
+    line = f'<database url="https://app.notion.com/p/{REQUIREMENTS_DATABASE_ID.replace("-", "")}" data-source-url="collection://">\nD\n</database>'
+    fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(line)
+
+    writer = await run(WIKI_PAGE_ID, fake)
+
+    assert list(writer.added) == [f"page:{WIKI_PAGE_ID}"]
+    assert [(r, st) for _id, r, st in writer.failed] == [("no_access", "read")]
+
+
+async def test_a_link_the_gateway_calls_invalid_fails_the_source_with_no_access() -> None:
+    fake = FakeNotionConnections()
+    fake.fake.fail("page", NotionCode.LINK_INVALID)
+
+    with pytest.raises(ImportFailedError) as caught:
+        await run(PRD_PAGE_ID, fake)
+
+    assert caught.value.reason == "no_access"
