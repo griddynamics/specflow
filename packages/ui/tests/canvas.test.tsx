@@ -7,7 +7,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AddTile, Canvas, CanvasColumn, CanvasNode, CanvasZone, ConnectorCard, CopyRow, DropZone, Hub, StepList } from "../src/index";
+import {
+  AddTile,
+  Canvas,
+  CanvasColumn,
+  CanvasNode,
+  CanvasZone,
+  ConnectorCard,
+  CopyRow,
+  DropZone,
+  Hub,
+  ShowMeHow,
+  StepList,
+} from "../src/index";
+import { COPIED_MS, createCopier } from "../src/components/copy-state";
 
 const html = (node: ReactElement): string => renderToStaticMarkup(node);
 const noop = (): undefined => undefined;
@@ -199,4 +212,76 @@ test("Canvas: a notice over it only when one is given", () => {
     ),
     /<div class="gx-canvas__alert"><p>Read failed<\/p><\/div>/,
   );
+});
+
+test("CopyRow: the copy icon sits inside the box, an inline SVG on currentColor, with a polite live region", () => {
+  const view = html(<CopyRow text="/mcp" copyLabel="Copy" copiedLabel="Copied" name="command" />);
+  assert.match(
+    view,
+    /<button type="button" class="gx-copyrow__btn" aria-label="Copy command"><svg[^>]*stroke="currentColor"[^>]*aria-hidden="true"><rect/,
+  );
+  assert.doesNotMatch(view, />Copy<\/button>/); // an icon, not the word
+  assert.match(view, /<span class="gx-sr" role="status" aria-live="polite"><\/span>/);
+  const btn = css.slice(css.indexOf(".gx-copyrow__btn {"), css.indexOf("}", css.indexOf(".gx-copyrow__btn {")));
+  assert.match(btn, /cursor: pointer/);
+  assert.doesNotMatch(css, /\.gx-copyrow__btn[^{]*\{[^}]*outline: none/); // the focus ring of AC62 stays (`.gx :focus-visible`)
+});
+
+test("createCopier: Copied for 2 s after a write, a refused write stays Copy, a second copy restarts the 2 s, stop drops the reset", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const seen: boolean[] = [];
+  const written: string[] = [];
+  const ok = createCopier(
+    (text) => {
+      written.push(text);
+      return Promise.resolve();
+    },
+    (copied) => seen.push(copied),
+  );
+  await ok.copy("a");
+  assert.deepEqual(written, ["a"]);
+  assert.deepEqual(seen, [true]);
+  t.mock.timers.tick(COPIED_MS - 1);
+  assert.deepEqual(seen, [true]);
+  await ok.copy("a"); // restarts the wait
+  t.mock.timers.tick(COPIED_MS - 1);
+  assert.deepEqual(seen, [true, true]);
+  t.mock.timers.tick(1);
+  assert.deepEqual(seen, [true, true, false]);
+  await ok.copy("b");
+  ok.stop();
+  t.mock.timers.tick(COPIED_MS);
+  assert.deepEqual(seen, [true, true, false, true]); // stopped: no reset after the row is gone
+  const refused: boolean[] = [];
+  await createCopier(
+    () => Promise.reject(new Error("denied")),
+    (copied) => refused.push(copied),
+  ).copy("c");
+  assert.deepEqual(refused, [false]);
+  assert.equal(COPIED_MS, 2000);
+});
+
+test("ShowMeHow: a closed disclosure with steps inline, or a link that looks the same", () => {
+  const view = {
+    steps: html(
+      <ShowMeHow label="Show me how">
+        <StepList>
+          <li>Open Slack.</li>
+        </StepList>
+      </ShowMeHow>,
+    ),
+    link: html(<ShowMeHow label="Show me how" href="/projects/p/integrations?setup=mcp" />),
+  };
+  assert.match(
+    view.steps,
+    /^<details class="gx-how"><summary class="gx-how__face"><svg[^>]*aria-hidden="true">.*<\/svg>Show me how<\/summary><div class="gx-how__body"><ol/,
+  );
+  assert.doesNotMatch(view.steps, /<details[^>]* open/);
+  assert.match(
+    view.link,
+    /^<div class="gx-how"><a class="gx-how__face" href="\/projects\/p\/integrations\?setup=mcp"><svg[^>]*aria-hidden="true">.*<\/svg>Show me how<\/a><\/div>$/,
+  );
+  const face = css.slice(css.indexOf(".gx-how__face {"), css.indexOf("}", css.indexOf(".gx-how__face {")));
+  assert.match(face, /border: 1\.5px solid var\(--gx-ink\)/);
+  assert.doesNotMatch(face, /yellow/); // yellow is for decisions only
 });

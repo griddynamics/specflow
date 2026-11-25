@@ -1,6 +1,6 @@
 // FE-BP-01, FE-BP-03 (TECH-SPECS §1.1): the ONE place that knows a path. Screens get a RouteBuilder from
 // useRoutes() and never build a path string by hand. Pure: no React, no fetch.
-import { INTEGRATION_APPS, type IntegrationApp } from "@/lib/domain/integrations";
+import { INTEGRATION_APPS, type IntegrationCardId } from "@/lib/domain/integrations";
 import { isSameSitePath } from "@/lib/same-site-path";
 
 export type AppMode = "production";
@@ -32,7 +32,7 @@ export const TREE_PREFIX: Record<AppMode, ""> = { production: "" };
 export interface RouteBuilder {
   home(): string;
   canvas(projectId: string, opts?: { add?: string }): string; // V2: the project's canvas; `add` = the connection form to open (back from Integrations)
-  integrations(projectId: string, opts?: { setup?: IntegrationApp; next?: string }): string; // V2: `setup` opens that app; `next` = a same-site path to return to after a connect
+  integrations(projectId: string, opts?: { setup?: IntegrationCardId; next?: string }): string; // V2: `setup` opens that app; `next` = a same-site path to return to after a connect
   missionControl(projectId: string, opts?: { view?: MissionControlView }): string;
   file(projectId: string, ref: { path: string; anchor?: string }): string; // view=files&file=...&section=...
   gaps(projectId: string, opts?: { gapId?: string }): string; // `?gap=<id>` opens that gap's card
@@ -122,11 +122,11 @@ export function parseGuideTopic(topic: string): GuideTopic | null {
 export function parseIntegrationsQuery(q: URLSearchParams): {
   github: string | null;
   atlassian: string | null;
-  setup: IntegrationApp | null;
+  setup: IntegrationCardId | null;
   next: string | null;
 } {
   const next = q.get("next");
-  const setup = INTEGRATION_APPS.find((a) => a === q.get("setup")) ?? null;
+  const setup = [...INTEGRATION_APPS, "mcp" as const].find((a) => a === q.get("setup")) ?? null;
   return { github: q.get("github"), atlassian: q.get("atlassian"), setup, next: isSameSitePath(next) ? next : null };
 }
 

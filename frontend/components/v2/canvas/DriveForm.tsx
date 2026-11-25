@@ -2,17 +2,17 @@
 // Google Drive: share the folder with the Drive account, paste its link, test it, then add it (the V1 flow, `useDriveFlow`, with its
 // reasons and its cutoffs). The folder is read once, when it is added (D7).
 import { useId } from "react";
-import { Button, CopyRow, Disclosure, Field, Notice, StepList, TextInput } from "@graphico/ui";
+import { Button, CopyRow, Field, Notice, StepList, TextInput } from "@graphico/ui";
 import {
   driveReasonMessage,
   emailLabel,
   GUIDE_STEPS,
-  GUIDE_TOGGLE,
   NOTHING_TO_IMPORT,
   SAVE_TOO_LONG,
 } from "@/components/mission-control/sources/drive-logic";
 import { useDriveFlow, type DrivePhase } from "@/components/mission-control/sources/use-drive-flow";
 import type { CheckLabels, FormProps } from "../connector-types";
+import { HowTo } from "../HowTo";
 import { useV2Ports } from "../use-v2-data";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
@@ -62,13 +62,7 @@ export function DriveForm({ projectId, spec, reload, onBack, onClose }: Readonly
           name={CANVAS_COPY.driveAccount}
         />
       )}
-      <Disclosure summary={GUIDE_TOGGLE}>
-        <StepList>
-          {GUIDE_STEPS.map((step) => (
-            <li key={step.image}>{step.text.replace("{email}", account)}</li>
-          ))}
-        </StepList>
-      </Disclosure>
+      <HowTo steps={GUIDE_STEPS.map((step) => step.text.replace("{email}", account))} />
       <StepList start={2}>
         <li>{CANVAS_COPY.driveStepPaste}</li>
       </StepList>

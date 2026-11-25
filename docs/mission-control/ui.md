@@ -34,10 +34,16 @@ become invites), removes members and cancels invites; a collaborator sees the li
 
 ## Integrations
 
-One card per app (Atlassian: "Jira and Confluence", GitHub: "Repositories", Slack: "Channels"), then the built-in list (MCP, always on).
+One card per app (Atlassian: "Jira and Confluence", GitHub: "Repositories", Slack: "Channels"), then **MCP** ("Coding agents", action **Connect**), then
+the built-in list (Upload and Google Drive, always on). MCP is a card of the page only: the project has no connection to it, so it is not an
+`IntegrationApp` of the API and has no row; its dialog (`?setup=mcp` works like the other cards, with `next`) holds the three connect steps with
+their copy boxes and the note about other clients, and Done.
 A card says who connected it. Health words are API facts only (AC20, AC39): **Active**, **Reconnect required**, **Stopped**; an app that is off
 on the server is a disabled "Not on this server" card. **Set up** opens one dialog per app: Atlassian (consent, then the site), GitHub
 (consent, install the App, pick repositories), Slack (invite the app, run `/specflow connect <project id>`; AC14 keeps the command name).
+Every step a person does outside Graphico has a **Show me how** control: a closed disclosure that opens the steps inline (Slack, Atlassian, GitHub,
+Google Drive, from `docs/slack`, `docs/github`, `docs/jira-sync`, `docs/sources`), or, on the canvas MCP dialog, a link to the MCP dialog here.
+A code box (`CopyRow`) has a copy icon inside it on the right; a check shows for about 2 s after a copy.
 **Manage** disconnects (the member who connected it, or the owner, AC6); what uses it stops (D2).
 
 ## The canvas
@@ -57,7 +63,10 @@ Slack, Jira or over MCP, never here (D10).
 **Nodes.** One node per object (D5) with the app's mark, a name, one line of meta and a state: `on` (ink), `busy` (spinner, moving wire),
 `wait` (grey, dashed wire), `stopped` (badge). A node stops only for what an API reports (D2). The wire between a node and its hub moves only
 while data moves. The background graph is decorative and grows with build progress (AC10). MCP joins by itself, marked "Automatic".
-Pressing a node opens its dialog: app, who set it up, state in a sentence, **Remove** (sources and repositories only, owners, AC46) or
+Pressing a node opens its dialog: app, who set it up, state in a sentence, and for a source (upload, Drive folder, Confluence link, Jira epic) the
+files inside it (first page of 200, **Show more** for the next; name, kind, and a state with the V1 reason words only when the file is not done),
+for an upload batch **Rename** (a field with Save and Cancel; a refused name, a source that is not an upload or a source that is gone are said in
+words), **Remove** (sources and repositories only, owners, AC46) or
 **Reconnect** (a stopped node, to the Integrations page of that app).
 
 **Plus.** The plus of a stage lists its own connectors first and the others dashed under "Connections for the other stages". A connector that needs
@@ -68,7 +77,7 @@ before adding, and a changed input is a new check.
 
 | Kind | Stage | Needs | Form (title) and check | Node |
 |---|---|---|---|---|
-| `upload` | Graph | | Add files | `Upload 10:42` / `Upload 25 Nov` (AC48), file counts, imports |
+| `upload` | Graph | | Add files; an optional name above the drop zone (placeholder: the default node name) | The name the person gave, else `Upload 10:42` / `Upload 25 Nov` (AC48), file counts, imports |
 | `gdrive` | Graph | | Connect a Google Drive folder; Test connection, Add source | folder name, files done of total |
 | `github` | Graph | GitHub | Add repositories; picks from the account's readable repositories (AC45) | repository, clone state (not read by the build, D19) |
 | `confluence` | Graph | Atlassian | Add a Confluence link; Check link, Add source (AC50) | page or space, "N pages" while it imports |
@@ -77,7 +86,7 @@ before adding, and a changed input is a new check.
 | `jira_gap` | Gap | Atlassian | Send gaps to Jira; space key, grouping, Check access, Add channel | `Jira · <space> gaps`, "N posted · M answered" (AC52, AC53) |
 | `jira` | Plan | Atlassian | Send the plan to Jira; space and epic keys, Check access, Add destination | `Jira · <epic>`, syncing, synced |
 | `github_plan` | Plan | GitHub | Send the plan to GitHub Projects; repository, project picked or created, Check access, Add destination (AC61) | `GitHub · <project>`, "N issues · GitHub" |
-| `mcp` | none | | Connect a coding agent over MCP (not listed in plus) | "Automatic" |
+| `mcp` | none | | Coding agents over MCP (not listed in plus): the stage's notice, Show me how (a link to the Integrations MCP dialog), then the stage's tools, each with one sentence of what it does | "Automatic" |
 
 Every check says what to fix in words from the API's closed codes (another site, not found, not allowed, not connected, needs a reconnect);
 `github_permissions_missing` says to approve the Issues and Organization projects permissions of the GitHub App for the installation.

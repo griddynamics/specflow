@@ -174,6 +174,11 @@
       "path": "/projects/{pid}/sources/{sid}"
     },
     {
+      "id": "rename_source_api_v1_projects__pid__sources__sid__patch",
+      "method": "PATCH",
+      "path": "/projects/{pid}/sources/{sid}"
+    },
+    {
       "id": "end_upload_batch_api_v1_projects__pid__sources__sid__end_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/{sid}/end"

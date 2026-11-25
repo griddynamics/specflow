@@ -25,6 +25,7 @@ const BY_CODE: Record<string, DataErrorCode> = {
   database_unavailable: "unavailable",
   source_not_found: "not_found", // sources-ux: the detail's apiCode tells it from a plain `not_found` (an old API's unknown route)
   batch_ended: "conflict",
+  source_not_renamable: "conflict", // 409 on PATCH: only an upload batch is renamed
   removal_unavailable: "unavailable",
   gap_unavailable: "unavailable", // 503: gap runs are not configured on this server (the Gaps screen says so)
   gap_not_found: "not_found",

@@ -1,4 +1,5 @@
 import type { JSX, ReactNode, SubmitEvent } from "react";
+import { Tag } from "./tag";
 
 /** A label and a count on one line, over a list. */
 export function SectionHead({ title, note }: Readonly<{ title: string; note?: string }>): JSX.Element {
@@ -54,6 +55,51 @@ export function LineList({
         <li key={item.key}>
           <b>{item.title}</b>
           <small>{item.detail}</small>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The tools of an MCP server, one row each: the name in the mono face, then what asking for it does, in one sentence. */
+export function ToolGrid({ label, items }: Readonly<{ label: string; items: readonly { name: string; does: string }[] }>): JSX.Element {
+  return (
+    <ul className="gx-tools" aria-label={label}>
+      {items.map((item) => (
+        <li key={item.name}>
+          <code className="gx-tools__name">{item.name}</code>
+          <span>{item.does}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export interface FileRowView {
+  key: string;
+  name: string;
+  /** What sort of file it is ("PDF", "Markdown"). */
+  format: string;
+  /** A word, only for a file that is not done. */
+  tag?: string;
+  /** Why, under the row, for a file that has a note. */
+  note?: string;
+}
+
+/** The files inside a source: name, kind, a word only when the file is not done. A long list scrolls with the dialog it is in. */
+export function FileList({ label, rows }: Readonly<{ label: string; rows: readonly FileRowView[] }>): JSX.Element {
+  return (
+    <ul className="gx-files" aria-label={label}>
+      {rows.map((row) => (
+        <li key={row.key}>
+          <span className="gx-files__name" title={row.name}>
+            {row.name}
+          </span>
+          <span className="gx-files__meta">
+            {row.format}
+            {row.tag === undefined ? null : <Tag>{row.tag}</Tag>}
+          </span>
+          {row.note === undefined ? null : <small className="gx-files__why">{row.note}</small>}
         </li>
       ))}
     </ul>

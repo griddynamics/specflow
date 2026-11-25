@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, ReactNode } from "react";
 import { Button } from "./button";
+import { createCopier } from "./copy-state";
 import { VendorMark } from "./vendor-mark";
 import type { VendorKind } from "./vendor-mark";
 
@@ -71,7 +72,35 @@ export function DropZone({
   );
 }
 
-/** A command or an address in the mono face, with a Copy button that says "Copied" for a moment. */
+const GLYPH = {
+  width: 16,
+  height: 16,
+  viewBox: "0 0 16 16",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  "aria-hidden": true,
+} as const;
+
+/** Two overlapping sheets: the familiar copy glyph. */
+function CopyGlyph(): JSX.Element {
+  return (
+    <svg {...GLYPH}>
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.8" />
+      <path d="M10.5 3.2V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9A1.5 1.5 0 0 0 3.5 10.5H5.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CheckGlyph(): JSX.Element {
+  return (
+    <svg {...GLYPH}>
+      <path d="M3 8.5L6.5 12L13 4.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** A command or an address in the mono face, with a copy icon inside the box on the right. It shows a check for about 2 s after a copy. */
 export function CopyRow({
   text,
   copyLabel,
@@ -79,29 +108,24 @@ export function CopyRow({
   name,
 }: Readonly<{ text: string; copyLabel: string; copiedLabel: string; name: string }>): JSX.Element {
   const [copied, setCopied] = useState(false);
-  const id = useId();
+  const copier = useMemo(() => createCopier((t) => navigator.clipboard.writeText(t), setCopied), []);
+  useEffect(() => copier.stop, [copier]);
   return (
     <div className="gx-copyrow">
-      <code id={id} className="gx-copyrow__text">
-        {text}
-      </code>
-      <Button
-        variant="ghost"
-        size="sm"
+      <code className="gx-copyrow__text">{text}</code>
+      <button
+        type="button"
+        className="gx-copyrow__btn"
         aria-label={copied ? copiedLabel : `${copyLabel} ${name}`}
         onClick={() => {
-          void navigator.clipboard.writeText(text).then(
-            () => {
-              setCopied(true);
-            },
-            () => {
-              setCopied(false);
-            },
-          );
+          void copier.copy(text);
         }}
       >
-        {copied ? copiedLabel : copyLabel}
-      </Button>
+        {copied ? <CheckGlyph /> : <CopyGlyph />}
+      </button>
+      <span className="gx-sr" role="status" aria-live="polite">
+        {copied ? copiedLabel : ""}
+      </span>
     </div>
   );
 }

@@ -138,7 +138,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     line: "Coding agents answer gaps and claim stories",
     mark: "mcp",
     app: null,
-    title: "Connect a coding agent over MCP",
+    title: "Coding agents over MCP",
     check: null,
     Form: McpForm,
     nodes: mcpNodes,

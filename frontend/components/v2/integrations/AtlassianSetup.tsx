@@ -4,8 +4,10 @@
 import { useState } from "react";
 import { Button, Row } from "@graphico/ui";
 import { usePorts } from "@/lib/data/provider";
+import { HowTo } from "../HowTo";
 import { SetupFrame } from "./SetupFrame";
 import type { SetupProps } from "./setup-props";
+import { CANVAS_COPY } from "../canvas/canvas-copy";
 import { V2_COPY } from "../v2-copy";
 
 export function AtlassianSetup(props: Readonly<SetupProps>) {
@@ -34,11 +36,14 @@ export function AtlassianSetup(props: Readonly<SetupProps>) {
   return (
     <SetupFrame props={props}>
       {i.health === "active" ? null : (
-        <Row>
-          <Button onClick={() => void connect()} disabled={busy}>
-            {busy ? V2_COPY.connecting : label}
-          </Button>
-        </Row>
+        <>
+          <HowTo steps={CANVAS_COPY.howAtlassian} />
+          <Row>
+            <Button onClick={() => void connect()} disabled={busy}>
+              {busy ? V2_COPY.connecting : label}
+            </Button>
+          </Row>
+        </>
       )}
     </SetupFrame>
   );

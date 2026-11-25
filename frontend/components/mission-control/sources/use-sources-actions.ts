@@ -58,12 +58,12 @@ export function useBuild(knowledge: KnowledgePort, projectId: string) {
 /** Uploads the picked files (only the accepted types are sent: one toast names the rest); one pick is one batch (FR-SRC-0020). */
 export function useUpload(sources: SourcesPort, projectId: string, fail: (e: unknown) => void, reload: RefObject<() => void>) {
   const toast = useToast();
-  return async (picked: File[]) => {
+  return async (picked: File[], name?: string) => {
     const { files, skipped } = splitUpload(picked);
     if (skipped.length) toast(unsupportedFilesToast(skipped));
     if (files.length === 0) return;
     try {
-      const report = await sources.upload(projectId, files);
+      const report = await sources.upload(projectId, files, name);
       // FR-SRC-0020: no source was made when the start failed; the toast then names every file.
       toast(report.sourceId === null ? startFailedToast(files.map((f) => f.name)) : toastFor(report));
       reload.current();

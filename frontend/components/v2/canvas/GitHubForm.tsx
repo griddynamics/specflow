@@ -9,6 +9,7 @@ import { Button, Notice, PickList, PickRow } from "@graphico/ui";
 import { githubFailureOf, githubRowOf, pickRowsOf, type PickRow as Pick } from "@/components/settings/github-logic";
 import type { GitHubRepositoryList } from "@/lib/domain/github";
 import type { FormProps } from "../connector-types";
+import { HowTo } from "../HowTo";
 import { useV2Ports, useV2Routes } from "../use-v2-data";
 import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
@@ -125,6 +126,7 @@ export function GitHubForm({ projectId, reload, onBack, onClose }: Readonly<Form
           <Link href={routes.integrations(projectId, { setup: "github" })}>{CANVAS_COPY.githubChoose}</Link>
         </Notice>
       )}
+      {refused ? null : <HowTo steps={CANVAS_COPY.howGithubInstall} />}
     </ConnectFrame>
   );
 }

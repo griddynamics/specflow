@@ -261,8 +261,15 @@ export const listSourceFiles = (pid: string, sid: string, cursor?: string | null
 /** DELETE goes through `call`, so it carries the CSRF header like every non-GET. Resolves with the HTTP status (204 = removed). */
 export const removeSource = (pid: string, sid: string) =>
   httpDelete(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}`).then((r) => r.status);
-export const startBatch = (pid: string, expectedFiles: number) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/sources/uploads`, json({ expected_files: expectedFiles })).then((r) => r.body);
+/** `name` (optional, the batch's own name) is left out of the body when blank, so the server keeps the default. */
+export const startBatch = (pid: string, expectedFiles: number, name?: string) =>
+  httpPost(
+    `/projects/${encodeURIComponent(pid)}/sources/uploads`,
+    json(name === undefined || name.trim() === "" ? { expected_files: expectedFiles } : { expected_files: expectedFiles, name }),
+  ).then((r) => r.body);
+/** Renames an upload batch: 200 with the source summary, 422 for a bad name, 404 `source_not_found`, 409 `source_not_renamable`. */
+export const renameSource = (pid: string, sid: string, name: string) =>
+  httpPatch(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}`, json({ name })).then((r) => r.body);
 /** Same wire form as `uploadDocument`: the File is the raw body; the `Content-Type` is the canonical type of its extension. */
 export const addBatchFile = (pid: string, sid: string, file: File) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}/files?filename=${encodeURIComponent(file.name)}`, {

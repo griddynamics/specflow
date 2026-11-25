@@ -46,6 +46,7 @@ export const V2_COPY = {
   integrationsLabel: "Integrations",
   builtInHeading: "Built in · always on",
   integrationEyebrow: "Integration",
+  showMeHow: "Show me how",
   setUp: "Set up",
   manage: "Manage",
   unavailableAction: "Unavailable",
@@ -123,6 +124,7 @@ export const V2_COPY = {
   appSubs: { atlassian: "Jira and Confluence", github: "Repositories", slack: "Channels" },
   builtIn: {
     upload: { title: "Upload and Google Drive", note: "Added with the plus on the canvas." },
-    mcp: { title: "MCP", note: "Added to the canvas by itself." },
   },
+  // MCP is a card of the page but not an integration of the project: nothing is bound to it, so it has no row from the API.
+  mcpCard: { name: "MCP", sub: "Coding agents", action: "Connect" },
 } as const;

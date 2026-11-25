@@ -10,6 +10,7 @@ import {
   CodeLine,
   ConfirmPanel,
   DialogFoot,
+  FileList,
   IntegrationCard,
   IntegrationGrid,
   Menu,
@@ -28,6 +29,7 @@ import {
   SuggestionList,
   Tag,
   ThemeToggle,
+  ToolGrid,
 } from "../src/index";
 
 const html = (node: ReactElement): string => renderToStaticMarkup(node);
@@ -204,4 +206,27 @@ test("layout helpers", () => {
     '<div class="gx-sectionhead"><b>Collaborators</b><span>3 of 50</span></div>',
   );
   assert.doesNotMatch(html(<SectionHead title="t" />), /<span>/);
+});
+
+test("ToolGrid: a labelled list, the name in mono then one sentence", () => {
+  const view = html(<ToolGrid label="Tools" items={[{ name: "list_gaps", does: "Lists the open questions." }]} />);
+  assert.equal(
+    view,
+    '<ul class="gx-tools" aria-label="Tools"><li><code class="gx-tools__name">list_gaps</code><span>Lists the open questions.</span></li></ul>',
+  );
+});
+
+test("FileList: the word and the note only for a file that has them", () => {
+  const view = html(
+    <FileList
+      label="Files"
+      rows={[
+        { key: "a", name: "spec.pdf", format: "PDF" },
+        { key: "b", name: "x.png", format: "Images", tag: "Skipped", note: "Skipped: not imported." },
+      ]}
+    />,
+  );
+  assert.match(view, /^<ul class="gx-files" aria-label="Files">/);
+  assert.match(view, /<li><span class="gx-files__name" title="spec\.pdf">spec\.pdf<\/span><span class="gx-files__meta">PDF<\/span><\/li>/);
+  assert.match(view, /Images<span class="gx-tag">Skipped<\/span><\/span><small class="gx-files__why">Skipped: not imported\.<\/small>/);
 });

@@ -6,6 +6,12 @@
 export const INTEGRATION_APPS = ["atlassian", "github", "slack"] as const;
 export type IntegrationApp = (typeof INTEGRATION_APPS)[number];
 
+/**
+ * What a card of the Integrations page can open: an app of the API, or MCP. MCP is only a card (the deployment's address and the commands to
+ * connect a coding agent); the project has no connection to it, so it is not an `IntegrationApp` and the API types stay as they are.
+ */
+export type IntegrationCardId = IntegrationApp | "mcp";
+
 /** The apps `PUT` binds from the caller's own connection; Slack is bound by its command in the channel. */
 export type BindableApp = Exclude<IntegrationApp, "slack">;
 

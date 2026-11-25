@@ -22,8 +22,15 @@ const MARK = { upload: "upload", gdrive: "gdrive", confluence: "confluence", jir
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 
-/** "Upload 10:42" for a batch added today, "Upload 25 Nov" for an older one, with " (2)" for a same-minute batch: short enough for a node. */
-export function uploadName(s: Pick<Source, "addedAt" | "nameSuffix">, now: Date): string {
+/** The name every upload batch has until someone names it (the API's default). */
+export const DEFAULT_UPLOAD_NAME = "Local files";
+
+/**
+ * The name the person gave the batch, as it is; else "Upload 10:42" for a batch added today, "Upload 25 Nov" for an older one, with " (2)"
+ * for a same-minute batch: short enough for a node.
+ */
+export function uploadName(s: Pick<Source, "addedAt" | "nameSuffix" | "name">, now: Date): string {
+  if (s.name !== DEFAULT_UPLOAD_NAME) return s.name;
   const added = new Date(s.addedAt);
   const sameDay = added.toDateString() === now.toDateString();
   const suffix = s.nameSuffix > 1 ? ` (${String(s.nameSuffix)})` : "";

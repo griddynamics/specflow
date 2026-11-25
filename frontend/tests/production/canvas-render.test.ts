@@ -10,6 +10,7 @@ import { buildCanvasModel } from "@/components/v2/canvas/canvas-model";
 import { CanvasView, type CanvasViewProps } from "@/components/v2/canvas/CanvasView";
 import { DriveForm } from "@/components/v2/canvas/DriveForm";
 import { McpForm } from "@/components/v2/canvas/McpForm";
+import { MCP_TOOLS } from "@/components/v2/canvas/canvas-copy";
 import { CONNECTORS, NODE_MAPPERS } from "@/components/v2/connectors";
 import type { ConnectorSpec, FormProps } from "@/components/v2/connector-types";
 import { DataContext, type DataContextValue } from "@/lib/data/provider";
@@ -162,26 +163,49 @@ const formProps = (spec: ConnectorSpec, zone: "graph" | "gap" | "plan"): FormPro
   onClose: noop,
 });
 
-test("the MCP dialog gives the Guides' commands and the tools of the stage", () => {
+test("the MCP dialog of the canvas: the stage's notice, Show me how as a link to the Integrations MCP dialog, and the tools with what they do", () => {
   const view = {
     gap: html(createElement(McpForm, formProps(spec("mcp"), "gap"))),
     plan: html(createElement(McpForm, formProps(spec("mcp"), "plan"))),
   };
-  assert.match(
-    view.gap,
-    /claude mcp add --transport http --scope user --client-id specflow-test --callback-port 8765 specflow https:\/\/mcp\.example\.com\/mcp/,
-  );
-  assert.match(view.gap, /\/mcp__specflow__select_project p1/);
-  for (const tool of ["list_gaps", "answer_gap", "add_finding"]) assert.match(view.gap, new RegExp(`>${tool}<`));
+  for (const stage of [view.gap, view.plan]) {
+    assert.doesNotMatch(stage, /claude mcp add|select_project|<ol/, "the connect steps are on the Integrations page now");
+    assert.match(
+      stage,
+      /<a class="gx-how__face" href="\/projects\/p1\/integrations\?setup=mcp&amp;next=%2Fprojects%2Fp1">.*Show me how<\/a>/,
+    );
+    assert.match(stage, /<ul class="gx-tools" aria-label="Tools of this stage">/);
+  }
+  assert.match(view.gap, /Coding agents see the open gaps of their work/);
+  assert.match(view.plan, /Coding agents claim a whole story/);
+  for (const tool of MCP_TOOLS.gap) assert.match(view.gap, new RegExp(`<code class="gx-tools__name">${tool.name}</code><span>`));
   assert.equal(view.gap.includes(">claim_story<"), false);
-  for (const tool of ["list_areas", "claim_story", "complete_story"]) assert.match(view.plan, new RegExp(`>${tool}<`));
+  for (const tool of MCP_TOOLS.plan) assert.match(view.plan, new RegExp(`<code class="gx-tools__name">${tool.name}</code><span>`));
   assert.equal(view.plan.includes(">answer_gap<"), false);
+  assert.equal(count(view.plan, "gx-tools__name"), 6);
+  assert.equal(count(view.gap, "gx-tools__name"), 5);
+});
+
+test("every MCP tool carries a name and one plain sentence in the user's words, not the API's", () => {
+  const all = [...MCP_TOOLS.gap, ...MCP_TOOLS.plan];
+  assert.equal(new Set(all.map((t) => t.name)).size, 11);
+  for (const tool of all) {
+    assert.match(tool.name, /^[a-z]+(_[a-z]+)+$/);
+    assert.match(tool.does, /^[A-Z][^.]*\.$/, `${tool.name}: one sentence`);
+    assert.doesNotMatch(tool.does, /\b(endpoint|JSON|payload|parameter|claim_token|API)\b/i);
+  }
+  assert.match(
+    MCP_TOOLS.gap.find((t) => t.name === "answer_gap")?.does ?? "",
+    /^Opens a dialog in your agent where you pick or write the answer/,
+  );
 });
 
 test("the Drive form: the account, the guide, the link field and 'Test connection' that is off until there is a link", () => {
   const view = html(createElement(DriveForm, formProps(spec("gdrive"), "graph")));
   assert.match(view, /Share the folder with this account as a Viewer:/);
-  assert.match(view, /How to share a folder \(4 steps\)/);
+  assert.match(view, /<details class="gx-how"><summary class="gx-how__face">.*Show me how<\/summary>/);
+  assert.doesNotMatch(view, /<details[^>]* open/, "closed at first");
+  assert.match(view, /In Google Drive, open the menu of the folder and choose Share/);
   assert.match(view, /<label[^>]*>Google Drive folder link<\/label>/);
   assert.match(
     view,

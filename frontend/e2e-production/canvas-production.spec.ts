@@ -190,14 +190,37 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(mcp).toHaveCount(2);
     await expect(mcp.first()).toContainText("Automatic");
     await expect(wire(page, "gap-plan")).toHaveAttribute(MOTION, "on");
+    // Under Gap: the stage's notice, Show me how (a link), and the gap tools with what each does; no connect steps.
     await mcp.first().getByRole("button").click();
-    const agent = dialog(page, "Connect a coding agent over MCP");
-    await expect(
-      agent.getByText(/claude mcp add --transport http .*--client-id specflow-test .* https:\/\/mcp\.example\.com\/mcp/),
-    ).toBeVisible();
-    await expect(agent.getByText("answer_gap", { exact: true })).toBeVisible();
+    const agent = dialog(page, "Coding agents over MCP");
+    await expect(agent.getByText(/Coding agents see the open gaps of their work/)).toBeVisible();
+    await expect(agent.getByText(/claude mcp add/)).toHaveCount(0);
+    await expect(agent.getByRole("link", { name: "Show me how" })).toHaveAttribute(
+      "href",
+      `/projects/${pid}/integrations?setup=mcp&next=%2Fprojects%2F${pid}`,
+    );
+    const gapTools = agent.getByRole("list", { name: "Tools of this stage" }).getByRole("listitem");
+    await expect(gapTools).toHaveCount(5);
+    await expect(gapTools.filter({ hasText: "answer_gap" })).toContainText(
+      "Opens a dialog in your agent where you pick or write the answer",
+    );
     await expect(agent.getByText("claim_story", { exact: true })).toHaveCount(0);
     await agent.getByRole("button", { name: "Done" }).click();
     await expect(agent).toBeHidden();
+    // Under Plan: the plan tools.
+    await mcp.last().getByRole("button").click();
+    await expect(agent.getByText(/Coding agents claim a whole story/)).toBeVisible();
+    await expect(agent.getByRole("list", { name: "Tools of this stage" }).getByRole("listitem")).toHaveCount(6);
+    await expect(agent.getByText("claim_story", { exact: true })).toBeVisible();
+    await expect(agent.getByText("answer_gap", { exact: true })).toHaveCount(0);
+    // The link goes to the MCP dialog of Integrations, and Done there comes back to the canvas.
+    await agent.getByRole("link", { name: "Show me how" }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=mcp`));
+    const connect = dialog(page, "MCP");
+    await expect(
+      connect.getByText(/claude mcp add --transport http .*--client-id specflow-test .* https:\/\/mcp\.example\.com\/mcp/),
+    ).toBeVisible();
+    await connect.getByRole("button", { name: "Done" }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}$`));
   });
 });

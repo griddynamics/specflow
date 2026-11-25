@@ -6,8 +6,9 @@ import { colourViolations, fontViolations, tabWalkProblems } from "./audits";
 import { canvas, dialog, done, nodes, SPECS, unique } from "./canvas-support";
 import { expect, seedIntegrations, seedSlack, seedSource, setTheme, test } from "./support";
 
-// The classes of `packages/ui` that set `--gx-font-mono`: eyebrows, zone labels, node and card tags, copy rows, pick rows, code lines, tags.
-const MONO = ".gx-eyebrow, .gx-zone__label, .gx-cnode__tag, .gx-ccard__tag, .gx-copyrow__text, .gx-pick__row, .gx-code, .gx-tag";
+// The classes of `packages/ui` that set `--gx-font-mono`: eyebrows, zone labels, node and card tags, copy rows, pick rows, code lines, tags, tool names.
+const MONO =
+  ".gx-eyebrow, .gx-zone__label, .gx-cnode__tag, .gx-ccard__tag, .gx-copyrow__text, .gx-pick__row, .gx-code, .gx-tag, .gx-tools__name";
 const RING = { root: ".gx", token: "--gx-ink" };
 const ALEX = { user_id: "u-alex", name: "Alex Kim" };
 

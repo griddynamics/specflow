@@ -51,6 +51,7 @@ const http: HttpPorts = {
     syncNow: never,
     addToken: never,
     upload: never,
+    rename: never,
     driveIdentity: never,
     testDrive: never,
     saveDrive: never,

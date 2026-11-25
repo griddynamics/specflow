@@ -552,3 +552,48 @@ test("FR-SRC-0020: an add is retried once on 503; a malformed 2xx add body count
     },
   );
 });
+
+test("a named upload: the name goes in the start body only when it is not blank, and the server's trimmed name comes back", async () => {
+  const http = createHttpAdapter();
+  const pid = await newProject(http, "Named upload");
+  const starts = () => env.sent.filter((x) => x.method === "POST" && x.path === `/api/backend/projects/${pid}/sources/uploads`);
+  await http.sources.upload(pid, [pdfFile("one.pdf", 1101)], "  Q3 contracts ");
+  await http.sources.upload(pid, [pdfFile("two.pdf", 1102)], "   ");
+  await http.sources.upload(pid, [pdfFile("three.pdf", 1103)]);
+  assert.deepEqual(
+    starts().map((x) => JSON.parse(x.body ?? "{}") as unknown),
+    [{ expected_files: 1, name: "  Q3 contracts " }, { expected_files: 1 }, { expected_files: 1 }],
+  );
+  const names = (await http.knowledge.status(pid)).sources.map((x) => x.name);
+  assert.deepEqual(names, ["Q3 contracts", "Local files", "Local files"]);
+});
+
+test("rename: PATCH with the name, the same summary back; 422 for a bad name, 404 for a source that is gone, 409 for a source that is not an upload", async () => {
+  const http = createHttpAdapter();
+  const pid = await newProject(http, "Rename");
+  const upload = env.api.model.seed(pid, { kind: "upload", files: [{ name: "a.pdf", state: "done" }] });
+  const drive = env.api.model.seed(pid, { kind: "gdrive", name: "Folder", files: [{ name: "b.pdf", state: "done" }] });
+  let notified = 0;
+  const off = http.knowledge.subscribe(pid, () => notified++);
+  try {
+    const renamed = await http.sources.rename(pid, upload, "  Board papers  ");
+    assert.deepEqual([renamed.id, renamed.kind, renamed.name, renamed.total], [upload, "upload", "Board papers", 1]);
+    const patch = env.sent.filter((x) => x.method === "PATCH" && x.path === `/api/backend/projects/${pid}/sources/${upload}`);
+    assert.equal(patch.length, 1);
+    assert.equal(patch[0].headers["x-requested-with"], "specflow");
+    assert.deepEqual(JSON.parse(patch[0].body ?? "{}"), { name: "  Board papers  " });
+    assert.ok(notified >= 1, "the screen reads the status again");
+    assert.equal((await http.knowledge.status(pid)).sources.find((x) => x.id === upload)?.name, "Board papers");
+    for (const bad of ["", "   ", "x".repeat(81), "a\u0007b"]) {
+      const e = await rejection(http.sources.rename(pid, upload, bad));
+      assert.deepEqual([e.code, e.detail?.apiCode], ["validation", "validation_failed"], JSON.stringify(bad));
+    }
+    assert.equal((await http.sources.rename(pid, upload, "x".repeat(80))).name.length, 80);
+    const gone = await rejection(http.sources.rename(pid, "00000000-0000-4000-8000-000000000000", "Name"));
+    assert.deepEqual([gone.code, gone.detail?.apiCode], ["not_found", "source_not_found"]);
+    const notUpload = await rejection(http.sources.rename(pid, drive, "Name"));
+    assert.deepEqual([notUpload.code, notUpload.detail?.apiCode], ["conflict", "source_not_renamable"]);
+  } finally {
+    off();
+  }
+});

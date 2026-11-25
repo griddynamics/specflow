@@ -15,7 +15,9 @@ import {
 } from "@/components/settings/github-logic";
 import { useToast } from "@/components/ui/Toast";
 import type { GitHubConnection, GitHubRepositoryList, ProjectRepositories, ProjectRepository } from "@/lib/domain/github";
+import { HowTo } from "../HowTo";
 import { useV2Ports } from "../use-v2-data";
+import { CANVAS_COPY } from "../canvas/canvas-copy";
 import { V2_COPY } from "../v2-copy";
 import { SetupFrame } from "./SetupFrame";
 import type { SetupProps } from "./setup-props";
@@ -105,6 +107,7 @@ export function GitHubSetup(props: Readonly<SetupProps>) {
   const connectLabel = bound ? V2_COPY.reconnectGithub : V2_COPY.connectGithub;
   return (
     <SetupFrame props={props}>
+      <HowTo steps={working ? CANVAS_COPY.howGithubInstall : CANVAS_COPY.howGithubSetup} />
       {working ? (
         <Repositories data={data} busy={busy} onAdd={add} onRemove={remove} onChoose={choose} />
       ) : (

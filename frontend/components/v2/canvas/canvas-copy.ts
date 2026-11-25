@@ -23,6 +23,7 @@ export const CANVAS_COPY = {
   uploadTitle: "Add files",
   dropTitle: "Drop files here",
   chooseFiles: "Choose files",
+  uploadName: "Name (optional)",
   // Google Drive
   driveStepShare: "Share the folder with this account as a Viewer:",
   driveStepPaste: "Paste the folder link below and test it.",
@@ -33,7 +34,7 @@ export const CANVAS_COPY = {
   driveSaving: "Saving…",
   // MCP
   mcpEyebrow: "Added automatically",
-  mcpTitle: "Connect a coding agent over MCP",
+  mcpTitle: "Coding agents over MCP",
   mcpSay: {
     gap: "Coding agents see the open gaps of their work, answer the ones they can, and report new findings.",
     plan: "Coding agents claim a whole story, read its brief and report every task as they build it.",
@@ -42,6 +43,7 @@ export const CANVAS_COPY = {
   mcpStepSignIn: "Sign in:",
   mcpStepBind: "Bind the repository to this project:",
   mcpTools: "Tools for this stage",
+  mcpToolsLabel: "Tools of this stage",
   mcpOther: "Cursor, Codex and other clients: add the same address as a remote MCP server.",
   done: "Done",
   // GitHub repository
@@ -95,6 +97,32 @@ export const CANVAS_COPY = {
   githubPlanUser: "This repository belongs to a person. Only organization projects can be used.",
   githubPlanListFailed: "The projects of the organization could not be read.",
   githubPlanLoadingProjects: "Reading the projects…",
+  // "Show me how": the steps of what a person does outside Graphico (from docs/slack, docs/github, docs/jira-sync and docs/sources)
+  howSlackChannel: [
+    "In Slack, open the channel where the people who can answer talk.",
+    "Type /invite @SpecFlow and press Enter.",
+    "Use a channel of your workspace: not a direct message, and not one shared with another workspace.",
+  ],
+  howSlackConnect: [
+    "In Slack, open the channel where the people who can answer talk.",
+    "Type /invite @SpecFlow and press Enter.",
+    "In the same channel, run the command below. One channel belongs to one project.",
+  ],
+  howGithubInstall: [
+    "In Integrations, open GitHub and press Choose repositories on GitHub.",
+    "On GitHub, install the app on your account or organization and pick the repositories it may read.",
+    "Return to Graphico and tick the repositories to add.",
+  ],
+  howGithubSetup: [
+    "Press Connect GitHub and approve the app with your own GitHub account.",
+    "Press Choose repositories on GitHub. There, install the app on your account or organization and pick the repositories it may read.",
+    "Return here and tick the repositories to add.",
+  ],
+  howAtlassian: [
+    "Press Connect with Atlassian.",
+    "Sign in to Atlassian and approve the access Graphico asks for.",
+    "When Atlassian asks which site to allow, choose your team's site. Graphico brings you back here.",
+  ],
   // Dialogs
   close: "Cancel",
   remove: "Remove",
@@ -108,6 +136,23 @@ export const CANVAS_COPY = {
   by: "Who",
   app: "App",
   removeFailed: "It could not be removed. Try again.",
+  // The files inside a source, and renaming an upload
+  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues" },
+  filesLabel: "Files in this source",
+  filesNone: "Nothing in this source yet.",
+  filesFailed: "The files could not be read.",
+  filesMore: "Show more",
+  filesLoading: "Loading",
+  filesRetry: "Try again",
+  rename: "Rename",
+  renameLabel: "Name",
+  renameSave: "Save",
+  renameSaving: "Saving…",
+  renameCancel: "Cancel",
+  renameInvalid: "The name needs 1 to 80 characters, and no control characters.",
+  renameNot: "Only an upload can be renamed.",
+  renameGone: "This source is gone. Close this and look at the canvas again.",
+  renameFailed: "It could not be renamed. Try again.",
   // Build and plan decisions
   buildTitle: "Build the graph",
   updateTitle: "Update the graph",
@@ -138,7 +183,33 @@ export const CANVAS_COPY = {
   gapsMore: "and {n} more",
 } as const;
 
+/** What each tool does when you ask your agent for it, from the definitions in `backend/src/mcp_server/descriptions.py`. */
 export const MCP_TOOLS = {
-  gap: ["list_gaps", "browse_gaps", "open_gap", "answer_gap", "add_finding"],
-  plan: ["list_areas", "list_stories", "claim_story", "get_story_brief", "report_task", "complete_story"],
+  gap: [
+    { name: "list_gaps", does: "Lists the open questions about the part of the specification your agent is working on, blockers first." },
+    { name: "browse_gaps", does: "Lists the project's gaps, filtered by status, severity or who holds them." },
+    { name: "open_gap", does: "Shows one gap whole: the question, why it matters, and the options with what each would change." },
+    {
+      name: "answer_gap",
+      does: "Opens a dialog in your agent where you pick or write the answer to an open gap; the answer is recorded as yours.",
+    },
+    { name: "add_finding", does: "Records a question, conflict or missing detail your agent found, as a new gap for people to answer." },
+  ],
+  plan: [
+    {
+      name: "list_areas",
+      does: "Shows the work areas of the plan and how many stories of each are ready, in progress, waiting, blocked or done.",
+    },
+    { name: "list_stories", does: "Shows the stories to build next, ready ones first, and who holds the ones in progress." },
+    { name: "claim_story", does: "Takes the story you choose for your agent, so nobody else builds it at the same time." },
+    {
+      name: "get_story_brief",
+      does: "Gives your agent the story's tasks in build order, with the specification they implement and any open questions.",
+    },
+    {
+      name: "report_task",
+      does: "Tells the team that a task of your story is done, skipped or not done after all, so they see how far it is.",
+    },
+    { name: "complete_story", does: "Closes your story once its pull request is merged, and shows which stories are ready next." },
+  ],
 } as const;

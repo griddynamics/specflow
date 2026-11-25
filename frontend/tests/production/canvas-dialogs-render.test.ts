@@ -177,7 +177,12 @@ test("the Slack form shows the invite and the connect command of main with a Cop
   const view = html(createElement(SlackForm, form("slack")));
   assert.match(view, /<code[^>]*>\/invite @SpecFlow<\/code>/);
   assert.match(view, /<code[^>]*>\/specflow connect p1<\/code>/);
-  assert.equal(count(view, ">Copy<"), 2);
+  assert.equal(count(view, 'class="gx-copyrow__btn"'), 2, "a copy icon in each code box");
+  assert.match(view, /aria-label="Copy invite command"/);
+  assert.match(
+    view,
+    /<details class="gx-how">.*Show me how<\/summary><div class="gx-how__body"><ol.*Type \/invite @SpecFlow and press Enter\./,
+  );
   assert.match(view, /Waiting for the channel\./);
   assert.match(view, /<li>Test it: Graphico posts a welcome message in the channel\.<\/li>/);
   assert.match(view, /disabled=""[^>]*>Test connection<\/button>/, "Test connection waits for the binding");
@@ -313,4 +318,21 @@ test("a repository the caller cannot manage has no Remove in its dialog", () => 
   const view = html(createElement(NodeDialog, { node, projectId: "p1", routes, onChanged: noop, onClose: noop }));
   assert.doesNotMatch(view, />Remove</);
   assert.match(view, />Done</);
+});
+
+test("an upload's dialog: the files inside (loading first), Rename beside Remove; a Drive folder's has the files but no Rename", () => {
+  const dialogOf = (kind: string, input = SCENE_3): string =>
+    html(createElement(NodeDialog, { node: nodeOf(input, kind), projectId: "p1", routes, onChanged: noop, onClose: noop }));
+  const view = {
+    upload: dialogOf("upload"),
+    drive: dialogOf("gdrive"),
+    repository: dialogOf("github", BUILT({ github: repos([repo()]), integrations: [integration("github", { health: "active" })] })),
+  };
+  assert.match(view.upload, /<b>Files<\/b>/);
+  assert.match(view.upload, />Loading</);
+  assert.match(view.upload, />Rename<\/button>/);
+  assert.match(view.upload, />Remove<\/button>/);
+  assert.match(view.drive, /<b>Files<\/b>/);
+  assert.doesNotMatch(view.drive, />Rename</);
+  assert.doesNotMatch(view.repository, /<b>Files<\/b>/, "a repository is not a source of the sources API");
 });

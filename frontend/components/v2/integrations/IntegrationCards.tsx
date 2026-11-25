@@ -1,16 +1,13 @@
 // The cards of the Integrations page and the list of what is always on under them. Props only: the page owns the data and the dialog.
 import { BuiltInList, IntegrationCard, IntegrationGrid } from "@graphico/ui";
-import type { Integration, IntegrationApp } from "@/lib/domain/integrations";
+import type { Integration, IntegrationCardId } from "@/lib/domain/integrations";
 import { V2_COPY } from "../v2-copy";
 import { cardViewOf } from "./integration-logic";
 import { INTEGRATION_CARDS } from "./registry";
 
-const BUILT_IN = [
-  { key: "upload", mark: "upload", ...V2_COPY.builtIn.upload },
-  { key: "mcp", mark: "mcp", ...V2_COPY.builtIn.mcp },
-] as const;
+const BUILT_IN = [{ key: "upload", mark: "upload", ...V2_COPY.builtIn.upload }] as const;
 
-export function IntegrationCards({ rows, onOpen }: Readonly<{ rows: readonly Integration[]; onOpen: (app: IntegrationApp) => void }>) {
+export function IntegrationCards({ rows, onOpen }: Readonly<{ rows: readonly Integration[]; onOpen: (card: IntegrationCardId) => void }>) {
   return (
     <>
       <IntegrationGrid label={V2_COPY.integrationsLabel}>
@@ -34,6 +31,16 @@ export function IntegrationCards({ rows, onOpen }: Readonly<{ rows: readonly Int
             />
           );
         })}
+        <IntegrationCard
+          marks={["mcp"]}
+          name={V2_COPY.mcpCard.name}
+          sub={V2_COPY.mcpCard.sub}
+          state="on"
+          actionLabel={V2_COPY.mcpCard.action}
+          onAction={() => {
+            onOpen("mcp");
+          }}
+        />
       </IntegrationGrid>
       <BuiltInList heading={V2_COPY.builtInHeading} items={BUILT_IN} />
     </>

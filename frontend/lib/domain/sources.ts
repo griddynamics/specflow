@@ -273,8 +273,12 @@ export interface SourcesPort {
   syncNow(projectId: string, connectionId: string): Promise<void>;
   /** Phase 1: a simulated token check; the token is never stored. */
   addToken(projectId: string, connectionId: string, token: string): Promise<void>;
-  /** One Local files batch: start, add the files one by one, end (INT-SRC-0004). The build button processes them (D7). */
-  upload(projectId: string, files: File[]): Promise<UploadReport>;
+  /** One Local files batch: start, add the files one by one, end (INT-SRC-0004). The build button processes them (D7). `name` is the batch's
+   * own name (the server trims it; blank or absent keeps "Local files"). */
+  upload(projectId: string, files: File[], name?: string): Promise<UploadReport>;
+  /** Renames an upload batch (any member). Rejects `validation` for a bad name, `not_found` (apiCode `source_not_found`) for a source that is gone and
+   * `conflict` (apiCode `source_not_renamable`) for a source that is not an upload. */
+  rename(projectId: string, sourceId: string, name: string): Promise<Source>;
   /** The Drive account email to share folders with (FR-GDUI-0002). A failure is a reason, not an exception. */
   driveIdentity(): Promise<DriveIdentity>;
   /** Lists the folder, creates nothing (FR-GDUI-0009). Transport failures reject; the modal shows them as `unknown_error`. */

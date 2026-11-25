@@ -5,9 +5,11 @@ import { useEffect, useState } from "react";
 import { Button, CodeLine, Notice, Row } from "@graphico/ui";
 import { usePorts } from "@/lib/data/provider";
 import { slackConnectCommand, type SlackChannel } from "@/lib/domain/slack";
+import { HowTo } from "../HowTo";
 import { SetupFrame } from "./SetupFrame";
 import type { SetupProps } from "./setup-props";
 import { channelLabel, slackTestFailure, SLACK_POLL_MS } from "./slack-logic";
+import { CANVAS_COPY } from "../canvas/canvas-copy";
 import { V2_COPY } from "../v2-copy";
 
 export function SlackSetup(props: Readonly<SetupProps>) {
@@ -79,6 +81,7 @@ export function SlackSetup(props: Readonly<SetupProps>) {
         <>
           <Notice>{V2_COPY.slackSteps}</Notice>
           <CodeLine>{slackConnectCommand(projectId)}</CodeLine>
+          <HowTo steps={CANVAS_COPY.howSlackConnect} />
           <Notice>{V2_COPY.slackWaiting}</Notice>
         </>
       )}

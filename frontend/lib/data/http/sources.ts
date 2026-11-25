@@ -17,6 +17,7 @@ import {
   getDriveIdentity,
   listSourceFiles,
   removeSource,
+  renameSource,
   saveDriveFolder,
   startBatch,
   testDriveFolder,
@@ -41,7 +42,7 @@ import {
   type UploadReport,
 } from "@/lib/domain/sources";
 import { expectShape, guard, isRecord, isString } from "./errors";
-import { BATCH_OUTCOMES, toFilePage, toProgress, type BatchOutcome } from "./sources-wire";
+import { BATCH_OUTCOMES, toFilePage, toProgress, toSource, type BatchOutcome } from "./sources-wire";
 
 const REASONS: ReadonlySet<string> = new Set<DriveReason>([
   "invalid_link",
@@ -127,9 +128,14 @@ const keepOdd2xx = (e: unknown): unknown => {
 const apiCodeOf = (e: unknown): string | undefined => (isDataError(e) ? e.detail?.apiCode : undefined);
 
 /** Opens a Local files batch and returns its source id; `null` when no batch opened. */
-async function openBatch(projectId: string, fileCount: number, changed: (projectId: string) => void): Promise<string | null> {
+async function openBatch(
+  projectId: string,
+  fileCount: number,
+  name: string | undefined,
+  changed: (projectId: string) => void,
+): Promise<string | null> {
   try {
-    const body: unknown = await guard(() => startBatch(projectId, fileCount));
+    const body: unknown = await guard(() => startBatch(projectId, fileCount, name));
     // Lenient on purpose: a start body that parses badly still opened a batch, which must be ended.
     return isRecord(body) && isRecord(body.source) && isString(body.source.id) && body.source.id !== "" ? body.source.id : null;
   } catch {
@@ -214,7 +220,15 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         opts.changed(projectId);
       }
     },
-    async upload(projectId, files) {
+    async rename(projectId, sourceId, name) {
+      try {
+        const body: unknown = await guard(() => renameSource(projectId, sourceId, name));
+        return toSource(body); // the same summary as the `source` of a file page
+      } finally {
+        opts.changed(projectId);
+      }
+    },
+    async upload(projectId, files, name) {
       const report: UploadReport = {
         sourceId: null,
         picked: files.length,
@@ -224,7 +238,7 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         duplicates: 0,
         notAdded: files.length,
       };
-      const sourceId = await openBatch(projectId, files.length, opts.changed);
+      const sourceId = await openBatch(projectId, files.length, name, opts.changed);
       if (sourceId === null) return report; // no batch: nothing was added, the screen names every file
       report.sourceId = sourceId;
       try {

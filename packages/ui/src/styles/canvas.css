@@ -766,9 +766,10 @@ button.gx-hub__tile {
 }
 
 .gx-copyrow {
+  position: relative;
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   min-width: 0;
   padding: 8px 8px 8px 12px;
@@ -781,6 +782,70 @@ button.gx-hub__tile {
   overflow-wrap: anywhere;
   font: 13px var(--gx-font-mono);
   font-variant-ligatures: none;
+}
+
+.gx-copyrow__btn {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gx-ink-2);
+  cursor: pointer;
+}
+
+.gx-copyrow__btn:hover {
+  background: var(--gx-wash);
+  color: var(--gx-ink);
+}
+
+/* "Show me how": a disclosure or a link, one look. */
+.gx-how {
+  justify-self: start;
+}
+
+.gx-how__face {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 14px 5px 10px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--gx-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  list-style: none;
+}
+
+.gx-how__face::-webkit-details-marker {
+  display: none;
+}
+
+.gx-how__face:hover,
+.gx-how[open] > .gx-how__face {
+  background: var(--gx-wash);
+  text-decoration: none;
+}
+
+.gx-how__body {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Letters, so the help steps are not mistaken for the numbered steps of the form around them. */
+.gx-how__body .gx-steps {
+  list-style: lower-alpha;
 }
 
 .gx-steps {

@@ -8,6 +8,7 @@ import { SETTINGS_COPY } from "@/components/settings/settings-copy";
 import { slackConnectCommand, type SlackChannel } from "@/lib/domain/slack";
 import { channelLabel, slackTestFailure, SLACK_POLL_MS } from "../integrations/slack-logic";
 import type { CheckLabels, FormProps } from "../connector-types";
+import { HowTo } from "../HowTo";
 import { useV2Ports } from "../use-v2-data";
 import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
@@ -51,6 +52,7 @@ export function SlackSteps(p: Readonly<SlackStepsProps>) {
         <li>{CANVAS_COPY.slackInvite}</li>
       </StepList>
       <CopyRow {...COPY_ROW} text={INVITE_COMMAND} name={CANVAS_COPY.slackInviteName} />
+      <HowTo steps={CANVAS_COPY.howSlackChannel} />
       <StepList start={2}>
         <li>{CANVAS_COPY.slackConnect}</li>
       </StepList>

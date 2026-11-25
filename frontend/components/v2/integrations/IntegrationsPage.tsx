@@ -7,14 +7,21 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Dialog, Notice, Page } from "@graphico/ui";
 import { useToast } from "@/components/ui/Toast";
-import { canDisconnect, type BindableApp, type IntegrationApp } from "@/lib/domain/integrations";
+import { canDisconnect, type BindableApp, type IntegrationApp, type IntegrationCardId } from "@/lib/domain/integrations";
 import { parseIntegrationsQuery } from "@/lib/routes";
+import type { McpAddress } from "../connector-types";
 import { useV2Routes } from "../use-v2-data";
 import { V2_COPY } from "../v2-copy";
 import { IntegrationCards } from "./IntegrationCards";
 import { integrationFailure, isLinked, returnToast } from "./integration-logic";
 import { INTEGRATION_CARDS } from "./registry";
+import { McpSetup } from "./McpSetup";
 import { useIntegrations } from "./use-integrations";
+
+const titleOf = (card: IntegrationCardId | null): string => {
+  if (card === null) return V2_COPY.integrations;
+  return card === "mcp" ? V2_COPY.mcpCard.name : V2_COPY.appNames[card];
+};
 
 const isBindable = (app: IntegrationApp): app is BindableApp => app !== "slack";
 
@@ -24,12 +31,12 @@ function returnedAppOf(query: { github: string | null; atlassian: string | null 
   return query.atlassian === null ? null : "atlassian";
 }
 
-export function IntegrationsPage({ projectId }: Readonly<{ projectId: string }>) {
+export function IntegrationsPage({ projectId, mcp }: Readonly<{ projectId: string; mcp: McpAddress }>) {
   const routes = useV2Routes();
   const router = useRouter();
   const toast = useToast();
   const query = parseIntegrationsQuery(useSearchParams());
-  const [open, setOpen] = useState<IntegrationApp | null>(query.setup);
+  const [open, setOpen] = useState<IntegrationCardId | null>(query.setup);
   const returned = useRef(false); // the return code of an app is handled once per mount
 
   const goHome = useCallback(() => {
@@ -95,12 +102,8 @@ export function IntegrationsPage({ projectId }: Readonly<{ projectId: string }>)
   return (
     <Page>
       <IntegrationCards rows={data.rows} onOpen={setOpen} />
-      <Dialog
-        open={open !== null}
-        onClose={close}
-        title={open === null ? V2_COPY.integrations : V2_COPY.appNames[open]}
-        eyebrow={V2_COPY.integrationEyebrow}
-      >
+      <Dialog open={open !== null} onClose={close} title={titleOf(open)} eyebrow={V2_COPY.integrationEyebrow}>
+        {open === "mcp" ? <McpSetup projectId={projectId} mcp={mcp} onDone={done} /> : null}
         {current === undefined || currentRow === undefined ? null : (
           <current.Setup
             projectId={projectId}

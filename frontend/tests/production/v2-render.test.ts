@@ -162,18 +162,20 @@ const base = (app: Integration["app"], over: Partial<Integration> = {}): Integra
 const ALEX = { userId: "u1", name: "Alex Kim" };
 const cards = (rows: Integration[]): { html: string } => shown(createElement(IntegrationCards, { rows, onOpen: noop }));
 
-test("cards, nothing connected: three grey cards in order, Set up on each, no tag", () => {
+test("cards, nothing connected: three grey cards in order, Set up on each, no tag, then the MCP card", () => {
   const { html: out } = cards([base("atlassian"), base("github"), base("slack")]);
   assert.deepEqual(
     [...out.matchAll(/data-state="(\w+)"/g)].map((m) => m[1]),
-    ["off", "off", "off"],
+    ["off", "off", "off", "on"],
   );
   assert.deepEqual(
     [...out.matchAll(/class="gx-igcard__name">([^<]+)</g)].map((m) => m[1]),
-    ["Atlassian", "GitHub", "Slack"],
+    ["Atlassian", "GitHub", "Slack", "MCP"],
   );
   assert.equal(out.match(/>Set up<\/button>/g)?.length, 3);
   assert.doesNotMatch(out, /gx-tag/);
+  assert.match(out, /class="gx-igcard__sub">Coding agents</);
+  assert.match(out, /<button[^>]*>Connect<\/button>/, "the MCP card says Connect where the apps say Set up or Manage");
   assert.doesNotMatch(out, /<h1/);
 });
 
@@ -197,7 +199,7 @@ test("cards, expired: Reconnect required, not ink; a member who left: Stopped; a
   ]);
   assert.deepEqual(
     [...out.matchAll(/data-state="(\w+)"/g)].map((m) => m[1]),
-    ["stopped", "stopped", "unavailable"],
+    ["stopped", "stopped", "unavailable", "on"],
   );
   assert.match(out, /<span class="gx-tag">Reconnect required<\/span>/);
   assert.match(out, /<span class="gx-tag">Stopped<\/span>/);
@@ -205,11 +207,11 @@ test("cards, expired: Reconnect required, not ink; a member who left: Stopped; a
   assert.match(out, /disabled="" type="button" class="gx-btn gx-btn--sm">Unavailable/);
 });
 
-test("cards: Upload, Google Drive and MCP are listed under them as always on; no uses and no switches on a card", () => {
+test("cards: Upload and Google Drive are listed under them as always on, MCP is a card; no uses and no switches on a card", () => {
   const { html: out } = cards([base("atlassian"), base("github"), base("slack")]);
   assert.match(out, /Built in · always on/);
   assert.match(out, /<b>Upload and Google Drive<\/b>/);
-  assert.match(out, /<b>MCP<\/b>/);
+  assert.doesNotMatch(out, /<b>MCP<\/b>/, "MCP left the built-in list");
   assert.doesNotMatch(out, /role="switch"|type="checkbox"/);
 });
 
@@ -232,6 +234,7 @@ const active = (app: Integration["app"]) => base(app, { connectedBy: ALEX, works
 
 test("Atlassian set-up: connect when nobody did, reconnect when it stopped, nothing to press while it works", () => {
   assert.match(shown(createElement(AtlassianSetup, setup(base("atlassian")))).html, />Connect with Atlassian<\/button>/);
+  assert.match(shown(createElement(AtlassianSetup, setup(base("atlassian")))).html, /<details class="gx-how">.*Show me how/);
   const { html: stopped } = shown(createElement(AtlassianSetup, setup({ ...active("atlassian"), health: "reconnect_required" })));
   assert.match(stopped, />Reconnect Atlassian<\/button>/);
   assert.match(stopped, /The account that connected it has no access now/);
@@ -254,8 +257,14 @@ test("GitHub set-up: connect first; a working binding shows its repositories (lo
     shown(createElement(GitHubSetup, setup(base("github")))).html,
     /disabled="" type="button" class="gx-btn">Connect GitHub<\/button>/,
   );
+  assert.match(shown(createElement(GitHubSetup, setup(base("github")))).html, /Press Connect GitHub and approve the app/);
   const { html: working } = shown(createElement(GitHubSetup, setup(active("github"))));
   assert.doesNotMatch(working, /Connect GitHub/);
+  assert.match(
+    working,
+    /<details class="gx-how">.*On GitHub, install the app on your account or organization/,
+    "Show me how: closed, the install steps",
+  );
   assert.match(working, /Loading/);
   const { html: reconnect } = shown(createElement(GitHubSetup, setup({ ...active("github"), health: "reconnect_required" })));
   assert.match(reconnect, />Reconnect GitHub<\/button>/);
@@ -265,6 +274,7 @@ test("Slack set-up: the command with the project id while no channel is bound; T
   const { html: waiting } = shown(createElement(SlackSetup, setup(base("slack"))));
   assert.match(waiting, /<code class="gx-code">\/specflow connect 0b6f-7<\/code>/);
   assert.match(waiting, /Waiting for the channel\./);
+  assert.match(waiting, /<details class="gx-how">.*Type \/invite @SpecFlow and press Enter\./);
   assert.doesNotMatch(waiting, /Test connection/);
   assert.doesNotMatch(waiting, /Uses the account of the member/, "nothing is connected yet: the rule has no account to name");
   const { html: bound } = shown(createElement(SlackSetup, setup(active("slack"), { canDisconnect: true })));

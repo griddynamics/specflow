@@ -973,7 +973,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
         return json(res, 200, url.searchParams.get("batches") === "1" ? model.status(pid) : progressOf(pid));
       }
       if (did === "uploads" && req.method === "POST" && !action) {
-        const b = model.start(pid, (await readJson())?.expected_files);
+        const body = await readJson();
+        const b = model.start(pid, body?.expected_files, body?.name);
         return json(res, 201, { source: model.summaries(pid).find((s) => s.id === b.id) });
       }
       if (did === "confluence" && req.method === "POST" && (action === undefined || action === "check")) {
@@ -1004,6 +1005,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           model.remove(pid, did);
           res.writeHead(204);
           return res.end();
+        }
+        if (!action && req.method === "PATCH") {
+          const body = await readJson();
+          return json(res, 200, model.rename(pid, did, body?.name));
         }
         if (action === "files" && req.method === "GET") {
           await drain();

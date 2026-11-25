@@ -218,9 +218,19 @@ test("the open gaps list puts blockers first and leaves the settled ones out", (
 
 test("an upload is named short: the time today, the day before, a number for a same-minute batch", () => {
   const now = new Date(2026, 10, 25, 12, 0);
-  const at = (d: Date, nameSuffix = 1) => uploadName({ addedAt: d.toISOString(), nameSuffix }, now);
+  const at = (d: Date, nameSuffix = 1, name = "Local files") => uploadName({ addedAt: d.toISOString(), nameSuffix, name }, now);
   assert.equal(at(new Date(2026, 10, 25, 10, 42)), "Upload 10:42");
   assert.equal(at(new Date(2026, 10, 20, 10, 42)), "Upload 20 Nov");
   assert.equal(at(new Date(2026, 10, 25, 10, 42), 2), "Upload 10:42 (2)");
   assert.ok(at(new Date(2026, 10, 20, 10, 42), 12).length <= 20);
+});
+
+test("a batch the person named shows that name, whatever the day or the number; only the default name gets the time", () => {
+  const now = new Date(2026, 10, 25, 12, 0);
+  const named = (name: string, d = new Date(2026, 10, 25, 10, 42), nameSuffix = 1) =>
+    uploadName({ addedAt: d.toISOString(), nameSuffix, name }, now);
+  assert.equal(named("Q3 contracts"), "Q3 contracts");
+  assert.equal(named("Q3 contracts", new Date(2026, 10, 20, 10, 42), 3), "Q3 contracts");
+  assert.equal(named("Local files"), "Upload 10:42");
+  assert.equal(named("Local files 10:42"), "Local files 10:42"); // any other name is a name
 });

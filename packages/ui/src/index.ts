@@ -15,8 +15,25 @@ export { AppHeader, NavButton, NavLink, ThemeToggle } from "./components/header"
 export type { AppHeaderProps, NavButtonProps, NavLinkProps, ThemeToggleProps } from "./components/header";
 export { BuiltInList, IntegrationCard, IntegrationGrid, PickList, PickRow } from "./components/integration-card";
 export type { BuiltInItem, IntegrationCardProps, IntegrationState } from "./components/integration-card";
-export { AppFrame, CodeLine, DialogFoot, Disclosure, LineList, Notice, Page, Row, SectionHead, Split, Stack } from "./components/layout";
+export {
+  AppFrame,
+  CodeLine,
+  DialogFoot,
+  Disclosure,
+  FileList,
+  LineList,
+  Notice,
+  Page,
+  Row,
+  SectionHead,
+  Split,
+  Stack,
+  ToolGrid,
+} from "./components/layout";
+export type { FileRowView } from "./components/layout";
 export { Menu } from "./components/menu";
+export { ShowMeHow } from "./components/show-me-how";
+export type { ShowMeHowProps } from "./components/show-me-how";
 export type { MenuItem, MenuProps } from "./components/menu";
 export { Avatar, PersonList, PersonRow, SuggestionList } from "./components/people";
 export type { PersonRowProps, SuggestionItem } from "./components/people";
