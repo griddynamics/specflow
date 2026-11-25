@@ -57,6 +57,10 @@ test("each API code lands with that code; any other answer, and the API down, is
     const fake = api(answer);
     assert.equal(await callbackDestination(query({ code: "c", state }), true, fake.post), `${BACK}&notion=notion_unexpected`);
   }
+  const secret = "SECRET-code-9f2";
+  const spill = api({ status: 400, body: { error: { code: "notion_code_invalid", message: secret } } });
+  const where = await callbackDestination(query({ code: secret, state }), true, spill.post);
+  assert.ok(!where.includes(secret) && !where.includes(state), "code and state never reach the redirect");
   const down = api(new Error("connect ECONNREFUSED"));
   assert.equal(await callbackDestination(query({ code: "c", state }), true, down.post), `${BACK}&notion=notion_unexpected`);
 });

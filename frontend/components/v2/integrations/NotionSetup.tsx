@@ -3,7 +3,7 @@
 // pages are shared there; "Add pages in Notion" goes through it again. If the caller is connected already, the button only binds. Everything
 // the app is used for (a page or database link, the plan's database) is added on the canvas.
 import { useCallback, useEffect, useState } from "react";
-import { Button, Notice, Row } from "@graphico/ui";
+import { Button, ConfirmPanel, Notice, Row } from "@graphico/ui";
 import { useToast } from "@/components/ui/Toast";
 import { usePorts } from "@/lib/data/provider";
 import type { NotionConnection } from "@/lib/domain/notion-connection";
@@ -19,7 +19,8 @@ export function NotionSetup(props: Readonly<SetupProps>) {
   const toast = useToast();
   const [mine, setMine] = useState<NotionConnection | "failed" | null>(null);
   const [busy, setBusy] = useState(false);
-  const view = notionSetupViewOf(props.integration, props.canDisconnect, mine === "failed" ? null : mine);
+  const [asking, setAsking] = useState(false);
+  const view = notionSetupViewOf(props.integration, props.canDisconnect, mine);
 
   const load = useCallback(() => {
     notionConnection.connection().then(setMine, () => {
@@ -36,9 +37,17 @@ export function NotionSetup(props: Readonly<SetupProps>) {
   };
   const authorize = () => {
     setBusy(true);
-    notionConnection.authorize(props.returnTo).then(({ url }) => {
-      window.location.assign(url); // the page is left; it returns with ?notion=<code>
-    }, fail);
+    try {
+      void notionConnection.authorize(props.returnTo).then(({ url }) => {
+        try {
+          window.location.assign(url); // the page is left; it returns with ?notion=<code>
+        } catch (e: unknown) {
+          fail(e);
+        }
+      }, fail);
+    } catch (e: unknown) {
+      fail(e);
+    }
   };
   const connect = () => {
     if (!view.bindsOnly) {
@@ -54,6 +63,7 @@ export function NotionSetup(props: Readonly<SetupProps>) {
     setBusy(true);
     notionConnection.disconnect().then(() => {
       setBusy(false);
+      setAsking(false);
       toast({ title: NOTION_WORDS.forgotten, tone: "success" });
       load();
       props.onRefresh();
@@ -62,7 +72,24 @@ export function NotionSetup(props: Readonly<SetupProps>) {
 
   return (
     <SetupFrame props={props}>
-      {mine === "failed" ? <Notice role="alert">{NOTION_WORDS.loadFailed}</Notice> : null}
+      {view.retry ? (
+        <>
+          <Notice role="alert">{NOTION_WORDS.loadFailed}</Notice>
+          <Row>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setMine(null);
+                load();
+              }}
+            >
+              {NOTION_WORDS.tryAgain}
+            </Button>
+          </Row>
+        </>
+      ) : null}
+      {view.stoppedNotice ? <Notice>{NOTION_WORDS.reconnectFirst}</Notice> : null}
       {view.state === "unavailable" ? <Notice>{NOTION_WORDS.unavailable}</Notice> : null}
       {view.howTo ? <HowTo steps={CANVAS_COPY.howNotion} /> : null}
       {view.primary === null ? null : (
@@ -80,11 +107,32 @@ export function NotionSetup(props: Readonly<SetupProps>) {
             </Button>
           ) : null}
           {view.forget ? (
-            <Button variant="ghost" size="sm" onClick={forget} disabled={busy}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (view.confirmForget) setAsking(true);
+                else forget();
+              }}
+              disabled={busy}
+            >
               {NOTION_WORDS.forget}
             </Button>
           ) : null}
         </Row>
+      ) : null}
+      {asking ? (
+        <ConfirmPanel
+          title={NOTION_WORDS.forgetTitle}
+          body={NOTION_WORDS.forgetBody}
+          confirmLabel={NOTION_WORDS.forget}
+          keepLabel={V2_COPY.keep}
+          busy={busy}
+          onKeep={() => {
+            setAsking(false);
+          }}
+          onConfirm={forget}
+        />
       ) : null}
     </SetupFrame>
   );

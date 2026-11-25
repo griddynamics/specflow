@@ -40,7 +40,17 @@ function mine(connection: { status: string; workspace_name?: string } | null, en
 
 test("nobody connected and the caller has no connection: Connect Notion, with the how-to, going to Notion", () => {
   const v = notionSetupViewOf(NONE, false, mine(null));
-  assert.deepEqual(v, { state: "ready", primary: "connect", howTo: true, addPages: false, forget: false, bindsOnly: false });
+  assert.deepEqual(v, {
+    state: "ready",
+    primary: "connect",
+    howTo: true,
+    retry: false,
+    stoppedNotice: false,
+    confirmForget: false,
+    addPages: false,
+    forget: false,
+    bindsOnly: false,
+  });
 });
 
 test("the caller is connected but the project is not bound: the button only binds, and Forget is offered", () => {
@@ -72,6 +82,9 @@ test("a working binding has no primary button and no how-to; Add pages only for 
     state: "ready",
     primary: null,
     howTo: false,
+    retry: false,
+    stoppedNotice: false,
+    confirmForget: true,
     addPages: true,
     forget: true,
     bindsOnly: false,
@@ -89,6 +102,30 @@ test("Notion off on the server is a note and no button; before the read it is lo
   const loading = notionSetupViewOf(NONE, false, null);
   assert.equal(loading.state, "loading");
   assert.equal(loading.primary, "connect");
+});
+
+test("a failed read of the caller's connection is not a stuck loading: Retry is offered and the button works", () => {
+  const v = notionSetupViewOf(NONE, false, "failed");
+  assert.equal(v.state, "failed");
+  assert.equal(v.retry, true);
+  assert.equal(v.primary, "connect");
+  assert.equal(notionSetupViewOf(NONE, false, null).retry, false);
+  assert.equal(notionSetupViewOf(NONE, false, mine(null)).retry, false);
+});
+
+test("Forget asks first when it would stop this project's working Notion; the words say it differs from Disconnect", () => {
+  const active = mine({ status: "active" });
+  assert.equal(notionSetupViewOf(WORKING, true, active).confirmForget, true);
+  assert.equal(notionSetupViewOf(WORKING, false, active).confirmForget, false);
+  assert.equal(notionSetupViewOf(NONE, true, active).confirmForget, false);
+  assert.match(NOTION_WORDS.forgetBody, /Your Notion account is removed from Graphico.*project's Notion stops/);
+  assert.match(NOTION_WORDS.forgotten, /Projects that used it need reconnecting/);
+});
+
+test("a bound project that does not work shows the reconnect notice; a working or unbound one does not", () => {
+  assert.equal(notionSetupViewOf(STOPPED, true, mine(null)).stoppedNotice, true);
+  assert.equal(notionSetupViewOf(WORKING, true, mine(null)).stoppedNotice, false);
+  assert.equal(notionSetupViewOf(NONE, true, mine(null)).stoppedNotice, false);
 });
 
 test("?notion=connected is the success toast; every other code of the callback has its own words, never the raw code", () => {

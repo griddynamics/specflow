@@ -6,9 +6,12 @@ import type { NotionConnection } from "@/lib/domain/notion-connection";
 export const NOTION_WORDS = {
   addPages: "Add pages in Notion",
   forget: "Forget my Notion account",
-  forgotten: "Notion account removed",
+  forgetTitle: "Forget your Notion account?",
+  forgetBody: "Your Notion account is removed from Graphico. This project's Notion stops until someone reconnects.",
+  forgotten: "Notion account removed. Projects that used it need reconnecting.",
+  tryAgain: "Try again",
   unavailable: "Notion is not available on this server.",
-  loadFailed: "Your Notion connection could not be read. Close this and try again.",
+  loadFailed: "Your Notion connection could not be read.",
   returnToast: {
     notion_consent_denied: "Notion access was not approved. Connect again when you are ready.",
     notion_state_invalid: "The Notion sign-in expired. Connect again.",
@@ -27,36 +30,57 @@ export const notionReturnWord = (code: string): string =>
 
 export interface NotionSetupView {
   /** `loading` until the caller's connection is read; `unavailable` when the server has Notion off. */
-  state: "loading" | "unavailable" | "ready";
+  state: "loading" | "failed" | "unavailable" | "ready";
   /** The primary button: absent while the project's Notion works. */
   primary: "connect" | "reconnect" | null;
   /** The how-to shows until the project's Notion works. */
   howTo: boolean;
   /** "Add pages in Notion": the member who holds the project's binding connects again to tick more pages. */
   addPages: boolean;
+  /** The connection could not be read: a notice and Try again, not a button stuck waiting. */
+  retry: boolean;
+  /** The project is bound but stopped: the notice above Reconnect. */
+  stoppedNotice: boolean;
+  /** Forgetting the account stops this project's Notion (the caller holds the working binding): ask first. */
+  confirmForget: boolean;
   /** "Forget my Notion account": the caller has a connection of their own. */
   forget: boolean;
   /** The button only binds the caller's active connection to the project (no trip to Notion). */
   bindsOnly: boolean;
 }
 
+const NOTHING = {
+  primary: null,
+  howTo: false,
+  retry: false,
+  stoppedNotice: false,
+  confirmForget: false,
+  addPages: false,
+  forget: false,
+  bindsOnly: false,
+} as const;
+
 export function notionSetupViewOf(
   i: Pick<Integration, "connectedBy" | "workspace" | "health">,
   canDisconnect: boolean,
-  mine: NotionConnection | null,
+  mine: NotionConnection | "failed" | null,
 ): NotionSetupView {
   const bound = i.connectedBy !== null || i.workspace !== null;
   const working = bound && i.health === "active";
-  if (mine !== null && !mine.enabled)
-    return { state: "unavailable", primary: null, howTo: false, addPages: false, forget: false, bindsOnly: false };
-  const active = mine?.status === "active";
-  const stopped = (bound && !working) || mine?.status === "expired";
+  const read = mine === null || mine === "failed" ? null : mine;
+  if (read !== null && !read.enabled) {
+    return { ...NOTHING, state: "unavailable" };
+  }
+  const stopped = (bound && !working) || read?.status === "expired";
   return {
-    state: mine === null ? "loading" : "ready",
+    state: mine === null ? "loading" : mine === "failed" ? "failed" : "ready",
     primary: working ? null : stopped ? "reconnect" : "connect",
     howTo: !working,
-    addPages: working && canDisconnect && active,
-    forget: mine?.connected === true,
-    bindsOnly: !working && active,
+    retry: mine === "failed",
+    stoppedNotice: bound && !working,
+    confirmForget: working && canDisconnect,
+    addPages: working && canDisconnect && read?.status === "active",
+    forget: read?.connected === true,
+    bindsOnly: !working && read?.status === "active",
   };
 }
