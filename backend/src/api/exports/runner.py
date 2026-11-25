@@ -52,6 +52,9 @@ class ExportRunner[Snapshot, Status, Result](ABC):
     """
 
     logger: ClassVar[Any]  # the destination's ``logger.logger.get_logger`` logger
+    label: ClassVar[
+        str
+    ]  # ``jira sync``: the closed error reads ``the jira sync runner is closed``, tasks ``jira-sync-<id>``
     event_prefix: ClassVar[str]  # for example ``api.jira.sync``: the events are ``<prefix>.queued``, ``.merged`` ...
 
     def __init__(self, *, closed_error: type[RuntimeError], now: Any = utc_now) -> None:
@@ -61,6 +64,10 @@ class ExportRunner[Snapshot, Status, Result](ABC):
         self._projects: dict[str, ProjectRun] = {}
         self._recovery: asyncio.Task[None] | None = None
         self._closed = False
+
+    @property
+    def _task_prefix(self) -> str:
+        return self.label.replace(" ", "-")
 
     # Hooks ---------------------------------------------------------------------
 
@@ -119,7 +126,7 @@ class ExportRunner[Snapshot, Status, Result](ABC):
             return self._answer(snapshot, project, queued=True)
         project = ProjectRun(trigger=trigger, queued_at=self._now(), pass_trigger=trigger, running=True)
         self._projects[project_id] = project
-        project.task = asyncio.create_task(self._drain(project_id, project), name=f"{prefix}-{project_id}")
+        project.task = asyncio.create_task(self._drain(project_id, project), name=f"{self._task_prefix}-{project_id}")
         log_event(self.logger, INFO, f"{prefix}.queued", project_id=project_id, trigger=trigger, user_id=user_id)
         return self._answer(snapshot, project, queued=False)
 
@@ -145,7 +152,7 @@ class ExportRunner[Snapshot, Status, Result](ABC):
     def start_recovery(self) -> None:
         """Restart, in the background, the passes a stopped process left ``running``; a failure is logged only."""
 
-        self._recovery = asyncio.create_task(self._recover(), name=f"{self.event_prefix}-recovery")
+        self._recovery = asyncio.create_task(self._recover(), name=f"{self._task_prefix}-recovery")
 
     async def aclose(self) -> None:
         """Cancel the queued and running passes (the next start repeats them)."""
@@ -164,7 +171,7 @@ class ExportRunner[Snapshot, Status, Result](ABC):
 
     def _open(self) -> None:
         if self._closed:
-            raise self._closed_error(f"the {self.event_prefix} runner is closed")
+            raise self._closed_error(f"the {self.label} runner is closed")
 
     async def start_contained(self, project_id: str, trigger: str) -> None:
         with Contained() as started:

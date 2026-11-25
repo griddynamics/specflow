@@ -8,9 +8,10 @@ from datetime import timedelta
 
 import pytest
 
+from api.exports.digest import digest
+from api.exports.rank import plan_moves
 from api.jira import content as rules
 from api.jira.desired import EPIC
-from api.jira.rank import plan_moves
 from api.jira.sync import SEARCH_INDEX_LAG_SECONDS, sync_once
 from graph.plan.models import CurrentPlan
 from graph.plan.reader import LoadedPlan
@@ -110,7 +111,7 @@ async def test_the_first_sync_creates_the_epic_stories_and_sub_tasks_without_ran
     assert h.gateway.called("add_blocks_link") == [{"key": h.key(T2), "prerequisite": h.key(T1), "waiter": h.key(T2)}]
     for node in (EPIC, S1, T1):
         row = h.row(node)
-        assert row.content_hash == rules.digest(row.content) and row.synced_at is not None and row.removed_at is None
+        assert row.content_hash == digest(row.content) and row.synced_at is not None and row.removed_at is None
     assert h.row(T2).content["blocked_by"] == [T1] and h.row(S1).content["parent"] == h.key(EPIC)
     assert [h.row(node).position for node in (S1, S3, S2)] == [0, 1, 2]
 

@@ -6,11 +6,8 @@ import re
 from collections.abc import Mapping
 from typing import Any, Final
 
-from api.exports import digest as _digest
 from jira.adf import CommentItem
 
-canonical = _digest.canonical  # lifted to api.exports.digest; the Jira rules keep their names
-digest = _digest.digest
 MAPPING_VERSION: Final = 1
 SUMMARY_LIMIT: Final = 255
 TEXT_LIMIT: Final = 30_000

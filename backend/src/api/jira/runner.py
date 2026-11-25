@@ -55,6 +55,7 @@ class JiraSyncRunner(ExportRunner[_Snapshot, JiraSyncStatus, SyncResult]):
     """Starts, merges and tracks the Jira sync passes of this process; held on ``Runtime.jira``."""
 
     logger = logger
+    label = "jira sync"
     event_prefix = "api.jira.sync"
 
     def __init__(

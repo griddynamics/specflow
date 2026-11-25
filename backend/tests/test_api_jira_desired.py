@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from api.exports.digest import canonical, digest
 from api.jira import content as rules
 from api.jira.desired import EPIC, Desired, Row, SpecRef, build, content, spec_ids
 from jira.reasons import Reason
@@ -287,9 +288,9 @@ def test_an_area_label_is_a_lower_case_slug_cut_to_200_without_a_trailing_dash()
 
 def test_the_hash_is_the_sha256_of_the_canonical_json():
     value = {"b": 1, "a": ["é", None]}
-    assert rules.canonical(value) == '{"a":["é",null],"b":1}'
-    assert rules.digest(value) == rules.digest({"a": ["é", None], "b": 1})
-    assert len(rules.digest(value)) == 64
+    assert canonical(value) == '{"a":["é",null],"b":1}'
+    assert digest(value) == digest({"a": ["é", None], "b": 1})
+    assert len(digest(value)) == 64
 
 
 def stored(**changes):

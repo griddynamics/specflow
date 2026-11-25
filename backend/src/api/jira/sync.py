@@ -16,9 +16,10 @@ from datetime import datetime
 from typing import Any, Final, Literal
 
 from api.contained import Contained
+from api.exports import rank
+from api.exports.digest import digest
 from api.exports.status import FAILED, PARTIAL, SKIPPED, SUCCEEDED
 from api.jira import content as rules
-from api.jira import rank
 from api.jira.desired import EPIC, Desired, Item, Row, SpecRef, build, content, is_deleted, spec_ids
 from db import jira as jira_db
 from db.models import JiraIssue
@@ -244,7 +245,7 @@ class _Pass:
             if node in keys
             and node not in self.fresh
             and node not in desired.revived
-            and rules.digest(self._content(item)) != self.rows[node].content_hash
+            and digest(self._content(item)) != self.rows[node].content_hash
         ]
         present = set(keys) | (set(creates) if planning else set())
         moves: dict[str, list[rank.Move]] = {}
@@ -414,7 +415,7 @@ class _Pass:
         await self._remote_link(node, key)
         order = self.desired.orders.get(item.parent or "", ())
         position = order.index(node) if node in order else None
-        await self._store(node, content=body, content_hash=rules.digest(body), position=position, synced_at=now)
+        await self._store(node, content=body, content_hash=digest(body), position=position, synced_at=now)
         if item.blocked_by:
             self.link_queue.append(node)
 
@@ -525,7 +526,7 @@ class _Pass:
             await self._remote_link(node, key)
         columns: dict[str, Any] = {"synced_at": now, "error_code": None}
         if item is not None:
-            columns |= {"content": stored, "content_hash": rules.digest(stored)}
+            columns |= {"content": stored, "content_hash": digest(stored)}
             columns["removed_at"] = None if event == rules.REVIVED else row.removed_at
         else:
             columns["removed_at"] = now
@@ -557,7 +558,7 @@ class _Pass:
             if prerequisite not in wanted and link_id:
                 await self._delete_link(link_id)
         body = self._content(item)
-        await self._store(node, content=body, content_hash=rules.digest(body), synced_at=self.deps.now())
+        await self._store(node, content=body, content_hash=digest(body), synced_at=self.deps.now())
 
     async def _delete_link(self, link_id: str) -> None:
         try:
