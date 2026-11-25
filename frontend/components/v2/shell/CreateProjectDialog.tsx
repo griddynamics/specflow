@@ -60,7 +60,6 @@ function CreateForm({
           value={name}
           maxLength={200}
           autoFocus
-          placeholder={V2_COPY.namePlaceholder}
           onChange={(e) => {
             setName(e.target.value);
             setError(undefined);

@@ -41,6 +41,8 @@ const chipsOf = (modal: Locator) => modal.getByTestId("people-chip");
 const confirmButton = (page: Page) => page.getByTestId("kb-build-dialog-confirm");
 const expectState = (page: Page, state: ButtonState) => expect(kbBuild(page)).toHaveAttribute("data-state", state);
 
+const PROJECTS_PATH = "/api/backend/projects";
+
 test.describe("P17 screens on production routes", { tag: "@production" }, () => {
   const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
   const backendCalls = (requests: { path: string }[]) => requests.filter((r) => r.path.startsWith("/api/backend/"));
@@ -82,10 +84,35 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await expect(first.getByRole("textbox")).toHaveCount(1); // the name only: the people are invited from Members
     await first.getByRole("button", { name: "Create project" }).click();
     await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}$/);
-    const posts = requests.filter((r) => r.method === "POST" && r.path === "/api/backend/projects");
+    const posts = requests.filter((r) => r.method === "POST" && r.path === PROJECTS_PATH);
     expect(posts).toHaveLength(1);
     expect(JSON.parse(posts[0].postData ?? "{}")).toEqual({ name });
     await expect(page.getByRole("button", { name: "Projects" })).toHaveText(name);
+  });
+
+  test("FE-BP-03.AC2 (V1 kept): the V1 Create project modal asks for the name and the collaborators only, posts the name and opens the empty Mission Control", async ({
+    page,
+    requests,
+  }) => {
+    await login(page); // a project's V1 Mission Control: the V1 shell and its project switcher
+    await openCreateProject(page);
+    const modal = page.getByTestId("create-project-modal");
+    await expect(modal).toBeVisible();
+    const name = unique("V1 modal");
+    await page.getByLabel("Name").fill(name);
+    // The form asks for the name and the collaborators' emails (docs/projects/ui.md): one text field, one email combobox, no Contributors.
+    await expect(modal.getByRole("textbox")).toHaveCount(1); // Name; no link fields, no access-check field, no tracker switches
+    await expect(modal.getByRole("combobox", { name: "Collaborators" })).toHaveCount(1);
+    await expect(modal.getByText("Contributors")).toHaveCount(0);
+    await expect(modal.getByRole("switch")).toHaveCount(0);
+    await page.getByTestId("cp-create").click();
+    await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}\/mission-control$/);
+    await expect(page.getByTestId("mcs-empty")).toBeVisible();
+    await expect(page.getByTestId("screen-mission-control")).toHaveAttribute("data-phase", "no_sources");
+    const posts = requests.filter((r) => r.method === "POST" && r.path === PROJECTS_PATH);
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0].postData ?? "{}")).toEqual({ name });
+    await expect(topbarProjectName(page)).toHaveText(name);
   });
 
   test("FR-PRJ-UI-09, UI-10: Create with emails posts {name, collaborators} (Enter and comma make chips); a domain the sign-in refuses marks its chip and keeps the modal open", async ({
@@ -119,7 +146,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await page.getByTestId("cp-create").click();
     await page.waitForURL((u) => /\/projects\/[0-9a-f-]{36}\/mission-control$/.test(u.pathname) && u.href !== before);
     await expect(topbarProjectName(page)).toHaveText(name);
-    const posts = requests.filter((r) => r.method === "POST" && r.path === "/api/backend/projects");
+    const posts = requests.filter((r) => r.method === "POST" && r.path === PROJECTS_PATH);
     expect(posts).toHaveLength(2);
     expect(JSON.parse(posts[1].postData ?? "{}")).toEqual({
       name,
@@ -170,7 +197,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     const name = unique("Typed only");
     await page.getByLabel("Name").fill(name);
     const field = modal.getByRole("combobox", { name: "Collaborators" });
-    const posts = () => requests.filter((r) => r.method === "POST" && r.path === "/api/backend/projects");
+    const posts = () => requests.filter((r) => r.method === "POST" && r.path === PROJECTS_PATH);
     await field.fill("not an email");
     await page.getByTestId("cp-create").click();
     await expect(modal).toContainText("Enter a valid email address.");
@@ -586,7 +613,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await networkQuiet(page, 2_500); // no request for 2.5 s: a loop would navigate again in this time
     const after = requests.slice(from);
     expect(
-      after.filter((r) => r.path === "/api/backend/me").length + after.filter((r) => r.path.startsWith("/api/backend/projects")).length,
+      after.filter((r) => r.path === "/api/backend/me").length + after.filter((r) => r.path.startsWith(PROJECTS_PATH)).length,
       "several 401s",
     ).toBeGreaterThan(1);
     const signouts = after.filter((r) => r.method === "POST" && r.path === "/api/auth/signout").length;

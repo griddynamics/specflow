@@ -21,7 +21,6 @@ export const V2_COPY = {
   createIntro:
     "A project holds the sources, the graph, the gaps and the plan of one piece of work. Invite people from Members once it exists.",
   nameLabel: "Project name",
-  namePlaceholder: "For example: Northwind ordering",
   create: "Create project",
   cancel: "Cancel",
   createFailed: "The project could not be created. Try again.",
@@ -72,7 +71,17 @@ export const V2_COPY = {
   slackTest: "Test connection",
   slackTested: "Welcome message posted in",
   slackNotOnServer: "Slack is not set up on this server.",
-  unavailableBody: "This app is not set up on this server.",
+  slackTestFailure: {
+    slack_not_connected: "No channel is connected yet. Run the command in the channel first.",
+    slack_not_in_channel: "The app is not in the channel any more. Invite it again.",
+    slack_unreachable: "Slack could not be reached. Try again.",
+  },
+  slackLanding: {
+    linked: "Slack linked to your account. Run the connect command in the channel again.",
+    slack_link_invalid: "The Slack link expired. Run /specflow link in Slack again.",
+    other: "Could not link Slack. Run /specflow link again.",
+  },
+  slackPrivate: "(private)",
   workspaceMismatch: "This project is connected to another workspace of this app. Remove that connection first.",
   notConnectedFirst: "Connect your own account first.",
   notAllowedToRemove: "Only the member who connected it, or the owner, can remove it.",

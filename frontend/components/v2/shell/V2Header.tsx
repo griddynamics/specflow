@@ -49,7 +49,7 @@ export function V2Header({ routes, pathname, projects, projectId, me, onCreate, 
       navLabel={V2_COPY.navLabel}
       brand={<Brand href={routes.home()} name={V2_COPY.brandName} />}
       project={
-        projects === null ? undefined : (
+        projects === null || projects.length === 0 ? undefined : (
           <Menu look="project" label={V2_COPY.projectsMenu} trigger={current?.name ?? V2_COPY.projectsMenu} items={items} />
         )
       }

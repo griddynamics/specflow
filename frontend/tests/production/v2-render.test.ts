@@ -79,8 +79,10 @@ test("Members, owner: the name with Save, the count, the add field, every row, a
   assert.match(out, /<label class="gx-field__label" for="[^"]+">Project name<\/label>/);
   assert.match(out, /value="Northwind ordering"/);
   assert.match(out, /disabled="" type="button" class="gx-btn gx-btn--ghost">Save<\/button>/);
-  assert.match(out, /<b>Collaborators<\/b><span>3 of 50<\/span>/);
+  assert.match(out, /<p class="gx-notice" role="status">3 of 50<\/p>/);
   assert.match(out, />Email address<\/label>/);
+  assert.doesNotMatch(out, /placeholder=/, "the label says it; the placeholder does not repeat it");
+  assert.doesNotMatch(out, /<b>Collaborators<\/b>/, "no section head over the count");
   assert.match(out, /role="combobox"/);
   assert.match(out, /<b>Anna Kowalska \(you\)<\/b><small>anna@example\.com<\/small>/);
   assert.match(out, /<span class="gx-tag">Owner<\/span>/);
@@ -134,6 +136,7 @@ test("first run: the window has no close button and no Cancel, and Create waits 
   assert.match(out, /<label class="gx-field__label" for="v2-project-name">Project name<\/label>/);
   assert.match(out, /disabled="" type="submit" class="gx-btn">Create project<\/button>/);
   assert.equal(out.match(/<input/g)?.length, 1, "the name only: people are invited from Members");
+  assert.doesNotMatch(out, /placeholder=/, "the label says it; no example repeats it");
 });
 
 test("Create new project: a close button, Cancel and no form while the dialog is closed", () => {
@@ -243,6 +246,7 @@ test("set-up: Disconnect only when the caller may; Done always", () => {
   const { html: no } = shown(createElement(AtlassianSetup, setup(active("atlassian"), { canDisconnect: false })));
   assert.doesNotMatch(no, />Disconnect</);
   assert.match(no, />Done<\/button>/);
+  assert.match(no, /Uses the account of the member who connected it\./);
 });
 
 test("GitHub set-up: connect first; a working binding shows its repositories (loading until read)", () => {
@@ -262,10 +266,12 @@ test("Slack set-up: the command with the project id while no channel is bound; T
   assert.match(waiting, /<code class="gx-code">\/specflow connect 0b6f-7<\/code>/);
   assert.match(waiting, /Waiting for the channel\./);
   assert.doesNotMatch(waiting, /Test connection/);
+  assert.doesNotMatch(waiting, /Uses the account of the member/, "nothing is connected yet: the rule has no account to name");
   const { html: bound } = shown(createElement(SlackSetup, setup(active("slack"), { canDisconnect: true })));
   assert.match(bound, />Test connection<\/button>/);
   assert.doesNotMatch(bound, /specflow connect/);
   assert.match(bound, />Disconnect<\/button>/);
+  assert.match(bound, /Uses the account of the member who connected it\./);
   const { html: off } = shown(createElement(SlackSetup, setup(base("slack", { available: false }))));
   assert.match(off, /Slack is not set up on this server\./);
 });

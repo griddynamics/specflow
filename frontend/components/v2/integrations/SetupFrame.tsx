@@ -20,7 +20,7 @@ export function SetupFrame({ props, children }: Readonly<{ props: SetupProps; ch
       {bound && line !== "" ? <Notice>{line}</Notice> : null}
       {stopped ? <Notice>{V2_COPY.stoppedBody}</Notice> : null}
       {children}
-      <Notice>{V2_COPY.actsAs}</Notice>
+      {i.app === "slack" && !bound ? null : <Notice>{V2_COPY.actsAs}</Notice>}
       {asking ? (
         <ConfirmPanel
           title={`${V2_COPY.disconnect} ${V2_COPY.appNames[i.app]}?`}

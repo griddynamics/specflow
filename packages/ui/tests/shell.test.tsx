@@ -72,12 +72,21 @@ test("ThemeToggle: it is named for what it does, and shows the other theme's ico
 
 test("Menu: closed, it is one named button that announces a menu", () => {
   const view = html(<Menu trigger="Northwind" label="Projects" items={[{ key: "a", label: "A", onSelect: noop }]} />);
-  assert.match(view, /class="gx-menu__trigger gx-menu__trigger--project" aria-label="Projects" aria-haspopup="menu" aria-expanded="false"/);
+  assert.match(
+    view,
+    /class="gx-menu__trigger gx-menu__trigger--project" aria-label="Projects: Northwind" aria-haspopup="menu" aria-expanded="false"/,
+  );
   assert.match(view, /<svg/);
   assert.doesNotMatch(view, /role="menu"/);
   const utils = html(<Menu look="avatar" trigger="AK" label="Account" items={[]} />);
   assert.match(utils, /gx-menu__trigger--avatar/);
   assert.doesNotMatch(utils, /<svg/);
+  assert.match(utils, /aria-label="Account"/, "an element trigger (the avatar) keeps the menu's name");
+  assert.match(
+    html(<Menu trigger="Projects" label="Projects" items={[]} />),
+    /aria-label="Projects" aria-haspopup/,
+    "no 'Projects: Projects'",
+  );
 });
 
 test("Avatar takes initials from a name or an address; an invited person gets the at sign", () => {

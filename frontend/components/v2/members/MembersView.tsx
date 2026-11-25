@@ -3,19 +3,7 @@
 // adds people by email with suggestions, removes members and cancels invites, each after a confirmation; a collaborator sees the list
 // read-only and can leave. The state is `use-members-controller.ts` and `use-add-row.ts`; this file only draws it.
 import { useId } from "react";
-import {
-  Button,
-  ConfirmPanel,
-  DialogFoot,
-  Field,
-  Notice,
-  PersonList,
-  PersonRow,
-  SectionHead,
-  Split,
-  SuggestionList,
-  TextInput,
-} from "@graphico/ui";
+import { Button, ConfirmPanel, DialogFoot, Field, Notice, PersonList, PersonRow, Split, SuggestionList, TextInput } from "@graphico/ui";
 import { COPY } from "@/lib/copy";
 import type { MembersState } from "@/lib/domain/members";
 import { activeOf, handleAddRowKey, showsList } from "@/components/settings/add-row-keys";
@@ -73,7 +61,6 @@ function AddByEmail({ projectId, onAdd }: Readonly<{ projectId: string; onAdd: (
           role="combobox"
           aria-expanded={listed}
           aria-autocomplete="list"
-          placeholder={SETTINGS_COPY.emailPlaceholder}
           value={row.text}
           onChange={(e) => {
             row.type(e.target.value);
@@ -140,7 +127,7 @@ export function MembersView(p: Readonly<MembersViewProps>) {
           </Button>
         </Split>
       ) : null}
-      <SectionHead title={V2_COPY.membersLabel} note={countText(p.state.members.length + p.state.invites.length, p.state.limit)} />
+      <Notice>{countText(p.state.members.length + p.state.invites.length, p.state.limit)}</Notice>
       {isOwner ? <AddByEmail key={p.addKey} projectId={p.projectId} onAdd={p.onAdd} /> : null}
       <PersonList label={V2_COPY.membersLabel}>
         {rows.map((row) => (

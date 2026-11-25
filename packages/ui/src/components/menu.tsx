@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import type { JSX, KeyboardEvent, ReactNode } from "react";
+import type { FocusEvent, JSX, KeyboardEvent, ReactNode } from "react";
 
 export interface MenuItem {
   key: string;
@@ -48,18 +48,23 @@ export function Menu({ trigger, label, look = "project", items }: Readonly<MenuP
     setOpen(false);
     root.current?.querySelector<HTMLElement>(".gx-menu__trigger")?.focus();
   };
+  // The focus left the list for something outside the menu (Tab, a click elsewhere): close it, and leave the focus where it went.
+  const onBlur = (e: FocusEvent) => {
+    if (!(e.relatedTarget instanceof Node && root.current?.contains(e.relatedTarget) === true)) setOpen(false);
+  };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
       close();
       return;
     }
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
     e.preventDefault();
     const buttons = [...(list.current?.querySelectorAll<HTMLElement>("button") ?? [])];
     const at = buttons.indexOf(document.activeElement as HTMLElement);
     const step = e.key === "ArrowDown" ? 1 : buttons.length - 1;
-    buttons[(at + step) % buttons.length]?.focus();
+    const next = { Home: 0, End: buttons.length - 1 }[e.key] ?? (at + step) % buttons.length;
+    buttons[next]?.focus();
   };
 
   return (
@@ -67,7 +72,7 @@ export function Menu({ trigger, label, look = "project", items }: Readonly<MenuP
       <button
         type="button"
         className={TRIGGER_CLASS[look]}
-        aria-label={label}
+        aria-label={look === "project" && typeof trigger === "string" && trigger !== label ? `${label}: ${trigger}` : label}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={id}
@@ -83,7 +88,7 @@ export function Menu({ trigger, label, look = "project", items }: Readonly<MenuP
         ) : null}
       </button>
       {open ? (
-        <ul className="gx-menu__list" id={id} role="menu" aria-label={label} ref={list} onKeyDown={onKey}>
+        <ul className="gx-menu__list" id={id} role="menu" aria-label={label} ref={list} onKeyDown={onKey} onBlur={onBlur}>
           {items.map((item) => (
             <li key={item.key} role="none" className={item.separatorBefore === true ? "gx-menu__sep" : undefined}>
               <button

@@ -28,6 +28,7 @@ export function handleAddRowKey(e: KeyboardEvent<HTMLInputElement>, k: AddRowKey
   const act = addRowKey(e.key, { active: activeOf(k), count: k.items.length, showList: showsList(k), busy: k.busy });
   if (act === null) return;
   if (act.kind === "close") {
+    e.preventDefault(); // a native <dialog> closes on Escape's default action
     e.nativeEvent.stopImmediatePropagation(); // closes the list only, whatever else listens for Esc on the document
     k.onOpen(false);
     return;

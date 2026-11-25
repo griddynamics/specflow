@@ -4,6 +4,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { headers } from "next/headers";
 import { appConfig } from "@/lib/config";
+import { projectNameOf, type ProjectRead } from "@/lib/project-answer";
 import { accessTokenFor } from "@/lib/session-token";
 
 interface Answer {
@@ -35,19 +36,11 @@ function get(url: URL, token: string): Promise<Answer | null> {
 }
 
 /** `{ name }` of the project, `"not_found"` when the API says so, or `null` when it could not be read (the page then still renders). */
-export async function readProjectName(projectId: string): Promise<{ name: string } | "not_found" | null> {
+export async function readProjectName(projectId: string): Promise<ProjectRead> {
   const cookie = (await headers()).get("cookie") ?? "";
   const token = await accessTokenFor(new Request("http://localhost/", { headers: { cookie } }));
   if (token === null || token === "") return null;
   const answer = await get(new URL(`/api/v1/projects/${encodeURIComponent(projectId)}`, appConfig().apiInternalUrl), token);
   if (answer === null) return null;
-  if (answer.status === 404) return "not_found";
-  if (answer.status !== 200) return null;
-  try {
-    const body: unknown = JSON.parse(answer.body);
-    const name = typeof body === "object" && body !== null && "name" in body ? body.name : undefined;
-    return typeof name === "string" ? { name } : null;
-  } catch {
-    return null;
-  }
+  return projectNameOf(answer);
 }

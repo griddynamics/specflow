@@ -5,7 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callbackDestination, withCode } from "@/lib/atlassian-callback";
-import { isSameSitePath, locationOn, returnToOf, type CallbackAnswer } from "@/lib/oauth-callback";
+import { locationOn, returnToOf, type CallbackAnswer } from "@/lib/oauth-callback";
+import { isSameSitePath } from "@/lib/same-site-path";
 
 const BACK = "/projects/p1/settings?tab=jira";
 const stateFor = (r: unknown) => `nonce.${Buffer.from(JSON.stringify({ u: "u1", r, e: 1 })).toString("base64url")}.sig`;

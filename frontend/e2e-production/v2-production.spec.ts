@@ -51,6 +51,12 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await page.goto("/");
     const first = dialog(page, "Create your first project");
     await expect(first).toBeVisible();
+    // First run: the brand, the theme switch and the account only (AC36): no project menu, none of the links.
+    await expect(projectsButton(page)).toHaveCount(0);
+    await expect(v2Header(page).getByRole("link")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Switch to dark mode" }).or(page.getByRole("button", { name: "Switch to light mode" })),
+    ).toBeVisible();
     await page.unroute("**/api/backend/projects?limit=100");
     const name = unique("Walkthrough");
     await first.getByLabel("Project name").fill(name);
@@ -58,6 +64,7 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}$/);
     const pid = page.url().split("/").at(-1) ?? "";
     await expect(projectsButton(page)).toHaveText(name);
+    await expect(projectsButton(page)).toHaveAccessibleName(`Projects: ${name}`); // the name carries the visible text
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(0); // no page title in the body
 
     // Members: the owner adds a known person (a member), removes them after a confirmation, then renames the project.
@@ -66,6 +73,14 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await expect(members).toBeVisible();
     await expect(members.getByText("1 of 50")).toBeVisible();
     await expect(members.getByText("Owner", { exact: true })).toBeVisible();
+    // Escape in the email field closes the suggestions and leaves the dialog open (the native dialog closes on Escape's default action).
+    await members.getByLabel("Email address").fill("ali");
+    const suggestions = members.getByRole("list", { name: "Suggested people" });
+    await expect(suggestions).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(suggestions).toBeHidden();
+    await expect(members).toBeVisible();
+    await expect(members.getByLabel("Email address")).toBeFocused();
     await members.getByLabel("Email address").fill("alice.anders@example.test");
     await members.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByText("Collaborator added")).toBeVisible();
@@ -113,6 +128,15 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await expect(menu.getByRole("menuitemradio", { name: a.name, exact: true })).toHaveAttribute("aria-checked", "true");
     await expect(menu.getByRole("menuitemradio", { name: b.name, exact: true })).toHaveAttribute("aria-checked", "false");
     await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    // Keyboard: Home and End go to the first and last item; Tab out of the menu closes it.
+    await projectsButton(page).click();
+    await page.keyboard.press("End");
+    await expect(menu.getByRole("menuitem", { name: "+ Create new project" })).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(menu.getByRole("menuitemradio").first()).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Tab");
     await expect(menu).toHaveCount(0);
     await projectsButton(page).click();
     await menu.getByRole("menuitemradio", { name: b.name, exact: true }).click();

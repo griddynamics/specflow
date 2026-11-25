@@ -7,8 +7,6 @@ import { isSameSitePath } from "./same-site-path";
 /** Where a return route goes without a session: sign-in (it has no return target, so the user starts the connect again afterwards). */
 export const SIGN_IN_PATH = "/login";
 
-export { isSameSitePath };
-
 /** base64url to text; null when the input is not base64url or not UTF-8. */
 function fromBase64Url(text: string): string | null {
   if (!/^[\w-]*$/.test(text)) return null;
