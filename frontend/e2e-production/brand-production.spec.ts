@@ -4,7 +4,7 @@
 // D22 P5 signed out: the apple-touch link on /login and the three icon files answer 200 without a redirect (AC2, AC3).
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { createProjectApi, expect, login, setTheme, test, defined } from "./support";
+import { createProjectApi, expect, login, setTheme, test, defined, v2Header } from "./support";
 import { expectCubesRight } from "./placement";
 
 /**
@@ -99,7 +99,7 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
     await expect(page.getByTestId("screen-mission-control")).toBeVisible();
     await expect(page).toHaveTitle("Specflow");
     await page.goto("/");
-    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(v2Header(page)).toBeVisible();
     await expect(page).toHaveTitle("Specflow");
   });
 

@@ -1,0 +1,76 @@
+/* Layout helpers: the page column, rows, a field with its button, notices, the dialog foot. */
+.gx-page {
+  display: grid;
+  gap: 28px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.gx-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.gx-split {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.gx-sectionhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 16px;
+  border-top: 1px solid var(--gx-rule);
+}
+
+.gx-sectionhead span {
+  color: var(--gx-ink-3);
+  font-size: 14px;
+}
+
+.gx-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.gx-notice {
+  margin: 0;
+  font-size: 14px;
+  color: var(--gx-ink-2);
+}
+
+.gx-notice[role="alert"] {
+  color: var(--gx-ink);
+  font-weight: 600;
+}
+
+.gx-code {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--gx-rule);
+  border-radius: 10px;
+  background: var(--gx-wash);
+  font-family: var(--gx-font-mono);
+  font-size: 14px;
+  font-variant-ligatures: none;
+  overflow-wrap: anywhere;
+}
+
+.gx-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.gx-frame {
+  min-height: 100dvh;
+}

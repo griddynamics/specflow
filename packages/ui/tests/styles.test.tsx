@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const styles = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/styles");
 const read = (name: string): string => readFileSync(path.join(styles, name), "utf8");
-const SHEETS = ["tokens.css", "base.css", "components.css"];
+const SHEETS = ["tokens.css", "base.css", "components.css", "layout.css", "header.css", "people.css", "integrations.css"];
 const strip = (css: string): string => css.replaceAll(/\/\*[^*]*(?:\*(?!\/)[^*]*)*\*\//g, "");
 
 test("every rule of every stylesheet is scoped under .gx or a gx- class", () => {
@@ -40,7 +40,7 @@ test("tokens: each colour is a light-dark pair, the theme attribute picks one sc
   assert.match(css, /\.gx\[data-theme="light"\],\s*:root\[data-theme="light"\] \.gx \{\s*color-scheme: light;/);
 });
 
-test("the entry stylesheet imports the three files and the base switches motion off for reduced-motion", () => {
+test("the entry stylesheet imports every file and the base switches motion off for reduced-motion", () => {
   const index = read("index.css");
   for (const file of SHEETS) assert.ok(index.includes(`@import "./${file}";`), file);
   assert.match(read("base.css"), /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation: none !important/);

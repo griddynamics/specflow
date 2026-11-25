@@ -27,6 +27,7 @@ export function composeProductionPorts(http: HttpPorts): DataPorts {
     jira: http.jira, // the Jira target, access check and sync status (/projects/{pid}/jira*)
     slack: http.slack, // the Slack channel of a project (/projects/{pid}/slack)
     github: http.github, // the caller's GitHub connection and the project repositories (/integrations/github*, /projects/{pid}/repositories*)
+    integrations: http.integrations, // who each app is connected by for a project (/projects/{pid}/integrations)
     assistant: {
       ...unavailable.assistant,
       // The SpecBot greeting names the signed-in user (GET /me). If /me fails, the greeting has no name.

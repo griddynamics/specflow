@@ -25,6 +25,12 @@
 //                                            `available` (the caller's repositories), `truncated`, `availableError`, `cloneMs` (null = a
 //                                            clone check keeps running), `cloneOutcome` ("cloned" or a failure code); with `pid` the
 //                                            project's repositories; `reset: true` puts every knob back first; see stub-github.mjs)
+//                                          POST /seed-integrations ({pid?, reset?, slackAvailable?, slackTest?, atlassian?, github?, slack?}: the V2
+//                                            Integrations page. `atlassian` and `github` are null (not connected) or {by?, workspace?, health?};
+//                                            `slack` null or {channel, by?}; `by: null` = the member left; `slackTest` is "ok" or the API code the
+//                                            next Test connection answers with; `reset: true` puts the Slack knobs back; the connect (PUT) of an
+//                                            app needs the caller's own connection, set with /seed-jira (mode "oauth", connection) or /seed-github;
+//                                            see stub-integrations.mjs)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)
 //                                          POST /seed-gaps ({pid, gaps, run, rules, corpus}: the gaps, the latest gap run, the noise rules
 //                                            and the corpus documents of a project; stub-api.mjs `gapRoute`)
@@ -151,6 +157,18 @@ const control = http.createServer(async (req, res) => {
     const { reset, ...spec } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
     if (reset === true) api.github.reset();
     api.github.seed(spec);
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/seed-integrations") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.integrations.seed(spec);
     return send(200, { ok: true });
   }
   if (req.method === "POST" && req.url === "/seed-members") {

@@ -20,6 +20,7 @@ import {
   stubLog,
   test,
   topbarProjectName,
+  v2Header,
 } from "./support";
 
 const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
@@ -193,12 +194,12 @@ test.describe("Project Settings on production routes", { tag: "@production" }, (
     await page.getByTestId("settings-leave").click();
     await expect(page.getByTestId("settings-dialog")).toBeVisible();
     await page.getByTestId("settings-confirm").click();
-    await expect(page).not.toHaveURL(SETTINGS(id));
-    await expect(page.getByTestId("app-shell")).toBeVisible();
-    await expect(page.getByTestId("screen-mission-control").or(page.getByTestId("home-empty"))).toBeVisible();
+    // `/` is the V2 start page: the newest project left (the one seeded after this one) opens as its canvas.
+    await expect(page).toHaveURL(new RegExp(`/projects/${other.id}$`));
+    await expect(v2Header(page)).toBeVisible();
     expect(requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${id}/leave`)).toHaveLength(1);
-    await projectSwitcher(page).click();
-    const menu = page.getByRole("menu", { name: "Switch project" });
+    await page.getByRole("button", { name: "Projects" }).click();
+    const menu = page.getByRole("menu", { name: "Projects" });
     await expect(menu.getByRole("menuitemradio", { name, exact: true })).toHaveCount(0);
     await expect(menu.getByRole("menuitemradio", { name: other.name, exact: true })).toHaveCount(1);
   });

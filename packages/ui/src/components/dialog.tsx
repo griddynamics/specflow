@@ -1,32 +1,64 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { JSX, ReactNode } from "react";
+import { closeReporter, syncDialog } from "./dialog-sync";
 
 export interface DialogProps {
   open: boolean;
-  /** Called when the dialog closes (Escape, the close button, or `open` going false is NOT reported). */
+  /** Called once when the person closes the dialog (Escape, the close button, or the browser). Not called when `open` goes false. The parent sets `open` false; if it keeps `open` true the dialog is shown again. */
   onClose: () => void;
   title: string;
   /** Small mono label over the title. */
   eyebrow?: string;
   /** Accessible name of the close button. */
   closeLabel?: string;
+  /** False: no close button and Escape does nothing (a window the person must answer). Default true. */
+  dismissible?: boolean;
   children?: ReactNode;
 }
 
 /** A modal dialog shell on the native `<dialog>`: title row with a close button, then the children. `open` is controlled. */
-export function Dialog({ open, onClose, title, eyebrow, closeLabel = "Close", children }: Readonly<DialogProps>): JSX.Element {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  eyebrow,
+  closeLabel = "Close",
+  dismissible = true,
+  children,
+}: Readonly<DialogProps>): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const [closes, setClosed] = useState(0);
   useEffect(() => {
-    const dialog = ref.current;
-    if (dialog === null) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+    if (ref.current !== null) syncDialog(ref.current, open);
+  }, [open, closes]);
+  const onNativeClose = useMemo(
+    () =>
+      closeReporter(
+        () => open,
+        onClose,
+        () => {
+          setClosed((n) => n + 1);
+        },
+      ),
+    [open, onClose],
+  );
   return (
-    <dialog ref={ref} className="gx-dialog" aria-labelledby={titleId} onClose={onClose}>
+    <dialog
+      ref={ref}
+      className="gx-dialog"
+      aria-labelledby={titleId}
+      onClose={onNativeClose}
+      onCancel={
+        dismissible
+          ? undefined
+          : (event) => {
+              event.preventDefault();
+            }
+      }
+    >
       <div className="gx-dialog__in">
         <div className="gx-dialog__top">
           <div>
@@ -35,9 +67,18 @@ export function Dialog({ open, onClose, title, eyebrow, closeLabel = "Close", ch
               {title}
             </h2>
           </div>
-          <button type="button" className="gx-dialog__close" aria-label={closeLabel} onClick={onClose}>
-            ×
-          </button>
+          {dismissible ? (
+            <button
+              type="button"
+              className="gx-dialog__close"
+              aria-label={closeLabel}
+              onClick={() => {
+                ref.current?.close();
+              }}
+            >
+              ×
+            </button>
+          ) : null}
         </div>
         {children}
       </div>

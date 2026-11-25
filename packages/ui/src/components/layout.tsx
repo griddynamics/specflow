@@ -1,0 +1,65 @@
+import type { JSX, ReactNode, SubmitEvent } from "react";
+
+/** A label and a count on one line, over a list. */
+export function SectionHead({ title, note }: Readonly<{ title: string; note?: string }>): JSX.Element {
+  return (
+    <div className="gx-sectionhead">
+      <b>{title}</b>
+      {note === undefined ? null : <span>{note}</span>}
+    </div>
+  );
+}
+
+/** A field and its button on one row (the project name and Save, an email and Add). */
+export function Split({ children }: Readonly<{ children: ReactNode }>): JSX.Element {
+  return <div className="gx-split">{children}</div>;
+}
+
+/** A wrapping row of controls. */
+export function Row({ children }: Readonly<{ children: ReactNode }>): JSX.Element {
+  return <div className="gx-row">{children}</div>;
+}
+
+/** The bottom of a dialog: an action on the left, the others on the right. */
+export function DialogFoot({ children }: Readonly<{ children: ReactNode }>): JSX.Element {
+  return <div className="gx-foot">{children}</div>;
+}
+
+/** The page body under the header: a centred column. `busy` while it waits for its data. */
+export function Page({ busy = false, children }: Readonly<{ busy?: boolean; children: ReactNode }>): JSX.Element {
+  return (
+    <main className="gx-page" aria-busy={busy ? true : undefined}>
+      {children}
+    </main>
+  );
+}
+
+/** A short message in the page: `status` is read out politely, `alert` at once. */
+export function Notice({ role = "status", children }: Readonly<{ role?: "status" | "alert"; children: ReactNode }>): JSX.Element {
+  return (
+    <p className="gx-notice" role={role}>
+      {children}
+    </p>
+  );
+}
+
+/** A command or an id to copy, in the mono face. */
+export function CodeLine({ children }: Readonly<{ children: string }>): JSX.Element {
+  return <code className="gx-code">{children}</code>;
+}
+
+/** Children one under the other with the dialog's gap. With `onSubmit` it is a form (Enter submits). */
+export function Stack({ onSubmit, children }: Readonly<{ onSubmit?: (event: SubmitEvent) => void; children: ReactNode }>): JSX.Element {
+  return onSubmit === undefined ? (
+    <div className="gx-stack">{children}</div>
+  ) : (
+    <form className="gx-stack" onSubmit={onSubmit} noValidate>
+      {children}
+    </form>
+  );
+}
+
+/** The frame of a signed-in screen: at least the height of the window, the header on top. */
+export function AppFrame({ children }: Readonly<{ children: ReactNode }>): JSX.Element {
+  return <div className="gx-frame">{children}</div>;
+}

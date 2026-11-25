@@ -13,7 +13,8 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { cx, nonEmpty } from "@/components/ui/utils";
 import { COPY } from "@/lib/copy";
 import type { MembersState, Suggestion } from "@/lib/domain/members";
-import { addRowKey, confirmText, rowsOf, type Confirm, type Row } from "./settings-logic";
+import { activeOf, handleAddRowKey, showsList } from "./add-row-keys";
+import { confirmText, rowsOf, type Confirm, type Row } from "./settings-logic";
 import { countText, SETTINGS_COPY } from "./settings-copy";
 import "./settings.css";
 
@@ -68,26 +69,12 @@ export interface AddRowViewProps {
 export function AddRowView(p: Readonly<AddRowViewProps>) {
   const id = useId();
   const listId = `${id}-l`;
-  const showList = p.open && p.items.length > 0;
-  const active = Math.min(p.active, Math.max(p.items.length - 1, 0));
+  const showList = showsList(p);
+  const active = activeOf(p);
 
-  function onKey(e: KeyboardEvent<HTMLInputElement>) {
-    const act = addRowKey(e.key, { active, count: p.items.length, showList, busy: p.busy });
-    if (act === null) return;
-    if (act.kind === "close") {
-      e.nativeEvent.stopImmediatePropagation(); // closes the list only, whatever else listens for Esc on the document
-      p.onOpen(false);
-      return;
-    }
-    e.preventDefault();
-    if (act.kind === "move") {
-      if (act.open) p.onOpen(true);
-      p.onActive(act.index);
-    } else if (act.kind === "pick") {
-      const picked = p.items.at(act.index);
-      if (picked !== undefined) p.onPick(picked);
-    } else p.onAdd();
-  }
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    handleAddRowKey(e, p);
+  };
 
   return (
     <div className="settings-inline settings-add" data-testid="settings-add">

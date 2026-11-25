@@ -304,6 +304,26 @@
       "path": "/projects/{pid}/slack"
     },
     {
+      "id": "test_slack_connection_api_v1_projects__pid__slack_test_post",
+      "method": "POST",
+      "path": "/projects/{pid}/slack/test"
+    },
+    {
+      "id": "list_project_integrations_api_v1_projects__pid__integrations_get",
+      "method": "GET",
+      "path": "/projects/{pid}/integrations"
+    },
+    {
+      "id": "put_project_integration_api_v1_projects__pid__integrations__app__put",
+      "method": "PUT",
+      "path": "/projects/{pid}/integrations/{app}"
+    },
+    {
+      "id": "delete_project_integration_api_v1_projects__pid__integrations__app__delete",
+      "method": "DELETE",
+      "path": "/projects/{pid}/integrations/{app}"
+    },
+    {
       "id": "get_github_connection_api_v1_integrations_github_get",
       "method": "GET",
       "path": "/integrations/github"

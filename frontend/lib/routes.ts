@@ -1,10 +1,14 @@
 // FE-BP-01, FE-BP-03 (TECH-SPECS §1.1): the ONE place that knows a path. Screens get a RouteBuilder from
 // useRoutes() and never build a path string by hand. Pure: no React, no fetch.
+import { INTEGRATION_APPS, type IntegrationApp } from "@/lib/domain/integrations";
+import { isSameSitePath } from "@/lib/same-site-path";
+
 export type AppMode = "production";
 export type MissionControlView = "readme" | "business" | "architecture" | "files" | "sources"; // "sources": Phase 1 sources screen only
 export type PlanView = "plan" | "work" | "develop"; // P20 (Plan page, AUTO-17)
 export type SettingsTab = "general" | "jira" | "slack" | "github"; // the Settings tabs (docs/projects/ui.md#route-and-sidebar)
-export type RouteKey = "home" | "missionControl" | "gaps" | "plan" | "specbot" | "settings" | "connections" | "guides";
+export type RouteKey =
+  "home" | "canvas" | "integrations" | "missionControl" | "gaps" | "plan" | "specbot" | "settings" | "connections" | "guides";
 /** The Guides topics (MCP-M10): `/guides/{topic}`. Any other topic answers 404. */
 export const GUIDE_TOPICS = ["specflow-101", "best-practices", "mcp-server"] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
@@ -12,6 +16,8 @@ export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 /** Path templates WITHOUT the tree prefix; `{name}` marks a param. `trees` = where a page file must exist. */
 export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMode[] }> = {
   home: { template: "", trees: ["production"] },
+  canvas: { template: "/projects/{projectId}", trees: ["production"] }, // Mission Control V2: the canvas of a project (app/(v2))
+  integrations: { template: "/projects/{projectId}/integrations", trees: ["production"] }, // V2: ?github= | ?atlassian= | ?next=
   missionControl: { template: "/projects/{projectId}/mission-control", trees: ["production"] },
   gaps: { template: "/projects/{projectId}/gaps", trees: ["production"] }, // FR-GWEB-04: the Gaps screen (was Decisions)
   plan: { template: "/projects/{projectId}/plan", trees: ["production"] }, // P20; page files in P21
@@ -25,6 +31,8 @@ export const TREE_PREFIX: Record<AppMode, ""> = { production: "" };
 
 export interface RouteBuilder {
   home(): string;
+  canvas(projectId: string): string; // V2: the project's canvas
+  integrations(projectId: string, opts?: { setup?: IntegrationApp; next?: string }): string; // V2: `setup` opens that app; `next` = a same-site path to return to after a connect
   missionControl(projectId: string, opts?: { view?: MissionControlView }): string;
   file(projectId: string, ref: { path: string; anchor?: string }): string; // view=files&file=...&section=...
   gaps(projectId: string, opts?: { gapId?: string }): string; // `?gap=<id>` opens that gap's card
@@ -57,6 +65,8 @@ export function routesFor(mode: AppMode): RouteBuilder {
   const at = (key: RouteKey, params: Record<string, string> = {}) => prefix + fill(ROUTES[key].template, params);
   return {
     home: () => "/",
+    canvas: (projectId) => at("canvas", { projectId }),
+    integrations: (projectId, opts) => withQuery(at("integrations", { projectId }), { setup: opts?.setup, next: opts?.next }),
     missionControl: (projectId, opts) => withQuery(at("missionControl", { projectId }), { view: opts?.view }),
     file: (projectId, ref) => withQuery(at("missionControl", { projectId }), { view: "files", file: ref.path, section: ref.anchor }),
     gaps: (projectId, opts) => withQuery(at("gaps", { projectId }), { gap: opts?.gapId }),
@@ -103,4 +113,19 @@ export function parseSettingsQuery(q: URLSearchParams): { tab: SettingsTab } {
 /** A `{topic}` path segment as a known Guides topic; anything else -> null (the page answers 404). */
 export function parseGuideTopic(topic: string): GuideTopic | null {
   return (GUIDE_TOPICS as readonly string[]).includes(topic) ? (topic as GuideTopic) : null;
+}
+
+/**
+ * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`), the app whose set-up opens at once (`?setup=`) and
+ * the same-site `next` path the page returns to after a connect (the canvas form that asked). Anything else is null.
+ */
+export function parseIntegrationsQuery(q: URLSearchParams): {
+  github: string | null;
+  atlassian: string | null;
+  setup: IntegrationApp | null;
+  next: string | null;
+} {
+  const next = q.get("next");
+  const setup = INTEGRATION_APPS.find((a) => a === q.get("setup")) ?? null;
+  return { github: q.get("github"), atlassian: q.get("atlassian"), setup, next: isSameSitePath(next) ? next : null };
 }

@@ -1,7 +1,7 @@
 // docs/slack/gap-answering.md "The channel flow": the production `SlackPort` over `/projects/{pid}/slack`. Every body is shape-checked
 // (like `lib/data/http/jira.ts`): any other shape is `invalid_response`. Failures are `DataError`s whose `detail.apiCode` is the API code.
-import { deleteSlack, getSlack } from "@/lib/api";
-import type { SlackChannel, SlackPort, SlackSettings } from "@/lib/domain/slack";
+import { deleteSlack, getSlack, testSlackConnection } from "@/lib/api";
+import type { SlackChannel, SlackPort, SlackSettings, SlackTestResult } from "@/lib/domain/slack";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
 
 function toChannel(v: unknown): SlackChannel {
@@ -18,6 +18,11 @@ export function toSlackSettings(v: unknown): SlackSettings {
   };
 }
 
+export function toSlackTestResult(v: unknown): SlackTestResult {
+  expectShape(isRecord(v) && v.posted === true);
+  return { posted: true, channel: toChannel(v.channel) };
+}
+
 export function createHttpSlack(): SlackPort {
   return {
     get: async (projectId) => {
@@ -26,6 +31,10 @@ export function createHttpSlack(): SlackPort {
     },
     unbind: async (projectId) => {
       await guard(() => deleteSlack(projectId));
+    },
+    test: async (projectId) => {
+      const body = await guard(() => testSlackConnection(projectId));
+      return checked(() => toSlackTestResult(body));
     },
   };
 }

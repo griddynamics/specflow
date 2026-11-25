@@ -1,0 +1,185 @@
+/* The Integrations page: cards, three to a row, and the built-in list. From docs/mission-control/mission-control.css (.ig-*).
+   Grey and dashed until connected, ink with a shadow after. */
+.gx-iggrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gx-igcard {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 24px;
+  border: 1.5px dashed var(--gx-ink-3);
+  border-radius: 18px;
+  background: var(--gx-paper);
+  color: var(--gx-ink-3);
+}
+
+.gx-igcard[data-state="on"] {
+  border: 1.5px solid var(--gx-ink);
+  color: var(--gx-ink);
+  box-shadow: 6px 6px 0 var(--gx-ink);
+}
+
+.gx-igcard[data-state="stopped"] {
+  border: 1.5px solid var(--gx-ink);
+  color: var(--gx-ink);
+}
+
+.gx-igcard[data-state="unavailable"] {
+  opacity: 0.7;
+}
+
+.gx-igcard__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+
+.gx-igcard__logos {
+  display: flex;
+  gap: 10px;
+}
+
+.gx-igcard__logo {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  border: 1.5px solid currentcolor;
+}
+
+.gx-igcard__logo svg {
+  width: 26px;
+  height: 26px;
+}
+
+.gx-igcard__name {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: inherit;
+}
+
+.gx-igcard__sub {
+  margin: 0;
+  font-size: 14px;
+  color: var(--gx-ink-3);
+}
+
+.gx-igcard__foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.gx-igcard__by {
+  font-size: 14px;
+  color: var(--gx-ink-3);
+}
+
+.gx-builtin {
+  display: grid;
+  gap: 12px;
+  padding-top: 24px;
+  border-top: 1px solid var(--gx-rule);
+}
+
+.gx-builtin__list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gx-builtin__list li {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 2px 12px;
+  align-items: start;
+}
+
+.gx-builtin__icon {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+}
+
+.gx-builtin__icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.gx-builtin__list small {
+  color: var(--gx-ink-3);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+/* The repositories of a project: one checkbox row each */
+.gx-pick {
+  display: grid;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--gx-rule);
+  border-radius: 12px;
+}
+
+.gx-pick legend {
+  padding: 0 6px;
+}
+
+.gx-pick__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font: 14px var(--gx-font-mono);
+  cursor: pointer;
+}
+
+.gx-pick__row:hover {
+  background: var(--gx-wash);
+}
+
+.gx-pick__row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gx-ink);
+}
+
+.gx-pick__row small {
+  margin-left: auto;
+  color: var(--gx-ink-3);
+}
+
+@media (max-width: 1100px) {
+  .gx-iggrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .gx-iggrid,
+  .gx-builtin__list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

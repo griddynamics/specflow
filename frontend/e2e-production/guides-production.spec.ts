@@ -35,11 +35,11 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
   test.setTimeout(120_000);
 
   // FR-MCP-UI-01
-  test("FR-MCP-UI-01: Guides is in the sidebar on the home page and inside a project; the three topics open; an unknown topic answers 404", async ({
+  test("FR-MCP-UI-01: Guides is in the sidebar on a page with no project (Connections) and inside a project; the three topics open; an unknown topic answers 404", async ({
     page,
   }) => {
     await login(page);
-    await page.goto("/");
+    await page.goto("/connections");
     await rail(page).getByRole("button", { name: "Guides", exact: true }).click();
     await expect(page).toHaveURL(/\/guides$/);
 

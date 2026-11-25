@@ -170,6 +170,18 @@ export const getSlack = (pid: string) => httpGet(`/projects/${encodeURIComponent
 /** 204: resolves with the HTTP status. */
 export const deleteSlack = (pid: string) => httpDelete(`/projects/${encodeURIComponent(pid)}/slack`).then((r) => r.status);
 
+/** 200 `{posted, channel}` (docs/mission-control/integrations-api.md "Slack test message"): the body stays `unknown`. */
+export const testSlackConnection = (pid: string) => httpPost(`/projects/${encodeURIComponent(pid)}/slack/test`).then((r) => r.body);
+
+// The project's integrations (docs/mission-control/integrations-api.md): who each app is connected by. Bodies stay `unknown`; the
+// integrations port (lib/data/http/integrations.ts) checks them.
+export const listProjectIntegrations = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/integrations`).then((r) => r.body);
+export const putProjectIntegration = (pid: string, app: string) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/integrations/${encodeURIComponent(app)}`).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const deleteProjectIntegration = (pid: string, app: string) =>
+  httpDelete(`/projects/${encodeURIComponent(pid)}/integrations/${encodeURIComponent(app)}`).then((r) => r.status);
+
 // Jira settings of a project (docs/jira-sync/api.md#web-routes). Bodies stay `unknown`; the Jira port (lib/data/http/jira.ts) checks
 // their shape. A failed access check is a 200 answer.
 export const getJira = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/jira`).then((r) => r.body);

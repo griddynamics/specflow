@@ -1,0 +1,145 @@
+/* People: avatar, tag, the members list, email suggestions, the confirm panel. From docs/mission-control/mission-control.css (.m-*). */
+.gx-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+  font: 600 12px var(--gx-font-body);
+}
+
+.gx-avatar--invited {
+  background: none;
+  color: var(--gx-ink-3);
+  border: 1.5px dashed var(--gx-ink-3);
+}
+
+.gx-tag {
+  display: inline-block;
+  font-family: var(--gx-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid currentcolor;
+  border-radius: 4px;
+  padding: 1px 6px;
+  line-height: 1.5;
+  white-space: nowrap;
+  font-variant-ligatures: none;
+}
+
+.gx-tag--solid {
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+  border-color: var(--gx-ink);
+}
+
+.gx-people {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--gx-rule);
+  border-radius: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.gx-person {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto 32px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.gx-person + .gx-person {
+  border-top: 1px solid var(--gx-rule);
+}
+
+.gx-person__who {
+  display: grid;
+  min-width: 0;
+}
+
+.gx-person__who b,
+.gx-person__who small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gx-person__who small {
+  color: var(--gx-ink-3);
+  font-size: 13px;
+}
+
+.gx-person__x {
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: none;
+  color: var(--gx-ink-3);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.gx-person__x:hover {
+  border-color: var(--gx-ink);
+  color: var(--gx-ink);
+}
+
+.gx-suggest {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 80px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--gx-paper);
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 12px;
+  box-shadow: 4px 4px 0 var(--gx-ink);
+}
+
+.gx-suggest__item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  font-family: inherit;
+  color: var(--gx-ink);
+  cursor: pointer;
+}
+
+.gx-suggest__item:hover,
+.gx-suggest__item:focus-visible,
+.gx-suggest__item[data-active="true"] {
+  background: var(--gx-wash);
+}
+
+.gx-confirm {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 12px;
+}
+
+.gx-confirm p {
+  margin: 0;
+  color: var(--gx-ink-2);
+  font-size: 14px;
+}

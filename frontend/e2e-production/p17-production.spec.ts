@@ -15,6 +15,7 @@ import {
   expectUploadReady,
   kbBuild,
   login,
+  loginV2,
   openCreateProject,
   openConfirm,
   pickLocalPdf,
@@ -41,7 +42,6 @@ const confirmButton = (page: Page) => page.getByTestId("kb-build-dialog-confirm"
 const expectState = (page: Page, state: ButtonState) => expect(kbBuild(page)).toHaveAttribute("data-state", state);
 
 test.describe("P17 screens on production routes", { tag: "@production" }, () => {
-  const MC = /\/projects\/([0-9a-f-]{36})\/mission-control$/;
   const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
   const backendCalls = (requests: { path: string }[]) => requests.filter((r) => r.path.startsWith("/api/backend/"));
 
@@ -49,49 +49,43 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await stubTiming(STUB_TIMING); // a case that changed the stub timing never leaks it into the next one
   });
 
-  test("FE-BP-03.AC5, AC1 (O12, G01-14): OIDC sign-in on /login lands on `/`, which opens the newest project's Mission Control", async ({
+  test("FE-BP-03.AC5, AC1 (O12, G01-14; V2 AC1): OIDC sign-in on /login lands on `/`, which opens the newest project's canvas", async ({
     page,
   }) => {
-    await login(page);
+    await loginV2(page);
     await expect(page).not.toHaveURL(/\/login/);
     await createProjectApi(page, unique("Older"));
     const newest = await createProjectApi(page, unique("Newest"));
     await page.goto("/");
-    await expect(page).toHaveURL(new RegExp(`/projects/${newest}/mission-control$`));
-    await expect(page.getByTestId("screen-mission-control")).toHaveAttribute("data-phase", "no_sources");
-    await expect(topbarProjectName(page)).toHaveText(/^Newest /);
+    await expect(page).toHaveURL(new RegExp(`/projects/${newest}$`));
+    await expect(page.getByRole("button", { name: "Projects" })).toHaveText(/^Newest /);
   });
 
-  test("FE-BP-03.AC2 (O12): with no project `/` shows the empty state; New creates through POST /projects with the name only and opens the Empty Mission Control", async ({
+  test("FE-BP-03.AC2 (O12; V2 D12): with no project `/` shows the first-run window that cannot be closed; Create posts the name only and opens the project's canvas", async ({
     page,
     requests,
   }) => {
-    await login(page);
+    await loginV2(page);
     // The stub is shared by the run, so "no project yet" is the list endpoint answering an empty page for this one load.
     await page.route("**/api/backend/projects?limit=100", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null }) }),
     );
     await page.goto("/");
-    await expect(page.getByTestId("home-empty")).toBeVisible();
-    await expect(page.getByTestId("home-empty")).toContainText("No projects yet");
+    const first = page.getByRole("dialog", { name: "Create your first project" });
+    await expect(first).toBeVisible();
     await page.unroute("**/api/backend/projects?limit=100");
-    await page.getByTestId("home-new").click();
-    const modal = page.getByTestId("create-project-modal");
-    await expect(modal).toBeVisible();
+    await expect(first.getByRole("button", { name: "Close" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(first).toBeVisible();
     const name = unique("Created in the browser");
-    await page.getByLabel("Name").fill(name);
-    // The form asks for the name and the collaborators' emails (docs/projects/ui.md): one text field, one email combobox, no Contributors.
-    await expect(modal.getByRole("textbox")).toHaveCount(1); // Name; no link fields, no access-check field, no tracker switches
-    await expect(modal.getByRole("combobox", { name: "Collaborators" })).toHaveCount(1);
-    await expect(modal.getByText("Contributors")).toHaveCount(0);
-    await expect(modal.getByRole("switch")).toHaveCount(0);
-    await page.getByTestId("cp-create").click();
-    await expect(page).toHaveURL(MC);
-    await expect(page.getByTestId("mcs-empty")).toBeVisible();
+    await first.getByLabel("Project name").fill(name);
+    await expect(first.getByRole("textbox")).toHaveCount(1); // the name only: the people are invited from Members
+    await first.getByRole("button", { name: "Create project" }).click();
+    await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}$/);
     const posts = requests.filter((r) => r.method === "POST" && r.path === "/api/backend/projects");
     expect(posts).toHaveLength(1);
     expect(JSON.parse(posts[0].postData ?? "{}")).toEqual({ name });
-    await expect(topbarProjectName(page)).toHaveText(name);
+    await expect(page.getByRole("button", { name: "Projects" })).toHaveText(name);
   });
 
   test("FR-PRJ-UI-09, UI-10: Create with emails posts {name, collaborators} (Enter and comma make chips); a domain the sign-in refuses marks its chip and keeps the modal open", async ({
@@ -545,7 +539,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
       expect(p, `Connections: ${p}`).toMatch(/^\/api\/backend\/(projects|me)$/);
   });
 
-  test("FE-BP-03.AC10, AC7 (PA27, §1.8): an unknown id (404) and a non-UUID id (stub 404, real API 422) and the old hello routes lead back to Mission Control", async ({
+  test("FE-BP-03.AC10, AC7 (PA27, §1.8; V2 AC1): an unknown id (404) and a non-UUID id (stub 404, real API 422) lead back to `/`, the newest project's canvas; `/projects/<id>` is that canvas and the old document route still redirects to Mission Control", async ({
     page,
   }) => {
     allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 404/);
@@ -553,12 +547,12 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     const newest = await createProjectApi(page, unique("Target"));
     for (const bad of ["00000000-0000-0000-0000-000000000000", "not-a-uuid"]) {
       await page.goto(`/projects/${bad}/specbot`);
-      await expect(page).toHaveURL(new RegExp(`/projects/${newest}/mission-control$`)); // -> `/` -> the newest project
+      await expect(page).toHaveURL(new RegExp(`/projects/${newest}$`)); // -> `/` -> the newest project's canvas
     }
-    for (const old of [`/projects/${newest}`, `/projects/${newest}/documents/00000000-0000-0000-0000-000000000001`]) {
-      await page.goto(old);
-      await expect(page).toHaveURL(new RegExp(`/projects/${newest}/mission-control$`));
-    }
+    await page.goto(`/projects/${newest}`);
+    await expect(page).toHaveURL(new RegExp(`/projects/${newest}$`)); // the canvas itself, no redirect any more
+    await page.goto(`/projects/${newest}/documents/00000000-0000-0000-0000-000000000001`);
+    await expect(page).toHaveURL(new RegExp(`/projects/${newest}/mission-control$`));
   });
 
   const signedOut = async (page: Page) => {

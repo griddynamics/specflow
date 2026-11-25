@@ -7,6 +7,7 @@ import type { DiagramsPort } from "@/lib/domain/diagrams";
 import type { FilesPort } from "@/lib/domain/files";
 import type { GapsPort } from "@/lib/domain/gaps";
 import type { GitHubPort } from "@/lib/domain/github";
+import type { IntegrationsPort } from "@/lib/domain/integrations";
 import type { JiraPort } from "@/lib/domain/jira";
 import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
@@ -37,6 +38,7 @@ export interface DataPorts {
   jira: JiraPort; // the Jira export target of a project: Settings (Jira tab)
   slack: SlackPort; // the Slack channel of a project: Settings (Slack tab)
   github: GitHubPort; // the caller's GitHub connection and the GitHub repositories of a project: Settings (GitHub tab)
+  integrations: IntegrationsPort; // who each app is connected by for a project: the V2 Integrations page
 }
 
 /** In-memory hand-over between screens (§1.5);  */

@@ -50,6 +50,9 @@ export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
       page.on("request", (r) => {
         const u = new URL(r.url());
         if (u.protocol === "data:" || u.protocol === "blob:") return;
+        // The font hosts of the Graphico screens (V2) are not the app's traffic: their URLs carry an `@` by design (`wght@400`), which
+        // the specs that check "no email in a URL" must not mistake for data. They stay allowed origins; they are just not logged here.
+        if (ALLOWED_EXTRA_HOSTS.includes(u.hostname)) return;
         requests.push({
           method: r.method(),
           path: u.pathname,
@@ -96,13 +99,27 @@ export async function setTheme(page: Page, theme: "light" | "dark"): Promise<voi
   await page.context().addCookies([{ name: "specflow-theme", value: theme, url: baseURL }]);
 }
 
-/** FE-BP-03.AC5: the OIDC sign-in button on /login; the stub issuer signs the default user in and `/` follows. */
-export async function login(page: Page): Promise<void> {
+/** The V2 header's navigation (every V2 screen has it; the V1 shell does not). */
+export const v2Header = (page: Page): Locator => page.getByRole("navigation", { name: "App" });
+
+/** FE-BP-03.AC5: the OIDC sign-in button on /login; the stub issuer signs the default user in and `/` (the V2 screens) follows. */
+export async function loginV2(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByTestId("login-oidc").click();
+  await expect(v2Header(page)).toBeVisible();
+}
+
+/**
+ * Signs in and opens a project's V1 Mission Control, for the specs of the V1 screens (they stay at their own URLs until the clean-up).
+ * `/` is V2 now, so the way in is the one `/` used to take: the newest project of the list, or a new one when the list is empty.
+ */
+export async function login(page: Page): Promise<void> {
+  await loginV2(page);
+  const listed = (await bff(page, "GET", "/projects?limit=100")).json as { items: { id: string }[] };
+  const pid = listed.items.at(0)?.id ?? (await createProjectApi(page, `First project ${Date.now().toString(36)}`));
+  await page.goto(`/projects/${pid}/mission-control`);
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  // `/` settles on the newest project's Mission Control, or the empty state when there is no project (O12).
-  await expect(page.getByTestId("screen-mission-control").or(page.getByTestId("home-empty"))).toBeVisible();
+  await expect(page.getByTestId("screen-mission-control")).toBeVisible();
 }
 
 /** The top bar's current project name (inside the project switcher's trigger). */
@@ -271,6 +288,22 @@ export const STUB_TIMING = {
   workReadFail: null,
   gapFail: null,
 };
+
+/** The V2 Integrations stub (`POST /seed-integrations`, tests/support/stub-integrations.mjs `seed`): the Slack knobs and, with `pid`, a project's bindings. */
+export interface SeedIntegrations extends Record<string, unknown> {
+  /** Put the Slack knobs back first. */
+  reset?: boolean;
+  pid?: string;
+  slackAvailable?: boolean;
+  /** "ok", or the API code the next Test connection answers with. */
+  slackTest?: string;
+  atlassian?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
+  github?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
+  slack?: { channel?: { id: string; name: string; private: boolean }; by?: { user_id: string; name: string } | null } | null;
+}
+export async function seedIntegrations(spec: SeedIntegrations): Promise<void> {
+  await control("POST", "/seed-integrations", spec);
+}
 
 /** Seeds a source with chosen file states in the stub (the case control port; see tests/support/stub-sources.mjs `seed`). Returns its id. */
 export async function seedSource(pid: string, source: Record<string, unknown>): Promise<string> {
