@@ -35,6 +35,8 @@ AGENT_ROUTES: Final[Mapping[str, str]] = {
     "complete_story": f"{AGENT_PREFIX}/story-completion",
     "sync_to_jira": f"{AGENT_PREFIX}/jira-sync",
     "jira_sync_status": f"{AGENT_PREFIX}/jira-sync-status",
+    "sync_to_linear": f"{AGENT_PREFIX}/linear-sync",
+    "linear_sync_status": f"{AGENT_PREFIX}/linear-sync-status",
 }
 # answer_gap reads the gap's card here before its dialog, then writes the answer on its own route.
 GAP_CARD_ROUTE: Final = f"{AGENT_PREFIX}/gap-card"

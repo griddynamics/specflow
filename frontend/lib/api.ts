@@ -232,6 +232,23 @@ export const checkGitHubProjectsAccess = (pid: string, repositoryId: string, pic
     json({ repository_id: repositoryId, ...projectBody(pick) }),
   ).then((r) => r.body);
 
+// The Linear plan destination of a project (plans/LINEAR/LINEAR-PLAN.md). Bodies stay `unknown`; lib/data/http/linear-plan.ts checks them.
+/** `projectId` null: no Linear project is named, Graphico creates one (the body leaves `project_id` out). */
+const linearTargetBody = (teamId: string, projectId: string | null) => ({
+  team_id: teamId,
+  ...(projectId === null ? {} : { project_id: projectId }),
+});
+export const getLinearPlan = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/linear-plan`).then((r) => r.body);
+export const listLinearTeams = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/linear-plan/teams`).then((r) => r.body);
+export const listLinearProjects = (pid: string, teamId: string) =>
+  httpGet(`/projects/${encodeURIComponent(pid)}/linear-plan/projects?team_id=${encodeURIComponent(teamId)}`).then((r) => r.body);
+export const putLinearPlan = (pid: string, teamId: string, projectId: string | null, enabled: boolean) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/linear-plan`, json({ ...linearTargetBody(teamId, projectId), enabled })).then(
+    (r) => r.body,
+  );
+export const checkLinearPlanAccess = (pid: string, teamId: string, projectId: string | null) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/linear-plan/access-check`, json(linearTargetBody(teamId, projectId))).then((r) => r.body);
+
 // The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
 // app/api/integrations/atlassian/callback calls the API on the server.
 export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);

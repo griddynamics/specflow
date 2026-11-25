@@ -171,6 +171,16 @@
       "name": "jira_sync_status",
       "read_only": true,
       "summary": "Shows the last Jira sync: status, counts, errors and the Jira key of each story and task."
+    },
+    {
+      "name": "sync_to_linear",
+      "read_only": false,
+      "summary": "Pushes the project's plan to its Linear project now; Backlog and Todo issues are updated, others get a comment."
+    },
+    {
+      "name": "linear_sync_status",
+      "read_only": true,
+      "summary": "Shows the last Linear sync: status, counts, errors and the Linear identifier of each story and task."
     }
   ]
 }

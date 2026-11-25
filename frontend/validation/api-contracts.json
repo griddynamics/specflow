@@ -334,6 +334,31 @@
       "path": "/projects/{pid}/github-projects/access-check"
     },
     {
+      "id": "get_linear_plan_api_v1_projects__pid__linear_plan_get",
+      "method": "GET",
+      "path": "/projects/{pid}/linear-plan"
+    },
+    {
+      "id": "list_linear_teams_api_v1_projects__pid__linear_plan_teams_get",
+      "method": "GET",
+      "path": "/projects/{pid}/linear-plan/teams"
+    },
+    {
+      "id": "list_linear_projects_api_v1_projects__pid__linear_plan_projects_get",
+      "method": "GET",
+      "path": "/projects/{pid}/linear-plan/projects"
+    },
+    {
+      "id": "put_linear_plan_api_v1_projects__pid__linear_plan_put",
+      "method": "PUT",
+      "path": "/projects/{pid}/linear-plan"
+    },
+    {
+      "id": "check_linear_plan_access_api_v1_projects__pid__linear_plan_access_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/linear-plan/access-check"
+    },
+    {
       "id": "get_atlassian_connection_api_v1_integrations_atlassian_get",
       "method": "GET",
       "path": "/integrations/atlassian"

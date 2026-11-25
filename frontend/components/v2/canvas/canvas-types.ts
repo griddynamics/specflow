@@ -98,6 +98,8 @@ export interface NodeDetail {
   by: string | null;
   /** The state in a sentence. */
   text: string;
+  /** A link to the object in the app (the Linear project of the plan), shown under the state. */
+  link?: { href: string; label: string };
   /** Remove is offered for a source or a repository: which port removes it. */
   remove: "source" | "repository" | null;
   /** A stopped node offers to reconnect this app on the Integrations page. */
