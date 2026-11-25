@@ -61,3 +61,6 @@ def test_a_reply_is_an_option_letter_or_the_persons_own_words(
     reply: str, expected: tuple[int | None, str | None]
 ) -> None:
     assert parse_reply(reply, {"A": 1, "B": 2}, 16) == expected
+    assert text.mentions({"content": 5}) == set()  # content that is not a list is ignored
+    assert text.mentions({"content": "x", "type": "doc"}) == set()
+    assert text.mentions({"content": [{"type": "mention", "attrs": {"id": "a"}}, 7]}) == {"a"}

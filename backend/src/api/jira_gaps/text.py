@@ -146,7 +146,9 @@ def mentions(doc: Any) -> set[str]:
         attrs = node.get("attrs")
         if node.get("type") == "mention" and isinstance(attrs, Mapping) and isinstance(attrs.get("id"), str):
             found.add(attrs["id"])
-        pending.extend(node.get("content") or [])
+        children = node.get("content")
+        if isinstance(children, list):
+            pending.extend(children)
     return found
 
 
