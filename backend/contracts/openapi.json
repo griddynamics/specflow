@@ -707,6 +707,17 @@
             "minimum": 1.0,
             "title": "Expected Files",
             "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           }
         },
         "required": [
@@ -9858,6 +9869,20 @@
         "title": "SourceOut",
         "type": "object"
       },
+      "SourceRenameIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SourceRenameIn",
+        "type": "object"
+      },
       "SourceSummaryOut": {
         "properties": {
           "added_by": {
@@ -18763,6 +18788,68 @@
           }
         },
         "summary": "Remove Source",
+        "tags": [
+          "sources"
+        ]
+      },
+      "patch": {
+        "description": "Rename an upload batch (any member, like a removal). The name is never logged.",
+        "operationId": "rename_source_api_v1_projects__pid__sources__sid__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Sid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRenameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceSummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Source",
         "tags": [
           "sources"
         ]

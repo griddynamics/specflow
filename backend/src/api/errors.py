@@ -113,6 +113,10 @@ def batch_ended() -> ApiError:
     return ApiError(409, "batch_ended", "The upload batch is closed.")
 
 
+def source_not_renamable() -> ApiError:
+    return ApiError(409, "source_not_renamable", "Only an upload batch can be renamed.")
+
+
 def removal_unavailable() -> ApiError:
     return ApiError(503, "removal_unavailable", "The source could not be removed. Try again.")
 

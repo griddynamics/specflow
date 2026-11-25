@@ -26,13 +26,21 @@ from api.errors import (
     batch_ended,
     database_unavailable,
     source_not_found,
+    source_not_renamable,
 )
 from api.runtime import Runtime
 from api.uploads import stream_upload
 from db import batches
 from db import repositories as repo
 from db import source_files as files
-from db.batches import AddOutcome, BatchEndedError, LockConflictError, LockTimeoutError, SourceNotFoundError
+from db.batches import (
+    AddOutcome,
+    BatchEndedError,
+    LockConflictError,
+    LockTimeoutError,
+    NotRenamableError,
+    SourceNotFoundError,
+)
 from db.removal import RevisionChainError
 from db.sources import DocumentFile
 from file_parsers.formats import FormatSpec
@@ -51,6 +59,8 @@ def translate(error: Exception) -> ApiError:
         return source_not_found()
     if isinstance(error, BatchEndedError):
         return batch_ended()
+    if isinstance(error, NotRenamableError):
+        return source_not_renamable()
     if isinstance(error, LockTimeoutError | LockConflictError):
         return database_unavailable()  # a queued writer gave up: try again
     return ApiError(500, "internal_error", "An internal error occurred.")

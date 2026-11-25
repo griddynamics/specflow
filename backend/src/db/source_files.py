@@ -109,6 +109,7 @@ UPLOAD_OUTCOMES: Final = ("added", "already_in_project", "read_again", "duplicat
 API_ERROR_CODES: Final = (
     "source_not_found",
     "batch_ended",
+    "source_not_renamable",
     "removal_unavailable",
     "project_not_found",
     "validation_failed",

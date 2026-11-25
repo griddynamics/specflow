@@ -25,12 +25,22 @@ from api.schemas import (
     BatchSourceOut,
     BatchStartIn,
     FilePageOut,
+    SourceRenameIn,
+    SourceSummaryOut,
 )
 from api.source_views import added_file, file_out, holder_out, summary_out
 from api.uploads import accepted_format
 from db import batches
 from db import source_files as files
-from db.batches import AddOutcome, BatchEndedError, LockConflictError, LockTimeoutError, SourceNotFoundError
+from db.batches import (
+    BATCH_NAME,
+    AddOutcome,
+    BatchEndedError,
+    LockConflictError,
+    LockTimeoutError,
+    NotRenamableError,
+    SourceNotFoundError,
+)
 from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("api.routers.source_batches")
@@ -86,7 +96,7 @@ async def start_upload_batch(pid: uuid.UUID, body: BatchStartIn, runtime: Runtim
 
     async def attempt() -> BatchSourceOut:
         async with runtime.transaction() as session:
-            batch = await batches.start_batch(session, pid, user.id, body.expected_files)
+            batch = await batches.start_batch(session, pid, user.id, body.expected_files, body.name or BATCH_NAME)
             summary = await files.source_summary(session, pid, batch.id)
             if summary is None:  # unreachable: a new batch is open, so it is shown
                 raise ApiInvariantError("a new batch is not readable")
@@ -108,6 +118,42 @@ async def start_upload_batch(pid: uuid.UUID, body: BatchStartIn, runtime: Runtim
         outcome="created",
     )
     return created
+
+
+@router.patch("/projects/{pid}/sources/{sid}", response_model=SourceSummaryOut)
+async def rename_source(
+    pid: uuid.UUID, sid: uuid.UUID, body: SourceRenameIn, runtime: RuntimeDep, user: UserDep
+) -> SourceSummaryOut:
+    """Rename an upload batch (any member, like a removal). The name is never logged."""
+
+    await require_project(runtime, user.id, pid)
+    started = time.monotonic()
+
+    async def attempt() -> SourceSummaryOut:
+        async with runtime.transaction() as session:
+            if await files.source_summary(session, pid, sid) is None:  # absent, another project's, or hidden
+                raise SourceNotFoundError
+            await batches.rename_batch(session, pid, sid, body.name)
+            summary = await files.source_summary(session, pid, sid)
+            if summary is None:  # unreachable: the batch was visible and the row is locked
+                raise ApiInvariantError("a renamed batch is not readable")
+            return summary_out(summary)
+
+    try:
+        renamed = await retry_once(attempt)
+    except (SourceNotFoundError, NotRenamableError, LockTimeoutError, LockConflictError) as error:
+        raise translate(error) from None
+    log_event(
+        logger,
+        INFO,
+        "api.source.renamed",
+        user_id=str(user.id),
+        project_id=str(pid),
+        source_id=str(sid),
+        duration_ms=_millis(started),
+        outcome="renamed",
+    )
+    return renamed
 
 
 @router.post("/projects/{pid}/sources/{sid}/files", response_model=BatchFileOut)

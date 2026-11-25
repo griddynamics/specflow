@@ -25,6 +25,7 @@ from db.batches import (
     AddOutcome,
     BatchEndedError,
     LockConflictError,
+    NotRenamableError,
     SourceNotFoundError,
     decide_outcome,
 )
@@ -79,7 +80,7 @@ class FakeBatches:
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for module, names in (
-            (batches, "start_batch end_batch legacy_day_batch add_batch_file"),
+            (batches, "start_batch end_batch legacy_day_batch add_batch_file rename_batch"),
             (removal, "remove_source"),
             (source_files, "source_summaries source_summary file_page"),
         ):
@@ -259,7 +260,7 @@ class FakeBatches:
         return self.removed.get(project_id, 0)
 
     # ---- batches -----------------------------------------------------------------
-    async def start_batch(self, _session, project_id, user_id, expected_files):
+    async def start_batch(self, _session, project_id, user_id, expected_files, name=batches.BATCH_NAME):
         self._failing("start_batch")
         for source in [s for s in self.sources.values() if s.project_id == project_id and self.hidden(s)]:
             del self.sources[source.id]
@@ -270,8 +271,17 @@ class FakeBatches:
             if s.project_id == project_id and s.kind == "upload" and s.created_at >= minute
         ]
         return self.add_source(
-            project_id, by=user_id, ended=False, expected=expected_files, suffix=1 + max(taken, default=0)
+            project_id, by=user_id, ended=False, expected=expected_files, suffix=1 + max(taken, default=0), name=name
         )
+
+    async def rename_batch(self, _session, project_id, batch_id, name):
+        self._failing("rename_batch")
+        source = self.sources.get(batch_id)
+        if source is None or source.project_id != project_id:
+            raise SourceNotFoundError
+        if source.kind != "upload":
+            raise NotRenamableError
+        source.name = name
 
     async def legacy_day_batch(self, _session, project_id, user_id, moment):
         self._failing("legacy_day_batch")

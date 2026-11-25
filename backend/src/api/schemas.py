@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
@@ -26,7 +27,7 @@ SUGGESTION_Q_MIN, SUGGESTION_Q_MAX = 3, 254
 
 
 class InvalidNameError(ValueError):
-    """A project name is blank or too long."""
+    """A project or source name is blank, too long or has a control character."""
 
 
 class InvalidSuggestionTextError(ValueError):
@@ -502,10 +503,43 @@ class FilePageOut(BaseModel):
     next_cursor: str | None
 
 
+SOURCE_NAME_MAX = 80
+
+
+def clean_source_name(value: str) -> str:
+    """A batch name as stored: stripped, 1..80 characters, no control characters."""
+
+    name = value.strip()
+    if not 1 <= len(name) <= SOURCE_NAME_MAX:
+        raise InvalidNameError(f"the name must be 1..{SOURCE_NAME_MAX} characters")
+    if any(unicodedata.category(char) in ("Cc", "Zl", "Zp") for char in name):
+        raise InvalidNameError("the name must not contain control characters")
+    return name
+
+
 class BatchStartIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_files: StrictInt = Field(ge=1, le=MAX_EXPECTED_FILES)
+    name: str | None = None  # absent, null or blank: the batch keeps its default name
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return clean_source_name(value)
+
+
+class SourceRenameIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        return clean_source_name(value)
 
 
 class BatchSourceOut(BaseModel):
