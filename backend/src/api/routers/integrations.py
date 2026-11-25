@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Final, Literal
+from typing import Annotated, Any, Final, Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Path, Response
 from pydantic import BaseModel
 
+from api.contained import Contained
 from api.deps import MemberDep, RuntimeDep, UserDep
 from api.errors import ApiError
 from api.github import github_connections, github_error
@@ -30,7 +31,7 @@ from api.runtime import Runtime
 from db import integrations as integrations_db
 from db.integrations import ATLASSIAN, GITHUB, SLACK, IntegrationView, WorkspaceMismatchError
 from github.codes import GitHubCode, GitHubError
-from logger.logger import INFO, get_logger, log_event
+from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("api.routers.integrations")
 router = APIRouter(prefix="/projects/{pid}/integrations", tags=["integrations"])
@@ -193,23 +194,46 @@ async def delete_project_integration(
     pid = access.project.id
     threads = None if runtime.slack is None else runtime.slack.threads
     only = None if access.is_owner else user.id  # the connector's own binding only, whatever happens meanwhile
-    if app == SLACK and threads is not None:
-        # The check comes first, then the channel is unbound; the row goes only once the unbind has worked.
-        async with runtime.transaction() as session:
-            bound = await integrations_db.get_integration(session, pid, app)
-        if bound is None and await threads.channels.binding(str(pid)) is None:
-            raise integration_not_found()
-        if bound is not None and only is not None and bound.user_id != only:
-            raise integration_forbidden()
-        await threads.channels.unbind(str(pid))
+    # The checks come first and are the same for every app (Slack too when it is off on this server); a Slack channel
+    # is unbound before its row goes, so a row that says "connected" never outlives a failed unbind.
+    async with runtime.transaction() as session:
+        bound = await integrations_db.get_integration(session, pid, app)
+    channel = app == SLACK and threads is not None and await _is_bound(threads, pid)
+    if bound is None and not channel:
+        raise integration_not_found()
+    if bound is not None and only is not None and bound.user_id != only:
+        raise integration_forbidden()
+    if channel:
+        await _unbind_channel(threads, pid)
     async with runtime.transaction() as session:
         deleted = await integrations_db.delete_integration(session, pid, app, only_user=only)
         if deleted and app == ATLASSIAN:
             await integrations_db.point_jira_target(session, pid, None)
         elif deleted and app == GITHUB:
             await integrations_db.point_repositories(session, pid, None)
-        elif not deleted and app != SLACK:
+        elif not deleted and (bound is not None or app != SLACK):
             exists = await integrations_db.get_integration(session, pid, app) is not None
-            raise integration_forbidden() if exists else integration_not_found()
+            raise integration_forbidden() if exists else integration_not_found()  # taken over, or removed, meanwhile
     log_event(logger, INFO, "api.integrations.removed", project_id=str(pid), app=app, user_id=str(user.id))
     return Response(status_code=204)
+
+
+async def _is_bound(threads: Any, pid: uuid.UUID) -> bool:
+    """Whether the project's Slack channel is bound; a failed read (the binding file) is a closed answer, no 500."""
+
+    with Contained(passing=(ApiError,)) as read:
+        bound = await threads.channels.binding(str(pid)) is not None
+    if read.failed:
+        log_event(logger, WARNING, "api.integrations.binding_failed", project_id=str(pid), error_type=read.error_type)
+        raise ApiError(502, "slack_unreachable", "Slack could not be reached. Try again later.")
+    return bound
+
+
+async def _unbind_channel(threads: Any, pid: uuid.UUID) -> None:
+    """Unbind the project's Slack channel; a failed unbind (the binding file) is a closed answer, never a 500."""
+
+    with Contained(passing=(ApiError,)) as unbound:
+        await threads.channels.unbind(str(pid))
+    if unbound.failed:
+        log_event(logger, WARNING, "api.integrations.unbind_failed", project_id=str(pid), error_type=unbound.error_type)
+        raise ApiError(502, "slack_unreachable", "Slack could not be reached. Try again later.")

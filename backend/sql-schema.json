@@ -654,6 +654,64 @@
         }
       }
     },
+    "jira_gap_issues": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "gap_id": {
+          "type": "text"
+        },
+        "issue_key": {
+          "type": "text"
+        },
+        "area": {
+          "type": "text"
+        },
+        "number": {
+          "type": "int"
+        },
+        "posted_at": {
+          "type": "timestamp"
+        },
+        "answered_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "jira_gap_targets": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "jira_project": {
+          "type": "text"
+        },
+        "grouping": {
+          "type": "text"
+        },
+        "story_key": {
+          "type": "text"
+        },
+        "enabled": {
+          "type": "bool"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        },
+        "poll_cursor": {
+          "type": "timestamp"
+        },
+        "last_polled_at": {
+          "type": "timestamp"
+        },
+        "last_error_code": {
+          "type": "text"
+        }
+      }
+    },
     "jira_issues": {
       "columns": {
         "project_id": {

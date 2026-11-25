@@ -673,6 +673,44 @@ class JiraAccessFailed(BaseModel):
 JiraAccessResult = Annotated[JiraAccessOk | JiraAccessFailed, Field(discriminator="result")]
 
 
+# --- Jira gaps (docs/jira-sync/gaps.md "Routes") -------------------------------------------------------------------
+
+
+class JiraGapAccessCheckIn(BaseModel):
+    """The typed Jira project of the gap channel before it is saved: trimmed and upper-cased."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    jira_project: str = Field(pattern=JIRA_PROJECT_PATTERN)
+
+    @field_validator("jira_project", mode="before")
+    @classmethod
+    def _normalise_project(cls, value: object) -> object:
+        return value.strip().upper() if isinstance(value, str) else value
+
+
+class JiraGapsIn(JiraGapAccessCheckIn):
+    grouping: Literal["one", "area"]
+    enabled: StrictBool
+
+
+class JiraGapsOut(BaseModel):
+    """The Jira gap channel of a project: the target (null fields while there is none), the counts of its sub-tasks and
+    its last poll. ``available`` is false when the server has no Atlassian OAuth or gap runs are off."""
+
+    available: bool
+    jira_project: str | None
+    grouping: Literal["one", "area"] | None
+    enabled: bool
+    story_key: str | None
+    story_url: str | None
+    posted: int
+    answered: int
+    last_polled_at: datetime | None
+    error_code: str | None = Field(description="The closed code of the last refused post or poll, or null.")
+    poll_seconds: int = Field(description="Answers are read about every this many seconds.")
+
+
 # --- Atlassian connections (docs/jira-sync/oauth.md "Routes") ------------------------------------------------------
 
 
@@ -829,3 +867,41 @@ class ProjectRepositoriesOut(BaseModel):
     enabled: bool
     can_manage: bool
     repositories: list[ProjectRepositoryOut]
+
+
+class ConfluenceLinkIn(BaseModel):
+    """A Confluence page or space link of the configured site; ``follow`` also reads the pages and Jira issues the
+    imported pages link to (one hop)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    link: str = Field(max_length=LINK_MAX)
+    follow: bool = False
+
+
+class ConfluenceCheckOut(BaseModel):
+    """What the link would import: ``pages`` (at most the page cap, ``capped`` when there are more) and
+    ``linked_issues``, the Jira issues the first page links to (0 without ``follow`` or for a space)."""
+
+    kind: Literal["page", "space"]
+    title: str
+    pages: int
+    capped: bool
+    linked_issues: int
+
+
+class JiraEpicIn(BaseModel):
+    """A Jira epic by its key (``ABC-12``) or by a link of the configured site."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key_or_link: str = Field(max_length=LINK_MAX)
+
+
+class JiraEpicCheckOut(BaseModel):
+    """The epic an import would take: its key, its summary (shown, not stored) and how many issues it has for the
+    member (at most the issue cap is imported)."""
+
+    key: str
+    summary: str
+    issues: int

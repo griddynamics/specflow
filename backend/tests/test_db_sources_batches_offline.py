@@ -370,10 +370,11 @@ async def test_insert_connection_document_writes_the_holder() -> None:
     assert "source_id" in fake.sql[0]
 
 
-def test_the_legacy_progress_statement_reads_drive_sources_and_counts_the_final_set() -> None:
+def test_the_legacy_progress_statement_reads_drive_and_imported_sources_and_counts_the_final_set() -> None:
     sql = str(sources._sources_progress_statement(ID).compile(dialect=postgresql.asyncpg.dialect()))
 
-    assert "connections.kind = $" in sql  # gdrive only: the 12 h rule is Drive-only
+    assert "connections.kind IN (" in sql  # Drive and the importers of the API process, never an upload batch
+    assert sources.PROGRESS_KINDS == ("gdrive", "confluence", "jira_epic")
     assert "connection_items.state IN (" in sql  # finished = the final set
     assert "connection_items.state != $" not in sql
     assert "documents.origin" in sql  # the uploads aggregate stays for old tabs

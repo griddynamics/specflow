@@ -31,6 +31,22 @@ def atlassian_not_connected() -> ApiError:
     return ApiError(409, "atlassian_not_connected", "Connect your Atlassian account first.")
 
 
+def atlassian_reconnect_required() -> ApiError:
+    return ApiError(
+        409,
+        "atlassian_reconnect_required",
+        "The Atlassian connection of the member who connected the project expired. Connect again.",
+    )
+
+
+def atlassian_site_mismatch() -> ApiError:
+    return ApiError(422, "atlassian_site_mismatch", "The link is not on the Atlassian site of this server.")
+
+
+def atlassian_unreachable() -> ApiError:
+    return ApiError(502, "atlassian_unreachable", "Atlassian could not be reached. Try again later.")
+
+
 async def acting_member(runtime: Runtime, project_id: uuid.UUID, app: str) -> uuid.UUID | None:
     """The member the project's ``app`` is connected by, whose account every use of it acts as; ``None`` when the
     project has no binding or its member is gone."""

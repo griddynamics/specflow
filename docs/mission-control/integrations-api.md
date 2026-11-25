@@ -18,7 +18,7 @@ acts as that member. The card says "by *member*".
 |---|---|---|---|
 | `GET /projects/{pid}/integrations` | member | 200 `ProjectIntegrationsOut` | 404 `project_not_found` |
 | `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian` or `github`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
-| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 422 `validation_failed` (unknown `app`) |
+| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
 
 **Slack in the UI:** any member can also remove the channel with `DELETE /projects/{pid}/slack` (D6, the route of the
 Settings tab), so a screen must not tell a member that only the connector or the owner can disconnect Slack; only
@@ -60,7 +60,7 @@ of the configured site; the GitHub one is the account login; the Slack one the w
 - **Remove** (`DELETE`): the member who connected the app, or the owner (AC6). The check and the delete are one
   statement (the row goes only if that member still holds it). The row is deleted and the Jira target's
   `connected_user_id` or the repositories' `added_by` becomes null in the same transaction, so everything that used the
-  account stops and no other member's account takes over (D2). For Slack the channel is unbound first and the row goes only once that worked. A
+  account stops and no other member's account takes over (D2). The existence and holder checks are the same for every app, Slack included (also when Slack is off on the server). For Slack the binding is read first (a failed read is `502 slack_unreachable` too) and the channel is unbound before the row goes, only once that worked; a failed unbind is `502 slack_unreachable` (the row stays), and a binding taken over by another member meanwhile is `403 integration_forbidden`. A
   member who is removed from the project or leaves it stops being the member of every row of the project in the
   same transaction.
 - No transaction is open across a call to an app; events `api.integrations.connected`, `.removed`, `.refused` carry
@@ -115,9 +115,80 @@ the graph build changes: an importer writes `parsed` documents the build already
   `processed` (a duplicate of content the project holds is `duplicate`, linking the first document); `fail(...)` ends
   one item `error`. A removed source stops the importer at its next write (`SourceGoneError`).
 - A restart ends the tasks: at startup every source of those kinds still `listing` or `importing` and not touched since
-  before this process started (less a minute) is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). One API replica is assumed, as for the Slack bindings.
+  before this process started is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). The start instant is read once from the database clock (`SELECT now()`) and compared with `connections.updated_at`, so no process clock is involved; a source added after it is never ended. If the clock read fails (the database is still coming up) it is tried again after 0.5, 1 and 2 seconds; after the last failure a warning (`api.imports.recovery_failed`, the error class only) is logged and no source is ended. One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
+- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source" and "Jira epic source" below.
+
+## Confluence source
+
+What the canvas form (check, then add) calls. Any member (D6); the import reads as the member the project's Atlassian is
+connected by (R1), runs in the API process and is the source `kind` `confluence`. What it reads, the caps and how a changed
+page is added again: [../sources/importers.md](../sources/importers.md).
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/confluence/check` | `{link, follow}` | 200 `ConfluenceCheckOut` | 404 `project_not_found`; the codes below |
+| `POST /projects/{pid}/sources/confluence` | `{link, follow}` | 201 `BatchSourceOut` (`{source: SourceSummaryOut}`, the card of the new source, `kind` `confluence`, `listing_finished` false) | as the check; 404 `source_not_found` (removed at once) |
+
+`link` is at most 2048 characters, `follow` defaults to false (the body is closed: other keys are 422 `validation_failed`).
+`ConfluenceCheckOut`: `kind` (`page` or `space`), `title` (the page title or the space name; shown, not stored), `pages`
+(how many pages an import would take, at most 100; the first page plus its descendants, or the space's pages), `capped`
+(there are more than the cap), `linked_issues` (with `follow`: the Jira issues the first page links to; else 0, and 0 for a
+space). Pages that "follow links" would add are not counted. The check reads Confluence (up to a few calls); nothing is
+stored. Adding does not repeat a source for the same link: every add is a new source (D7).
+
+**Progress and status.** The new source is a card of `GET /projects/{pid}/sources?batches=1` like any other: `kind`
+`confluence` or `jira_epic`, `name` (the title), `link` (as pasted), `added_by` (the caller), `counts` per file state,
+`total`, `listing_finished` (false while `listing`), `open` false and, when the import failed, `failure_reason` (`no_access`
+or `unknown_error`). Items appear as pages are declared and finish as they are stored, so `total` grows while the import
+runs; a page the bound member cannot see is a file in a problem state (`access_lost`). `GET /projects/{pid}/sources`
+without `batches` lists Drive sources only (as before) and counts the imported ones in its `progress` totals. Poll the
+`?batches=1` status; a card with `listing_finished` true and `counts.waiting + counts.processing = 0` is done.
+
+Codes (any 4xx here carries only a fixed sentence, never Confluence's text):
+
+| Code | HTTP | When |
+|---|---|---|
+| `atlassian_oauth_unavailable` | 503 | the server is not in Atlassian `oauth` mode |
+| `atlassian_not_connected` | 409 | the project has no Atlassian connection bound to a member (the canvas says "Set up first") |
+| `atlassian_reconnect_required` | 409 | the bound member's connection expired or Atlassian refused its token again after a refresh |
+| `atlassian_site_mismatch` | 422 | the link is on another host than `ATLASSIAN_SITE_URL` |
+| `confluence_link_invalid` | 422 | not an https page or space link of the site (including the old `/wiki/display/` form) |
+| `confluence_short_link_unsupported` | 422 | a `/wiki/x/<id>` short link: paste the full page address |
+| `confluence_not_found` | 409 | the page or space does not exist or is not visible to the bound member |
+| `confluence_forbidden` | 409 | Confluence refused the bound member (403) |
+| `atlassian_unreachable` | 502 | Atlassian could not be reached, or answered something unusable |
+
+Order of checks: project member, Atlassian bound and usable, link, Confluence.
+
+## Jira epic source
+
+What the canvas form (check, then add) calls. Any member (D6); the import reads as the member the project's Atlassian is
+connected by (R1), runs in the API process and is the source `kind` `jira_epic`. What it reads and its caps:
+[../sources/importers.md](../sources/importers.md).
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/jira-epic/check` | `{key_or_link}` | 200 `JiraEpicCheckOut` | 404 `project_not_found`; the codes below |
+| `POST /projects/{pid}/sources/jira-epic` | `{key_or_link}` | 201 `BatchSourceOut` (the card of the new source, `kind` `jira_epic`, `name` `KEY: summary`, `link` `https://<site>/browse/KEY`) | as the check; 404 `source_not_found` (removed at once) |
+
+`key_or_link` is at most 2048 characters (the body is closed: other keys are 422 `validation_failed`).
+`JiraEpicCheckOut`: `key` (upper case), `summary` (shown, not stored), `issues` (how many issues the epic has for the
+bound member; an import takes at most 200). Progress and status are the card of `GET /projects/{pid}/sources?batches=1`, as
+for the Confluence source above; one source per add, every add is a new source (D7).
+
+Codes: the shared `atlassian_oauth_unavailable`, `atlassian_not_connected`, `atlassian_reconnect_required`,
+`atlassian_site_mismatch`, `atlassian_unreachable` of the Confluence source, and
+
+| Code | HTTP | When |
+|---|---|---|
+| `jira_epic_link_invalid` | 422 | not an issue key, nor an https `/browse/KEY` or `selectedIssue=KEY` link |
+| `jira_epic_not_an_epic` | 422 | the issue exists but is not an epic |
+| `jira_epic_not_found` | 409 | no such issue, or not visible to the bound member |
+| `jira_epic_forbidden` | 409 | Jira refused the bound member (403) |
+
+Order of checks: project member, Atlassian bound and usable, key or link, Jira.
 
 ## Plan destinations
 
@@ -132,6 +203,29 @@ where the runtime is built (`api.runtime._add_runners`).
 `AnswerInput.via` (the gap library) accepts `jira` besides `web`, `elicitation` and `slack`, so a Jira answer is
 recorded in the answer history under its own name. No column stores it, no consumer switches over the literal.
 
+## Jira gap channel
+
+What the canvas form (space key and grouping, Check access, Add channel) and the channel node call. Any member (D6).
+Design, posting, polling and limits: [../jira-sync/gaps.md](../jira-sync/gaps.md). The channel acts as the member the
+project's Atlassian is connected by (R1); it needs Atlassian OAuth and gap runs.
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `GET /projects/{pid}/jira-gaps` | | 200 `JiraGapsOut` | 404 `project_not_found` |
+| `PUT /projects/{pid}/jira-gaps` | `{jira_project, grouping, enabled}` | 200 `JiraGapsOut` | 404; 409 `jira_not_connected` (no Atlassian bound to a member); 422 `validation_failed`; 503 `atlassian_oauth_unavailable`, `gap_unavailable` |
+| `POST /projects/{pid}/jira-gaps/access-check` | `{jira_project}` | 200 `JiraAccessResult` (`ok` with `project_name`, `epic_summary` null; or `failed` with `reason` and `field`) | 404; 503 as above |
+
+- `jira_project` is trimmed and upper-cased (`^[A-Z][A-Z0-9_]{1,9}$`); `grouping` is `one` or `area`; the body is closed.
+- `JiraGapsOut`: `available` (false when the server has no Atlassian OAuth or gap runs are off: then the other fields are
+  empty), `jira_project`, `grouping`, `enabled`, `story_key`, `story_url` (`<site>/browse/<key>`), `posted` and `answered`
+  (questions posted and answered, for the node), `last_polled_at`, `error_code` (the closed code of the last refused post or
+  poll), `poll_seconds` (60: the form says answers are read about every 60 seconds).
+- The access check failed reasons: `jira_not_connected`, `jira_reconnect_required` (no field), `jira_auth_failed`,
+  `jira_unreachable`, `jira_unexpected` (no field), `jira_not_found`, `jira_forbidden`, `jira_issue_types_missing` (field
+  `jira_project`).
+- `PUT` never waits for Jira: turning the channel on (or another Jira project) posts the open questions in the background;
+  read `GET` for `story_key` and the counts.
+
 ## Codes
 
 | Code | HTTP | When |
@@ -143,7 +237,8 @@ recorded in the answer history under its own name. No column stores it, no consu
 | `integration_forbidden` | 403 | `DELETE`: the caller neither connected the app nor owns the project |
 | `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable` | 503 | the app is not configured on this server |
 | `slack_link_invalid` | 400 | `POST /integrations/slack/link`: the nonce expired or was used |
-| `jira_not_connected` | 409 | `PUT /projects/{pid}/jira` in `oauth` mode: the project has no Atlassian connection bound to a member |
+| `jira_not_connected` | 409 | `PUT /projects/{pid}/jira` and `PUT /projects/{pid}/jira-gaps` in `oauth` mode: the project has no Atlassian connection bound to a member |
+| `gap_unavailable` | 503 | `PUT` and the check of `jira-gaps`: gap runs are off on this server |
 
 ## Data
 

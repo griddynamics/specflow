@@ -58,7 +58,8 @@ HEAD_0004 = "0004_gap_assignment"
 HEAD_0005 = "0005_jira_sync"
 HEAD_0006 = "0006_atlassian_connections"
 HEAD_0007 = "0007_github"
-HEAD = "0008_project_integrations"
+HEAD_0008 = "0008_project_integrations"
+HEAD = "0009_jira_gaps"
 # SHA-256 of versions/0001_initial.py as 2.0.0 shipped it; a mismatch means a frozen revision was edited.
 FROZEN_0001_SHA256 = "ebc6d2e0f6ca8eef9bcbc5acde990ed151fe17fbc1945c75e5d6289a455948dc"
 INITIAL_TABLES = (
@@ -94,6 +95,8 @@ GITHUB_CONNECTIONS = "github_connections"
 REPOSITORIES = "project_repositories"
 # The member and workspace of each project's apps (project-scoped), added by 0008.
 INTEGRATIONS = "project_integrations"
+# The Jira gap channel's target and gap-to-sub-task map (project-scoped), added by 0009.
+JIRA_GAP_TABLES = ("jira_gap_targets", "jira_gap_issues")
 APP_TABLES = (
     *INITIAL_TABLES,
     "project_invites",
@@ -104,6 +107,7 @@ APP_TABLES = (
     GITHUB_CONNECTIONS,
     REPOSITORIES,
     INTEGRATIONS,
+    *JIRA_GAP_TABLES,
 )
 SCOPED_TABLES = (
     ("projects", "id"),
@@ -111,7 +115,10 @@ SCOPED_TABLES = (
     ("documents", "project_id"),
     ("connections", "project_id"),
     ("connection_items", "project_id"),
-    *((table, "project_id") for table in (*GAP_TABLES, ASSIGNMENT, *JIRA_TABLES, REPOSITORIES, INTEGRATIONS)),
+    *(
+        (table, "project_id")
+        for table in (*GAP_TABLES, ASSIGNMENT, *JIRA_TABLES, REPOSITORIES, INTEGRATIONS, *JIRA_GAP_TABLES)
+    ),
 )
 INVITES = ("project_invites", "project_id")
 
@@ -140,6 +147,7 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_bases() == [FIRST]
     assert [revision.revision for revision in script.walk_revisions()] == [
         HEAD,
+        HEAD_0008,
         HEAD_0007,
         HEAD_0006,
         HEAD_0005,
@@ -155,7 +163,8 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_revision(HEAD_0005).down_revision == HEAD_0004
     assert script.get_revision(HEAD_0006).down_revision == HEAD_0005
     assert script.get_revision(HEAD_0007).down_revision == HEAD_0006
-    assert script.get_revision(HEAD).down_revision == HEAD_0007
+    assert script.get_revision(HEAD_0008).down_revision == HEAD_0007
+    assert script.get_revision(HEAD).down_revision == HEAD_0008
 
 
 # T9 ------------------------------------------------------------------------
@@ -797,7 +806,7 @@ def integrations_sql() -> str:
     """The SQL of revision 0008 alone."""
 
     cfg, buffer = offline_config()
-    command.upgrade(cfg, f"{HEAD_0007}:{HEAD}", sql=True)
+    command.upgrade(cfg, f"{HEAD_0007}:{HEAD_0008}", sql=True)
     return buffer.getvalue()
 
 
@@ -841,7 +850,7 @@ def test_0008_widens_the_source_kinds_and_backfills_the_atlassian_and_github_bin
 def test_the_downgrade_of_0008_deletes_the_new_sources_drops_the_table_and_says_what_is_lost() -> None:
     cfg, buffer = offline_config()
 
-    command.downgrade(cfg, f"{HEAD}:{HEAD_0007}", sql=True)
+    command.downgrade(cfg, f"{HEAD_0008}:{HEAD_0007}", sql=True)
 
     sql = buffer.getvalue()
     assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == [INTEGRATIONS]
@@ -851,3 +860,45 @@ def test_the_downgrade_of_0008_deletes_the_new_sources_drops_the_table_and_says_
     assert sql.index("-- lock_timeout skipped (offline)") < sql.index("DELETE FROM")
     doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0008_project_integrations.py").read_text("utf-8")
     assert "every project integration" in doc and "DELETES every ``confluence`` and ``jira_epic`` row" in doc
+
+
+# The Jira gap channel, added by revision 0009 on top of 0008 -------------------------------
+
+
+def jira_gaps_sql() -> str:
+    """The SQL of revision 0009 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{HEAD_0008}:{HEAD}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0009_creates_the_two_gap_tables_with_their_keys_and_scopes_them_to_the_agent_role() -> None:
+    sql = jira_gaps_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == list(JIRA_GAP_TABLES)
+    assert "CONSTRAINT pk_jira_gap_targets PRIMARY KEY (project_id)" in sql
+    assert "CONSTRAINT pk_jira_gap_issues PRIMARY KEY (project_id, gap_id)" in sql
+    assert "CONSTRAINT ck_jira_gap_targets_grouping CHECK (grouping IN ('one', 'area'))" in sql
+    scope = "nullif(current_setting('app.project_id', true), '')::uuid"
+    for table in JIRA_GAP_TABLES:
+        assert f"CONSTRAINT fk_{table}_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)" in sql
+        assert (
+            f'CREATE POLICY agent_project_scope ON {table} TO "specflow_agent" '
+            f"USING (project_id = {scope}) WITH CHECK (project_id = {scope});"
+        ) in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index("CREATE TABLE jira_gap_targets")
+    assert "GRANT" not in sql.upper()
+    assert "UPDATE alembic_version SET version_num='0009_jira_gaps'" in sql
+
+
+def test_the_downgrade_of_0009_drops_both_tables_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD}:{HEAD_0008}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == ["jira_gap_issues", "jira_gap_targets"]
+    assert "UPDATE alembic_version SET version_num='0008_project_integrations'" in sql
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0009_jira_gaps.py").read_text("utf-8")
+    assert "Every Jira gap target and the whole gap-to-sub-task map is lost" in doc

@@ -14,6 +14,7 @@ Sequence of ``PUT`` (an app is called only while no transaction is open)::
 
 from __future__ import annotations
 
+import logging
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -304,7 +305,7 @@ async def test_removing_slack_unbinds_its_channel(rig) -> None:
     assert await rig.channels.binding(str(rig.alpha)) is None and rig.integrations.rows == {}
 
 
-async def test_a_slack_row_stays_when_the_channel_cannot_be_unbound(rig, monkeypatch) -> None:
+async def test_a_slack_row_stays_when_the_channel_cannot_be_unbound(rig, monkeypatch, caplog) -> None:
     rig.integrations.put(rig.alpha, "slack", rig.alice.id)
     await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
 
@@ -313,13 +314,48 @@ async def test_a_slack_row_stays_when_the_channel_cannot_be_unbound(rig, monkeyp
 
     monkeypatch.setattr(rig.channels, "unbind", broken)
 
-    answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack")
+    with caplog.at_level(logging.INFO):
+        answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack")
 
-    assert answer.status_code == 500
+    assert error_of(answer) == (502, "slack_unreachable")  # a closed answer, not a 500
+    assert "disk full" not in answer.text and "disk full" not in caplog.text
     assert (
         rig.alpha,
         "slack",
     ) in rig.integrations.rows  # a row that says "connected" is never left without its channel
+
+
+async def test_removing_slack_checks_who_may_while_slack_is_off_on_this_server(rig) -> None:
+    rig.runtime.slack = None
+    path = f"projects/{ALPHA}/integrations/slack"
+
+    assert error_of(await call(rig, "DELETE", path)) == (404, "integration_not_found")  # no row
+    rig.integrations.put(rig.alpha, "slack", rig.alice.id)
+    assert error_of(await call(rig, "DELETE", path, BEN)) == (403, "integration_forbidden")  # not the holder
+    assert (rig.alpha, "slack") in rig.integrations.rows
+    rig.integrations.put(rig.alpha, "slack", rig.ben.id)
+    assert (await call(rig, "DELETE", path, BEN)).status_code == 204  # the holder
+    assert (rig.alpha, "slack") not in rig.integrations.rows
+    rig.integrations.put(rig.alpha, "slack", rig.ben.id)
+    assert (await call(rig, "DELETE", path)).status_code == 204  # the owner
+
+
+async def test_a_slack_binding_taken_over_during_the_removal_is_forbidden_not_silently_removed(
+    rig, monkeypatch
+) -> None:
+    rig.integrations.put(rig.alpha, "slack", rig.ben.id)
+    await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.ben.id)))
+    unbind = rig.channels.unbind
+
+    async def unbind_then_a_takeover(project_id: str) -> None:
+        await unbind(project_id)
+        rig.integrations.put(rig.alpha, "slack", rig.alice.id)  # another member took the binding over meanwhile
+
+    monkeypatch.setattr(rig.channels, "unbind", unbind_then_a_takeover)
+
+    answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack", BEN)
+
+    assert error_of(answer) == (403, "integration_forbidden") and (rig.alpha, "slack") in rig.integrations.rows
 
 
 async def test_a_channel_bound_before_its_row_existed_can_still_be_removed(rig) -> None:
@@ -328,3 +364,20 @@ async def test_a_channel_bound_before_its_row_existed_can_still_be_removed(rig) 
     answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack", BEN)
 
     assert answer.status_code == 204 and await rig.channels.binding(str(rig.alpha)) is None
+
+
+async def test_a_binding_that_cannot_be_read_is_a_closed_502_and_the_row_stays(rig, monkeypatch, caplog) -> None:
+    rig.integrations.put(rig.alpha, "slack", rig.alice.id)
+
+    async def broken(_project_id: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(rig.channels, "binding", broken)
+
+    with caplog.at_level(logging.INFO):
+        answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack")
+
+    assert error_of(answer) == (502, "slack_unreachable")  # not a 500: the removal is not attempted
+    assert "disk full" not in answer.text and "disk full" not in caplog.text
+    assert "api.integrations.binding_failed" in caplog.text
+    assert (rig.alpha, "slack") in rig.integrations.rows
