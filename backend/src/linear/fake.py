@@ -177,6 +177,11 @@ class FakeLinear:
         self._comments[comment.id] = comment
         return comment
 
+    def assign_issue(self, issue_id: str, user_name: str | None) -> Issue:
+        """A person assigns an issue in the Linear UI (no write is recorded)."""
+
+        return self._store(replace(self._issue(issue_id), assignee_name=user_name, updated_at=self.now()))
+
     def move_issue(self, issue_id: str, state_name: str) -> Issue:
         """A person moves an issue in the Linear UI (no write is recorded)."""
 

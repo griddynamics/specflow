@@ -95,6 +95,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
   }
   if (state === "failed") {
     const { meta, text } = stoppedWords(s, kind);
+    const reconnectApp = kind === "linear_project" ? "linear" : "atlassian";
     return {
       ...base,
       meta,
@@ -104,7 +105,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
       listing: false,
       label: `${named}: ${meta}`,
       wire: "off",
-      detail: { ...detail, text, reconnect: IMPORT_WORDS[kind] !== undefined && s.failure === "no_access" ? "atlassian" : null },
+      detail: { ...detail, text, reconnect: IMPORT_WORDS[kind] !== undefined && s.failure === "no_access" ? reconnectApp : null },
     };
   }
   const count = unitText(kind, card.countLine);
