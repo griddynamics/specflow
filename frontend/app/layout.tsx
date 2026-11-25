@@ -12,8 +12,8 @@ import "@/styles/ds-a11y.css"; // 2b: reduced-motion and focus cover of the froz
 import "@graphico/ui/styles.css"; // 3: Graphico style (Mission Control V2). Every rule sits under the `.gx` root class: no V1 screen changes.
 
 export const metadata: Metadata = {
-  title: "Specflow",
-  description: "Specflow: turn a project's files into a knowledge graph, decisions and answers",
+  title: "Graphico",
+  description: "Graphico: turn a project's files into a knowledge graph, the gaps in it and a plan",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {

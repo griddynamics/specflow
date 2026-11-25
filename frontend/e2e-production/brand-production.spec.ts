@@ -1,6 +1,6 @@
 // D21 brand polish on the PRODUCTION routes (FE-BP-03.AC5, FE-DS-08.AC1/AC2, FE-PLAN-01.AC2), against the stub API through the real BFF.
 // No paid model call (R11). P1 /login title, heading and the logo pair per theme; P2 /login?signedout=1 without a session shows no note;
-// P3 the cubes are on the right of the sign-in scene (the same probe as brand.spec.ts E5); P4 signed in: the title is Specflow.
+// P3 the cubes are on the right of the sign-in scene (the same probe as brand.spec.ts E5); P4 signed in: the tab title is Graphico.
 // D22 P5 signed out: the apple-touch link on /login and the three icon files answer 200 without a redirect (AC2, AC3).
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
@@ -29,7 +29,7 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
   const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
 
   for (const theme of ["light", "dark"] as const) {
-    test(`AC4, AC8, AC10 (P1): /login in the ${theme} theme has the tab title Specflow, the heading Specflow and the ${theme === "light" ? "black" : "white"}-wordmark logo`, async ({
+    test(`AC4, AC8, AC10 (P1): /login in the ${theme} theme has the tab title Graphico, the heading Specflow and the ${theme === "light" ? "black" : "white"}-wordmark logo`, async ({
       page,
     }) => {
       await setTheme(page, theme);
@@ -38,7 +38,7 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
         if (r.url().includes("/ds/Logos/")) status[new URL(r.url()).pathname] = r.status();
       });
       await page.goto("/login");
-      await expect(page).toHaveTitle("Specflow");
+      await expect(page).toHaveTitle("Graphico");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Specflow");
       const wrapper = page.getByTestId("login-logo");
       const logos = wrapper.getByRole("img", { name: "Grid Dynamics", includeHidden: true });
@@ -67,7 +67,7 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
 
   test("AC10 (P2): /login?signedout=1 without a session shows no note and no alert", async ({ page }) => {
     await page.goto("/login?signedout=1");
-    await expect(page).toHaveTitle("Specflow");
+    await expect(page).toHaveTitle("Graphico");
     await expect(page.getByTestId("login-page")).toBeVisible();
     await expect(page.getByTestId("login-oidc")).toBeVisible();
     await expect(page.getByTestId("login-signed-out")).toHaveCount(0);
@@ -91,16 +91,16 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
     });
   }
 
-  test("AC8 (P4): signed in, / and a project's Mission Control have the tab title Specflow", async ({ page }) => {
+  test("AC8 (P4): signed in, / and a project's Mission Control have the tab title Graphico", async ({ page }) => {
     await login(page);
-    await expect(page).toHaveTitle("Specflow");
+    await expect(page).toHaveTitle("Graphico");
     const pid = await createProjectApi(page, unique("Brand"));
     await page.goto(`/projects/${pid}/mission-control`);
     await expect(page.getByTestId("screen-mission-control")).toBeVisible();
-    await expect(page).toHaveTitle("Specflow");
+    await expect(page).toHaveTitle("Graphico");
     await page.goto("/");
     await expect(v2Header(page)).toBeVisible();
-    await expect(page).toHaveTitle("Specflow");
+    await expect(page).toHaveTitle("Graphico");
   });
 
   test("D22 AC2, AC3 (P5): signed out, /login has one apple-touch link and the icon files load without a redirect", async ({
