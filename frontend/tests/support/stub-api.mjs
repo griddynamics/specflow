@@ -6,11 +6,15 @@ import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
 import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
+// LINEAR S4: import the Linear source check (stub-linear-source.mjs), like checkJiraEpic below.
 import { checkJiraEpic } from "./stub-jira-epic.mjs";
 import { driveFilesCapped, driveFilesOf } from "./stub-drive-files.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
+// LINEAR S1: import the Linear connection model (stub-linear.mjs), like createGitHubModel below.
 import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
+// LINEAR S3: import the Linear plan destination model (stub-linear-plan.mjs).
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
+// LINEAR S5: import the Linear gap channel model (stub-linear-gaps.mjs).
 import { createGitHubModel } from "./stub-github.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
@@ -116,8 +120,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const jira = createJiraModel((pid) => people.list(pid).role);
   /** GitHub (docs/github/api.md): the caller's connection, their repositories, a project's repositories. */
   const github = createGitHubModel((pid) => people.list(pid).role, ME.name);
+  // LINEAR S1: const linear = createLinearModel(...); pass it to createIntegrationsModel below as `linear`.
   /** Project integrations (docs/mission-control/integrations-api.md): who each app is connected by, and the Slack channel of a project. */
   const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, displayName: ME.name });
+  // LINEAR S5: const linearGaps = createLinearGapsModel((pid) => integrations.linearActive(pid));
   /** The Jira gap channel: any member; acts as the project's Atlassian binding. */
   const jiraGaps = createJiraGapsModel((pid) => integrations.atlassianActive(pid));
   /** GitHub Projects plan destination: any member; acts as the project's GitHub binding; the repository is one of the project's. */
@@ -125,6 +131,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     (pid) => integrations.githubActive(pid),
     (pid, id) => github.list(pid).repositories.find((r) => r.id === id),
   );
+  // LINEAR S3: const linearPlan = createLinearPlanModel((pid) => integrations.linearActive(pid));
   const readJson = async (req) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -1405,9 +1412,12 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!b) return json(res, 200, project);
     if (b === "members" || b === "invites" || b === "leave") return membersRoute({ req, res, pid, b, did });
     if (b === "jira") return jiraRoute({ req, res, pid, did });
+    // LINEAR S5: if (b === "linear-gaps") return linearGapsRoute({ req, res, pid, did });
     if (b === "jira-gaps") return jiraGapsRoute({ req, res, pid, did });
     if (b === "github-projects") return githubProjectsRoute({ req, res, url, pid, did });
+    // LINEAR S3: if (b === "linear-plan") return linearPlanRoute({ req, res, url, pid, did });
     if (b === "integrations") return integrationsRoute({ req, res, pid, did });
+    // LINEAR S4: sources/linear (check, add) is served inside sourcesRoute, next to "jira-epic".
     if (b === "slack") return slackRoute({ req, res, pid, did });
     if (b === "repositories") return repositoriesRoute({ req, res, pid, did, action });
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
@@ -1488,10 +1498,12 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     people,
     /** Jira settings: `jira.state` (available, mode, connection, callbackError) and `jira.seed({pid, available, target, access, mode, ...})`. */
     jira,
+    // LINEAR S5: linearGaps (the model above), served as `linearGaps.seed({...})`.
     /** Jira gap channel: `jiraGaps.state` (available) and `jiraGaps.seed({pid, available, target, access})`. */
     jiraGaps,
     /** GitHub Projects destination: `githubProjects.state` (available, organization) and `githubProjects.seed({pid, available, organization, target, access})`. */
     githubProjects,
+    // LINEAR S1: linear (the connection model above), and S3: linearPlan.
     /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
     github,
     /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, ...})`. */

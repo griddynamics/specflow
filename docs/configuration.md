@@ -53,6 +53,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | api | The one Atlassian account of the [Jira sync](#jira-sync) (`token` mode). Set both with `ATLASSIAN_SITE_URL`, or none. Not read when `ATLASSIAN_OAUTH_CLIENT_ID` is set. |
 | `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](#jira-sync) (`oauth` mode, which wins over the one account). The client ID turns it on and then needs the secret, a Fernet key, `ATLASSIAN_SITE_URL` and `PUBLIC_URL`. |
 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_TOKEN_KEY` | api, worker-agents | The GitHub App of the [GitHub integration](#github-integration). The client ID turns it on and then needs the secret, the app slug, a Fernet key and `PUBLIC_URL`. |
+| `LINEAR_OAUTH_CLIENT_ID`, `LINEAR_OAUTH_CLIENT_SECRET`, `LINEAR_TOKEN_KEY`, `LINEAR_WEBHOOK_SECRET` | api | The Linear OAuth app of the [Linear integration](#linear-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. The webhook secret is optional. |
 
 ## Settings with a default (D)
 
@@ -681,6 +682,27 @@ private key: Specflow does not use one. On the local stack the URLs start with `
 
 The api and the worker must reach `github.com` and `api.github.com` directly: their clients ignore `HTTPS_PROXY` and
 the other proxy variables (and `.netrc`).
+
+## Linear integration
+
+The Linear integration lets each user connect their own Linear account (OAuth 2.0, actor `user`: every write is made as the
+connected member). A project can then export its plan to a Linear team, import a Linear project as a source and post its
+open questions in Linear. It is off until `LINEAR_OAUTH_CLIENT_ID` is set. The api is the only role that reads these names.
+
+| Name | Rule |
+|---|---|
+| `LINEAR_OAUTH_CLIENT_ID` | The client ID of the Linear OAuth app. A non-blank value turns the integration on. |
+| `LINEAR_OAUTH_CLIENT_SECRET` | The client secret of the app. A secret: keep it in the cluster's secret store. |
+| `LINEAR_TOKEN_KEY` | A Fernet key that encrypts the users' access and refresh tokens and signs the OAuth `state`. Own key: rotating it expires only the Linear connections (each user connects again). |
+| `LINEAR_WEBHOOK_SECRET` | Optional. The signing secret of the app's webhook; it verifies `Linear-Signature` on `POST /api/v1/integrations/linear/webhook`. Unset: that route answers 503 and answers to gap questions are not read back. |
+| `PUBLIC_URL` | The web app's public address. The callback URL is `{PUBLIC_URL}/api/integrations/linear/callback`. |
+
+With the client ID unset the integration is off and the Linear routes answer 503 `linear_unavailable`. A partial set stops
+the api at start and names the missing variables. Make the key as for `GITHUB_TOKEN_KEY`.
+
+A Linear OAuth app has one webhook URL, so register one app per environment (local, each shared environment). The callback
+URL of the app is `{PUBLIC_URL}/api/integrations/linear/callback`, its scopes are `read` and `write`, and the webhook URL is
+`{PUBLIC_URL}/api/v1/integrations/linear/webhook` (a public https address; a tunnel on a local stack).
 
 ## Document parsing
 

@@ -26,8 +26,9 @@ const titleOf = (card: IntegrationCardId | null): string => {
 const isBindable = (app: IntegrationApp): app is BindableApp => app !== "slack";
 
 /** The app whose sign-in or install page the browser just came back from, by the query parameter it set. */
-function returnedAppOf(query: { github: string | null; atlassian: string | null }): BindableApp | null {
+function returnedAppOf(query: { github: string | null; atlassian: string | null; linear: string | null }): BindableApp | null {
   if (query.github !== null) return "github";
+  if (query.linear !== null) return "linear";
   return query.atlassian === null ? null : "atlassian";
 }
 
@@ -46,7 +47,7 @@ export function IntegrationsPage({ projectId, mcp }: Readonly<{ projectId: strin
   const next = query.next;
 
   // Back from an app's sign-in or install page: bind the account to the project, say what failed, then leave the code out of the URL.
-  const code = query.github ?? query.atlassian;
+  const code = query.github ?? query.linear ?? query.atlassian;
   const returnedApp = returnedAppOf(query);
   useEffect(() => {
     if (returnedApp === null || code === null || returned.current) return;
@@ -54,8 +55,8 @@ export function IntegrationsPage({ projectId, mcp }: Readonly<{ projectId: strin
     const clean = routes.integrations(projectId, { setup: returnedApp, next: next ?? undefined });
     if (isLinked(code)) {
       void connect(returnedApp).then((bound) => {
-        // GitHub still needs its repositories picked here; Atlassian is done, so the form that asked comes back.
-        if (bound && next !== null && returnedApp === "atlassian") router.replace(next);
+        // GitHub still needs its repositories picked here; Atlassian and Linear are done, so the form that asked comes back.
+        if (bound && next !== null && returnedApp !== "github") router.replace(next);
         else router.replace(clean, { scroll: false });
       });
     } else {

@@ -6,10 +6,10 @@
 import { StubError } from "./stub-members.mjs";
 
 const ME_ID = "u1";
-const APPS = ["atlassian", "github", "slack"];
-const BINDABLE = ["atlassian", "github"];
-const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected" };
-const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable" };
+const APPS = ["atlassian", "github", "slack", "linear"];
+const BINDABLE = ["atlassian", "github", "linear"];
+const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected", linear: "linear_not_connected" };
+const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable", linear: "linear_unavailable" };
 const TEST_STATUS = { slack_not_connected: 409, slack_not_in_channel: 409, slack_unreachable: 502, slack_unavailable: 503 };
 const validation = (...errors) => new StubError(422, "validation_failed", { errors });
 
@@ -18,16 +18,24 @@ const validation = (...errors) => new StubError(422, "validation_failed", { erro
  * `state.connection` is the caller's own connection. `displayName` is the caller's name.
  */
 export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
-  const state = { slackAvailable: true, slackTest: "ok" };
+  // LINEAR S1: `linearAvailable` is false until stream S1 gives the stub a Linear connection (`linear` model, like `jira` and `github`).
+  const state = { slackAvailable: true, slackTest: "ok", linearAvailable: false };
   const projects = new Map(); // pid -> {atlassian, github, slack: row | null, channel: {id, name, private} | null}
   const mine = (pid) => {
-    if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, channel: null });
+    if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, linear: null, channel: null });
     return projects.get(pid);
   };
 
   const availableOf = (app) =>
-    app === "atlassian" ? jira.state.mode === "oauth" : app === "github" ? github.state.enabled : state.slackAvailable;
-  const callerConnection = (app) => (app === "atlassian" ? jira.state.connection : github.state.connection);
+    app === "atlassian"
+      ? jira.state.mode === "oauth"
+      : app === "github"
+        ? github.state.enabled
+        : app === "linear"
+          ? state.linearAvailable
+          : state.slackAvailable;
+  // LINEAR S1: the caller has no Linear connection in the stub until S1 adds the model.
+  const callerConnection = (app) => (app === "atlassian" ? jira.state.connection : app === "github" ? github.state.connection : null);
 
   function healthOf(app, row) {
     if (row === null) return "none";
@@ -111,7 +119,7 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
    */
   /** @param {{pid?: string, reset?: boolean, slackAvailable?: boolean, slackTest?: string, [app: string]: any}} spec */
   function seed({ pid, reset, slackAvailable, slackTest: outcome, ...bindings }) {
-    if (reset === true) Object.assign(state, { slackAvailable: true, slackTest: "ok" });
+    if (reset === true) Object.assign(state, { slackAvailable: true, slackTest: "ok", linearAvailable: false });
     if (slackAvailable !== undefined) state.slackAvailable = slackAvailable;
     if (outcome !== undefined) state.slackTest = outcome;
     if (pid === undefined) return;

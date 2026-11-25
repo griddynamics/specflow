@@ -9,7 +9,8 @@ from typing import Final
 
 from db.models import CONNECTION_FAILURE_REASONS
 
-IMPORT_KINDS: Final = ("confluence", "jira_epic")  # the ``connections.kind`` values the API imports itself
+# the ``connections.kind`` values the API imports itself
+IMPORT_KINDS: Final = ("confluence", "jira_epic", "linear_project")
 
 
 class InvalidFailureReasonError(Exception):

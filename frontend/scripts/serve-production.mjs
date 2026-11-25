@@ -226,6 +226,7 @@ const control = http.createServer(async (req, res) => {
     api.jira.seed(spec);
     return send(200, {});
   }
+  // LINEAR S3: POST /seed-linear-plan ({pid?, available?, target?, access?}) -> api.linearPlan.seed(spec), like /seed-github-projects.
   if (req.method === "POST" && req.url === "/seed-github-projects") {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -238,6 +239,7 @@ const control = http.createServer(async (req, res) => {
     api.githubProjects.seed(spec);
     return send(200, {});
   }
+  // LINEAR S5: POST /seed-linear-gaps ({pid?, available?, target?, access?}) -> api.linearGaps.seed(spec), like /seed-jira-gaps.
   if (req.method === "POST" && req.url === "/seed-jira-gaps") {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -250,6 +252,7 @@ const control = http.createServer(async (req, res) => {
     api.jiraGaps.seed(spec);
     return send(200, {});
   }
+  // LINEAR S1: POST /seed-linear ({available?, connection?}) -> api.linear.seed(spec); S4: seed a `linear_project` source through /seed-source.
   if (req.method === "POST" && (req.url === "/seed-source" || req.url === "/remove-source")) {
     const chunks = [];
     for await (const c of req) chunks.push(c);

@@ -5,6 +5,7 @@ import type { VendorKind } from "@graphico/ui";
 import type { IntegrationApp } from "@/lib/domain/integrations";
 import { AtlassianSetup } from "./AtlassianSetup";
 import { GitHubSetup } from "./GitHubSetup";
+import { LinearSetup } from "./LinearSetup";
 import { SlackSetup } from "./SlackSetup";
 import type { SetupProps } from "./setup-props";
 
@@ -19,4 +20,5 @@ export const INTEGRATION_CARDS: readonly CardSpec[] = [
   { app: "atlassian", marks: ["jira", "confluence"], Setup: AtlassianSetup },
   { app: "github", marks: ["github"], Setup: GitHubSetup },
   { app: "slack", marks: ["slack"], Setup: SlackSetup },
+  { app: "linear", marks: ["linear"], Setup: LinearSetup },
 ];

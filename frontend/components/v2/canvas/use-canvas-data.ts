@@ -138,10 +138,12 @@ const JIRA_POLL_MS = 5000;
 const SLACK_POLL_MS = 5000;
 const JIRA_GAPS_POLL_MS = 5000;
 const GITHUB_PROJECTS_POLL_MS = 3000;
+const LINEAR_PLAN_POLL_MS = 3000;
+const LINEAR_GAPS_POLL_MS = 5000;
 
 /** The project's repositories, Jira target and Slack channel, each read again while it changes (a clone runs, a sync runs, a channel is awaited). */
 function useConnectionReads(projectId: string) {
-  const { github, githubProjects, jira, jiraGaps, slack } = useV2Ports();
+  const { github, githubProjects, jira, jiraGaps, linearGaps, linearPlan, slack } = useV2Ports();
   const repos = usePolledRead(
     useCallback(() => github.list(projectId), [github, projectId]),
     (v) => (isCloning(v) ? GITHUB_POLL_MS : null),
@@ -162,7 +164,15 @@ function useConnectionReads(projectId: string) {
     useCallback(() => slack.get(projectId), [slack, projectId]),
     (v) => (v?.channel === null || v === null ? SLACK_POLL_MS : null),
   );
-  return { repos, target, channel, gapChannel, planProject };
+  const linearPlanRead = usePolledRead(
+    useCallback(() => linearPlan.get(projectId), [linearPlan, projectId]),
+    (v) => (v?.sync?.status === "running" ? LINEAR_PLAN_POLL_MS : null), // LINEAR S3
+  );
+  const linearGapsRead = usePolledRead(
+    useCallback(() => linearGaps.get(projectId), [linearGaps, projectId]),
+    (v) => (v?.enabled === true ? LINEAR_GAPS_POLL_MS : null), // LINEAR S5
+  );
+  return { repos, target, channel, gapChannel, planProject, linearPlanRead, linearGapsRead };
 }
 
 export function useCanvasData(projectId: string) {
@@ -171,7 +181,7 @@ export function useCanvasData(projectId: string) {
   const gapsRead = useGapsRead(projectId, status?.ready === true, status?.build != null);
   const plan = usePlanState(projectId);
   const integrations = useIntegrationList(projectId);
-  const { repos, target, channel, gapChannel, planProject } = useConnectionReads(projectId);
+  const { repos, target, channel, gapChannel, planProject, linearPlanRead, linearGapsRead } = useConnectionReads(projectId);
   const now = useNow(status?.build != null);
   const planStale = usePlanStale(status?.lastBuild?.finishedAt ?? null, status !== null, plan?.phase === "ready");
   const [pendingBuild, markBuild] = usePending(
@@ -194,6 +204,8 @@ export function useCanvasData(projectId: string) {
       githubProjects: planProject.value,
       jiraGaps: gapChannel.value,
       slack: channel.value,
+      linearPlan: linearPlanRead.value,
+      linearGaps: linearGapsRead.value,
     }),
     [
       now,
@@ -209,6 +221,8 @@ export function useCanvasData(projectId: string) {
       planProject.value,
       gapChannel.value,
       channel.value,
+      linearPlanRead.value,
+      linearGapsRead.value,
     ],
   );
   // One handle for every form: it reads the sources, repositories, target and channel again.
@@ -222,6 +236,8 @@ export function useCanvasData(projectId: string) {
       planProject.reload();
       gapChannel.reload();
       channel.reload();
+      linearPlanRead.reload();
+      linearGapsRead.reload();
     };
   });
   return { input, reload, markBuild, markPlan, statusFailed };
