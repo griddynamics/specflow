@@ -55,6 +55,8 @@ LABELS_PER_ISSUE: Final = 20
 TIMEOUT_SECONDS: Final = 30
 
 TokenProvider = Callable[[], Awaitable[str]]
+# Called with the token Linear refused; returns a new one (the member's connection refreshes under its lock).
+TokenRefresher = Callable[[str], Awaitable[str]]
 
 _ISSUE_URL: Final = re.compile(r"https?://linear\.app/([^/]+)/issue/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?")
 _PROJECT_URL: Final = re.compile(r"https?://linear\.app/([^/]+)/project/([^/?#]+)(?:[/?#].*)?")
@@ -85,6 +87,7 @@ fragment IssueFields on Issue {{
   parent {{ id }}
   project {{ id }}
   projectMilestone {{ id }}
+  assignee {{ name }}
   labels(first: {LABELS_PER_ISSUE}) {{ nodes {{ ...LabelFields }} }}
 }}
 """
@@ -261,6 +264,7 @@ def _issue(node: Mapping[str, Any]) -> Issue:
         priority=int(node.get("priority") or 0),
         created_at=_when(node.get("createdAt")),
         updated_at=_when(node.get("updatedAt")),
+        assignee_name=(node.get("assignee") or {}).get("name"),
     )
 
 
@@ -316,9 +320,15 @@ class HttpLinearGateway:
     """``LinearGateway`` over GraphQL for one member."""
 
     def __init__(
-        self, token: TokenProvider, *, client: httpx.AsyncClient | None = None, url: str = GRAPHQL_URL
+        self,
+        token: TokenProvider,
+        *,
+        client: httpx.AsyncClient | None = None,
+        url: str = GRAPHQL_URL,
+        refresh: TokenRefresher | None = None,
     ) -> None:
         self._token = token
+        self._refresh = refresh
         self._url = url
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=TIMEOUT_SECONDS, trust_env=False, follow_redirects=False)
@@ -334,9 +344,21 @@ class HttpLinearGateway:
     # --- transport ----------------------------------------------------------------------------------------------
 
     async def _call(self, operation: str, query: str, variables: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """One GraphQL request; the ``data`` object, or the ``linear.errors`` class of whatever went wrong."""
+        """One GraphQL request; the ``data`` object, or the ``linear.errors`` class of whatever went wrong. A refused
+        token is refreshed once (``refresh``) and the request sent again."""
 
-        headers = {"Authorization": f"Bearer {await self._token()}", "Content-Type": "application/json"}
+        token = await self._token()
+        try:
+            return await self._send(operation, token, query, variables)
+        except LinearUnauthorizedError:
+            if self._refresh is None:
+                raise
+        return await self._send(operation, await self._refresh(token), query, variables)
+
+    async def _send(
+        self, operation: str, token: str, query: str, variables: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         payload = {"query": query, "variables": dict(variables or {})}
         try:
             response = await self._client.post(self._url, json=payload, headers=headers)

@@ -16,6 +16,7 @@ from pydantic import SecretStr
 from integrations.cipher import TokenCipher
 from linear.connections import ConnectFailure, LinearConnectError
 from linear.errors import LinearInvalidError, LinearUnauthorizedError, LinearUnavailableError
+from linear.http import HttpLinearGateway
 from linear.oauth import GRANT_URL, LinearOAuthClient
 from linear_oauth_support import (
     CLIENT_CANARY,
@@ -313,7 +314,8 @@ async def test_the_token_provider_hands_the_gateway_a_fresh_token_each_time() ->
     second = await provider()
 
     assert (first, second) == ("access-1", "access-2")
-    assert connections.gateway(USER) is not connections.gateway(USER)
+    async with connections.gateway(USER) as gateway:
+        assert isinstance(gateway, HttpLinearGateway)
 
 
 # Disconnect ----------------------------------------------------------------------------------------------------------

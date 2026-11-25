@@ -121,6 +121,41 @@ async def test_every_call_is_a_json_post_with_the_current_bearer_token():
     assert set(json.loads(first.content)) == {"query", "variables"}
 
 
+async def test_a_refused_token_is_refreshed_once_and_the_request_sent_again():
+    used: list[str] = []
+
+    async def token() -> str:
+        return "stale"
+
+    async def refresh(refused: str) -> str:
+        used.append(refused)
+        return "fresh"
+
+    viewer = data({"viewer": {"id": ISSUE, "name": "Ada", "organization": org()}})
+    linear = Linear({"Viewer": [failure("AUTHENTICATION_ERROR", 401), viewer]})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(linear.handler))
+    gateway = HttpLinearGateway(token, client=client, refresh=refresh)
+
+    assert (await gateway.viewer()).name == "Ada"
+    assert used == ["stale"]
+    assert [r.headers["Authorization"] for r in linear.requests] == ["Bearer stale", "Bearer fresh"]
+
+
+async def test_a_token_refused_twice_or_without_a_refresher_is_unauthorized():
+    async def token() -> str:
+        return "stale"
+
+    async def refresh(_: str) -> str:
+        return "also-refused"
+
+    for refresher, sent in ((None, 1), (refresh, 2)):
+        linear = Linear({"Viewer": failure("AUTHENTICATION_ERROR", 401)})
+        client = httpx.AsyncClient(transport=httpx.MockTransport(linear.handler))
+        with pytest.raises(LinearUnauthorizedError):
+            await HttpLinearGateway(token, client=client, refresh=refresher).viewer()
+        assert len(linear.requests) == sent
+
+
 async def test_viewer_names_the_member_and_the_workspace(make):
     _, gateway = make({"Viewer": data({"viewer": {"id": ISSUE, "name": "Ada", "organization": org()}})})
     viewer = await gateway.viewer()
@@ -196,8 +231,8 @@ async def test_issue_maps_every_field_and_asks_by_id_or_identifier(make):
 
 
 async def test_issue_without_optional_fields(make):
-    bare = issue_node(description=None, estimate=None, priority=0, project=None, labels={"nodes": []})
-    _, gateway = make({"Issue": data({"issue": bare})})
+    bare = issue_node(description=None, estimate=None, priority=0, project=None, labels={"nodes": []}, assignee=None)
+    linear, gateway = make({"Issue": [data({"issue": bare}), data({"issue": issue_node()})]})
     issue = await gateway.issue(ISSUE)
     assert (issue.description, issue.estimate, issue.priority, issue.project_id, issue.labels) == (
         None,
@@ -206,6 +241,9 @@ async def test_issue_without_optional_fields(make):
         None,
         (),
     )
+    assert issue.assignee_name is None
+    assert (await gateway.issue(ISSUE)).assignee_name == "Ada Lovelace"
+    assert "assignee { name }" in linear.query()
 
 
 async def test_issues_of_project_is_one_page_with_its_next_cursor(make):

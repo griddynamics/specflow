@@ -55,6 +55,7 @@ def issue_node(identifier: str = "GRA-12", **over: Any) -> dict[str, Any]:
         "parent": None,
         "project": {"id": PROJECT},
         "projectMilestone": None,
+        "assignee": {"name": "Ada Lovelace"},
         "labels": {"nodes": [label_node()]},
     }
     return {**node, **over}

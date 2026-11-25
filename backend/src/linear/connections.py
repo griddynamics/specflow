@@ -17,8 +17,8 @@ import hashlib
 import hmac
 import time
 import uuid
-from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -280,10 +280,19 @@ class LinearConnections:
 
         return token
 
-    def gateway(self, user_id: uuid.UUID) -> LinearGateway:
-        """A ``LinearGateway`` that acts as the member (their token, refreshed on demand)."""
+    @asynccontextmanager
+    async def gateway(self, user_id: uuid.UUID) -> AsyncIterator[LinearGateway]:
+        """A ``LinearGateway`` that acts as the member: their token, refreshed on demand and once more when Linear
+        refuses it; the HTTP client is closed on exit."""
 
-        return HttpLinearGateway(self.token_provider(user_id))
+        async def refresh(used: str) -> str:
+            return await self.refresh(user_id, used=used)
+
+        gateway = HttpLinearGateway(self.token_provider(user_id), refresh=refresh)
+        try:
+            yield gateway
+        finally:
+            await gateway.aclose()
 
     async def aclose(self) -> None:
         await self._tokens.aclose()
