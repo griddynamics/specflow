@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
-import { NotionAnswer } from "@/components/v2/canvas/NotionForm";
+import { NotionAnswer, NotionFormView } from "@/components/v2/canvas/NotionForm";
 import { NOTION_WORDS, notionCheckText, notionFailureText } from "@/components/v2/canvas/notion-logic";
 import { CONNECTORS } from "@/components/v2/connectors";
 import { V2_COPY } from "@/components/v2/v2-copy";
@@ -49,7 +49,11 @@ test("every closed code a source check or add can answer has its own words; an u
   assert.match(failure("notion_not_connected"), /Connect Notion in Integrations first/);
   assert.match(failure("notion_reconnect_required"), /needs a reconnect in Integrations/);
   assert.match(failure("notion_link_invalid"), /not a link to a Notion page or database/);
-  assert.match(failure("notion_not_shared"), /did not share it with Graphico/);
+  assert.match(failure("notion_not_shared"), /Share it with Graphico when you connect Notion/);
+  assert.match(failure("notion_rate_limited"), /busy right now/);
+  assert.match(failure("notion_unavailable"), /not available on this server/);
+  assert.match(failure("notion_unreachable"), /did not answer/);
+  assert.match(failure("notion_auth_failed"), /Ask your admin to check the Notion setup/);
   assert.equal(failure("something_new"), V2_COPY.actionFailed);
   assert.equal(failure("notion_page_gone"), V2_COPY.actionFailed);
   assert.equal(notionFailureText(new Error("x")), V2_COPY.actionFailed);
@@ -145,4 +149,40 @@ test("the check wire keeps kind, title, count and cap; a fractional count, a mis
       (e) => isDataError(e) && e.code === "invalid_response",
     );
   }
+});
+
+test("a link over the length cap is a 422 validation_failed and says the link is not valid; the field stops at 2048", () => {
+  const long = notionFailureText(new DataError("validation", false, { apiCode: "validation_failed" }));
+  assert.equal(long, failure("notion_link_invalid"));
+  assert.match(emptyForm(), /maxLength="2048"/);
+});
+
+const view = (over: Partial<Parameters<typeof NotionFormView>[0]>) =>
+  html(
+    createElement(NotionFormView, {
+      link: PAGE,
+      onLink: () => undefined,
+      busy: false,
+      label: "Check link",
+      result: null,
+      problem: null,
+      onBack: () => undefined,
+      onSubmit: () => undefined,
+      ...over,
+    }),
+  );
+
+test("while a call runs the field is read-only and the button is busy and says Checking…", () => {
+  const busy = view({ busy: true, label: "Checking…" });
+  assert.match(busy, /readOnly=""/);
+  assert.match(busy, /aria-busy="true"[^>]*>Checking…<\/button>/);
+  assert.match(busy, /disabled=""/);
+  assert.doesNotMatch(view({}), /readOnly=""/);
+});
+
+test("after a passed check the line says what is imported and the button says Add source", () => {
+  const checked = view({ label: "Add source", result: { kind: "page", title: "Engineering Wiki", pages: 4, capped: false } });
+  assert.match(checked, /Page Engineering Wiki · this page and 3 sub-pages\./);
+  assert.match(checked, />Add source<\/button>/);
+  assert.doesNotMatch(checked, /disabled=""/);
 });

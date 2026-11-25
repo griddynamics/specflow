@@ -13,10 +13,12 @@ import { ConnectFrame } from "./ConnectFrame";
 import { notionCheckText, notionFailureText } from "./notion-logic";
 import { useCheckAdd } from "./use-check-add";
 
+/** The longest link the API takes (`NotionLinkIn`). */
+const LINK_MAX = 2048;
+
 export function NotionForm({ projectId, spec, reload, onBack, onClose }: Readonly<FormProps>) {
   const { sources } = useV2Ports();
   const [link, setLink] = useState("");
-  const linkId = useId();
   const trimmed = link.trim();
   const flow = useCheckAdd<NotionCheck>({
     signature: trimmed,
@@ -31,31 +33,61 @@ export function NotionForm({ projectId, spec, reload, onBack, onClose }: Readonl
     failureText: notionFailureText,
   });
   return (
-    <ConnectFrame
+    <NotionFormView
+      link={link}
+      onLink={setLink}
+      busy={flow.busy !== null}
+      label={flow.label}
+      result={flow.result}
+      problem={flow.problem}
       onBack={onBack}
+      onSubmit={flow.run}
+    />
+  );
+}
+
+/** The form as it looks for a state of the flow: the field is off while a call runs, the button says Check link, Checking… or Add source. */
+export function NotionFormView(
+  props: Readonly<{
+    link: string;
+    onLink: (link: string) => void;
+    busy: boolean;
+    label: string;
+    result: NotionCheck | null;
+    problem: string | null;
+    onBack: () => void;
+    onSubmit: () => void;
+  }>,
+) {
+  const linkId = useId();
+  const blank = props.link.trim() === "";
+  return (
+    <ConnectFrame
+      onBack={props.onBack}
       onSubmit={(event) => {
         event.preventDefault();
-        flow.run();
+        props.onSubmit();
       }}
       action={
-        <Button type="submit" disabled={flow.busy !== null || trimmed === ""} aria-busy={flow.busy !== null || undefined}>
-          {flow.label}
+        <Button type="submit" disabled={props.busy || blank} aria-busy={props.busy || undefined}>
+          {props.label}
         </Button>
       }
     >
       <Field label={CANVAS_COPY.notionLink} htmlFor={linkId}>
         <TextInput
           id={linkId}
-          value={link}
+          value={props.link}
           spellCheck={false}
-          readOnly={flow.busy !== null}
+          maxLength={LINK_MAX}
+          readOnly={props.busy}
           onChange={(event) => {
-            setLink(event.target.value);
+            props.onLink(event.target.value);
           }}
         />
       </Field>
       <Notice>{CANVAS_COPY.notionNote}</Notice>
-      <NotionAnswer result={flow.result} problem={flow.problem} />
+      <NotionAnswer result={props.result} problem={props.problem} />
     </ConnectFrame>
   );
 }

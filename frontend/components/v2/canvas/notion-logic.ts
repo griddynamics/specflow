@@ -17,16 +17,18 @@ const FAILURE: Record<string, string> = {
   notion_reconnect_required: "The Notion connection needs a reconnect in Integrations.",
   notion_unavailable: V2_COPY.notionPlanUnavailable,
   notion_unreachable: "Notion did not answer. Try again in a minute.",
-  notion_auth_failed: "Notion refused the request of this server. Ask whoever runs Graphico to check its Notion setup.",
+  notion_auth_failed: "Notion refused this server's request. Ask your admin to check the Notion setup.",
   notion_rate_limited: "Notion is busy right now. Try again in a minute.",
   notion_link_invalid: "This is not a link to a Notion page or database.",
-  notion_not_shared: "Notion has no page or database at this link, or you did not share it with Graphico when you connected Notion.",
+  notion_not_shared: "No page or database at this link. Share it with Graphico when you connect Notion.",
   source_not_found: "The source was removed. Add the link again.",
 };
 
 /** What a failed check or add says, from the API's closed code; anything else is the general failure. */
 export function notionFailureText(e: unknown): string {
   const code = isDataError(e) ? (e.detail?.apiCode ?? "") : "";
+  // A link over the length cap is a 422 `validation_failed` (the field is capped at 2048 too): it is not a link.
+  if (isDataError(e) && e.code === "validation" && code === "validation_failed") return FAILURE.notion_link_invalid;
   return Object.hasOwn(FAILURE, code) ? FAILURE[code] : V2_COPY.actionFailed;
 }
 
