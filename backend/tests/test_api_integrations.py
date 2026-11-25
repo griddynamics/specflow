@@ -423,3 +423,88 @@ async def test_a_binding_that_cannot_be_read_is_a_closed_502_and_the_row_stays(r
     assert "disk full" not in answer.text and "disk full" not in caplog.text
     assert "api.integrations.binding_failed" in caplog.text
     assert (rig.alpha, "slack") in rig.integrations.rows
+
+
+# Notion ---------------------------------------------------------------------------------------------------------------
+
+
+async def test_a_member_connects_notion_as_themselves_and_nothing_is_pointed(rig) -> None:
+    rig.notion.users[rig.ben.id] = "active"
+
+    answer = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion", BEN)  # a collaborator: D6
+
+    assert answer.status_code == 200
+    body = answer.json()
+    assert body["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
+    assert body["workspace"] == {"id": "ws-1", "name": "Sample Workspace"} and body["health"] == "active"
+    assert rig.integrations.rows[rig.alpha, "notion"].user_id == rig.ben.id
+    assert rig.integrations.pointed == []  # Notion has no acting-account column: its uses read the binding every call
+
+
+@pytest.mark.parametrize("state", ["missing", "expired"])
+async def test_connecting_notion_needs_the_callers_own_active_connection(rig, state: str) -> None:
+    if state == "expired":
+        rig.notion.users[rig.alice.id] = "expired"
+
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion")
+
+    assert error_of(refused) == (409, "notion_not_connected")
+    assert rig.integrations.rows == {} and rig.integrations.pointed == []
+
+
+async def test_a_project_stays_in_the_one_notion_workspace(rig) -> None:
+    rig.notion.users[rig.ben.id] = "active"
+    rig.integrations.put(rig.alpha, "notion", rig.alice.id, workspace_id="another-ws", workspace_name="Other")
+
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion", BEN)
+
+    assert error_of(refused) == (409, "integration_workspace_mismatch")
+    assert rig.integrations.rows[rig.alpha, "notion"].user_id == rig.alice.id
+
+
+async def test_a_notion_binding_is_taken_over_only_when_its_connection_is_no_longer_active(rig) -> None:
+    rig.notion.users[rig.ben.id] = "active"
+    rig.integrations.put(rig.alpha, "notion", rig.alice.id, workspace_id="ws-1", workspace_name="Sample Workspace")
+
+    held = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion", BEN)
+    rig.integrations.inactive.add(rig.alice.id)
+    taken = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion", BEN)
+
+    assert error_of(held) == (409, "integration_already_connected")
+    assert taken.status_code == 200 and taken.json()["connected_by"]["user_id"] == str(rig.ben.id)
+
+
+async def test_a_notion_binding_whose_member_expired_asks_to_reconnect_and_one_who_left_acts_as_nothing(rig) -> None:
+    rig.notion.users[rig.alice.id] = "expired"
+    rig.integrations.put(rig.alpha, "notion", rig.alice.id, workspace_id="ws-1", workspace_name="Sample Workspace")
+    expired = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))["notion"]
+    del rig.notion.users[rig.alice.id]  # disconnected altogether
+    gone = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))["notion"]
+
+    assert expired["health"] == "reconnect_required"
+    assert gone["health"] == "none" and gone["connected_by"] is not None
+
+
+async def test_notion_off_on_this_server_refuses_a_connect_and_is_unavailable(rig) -> None:
+    rig.runtime.notion = None
+
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion")
+    listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))["notion"]
+
+    assert error_of(refused) == (503, "notion_unavailable")
+    assert listed["available"] is False and rig.integrations.rows == {}
+
+
+async def test_the_member_who_connected_notion_or_the_owner_removes_it_and_nobody_else(rig) -> None:
+    rig.integrations.put(rig.alpha, "notion", rig.ben.id)
+
+    other = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion", CAROL)
+    by_alice = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")  # alice owns the project
+    rig.integrations.put(rig.alpha, "notion", rig.alice.id)
+    forbidden = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion", BEN)
+    by_alice_again = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")
+
+    assert error_of(other) == (404, "project_not_found")
+    assert by_alice.status_code == by_alice_again.status_code == 204
+    assert error_of(forbidden) == (403, "integration_forbidden")
+    assert rig.integrations.rows == {} and rig.integrations.pointed == []
