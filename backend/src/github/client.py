@@ -31,7 +31,7 @@ TIMEOUT_SECONDS: Final = 30
 REFRESH_TIMEOUT_SECONDS: Final = 10  # shorter: a refresh holds the row lock and a clone waits on it
 PAGE_SIZE: Final = 100
 REPOSITORY_LIMIT: Final = 1000  # the most repositories one list answers (``truncated`` beyond)
-RETRY_AFTER_CAP_SECONDS: Final = 60  # the longest wait for a ``Retry-After`` (once per call)
+WAIT_BUDGET_SECONDS: Final = 60  # the most one pass (one ``WaitBudget``) waits for ``Retry-After`` in all
 SIZE_LIMIT_KB: Final = 1024 * 1024  # 1 GiB as GitHub's ``size`` (KiB) of a repository
 CODE_REFUSED: Final = "bad_verification_code"  # GitHub's ``error`` for a used, expired or unknown code
 REFRESH_REFUSED: Final = "bad_refresh_token"  # GitHub's ``error`` for a dead refresh token
@@ -109,6 +109,22 @@ def _repository(item: Any) -> Repository | None:
         default_branch=branch if isinstance(branch, str) and branch else None,
         size_kb=_positive(item.get("size")),
     )
+
+
+class WaitBudget:
+    """The seconds a pass may still wait for ``Retry-After`` answers, in all: the pass holds the process-wide export
+    slot, so one throttled project must not stall the others for long. A wait that does not fit is not made."""
+
+    def __init__(self, seconds: float = WAIT_BUDGET_SECONDS) -> None:
+        self.left = seconds
+
+    def take(self, wanted: float) -> float | None:
+        """``wanted`` seconds when they fit in what is left (and spends them), else ``None``."""
+
+        if wanted > self.left:
+            return None
+        self.left -= wanted
+        return wanted
 
 
 def _retry_after(response: httpx.Response) -> float | None:
@@ -253,19 +269,27 @@ class GitHubClient:
         return response
 
     async def send(
-        self, token: SecretStr, method: str, path: str, body: Mapping[str, Any] | None = None
+        self,
+        token: SecretStr,
+        method: str,
+        path: str,
+        body: Mapping[str, Any] | None = None,
+        *,
+        budget: WaitBudget | None = None,
     ) -> httpx.Response:
         """One REST call of the Projects export as the user (``path`` below ``api.github.com``); a ``401`` is
-        ``AUTH_FAILED`` (the caller refreshes once). A rate limit that says ``Retry-After`` is waited for once, at most
-        ``RETRY_AFTER_CAP_SECONDS``; a second limit, a silent limit and a server error are ``UNREACHABLE``."""
+        ``AUTH_FAILED`` (the caller refreshes once). A rate limit that says ``Retry-After`` is waited for once when the
+        wait fits in ``budget``; a second limit, a wait that does not fit (or no budget), a silent limit and a server
+        error are ``UNREACHABLE``."""
 
         url, headers = f"{API_URL}{path}", self._api_headers(token)
         response = await self._once(method, url, json=body, headers=headers)
         if self._limited(response):
             wait = _retry_after(response)
-            if wait is None:
+            granted = None if wait is None or budget is None else budget.take(wait)
+            if granted is None:
                 raise GitHubError(GitHubCode.UNREACHABLE)
-            await self._sleep(min(wait, RETRY_AFTER_CAP_SECONDS))
+            await self._sleep(granted)
             response = await self._once(method, url, json=body, headers=headers)
         if self._limited(response) or response.is_server_error:
             raise GitHubError(GitHubCode.UNREACHABLE)
@@ -273,10 +297,12 @@ class GitHubClient:
             raise GitHubError(GitHubCode.AUTH_FAILED)
         return response
 
-    async def graphql(self, token: SecretStr, query: str, variables: Mapping[str, Any]) -> httpx.Response:
+    async def graphql(
+        self, token: SecretStr, query: str, variables: Mapping[str, Any], *, budget: WaitBudget | None = None
+    ) -> httpx.Response:
         """One GraphQL call as the user; the caller reads ``data`` and ``errors``."""
 
-        return await self.send(token, "POST", "/graphql", {"query": query, "variables": dict(variables)})
+        return await self.send(token, "POST", "/graphql", {"query": query, "variables": dict(variables)}, budget=budget)
 
     async def user(self, token: SecretStr) -> GitHubUser:
         response = await self._get(token, "/user")

@@ -159,7 +159,6 @@ async def put_github_projects(
             project=ProjectChoice(project.node_id, project.title, project.url),
             enabled=body.enabled,
             now=datetime.now(UTC),
-            connected_user_id=acting,
         )
     log_event(
         logger,

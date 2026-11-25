@@ -60,7 +60,6 @@ async def save(factory, project, repository_id, owner, *, choice=PROJECT_ONE, en
             project=choice,
             enabled=enabled,
             now=NOW,
-            connected_user_id=owner,
         )
 
 
@@ -82,7 +81,7 @@ async def test_a_target_is_created_and_read_back_with_the_repository_name(factor
         "Plan",
         True,
     )
-    assert (found.connected_user_id, found.last_status) == (ana, None)
+    assert found.last_status is None
 
 
 async def test_saving_again_reports_what_changed_and_a_new_destination_forgets_the_map(factory) -> None:

@@ -743,10 +743,6 @@
         },
         "last_counts": {
           "type": "json"
-        },
-        "connected_user_id": {
-          "type": "uuid",
-          "fk": "users.id"
         }
       }
     },

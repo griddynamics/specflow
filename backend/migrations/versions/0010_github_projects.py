@@ -8,7 +8,7 @@ role, and no grant to that role, as on every project table (the statements of 00
 changes.
 
 Locks: the first online statement of upgrade() and downgrade() is ``SET LOCAL lock_timeout = '10s'``. The foreign keys
-take a lock on ``projects``, ``project_repositories`` and ``users``; if a lock is not granted in time the statement
+take a lock on ``projects`` and ``project_repositories``; if a lock is not granted in time the statement
 fails and the WHOLE transaction (one per run) is rolled back, so nothing is half applied; the next start of the api
 retries the revision.
 
@@ -76,26 +76,22 @@ def upgrade() -> None:
         sa.Column("project_node_id", sa.Text(), nullable=False),
         sa.Column("project_title", sa.Text(), nullable=False),
         sa.Column("project_url", sa.Text(), nullable=False),
-        sa.Column("enabled", sa.Boolean(), nullable=False),
         sa.Column("updated_at", TIMESTAMPTZ, nullable=False),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
         sa.Column("last_status", sa.Text(), nullable=True),
         sa.Column("last_trigger", sa.Text(), nullable=True),
         sa.Column("last_started_at", TIMESTAMPTZ, nullable=True),
         sa.Column("last_finished_at", TIMESTAMPTZ, nullable=True),
         sa.Column("last_error_code", sa.Text(), nullable=True),
         sa.Column("last_counts", postgresql.JSONB(), nullable=True),
-        sa.Column("connected_user_id", UUID, nullable=True),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], name=f"fk_{TARGETS}_project_id_projects"),
         sa.CheckConstraint(_one_of("last_status", RUN_STATUSES), name=op.f(f"ck_{TARGETS}_last_status")),
         sa.CheckConstraint(_one_of("last_trigger", TRIGGERS), name=op.f(f"ck_{TARGETS}_last_trigger")),
-        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], name=f"fk_{TARGETS}_project_id_projects"),
         sa.ForeignKeyConstraint(
             ["repository_id"],
             ["project_repositories.id"],
             name=f"fk_{TARGETS}_repository_id_project_repositories",
             ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["connected_user_id"], ["users.id"], name=f"fk_{TARGETS}_connected_user_id_users", ondelete="SET NULL"
         ),
         sa.PrimaryKeyConstraint("project_id", name=f"pk_{TARGETS}"),
     )

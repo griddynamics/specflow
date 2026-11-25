@@ -120,12 +120,13 @@ async def save_target(
 
 
 async def require_destination(session: AsyncSession, project_id: uuid.UUID, jira_project: str) -> None:
-    """Lock the target row ``FOR SHARE`` and require that it still names ``jira_project``: the check a pass makes in
-    the transaction of each write, so it cannot put data of the old Jira project on a changed target.
-    ``DestinationChangedError`` otherwise."""
+    """Lock the target row ``FOR NO KEY UPDATE`` and require that it still names ``jira_project``: the check a pass
+    makes in the transaction of each write, so it cannot put data of the old Jira project on a changed target. It is
+    the lock level of the target updates that follow in the transaction (``set_story``, ``record_poll``), so the lock is
+    never upgraded, which could deadlock a poster with a poller. ``DestinationChangedError`` otherwise."""
 
     statement = (
-        select(JiraGapTarget.jira_project).where(JiraGapTarget.project_id == project_id).with_for_update(read=True)
+        select(JiraGapTarget.jira_project).where(JiraGapTarget.project_id == project_id).with_for_update(key_share=True)
     )
     if (await session.execute(statement)).scalar_one_or_none() != jira_project:
         raise DestinationChangedError

@@ -15,7 +15,7 @@ from typing import Any, Final
 import httpx
 from pydantic import SecretStr
 
-from github.client import GitHubClient
+from github.client import GitHubClient, WaitBudget
 from github.codes import GitHubCode, GitHubError
 
 ITEM_QUERY_LIMIT: Final = 50  # issues one state query asks about
@@ -155,13 +155,14 @@ def _rest_refusal(response: httpx.Response, missing: GitHubCode) -> GitHubError:
 class ProjectsApi:
     """The Projects export's calls; each takes the user's access token (``GitHubConnections.call`` hands it in)."""
 
-    def __init__(self, client: GitHubClient) -> None:
+    def __init__(self, client: GitHubClient, budget: WaitBudget | None = None) -> None:
         self._client = client
+        self._budget = budget  # what a pass may wait for ``Retry-After`` in all; none: a rate limit is not waited for
 
     async def _rest(
         self, token: SecretStr, method: str, path: str, *, missing: GitHubCode, body: Mapping[str, Any] | None = None
     ) -> dict[str, Any]:
-        response = await self._client.send(token, method, path, body)
+        response = await self._client.send(token, method, path, body, budget=self._budget)
         if not response.is_success:
             raise _rest_refusal(response, missing)
         return _body(response)
@@ -169,7 +170,7 @@ class ProjectsApi:
     async def _graphql(
         self, token: SecretStr, query: str, variables: Mapping[str, Any], missing: GitHubCode
     ) -> dict[str, Any]:
-        response = await self._client.graphql(token, query, variables)
+        response = await self._client.graphql(token, query, variables, budget=self._budget)
         if not response.is_success:
             raise _rest_refusal(response, missing)
         answer = _body(response)
@@ -282,13 +283,15 @@ class ProjectsApi:
         await self._rest(token, "POST", path, missing=GitHubCode.ISSUE_GONE, body={"labels": list(labels)})
 
     async def remove_label(self, token: SecretStr, repository: str, number: int, label: str) -> None:
-        response = await self._client.send(token, "DELETE", f"/repos/{repository}/issues/{number}/labels/{label}")
+        response = await self._client.send(
+            token, "DELETE", f"/repos/{repository}/issues/{number}/labels/{label}", budget=self._budget
+        )
         if not response.is_success and response.status_code != httpx.codes.NOT_FOUND:  # a label already gone is fine
             raise _rest_refusal(response, GitHubCode.ISSUE_GONE)
 
     async def add_sub_issue(self, token: SecretStr, repository: str, parent: int, sub_issue_id: int) -> None:
         path = f"/repos/{repository}/issues/{parent}/sub_issues"
-        response = await self._client.send(token, "POST", path, {"sub_issue_id": sub_issue_id})
+        response = await self._client.send(token, "POST", path, {"sub_issue_id": sub_issue_id}, budget=self._budget)
         if response.status_code == httpx.codes.UNPROCESSABLE_ENTITY and _already_linked(response):
             return  # already a sub-issue (a repeated pass): nothing to do
         if not response.is_success:

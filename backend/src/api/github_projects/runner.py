@@ -26,6 +26,7 @@ from db import github_projects as projects_db
 from db import integrations as integrations_db
 from db.github_projects import ProjectTargetView, TargetSaved
 from db.integrations import GITHUB
+from github.client import WaitBudget
 from github.codes import GitHubCode, GitHubError
 from github.connections import GitHubConnections
 from github.projects import ProjectsApi
@@ -82,7 +83,6 @@ class GitHubProjectsRunner(ExportRunner[ProjectTargetView | None, GitHubProjects
         self._transaction = transaction
         self._graph = graph_store
         self._push = push
-        self._api = ProjectsApi(connections.client)
         self._connections = connections
         self._store: ProjectsStore = DbStore(transaction)
         self._deps = PushDeps(
@@ -96,7 +96,8 @@ class GitHubProjectsRunner(ExportRunner[ProjectTargetView | None, GitHubProjects
     async def gateway_of(self, user_id: uuid.UUID) -> ProjectsGateway:
         """The gateway acting as ``user_id`` (the member the project's GitHub is connected by)."""
 
-        return MemberGateway(self._connections, self._api, user_id)
+        api = ProjectsApi(self._connections.client, WaitBudget())  # a budget of waiting per gateway, so per pass
+        return MemberGateway(self._connections, api, user_id)
 
     async def _gateway_for(self, project_id: uuid.UUID) -> ProjectsGateway:
         """The gateway of the member the project's GitHub is bound to now (rule R1), not the one who saved the target:

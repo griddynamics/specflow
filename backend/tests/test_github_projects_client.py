@@ -11,7 +11,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from github.client import GitHubClient
+from github.client import GitHubClient, WaitBudget
 from github.codes import GitHubCode, GitHubError
 from github.projects import REMOVED_FROM_PROJECT, IssueContent, IssueState, ProjectsApi
 
@@ -38,7 +38,7 @@ def api_over(handler: Callable[[httpx.Request], httpx.Response]) -> tuple[Projec
     client = GitHubClient(
         "id", SecretStr("secret"), "http://localhost/cb", transport=httpx.MockTransport(record), sleep=fake_sleep
     )
-    return ProjectsApi(client), seen
+    return ProjectsApi(client, WaitBudget()), seen
 
 
 def graphql(data: Any = None, errors: list[dict[str, str]] | None = None) -> Callable[[httpx.Request], httpx.Response]:
@@ -154,9 +154,13 @@ async def test_a_secondary_limit_with_retry_after_is_waited_for_once_then_answer
 
 
 async def test_a_second_limit_a_long_wait_and_a_silent_limit_end_as_one_closed_code() -> None:
-    twice, seen = api_over(status(429, {}, **{"retry-after": "500"}))
+    twice, seen = api_over(status(429, {}, **{"retry-after": "5"}))
     assert await code_of(twice.comment(TOKEN, "acme/shop", 1, "x")) is GitHubCode.UNREACHABLE
-    assert SLEPT == [60.0] and len(seen) == 2  # the wait is capped, and asked for once
+    assert SLEPT == [5.0] and len(seen) == 2  # the wait is made once, then the second limit ends it
+
+    long, seen = api_over(status(429, {}, **{"retry-after": "500"}))
+    assert await code_of(long.comment(TOKEN, "acme/shop", 1, "x")) is GitHubCode.UNREACHABLE
+    assert SLEPT == [] and len(seen) == 1  # a wait that does not fit in the budget is not made
 
     silent, seen = api_over(
         status(403, {"message": "You have exceeded a secondary rate limit"}, **{"retry-after": "abc"})
@@ -166,6 +170,25 @@ async def test_a_second_limit_a_long_wait_and_a_silent_limit_end_as_one_closed_c
 
     plain, _ = api_over(status(403, {"message": "Resource not accessible by integration"}))
     assert await code_of(plain.comment(TOKEN, "acme/shop", 1, "x")) is GitHubCode.PERMISSIONS_MISSING
+
+
+async def test_the_waits_of_one_pass_never_add_up_to_more_than_the_budget() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls % 2 == 1:  # every call is throttled once, and asks for 25 seconds
+            return httpx.Response(403, headers={"retry-after": "25"})
+        return httpx.Response(200, json={})
+
+    api, _ = api_over(handler)
+
+    await api.comment(TOKEN, "acme/shop", 1, "a")  # waits 25 (left 35)
+    await api.comment(TOKEN, "acme/shop", 1, "b")  # waits 25 (left 10)
+    assert await code_of(api.comment(TOKEN, "acme/shop", 1, "c")) is GitHubCode.UNREACHABLE  # 25 > 10: no wait
+
+    assert SLEPT == [25.0, 25.0] and sum(SLEPT) <= 60
 
 
 async def test_a_graphql_call_waits_for_retry_after_the_same_way() -> None:

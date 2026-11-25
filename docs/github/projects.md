@@ -20,8 +20,7 @@ cannot reach a user's Projects v2, so a repository owned by a user is refused (`
 member the project's GitHub is connected by (`PUT /projects/{pid}/integrations/github`, rule R1): their user access token,
 refreshed through `GitHubConnections.call`. Who that is is read from `project_integrations` at the start of every pass: a removed member,
 a removed integration or a take-over by another member takes effect on the next pass (no binding is `github_not_connected`, an
-expired connection `github_reconnect_required`). `github_project_targets.connected_user_id` is only the member who saved the
-destination. Anyone on the project may save the destination (D6).
+expired connection `github_reconnect_required`). Anyone on the project may save the destination (D6).
 
 ## Permissions (the owner approves them once per installation)
 
@@ -43,7 +42,7 @@ installation: the first live use is an owner follow-up.
 
 One row per project in `github_project_targets` (migration `0010_github_projects`): the repository (`project_repositories.id`, the
 row is deleted with it), the project's GraphQL node id with its title and address, `enabled`, the run columns (`last_*`, as
-`jira_targets`) and `connected_user_id`, the member the export acts as. Removing the repository deletes the target; saving a new
+`jira_targets`); the member the export acts as is not stored on it (read from the project's GitHub integration). Removing the repository deletes the target; saving a new
 target for another repository or project deletes the map first.
 
 ## Map and mapping
@@ -117,8 +116,9 @@ API reports: `github_not_connected` or `github_reconnect_required` (or a lost bi
 
 ## Limits
 
-- A rate limit that answers `Retry-After` (a 403 or 429) is waited for once, at most 60 seconds, then the pass ends `github_unreachable`;
-  a primary limit without `Retry-After` ends it at once.
+- A rate limit that answers `Retry-After` (a 403 or 429) is waited for once per call, but a pass waits at most 60 seconds in all (one
+  pass holds the process-wide export slot, so a throttled project must not stall the others for long); a wait that does not fit, a
+  second limit and a primary limit without `Retry-After` end the pass `github_unreachable`.
 - A 403 that is not a rate limit is reported as `github_permissions_missing`, so a locked or archived repository reads the same as
   a missing approval.
 - If saving the destination fails after a new project was created on GitHub, an empty project may remain there (nothing deletes it).

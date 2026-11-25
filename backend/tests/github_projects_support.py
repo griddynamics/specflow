@@ -182,7 +182,6 @@ def target_view(project_id: uuid.UUID, *, enabled: bool = True) -> ProjectTarget
         last_finished_at=None,
         last_error_code=None,
         last_counts=None,
-        connected_user_id=uuid.uuid4(),
     )
 
 

@@ -54,7 +54,6 @@ class ProjectTargetView:
     last_finished_at: datetime | None
     last_error_code: str | None
     last_counts: Any
-    connected_user_id: uuid.UUID | None
 
 
 @dataclass(frozen=True)
@@ -98,12 +97,10 @@ async def save_target(
     project: ProjectChoice,
     enabled: bool,
     now: datetime,
-    connected_user_id: uuid.UUID | None,
 ) -> TargetSaved:
     """Create or change the target. The row is locked ``FOR UPDATE`` first; a change of the repository or the project
     deletes the project's map rows in the same transaction, so no pass writes a row of the old destination. A map left
-    behind by a target the removal of its repository deleted is deleted too. ``connected_user_id`` is the member the
-    project's GitHub is connected by: the account the export acts as."""
+    behind by a target the removal of its repository deleted is deleted too."""
 
     locked = (
         select(GitHubProjectTarget)
@@ -123,7 +120,6 @@ async def save_target(
                 project_url=project.url,
                 enabled=enabled,
                 updated_at=now,
-                connected_user_id=connected_user_id,
             )
         )
         await session.flush()
@@ -136,7 +132,7 @@ async def save_target(
         before.updated_at = now
     before.repository_id, before.project_node_id = repository_id, project.node_id
     before.project_title, before.project_url = project.title, project.url
-    before.enabled, before.connected_user_id = enabled, connected_user_id
+    before.enabled = enabled
     await session.flush()
     return TargetSaved(destination_changed=changed, turned_on=turned_on, keys_changed=changed)
 

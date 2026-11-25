@@ -61,7 +61,6 @@ class FakeProjectsDb:
         project: ProjectChoice,
         enabled: bool,
         now: datetime,
-        connected_user_id: uuid.UUID | None,
     ) -> TargetSaved:
         before = self.targets.get(project_id)
         name = self.repositories.rows[repository_id].full_name
@@ -75,7 +74,6 @@ class FakeProjectsDb:
             project_url=project.url,
             enabled=enabled,
             updated_at=now,
-            connected_user_id=connected_user_id,
         )
         changed = before is None or (before.repository_id, before.project_node_id) != (repository_id, project.node_id)
         return TargetSaved(

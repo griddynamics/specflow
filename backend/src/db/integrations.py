@@ -99,15 +99,21 @@ async def bind_integration(
 
     values = {"user_id": user_id, "workspace_id": workspace_id, "workspace_name": workspace_name, "connected_at": now}
     added = pg_insert(ProjectIntegration).values(project_id=project_id, app=app, **values).on_conflict_do_nothing()
-    if (await session.execute(added.returning(ProjectIntegration.app))).first() is not None:
-        return
     locked = (
         select(ProjectIntegration)
         .where(ProjectIntegration.project_id == project_id, ProjectIntegration.app == app)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    row = (await session.execute(locked)).scalar_one()
+    row = None
+    for _ in range(2):  # the row a conflict saw can be deleted before it is read: insert once more
+        if (await session.execute(added.returning(ProjectIntegration.app))).first() is not None:
+            return
+        row = (await session.execute(locked)).scalar_one_or_none()
+        if row is not None:
+            break
+    if row is None:
+        raise WorkspaceMismatchError  # bound and removed by others twice in a row: refuse, the caller can try again
     if row.user_id is not None:
         if row.workspace_id != workspace_id:
             raise WorkspaceMismatchError

@@ -841,8 +841,8 @@ class JiraGapIssue(Base):
 
 class GitHubProjectTarget(Base):
     """The GitHub Projects destination of a project and its last export pass (migration ``0010_github_projects``,
-    docs/github/projects.md): the repository the issues are created in, the organization project they are added to, and
-    the member whose GitHub connection the export acts as. Holds no credential."""
+    docs/github/projects.md): the repository the issues are created in, the organization project they are added to. The
+    member the export acts as is read from ``project_integrations`` on every pass. Holds no credential."""
 
     __tablename__ = "github_project_targets"
     __table_args__ = (
@@ -865,9 +865,6 @@ class GitHubProjectTarget(Base):
     last_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_code: Mapped[str | None] = mapped_column(Text)
     last_counts: Mapped[Any] = _json(nullable=True)
-    connected_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
 
 
 class GitHubProjectItem(Base):
