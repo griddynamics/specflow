@@ -17067,7 +17067,7 @@
         ]
       },
       "put": {
-        "description": "Connect the project's ``app`` as the caller (their own active connection); a member of the same workspace may\ntake over a connection the earlier member left or lost. The Jira target and the repositories then act as the\ncaller.",
+        "description": "Connect the project's ``app`` as the caller (their own active connection); a member of the same workspace may\ntake over a connection the earlier member left or lost (never one whose connection is still active: 409\n``integration_already_connected``). The Jira target and the repositories then act as the\ncaller.",
         "operationId": "put_project_integration_api_v1_projects__pid__integrations__app__put",
         "parameters": [
           {

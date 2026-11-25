@@ -138,6 +138,32 @@ async def test_an_import_goes_importing_then_done_and_its_task_is_released(runne
     assert runner.running() == 0
 
 
+async def test_a_database_error_when_the_import_starts_ends_the_source_instead_of_leaving_it_listing(
+    runner, database, monkeypatch
+) -> None:
+    original = sources_db.set_connection_state
+    broken = {"once": True}
+
+    async def flaky(session: Any, source_id: uuid.UUID, state: str, *, failure_reason: str | None = None) -> bool:
+        if state == "importing" and broken["once"]:
+            broken["once"] = False
+            raise RuntimeError(ERROR_TEXT)
+        return await original(session, source_id, state, failure_reason=failure_reason)
+
+    monkeypatch.setattr(sources_db, "set_connection_state", flaky)
+    ran: list[ImportJob] = []
+
+    async def importer(this: ImportJob, _writer: Any) -> None:
+        ran.append(this)
+
+    this = job()
+    runner.start(this, importer)
+    await finished(runner)
+
+    assert ran == [] and database.states_of(this.source_id) == [("failed", "unknown_error")]
+    assert runner.running() == 0
+
+
 @pytest.mark.parametrize("reason", ["no_access", "too_slow"])
 async def test_an_importer_that_names_a_reason_fails_the_source_with_it_and_ends_its_items(
     runner, database, reason

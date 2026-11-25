@@ -19,6 +19,15 @@ def integration_workspace_mismatch() -> ApiError:
     )
 
 
+def integration_held() -> ApiError:
+    return ApiError(
+        409,
+        "integration_already_connected",
+        "Another member's active connection is the project's connection to this app. "
+        "They or the owner must remove it first.",
+    )
+
+
 def integration_not_found() -> ApiError:
     return ApiError(404, "integration_not_found", "The project has no connection to this app.")
 

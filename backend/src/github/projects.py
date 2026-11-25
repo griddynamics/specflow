@@ -42,8 +42,12 @@ _MOVE_ITEM = (
     "afterId:$after}){clientMutationId}}"
 )
 _STATES = (
-    "query($ids:[ID!]!){nodes(ids:$ids){... on Issue{id state projectItems(first:10){nodes{project{id} "
-    'fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}'
+    "query($ids:[ID!]!,$items:[ID!]!){issues:nodes(ids:$ids){... on Issue{id state}} "
+    'items:nodes(ids:$items){... on ProjectV2Item{id fieldValueByName(name:"Status")'
+    "{... on ProjectV2ItemFieldSingleSelectValue{name}}}}}"
+)
+REMOVED_FROM_PROJECT: Final = (
+    "(removed from the project)"  # the Status of a story whose item a person took off the project
 )
 
 
@@ -135,6 +139,10 @@ def _rest_refusal(response: httpx.Response, missing: GitHubCode) -> GitHubError:
     are the content GitHub will not take."""
 
     status = response.status_code
+    if status in (httpx.codes.FORBIDDEN, httpx.codes.TOO_MANY_REQUESTS) and (
+        "retry-after" in response.headers or response.headers.get("x-ratelimit-remaining") == "0"
+    ):
+        return GitHubError(GitHubCode.UNREACHABLE)  # a rate limit, never a missing permission
     if status == httpx.codes.FORBIDDEN:
         return GitHubError(GitHubCode.PERMISSIONS_MISSING)
     if status == httpx.codes.NOT_FOUND:
@@ -209,18 +217,31 @@ class ProjectsApi:
         login = owner.get("login") if isinstance(owner, dict) else None
         return project, login if isinstance(login, str) else None
 
-    async def issue_states(
-        self, token: SecretStr, project_id: str, issue_node_ids: Sequence[str]
-    ) -> dict[str, IssueState]:
-        """The state and the Status on ``project_id`` of each issue; an issue GitHub no longer finds is left out."""
+    async def issue_states(self, token: SecretStr, refs: Sequence[tuple[str, str | None]]) -> dict[str, IssueState]:
+        """The state of each issue and, for a ref that names its item on the export project, the Status of THAT item
+        (read by its id, so an issue on many projects or one taken off this project cannot read as not started: a
+        missing item reads ``REMOVED_FROM_PROJECT``). ``refs`` are ``(issue node id, item id or None)``; an issue
+        GitHub no longer finds is left out."""
 
         found: dict[str, IssueState] = {}
-        for start in range(0, len(issue_node_ids), ITEM_QUERY_LIMIT):
-            ids = list(issue_node_ids[start : start + ITEM_QUERY_LIMIT])
-            data = await self._graphql(token, _STATES, {"ids": ids}, GitHubCode.ISSUE_GONE)
-            for node in data.get("nodes") or []:
-                if isinstance(node, dict) and isinstance(node.get("id"), str):
-                    found[node["id"]] = IssueState(node.get("state") == "OPEN", _status(node, project_id))
+        for start in range(0, len(refs), ITEM_QUERY_LIMIT):
+            chunk = refs[start : start + ITEM_QUERY_LIMIT]
+            variables = {"ids": [issue for issue, _ in chunk], "items": [item for _, item in chunk if item is not None]}
+            data = await self._graphql(token, _STATES, variables, GitHubCode.ISSUE_GONE)
+            open_issues = {
+                node["id"]: node.get("state") == "OPEN"
+                for node in data.get("issues") or []
+                if isinstance(node, dict) and isinstance(node.get("id"), str)
+            }
+            statuses = {
+                node["id"]: _status(node)
+                for node in data.get("items") or []
+                if isinstance(node, dict) and isinstance(node.get("id"), str)
+            }
+            for issue, item in chunk:
+                if issue in open_issues:
+                    status = None if item is None else statuses.get(item, REMOVED_FROM_PROJECT)
+                    found[issue] = IssueState(open=open_issues[issue], status=status)
         return found
 
     # Writes --------------------------------------------------------------------------------------------------------
@@ -246,8 +267,11 @@ class ProjectsApi:
         return IssueRef(number, issue_id, node_id)
 
     async def edit_issue(self, token: SecretStr, repository: str, number: int, content: IssueContent) -> None:
+        """Title and body only: labels are added with ``add_labels``, so the ones a person put on the issue stay."""
+
         path = f"/repos/{repository}/issues/{number}"
-        await self._rest(token, "PATCH", path, missing=GitHubCode.ISSUE_GONE, body=content.payload())
+        body = {"title": content.title, "body": content.body}
+        await self._rest(token, "PATCH", path, missing=GitHubCode.ISSUE_GONE, body=body)
 
     async def comment(self, token: SecretStr, repository: str, number: int, body: str) -> None:
         path = f"/repos/{repository}/issues/{number}/comments"
@@ -285,12 +309,7 @@ class ProjectsApi:
         await self._graphql(token, _MOVE_ITEM, variables, GitHubCode.PROJECT_NOT_FOUND)
 
 
-def _status(node: Mapping[str, Any], project_id: str) -> str | None:
-    items = (node.get("projectItems") or {}).get("nodes") or []
-    for item in items:
-        project = item.get("project") if isinstance(item, dict) else None
-        if isinstance(project, dict) and project.get("id") == project_id:
-            value = item.get("fieldValueByName")
-            name = value.get("name") if isinstance(value, dict) else None
-            return name if isinstance(name, str) else None
-    return None
+def _status(item: Mapping[str, Any]) -> str | None:
+    value = item.get("fieldValueByName")
+    name = value.get("name") if isinstance(value, dict) else None
+    return name if isinstance(name, str) else None

@@ -77,9 +77,10 @@ async def _out(runtime: Runtime, pid: uuid.UUID, user_id: uuid.UUID) -> GitHubPr
     runner: GitHubProjectsRunner | None = runtime.github_projects
     async with runtime.transaction() as session:
         target = await projects_db.get_target(session, pid) if runner is not None else None
+    bound = await acting_member(runtime, pid, GITHUB) if target is not None else None  # who acts now, not who saved
     connection = None
-    if target is not None and target.connected_user_id is not None and runtime.github is not None:
-        connection = await github_connections(runtime).get(target.connected_user_id)
+    if bound is not None and runtime.github is not None:
+        connection = await github_connections(runtime).get(bound)
     if runner is None or target is None:
         return GitHubProjectsOut(
             available=runner is not None,
@@ -103,7 +104,7 @@ async def _out(runtime: Runtime, pid: uuid.UUID, user_id: uuid.UUID) -> GitHubPr
         enabled=target.enabled,
         sync=runner.status_from(target),
         connected_by_name=None if connection is None else connection.login,
-        connected_by_me=target.connected_user_id == user_id,
+        connected_by_me=bound == user_id,
     )
 
 

@@ -11,9 +11,13 @@ from typing import Any
 
 import pytest
 
+from api.github_projects.gateway import MemberGateway
 from api.github_projects.runner import GitHubProjectsClosedError, GitHubProjectsRunner
 from api.github_projects.sync import NOT_CONFIGURED, PushCounts, PushDeps, PushResult
 from db import github_projects as projects_db
+from db import integrations as integrations_db
+from db.integrations import IntegrationView
+from github.codes import GitHubCode, GitHubError
 from github.connections import GitHubConnections
 from github_projects_support import target_view
 from github_support import FakeGitHub, MemoryStore, github_settings
@@ -30,6 +34,9 @@ class Rig:
         self.gate: asyncio.Event | None = None
         self.passes = 0
         self.running: list[uuid.UUID] = []
+        self.bound: uuid.UUID | None = uuid.uuid4()  # the member the project's GitHub is bound to now
+        self.bound_row = True
+        monkeypatch.setattr(integrations_db, "get_integration", self.get_integration)
         monkeypatch.setattr(projects_db, "get_target", self.get_target)
         monkeypatch.setattr(projects_db, "record_start", self.record_start)
         monkeypatch.setattr(projects_db, "record_end", self.record_end)
@@ -44,6 +51,11 @@ class Rig:
     @asynccontextmanager
     async def transaction(self) -> Any:
         yield None
+
+    async def get_integration(self, _session: Any, project_id: uuid.UUID, app: str) -> IntegrationView | None:
+        if not self.bound_row or app != "github":
+            return None
+        return IntegrationView(project_id, app, self.bound, None, "acme", "acme", self.target.updated_at)
 
     async def get_target(self, _session: Any, project_id: uuid.UUID) -> Any:
         return replace(self.target, enabled=self.enabled) if project_id == PID else None
@@ -135,3 +147,30 @@ async def test_a_closed_runner_refuses_a_start_with_its_own_error(rig: Rig) -> N
 
     with pytest.raises(GitHubProjectsClosedError, match="the github projects runner is closed"):
         await rig.runner.start(str(PID), "settings")
+
+
+async def acting_user(rig: Rig) -> uuid.UUID:
+    gateway = await rig.runner._gateway_for(PID)
+    assert isinstance(gateway, MemberGateway)
+    return gateway.user_id
+
+
+async def test_a_pass_acts_as_the_member_the_projects_github_is_bound_to_now(rig: Rig) -> None:
+    first = rig.bound
+    assert await acting_user(rig) == first
+    rig.bound = uuid.uuid4()  # another member took the binding over
+
+    assert await acting_user(rig) == rig.bound != first
+
+
+@pytest.mark.parametrize("removed", ["member", "integration"])
+async def test_a_removed_member_or_integration_ends_the_pass_with_github_not_connected(rig: Rig, removed: str) -> None:
+    if removed == "member":
+        rig.bound = None  # the member left: the row stays, its user is null
+    else:
+        rig.bound_row = False  # the integration was removed
+
+    with pytest.raises(GitHubError) as raised:
+        await rig.runner._gateway_for(PID)
+
+    assert raised.value.code is GitHubCode.NOT_CONNECTED

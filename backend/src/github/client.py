@@ -7,7 +7,8 @@ line, an error or a ``repr``. The clients ignore the proxy variables and ``.netr
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final, override
 from urllib.parse import urlencode
@@ -30,6 +31,7 @@ TIMEOUT_SECONDS: Final = 30
 REFRESH_TIMEOUT_SECONDS: Final = 10  # shorter: a refresh holds the row lock and a clone waits on it
 PAGE_SIZE: Final = 100
 REPOSITORY_LIMIT: Final = 1000  # the most repositories one list answers (``truncated`` beyond)
+RETRY_AFTER_CAP_SECONDS: Final = 60  # the longest wait for a ``Retry-After`` (once per call)
 SIZE_LIMIT_KB: Final = 1024 * 1024  # 1 GiB as GitHub's ``size`` (KiB) of a repository
 CODE_REFUSED: Final = "bad_verification_code"  # GitHub's ``error`` for a used, expired or unknown code
 REFRESH_REFUSED: Final = "bad_refresh_token"  # GitHub's ``error`` for a dead refresh token
@@ -109,6 +111,15 @@ def _repository(item: Any) -> Repository | None:
     )
 
 
+def _retry_after(response: httpx.Response) -> float | None:
+    """The seconds a ``Retry-After`` header asks to wait; ``None`` when it is absent or not a number of seconds."""
+
+    try:
+        return max(0.0, float(response.headers["retry-after"]))
+    except (KeyError, ValueError):
+        return None
+
+
 def _bearer(token: SecretStr) -> dict[str, str]:
     return {"Authorization": f"Bearer {token.get_secret_value()}"}
 
@@ -123,7 +134,9 @@ class GitHubClient:
         redirect_uri: str,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
+        self._sleep = sleep
         self._client_id = client_id
         self._secret = client_secret
         self._redirect_uri = redirect_uri
@@ -145,13 +158,24 @@ class GitHubClient:
         query = {"client_id": self._client_id, "redirect_uri": self._redirect_uri, "state": state}
         return f"{AUTHORIZE_URL}?{urlencode(query)}"
 
-    async def _call(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    async def _once(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         try:
-            response = await self._http.request(method, url, **kwargs)
+            return await self._http.request(method, url, **kwargs)
         except httpx.HTTPError:
             raise GitHubError(GitHubCode.UNREACHABLE) from None
-        limited = response.status_code == httpx.codes.FORBIDDEN and response.headers.get("x-ratelimit-remaining") == "0"
-        if limited or response.status_code == httpx.codes.TOO_MANY_REQUESTS or response.is_server_error:
+
+    @staticmethod
+    def _limited(response: httpx.Response) -> bool:
+        """A primary rate limit (``x-ratelimit-remaining: 0``), a secondary one (``Retry-After``) or a ``429``."""
+
+        if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+            return True
+        limited = response.headers.get("x-ratelimit-remaining") == "0" or "retry-after" in response.headers
+        return response.status_code == httpx.codes.FORBIDDEN and limited
+
+    async def _call(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        response = await self._once(method, url, **kwargs)
+        if self._limited(response) or response.is_server_error:
             raise GitHubError(GitHubCode.UNREACHABLE)
         return response
 
@@ -232,9 +256,19 @@ class GitHubClient:
         self, token: SecretStr, method: str, path: str, body: Mapping[str, Any] | None = None
     ) -> httpx.Response:
         """One REST call of the Projects export as the user (``path`` below ``api.github.com``); a ``401`` is
-        ``AUTH_FAILED`` (the caller refreshes once), a rate limit or a server error ``UNREACHABLE``."""
+        ``AUTH_FAILED`` (the caller refreshes once). A rate limit that says ``Retry-After`` is waited for once, at most
+        ``RETRY_AFTER_CAP_SECONDS``; a second limit, a silent limit and a server error are ``UNREACHABLE``."""
 
-        response = await self._call(method, f"{API_URL}{path}", json=body, headers=self._api_headers(token))
+        url, headers = f"{API_URL}{path}", self._api_headers(token)
+        response = await self._once(method, url, json=body, headers=headers)
+        if self._limited(response):
+            wait = _retry_after(response)
+            if wait is None:
+                raise GitHubError(GitHubCode.UNREACHABLE)
+            await self._sleep(min(wait, RETRY_AFTER_CAP_SECONDS))
+            response = await self._once(method, url, json=body, headers=headers)
+        if self._limited(response) or response.is_server_error:
+            raise GitHubError(GitHubCode.UNREACHABLE)
         if response.status_code == httpx.codes.UNAUTHORIZED:
             raise GitHubError(GitHubCode.AUTH_FAILED)
         return response

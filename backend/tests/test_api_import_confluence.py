@@ -327,6 +327,16 @@ def test_the_follow_defaults_are_off_in_the_request_model() -> None:
     assert payload == {"link": "https://x", "follow": True}
 
 
+async def test_the_check_of_a_page_nested_too_deep_counts_no_linked_issues_instead_of_failing() -> None:
+    deep = "<blockquote>" * 3000 + "deep" + "</blockquote>" * 3000
+    confluence, reader = await client(FakeAtlassian(pages={"5": storage_page("5", "Root", deep)}))
+
+    found = await inspect(confluence, ConfluenceImport(PageTarget("5"), follow=True), SITE_HOST)
+    await reader.aclose()
+
+    assert (found.kind, found.pages, found.linked_issues) == ("page", 1, 0)
+
+
 async def test_a_page_nested_too_deep_to_convert_is_one_item_in_error_and_the_import_goes_on(monkeypatch) -> None:
     deep = "<blockquote>" * 3000 + "deep" + "</blockquote>" * 3000
     fake = tree_fake()

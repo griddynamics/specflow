@@ -56,7 +56,7 @@ from api.slack.threads import (
 from db import integrations as integrations_db
 from db import repositories as repo
 from db.integrations import SLACK as SLACK_APP
-from db.integrations import WorkspaceMismatchError
+from db.integrations import BindingHeldError, WorkspaceMismatchError
 from graph.gap import AnswerInput, AnswerInvalidError, GapNotFoundError, GapStateError, StaleGapError
 from graph.gap.assignment import NO_ASSIGNEE
 from logger.logger import INFO, WARNING, get_logger, log_event
@@ -108,6 +108,10 @@ class _Connecting:
     project: str
     channel_id: str
     until: datetime
+
+
+class NotBinderError(Exception):
+    """Someone other than the member who connected the channel, or the owner, asked to disconnect it."""
 
 
 class SlackGaps:
@@ -240,22 +244,34 @@ class SlackGaps:
         if project_id is None:
             await say("This channel is not connected to a SpecFlow project.")
             return
-        if await self._member(user_id, project_id) is None:
+        standing = await self._standing(user_id, project_id)
+        if standing is None:
             await say("Only a member of the connected SpecFlow project can disconnect it.")
             return
-        await self.disconnect(project_id)
+        try:
+            await self.disconnect(project_id, user_id=user_id, is_owner=standing == "owner")
+        except NotBinderError:
+            await say("Only the member who connected this channel, or the project's owner, can disconnect it.")
+            return
         log_event(logger, INFO, "api.slack.unbound", project_id=project_id, user_id=str(user_id))
         await say(
             f"🔌 <@{slack.user_id}> disconnected this channel from SpecFlow; no more questions are posted here.",
             public=True,
         )
 
-    async def disconnect(self, project_id: str) -> None:
-        """Unbind the project's channel and remove its Slack integration (the web route and the command)."""
+    async def disconnect(self, project_id: str, *, user_id: uuid.UUID, is_owner: bool) -> None:
+        """Unbind the project's channel and remove its Slack integration (the web route and the command): the member
+        who connected it, or the owner. A channel with no integration row (bound before the table) any member may
+        unbind. ``NotBinderError`` for anyone else."""
 
+        pid = uuid.UUID(project_id)
+        async with self._runtime.transaction() as session:
+            bound = await integrations_db.get_integration(session, pid, SLACK_APP)
+        if not is_owner and bound is not None and bound.user_id is not None and bound.user_id != user_id:
+            raise NotBinderError
         await self.threads.channels.unbind(project_id)
         async with self._runtime.transaction() as session:
-            await integrations_db.delete_integration(session, uuid.UUID(project_id), SLACK_APP)
+            await integrations_db.delete_integration(session, pid, SLACK_APP)
 
     async def _workspace(self) -> tuple[str, str] | None:
         """The id and name of the Slack workspace of the bot token (asked once); ``None`` when Slack does not say."""
@@ -292,6 +308,8 @@ class SlackGaps:
                 )
         except WorkspaceMismatchError:  # another connect moved the workspace since the check; the channel stays bound
             log_event(logger, WARNING, "api.slack.integration_mismatch", project_id=str(project_id))
+        except BindingHeldError:  # another member connected the channel first: they stay the binder
+            log_event(logger, INFO, "api.slack.integration_held", project_id=str(project_id))
 
     async def _record_bindings(self) -> None:
         """Give every channel binding made before the integrations table existed its row: the member who ran the
@@ -326,6 +344,17 @@ class SlackGaps:
                 workspace_name=team[1],
                 now=datetime.now(UTC),
             )
+
+    async def _standing(self, user_id: uuid.UUID, wanted: str) -> str | None:
+        """The role (``owner`` or ``collaborator``) of ``user_id`` in the project ``wanted``; ``None`` for none."""
+
+        try:
+            project_id = uuid.UUID(wanted)
+        except ValueError:
+            return None
+        async with self._runtime.transaction() as session:
+            found = await repo.get_membership(session, user_id, project_id)
+        return None if found is None else str(found[1])
 
     async def _member(self, user_id: uuid.UUID, wanted: str) -> Any:
         """The project with the id ``wanted`` when ``user_id`` is a member of it; ``None`` otherwise."""

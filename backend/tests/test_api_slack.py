@@ -606,3 +606,20 @@ async def test_disconnect_in_the_channel_is_for_a_member_of_its_project_and_remo
     assert "disconnected this channel from SpecFlow" in respond.sent[-1]["text"]
     assert await connecting.app.threads.channels.binding(PROJECT) is None
     assert connecting.integrations.rows == {}
+
+
+async def test_disconnect_in_the_channel_is_for_the_member_who_connected_it_or_the_owner(connecting):
+    await link(connecting.app)
+    respond = Responses()
+    await connecting.app.threads.channels.bind(Binding(PROJECT, "C1", "shop-gaps", str(USER)))
+    connecting.integrations.put(uuid.UUID(PROJECT), "slack", uuid.uuid4())  # someone else connected it
+
+    connecting.role = "collaborator"
+    await connecting.app._command(acked, command("disconnect"), respond, None)
+    assert "Only the member who connected this channel, or the project's owner" in respond.sent[-1]["text"]
+    assert await connecting.app.threads.channels.binding(PROJECT) is not None
+
+    connecting.role = "owner"
+    await connecting.app._command(acked, command("disconnect"), respond, None)
+    assert "disconnected this channel from SpecFlow" in respond.sent[-1]["text"]
+    assert await connecting.app.threads.channels.binding(PROJECT) is None and connecting.integrations.rows == {}

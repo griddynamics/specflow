@@ -145,7 +145,22 @@ class ImportRunner:
 
     async def _run(self, job: ImportJob, importer: Importer, writer: ImportWriter) -> None:
         async with self._slots:
-            if not await self._set_state(job, "importing"):
+            with Contained() as started:
+                proceed = await self._set_state(job, "importing")
+            if (
+                started.failed
+            ):  # the source must not stay in ``listing``: end it, or leave it to the next start's recovery
+                log_event(
+                    logger,
+                    WARNING,
+                    "api.imports.start_failed",
+                    project_id=str(job.project_id),
+                    error_type=started.error_type,
+                )
+                with Contained():
+                    await self._fail(job, UNKNOWN_REASON, started.error_type)
+                return
+            if not proceed:
                 return
             log_event(logger, INFO, "api.imports.started", project_id=str(job.project_id), kind=job.kind)
             reason: str | None = None

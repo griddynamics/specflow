@@ -23,7 +23,9 @@ from api.github_projects.sync import NOT_CONFIGURED, PushDeps, PushResult, push_
 from api.jira.desired import SpecRef
 from api.schemas import GitHubProjectsCounts, GitHubProjectsState, GitHubProjectsStatus
 from db import github_projects as projects_db
+from db import integrations as integrations_db
 from db.github_projects import ProjectTargetView, TargetSaved
+from db.integrations import GITHUB
 from github.codes import GitHubCode, GitHubError
 from github.connections import GitHubConnections
 from github.projects import ProjectsApi
@@ -96,10 +98,16 @@ class GitHubProjectsRunner(ExportRunner[ProjectTargetView | None, GitHubProjects
 
         return MemberGateway(self._connections, self._api, user_id)
 
-    async def _gateway_for(self, user_id: uuid.UUID | None) -> ProjectsGateway:
-        if user_id is None:
+    async def _gateway_for(self, project_id: uuid.UUID) -> ProjectsGateway:
+        """The gateway of the member the project's GitHub is bound to now (rule R1), not the one who saved the target:
+        a removed member, a removed integration and a take-over all take effect on the next pass. No binding is
+        ``github_not_connected``; an expired connection is ``github_reconnect_required`` at the first call."""
+
+        async with self._transaction() as session:
+            bound = await integrations_db.get_integration(session, project_id, GITHUB)
+        if bound is None or bound.user_id is None:
             raise GitHubError(GitHubCode.NOT_CONNECTED)
-        return await self.gateway_of(user_id)
+        return await self.gateway_of(bound.user_id)
 
     async def after_settings(self, project_id: str, saved: TargetSaved) -> None:
         """The destination was saved: a pass when it was turned on or changed. Never raises."""

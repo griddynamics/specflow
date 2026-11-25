@@ -5,6 +5,8 @@ every question posted once (also after a restart), and a refused Jira call kept 
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from api.jira_gaps import text
@@ -103,6 +105,32 @@ async def test_an_answered_question_is_not_posted_again_when_it_is_open_again(ri
     await rig.db.mark_answered(None, PROJECT, "G-1", now=rig.clock())
 
     assert await rig.poster().post_open(str(PROJECT)) == 0
+
+
+async def test_fifty_posted_open_questions_do_not_hide_the_newer_ones(rig: Rig) -> None:
+    await rig.enable("one")
+    rig.service.add(*(gap(f"G-{n:03d}") for n in range(50)))
+    assert await rig.poster().post_open(str(PROJECT)) == 50
+    rig.service.add(gap("G-900"), gap("G-901"))  # newer, and past the first page of open questions
+
+    assert await rig.poster().post_open(str(PROJECT)) == 2
+
+    rows = {r.gap_id for r in await rig.db.list_issues(None, PROJECT)}
+    assert {"G-900", "G-901"} <= rows and len(rows) == 52
+
+
+async def test_a_jira_project_changed_during_the_pass_gets_nothing_of_the_old_project(rig: Rig) -> None:
+    await rig.enable("one")
+    rig.service.add(gap("G-1"))
+
+    def another_project_meanwhile() -> None:
+        rig.db.targets[PROJECT] = replace(rig.db.targets[PROJECT], jira_project="OTHER")
+
+    rig.jira.on_create = another_project_meanwhile  # the owner saves another Jira project after the Story was made
+
+    assert await rig.poster().post_open(str(PROJECT)) == 0
+
+    assert (await target(rig)).story_key is None and await rig.db.list_issues(None, PROJECT) == []
 
 
 # One sub-task per work area ------------------------------------------------------------------------------------

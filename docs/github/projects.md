@@ -18,7 +18,10 @@ shapes for the canvas form: [../mission-control/integrations-api.md](../mission-
 Organization projects of the project's one GitHub organization only (the organization that owns the repository). A GitHub App
 cannot reach a user's Projects v2, so a repository owned by a user is refused (`github_not_an_organization`). The export acts as the
 member the project's GitHub is connected by (`PUT /projects/{pid}/integrations/github`, rule R1): their user access token,
-refreshed through `GitHubConnections.call`. Anyone on the project may save the destination (D6).
+refreshed through `GitHubConnections.call`. Who that is is read from `project_integrations` at the start of every pass: a removed member,
+a removed integration or a take-over by another member takes effect on the next pass (no binding is `github_not_connected`, an
+expired connection `github_reconnect_required`). `github_project_targets.connected_user_id` is only the member who saved the
+destination. Anyone on the project may save the destination (D6).
 
 ## Permissions (the owner approves them once per installation)
 
@@ -67,8 +70,9 @@ target, `target_changed` when the destination changed during the pass. Then, in 
 
 1. **Create** each missing story and task (a story, then its tasks): issue, then the item on the project (story) or the sub-issue link
    (task). A story that has an issue but no item (an earlier pass stopped between the two calls) gets its item first.
-2. **Update** a changed item: read its state (open or closed, Status field of the item on this project). An **open issue whose Status
-   is empty, `Todo`, `To do` or `Backlog`** takes the plan's title, body and labels. Any other issue gets **one comment** listing the
+2. **Update** a changed item: read its state (open or closed, and the Status of the story's own item on the project, read by the
+   item's id; a story whose item a person took off the project counts as started, so it is commented, not overwritten). An **open issue whose Status
+   is empty, `Todo`, `To do` or `Backlog`** takes the plan's title and body, and the plan's labels are added (labels a person put on it stay). Any other issue gets **one comment** listing the
    changed fields and is otherwise left alone; the stored content moves on, so the comment is not repeated.
 3. **Remove**: an item that leaves the plan gets the label `graphico-removed` and a comment, and `removed_at`; it is never deleted or
    closed. One that returns loses the label and gets a comment.
@@ -113,10 +117,11 @@ API reports: `github_not_connected` or `github_reconnect_required` (or a lost bi
 
 ## Limits
 
+- A rate limit that answers `Retry-After` (a 403 or 429) is waited for once, at most 60 seconds, then the pass ends `github_unreachable`;
+  a primary limit without `Retry-After` ends it at once.
 - A 403 that is not a rate limit is reported as `github_permissions_missing`, so a locked or archived repository reads the same as
   a missing approval.
 - If saving the destination fails after a new project was created on GitHub, an empty project may remain there (nothing deletes it).
-- On an issue that is not started the label list is owned by the export: labels a person added are replaced with the plan's.
 - A task that moves to another story is not re-linked: its `item_id` keeps the old parent (the plan does not move tasks between stories).
 - A task's `item_id` holds the id of the issue it is linked under (the marker that the sub-issue call was made); a story's holds its
   item on the project.

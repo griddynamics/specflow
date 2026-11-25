@@ -14,7 +14,7 @@ from api.github_projects.sync import PushDeps, PushResult, push_once
 from db.github_projects import ProjectTargetView
 from db.models import GitHubProjectItem
 from github.codes import GitHubCode, GitHubError
-from github.projects import IssueContent, IssueRef, IssueState, ProjectInfo, RepositoryInfo
+from github.projects import REMOVED_FROM_PROJECT, IssueContent, IssueRef, IssueState, ProjectInfo, RepositoryInfo
 from graph.plan.reader import LoadedPlan
 from jira_sync_support import T0, basic_plan
 
@@ -81,13 +81,17 @@ class FakeGateway:
         self._call("create_project", organization, title)
         return ProjectInfo("PVT_new", 2, title, "https://github.com/orgs/acme/projects/2")
 
-    async def issue_states(self, project_id: str, issue_node_ids: Sequence[str]) -> dict[str, IssueState]:
-        self._call("issue_states", project_id, tuple(issue_node_ids))
+    async def issue_states(self, refs: Sequence[tuple[str, str | None]]) -> dict[str, IssueState]:
+        self._call("issue_states", tuple(refs))
         found = {}
-        for node in issue_node_ids:
+        for node, item in refs:
             issue = self.issues.get(int(node.removeprefix("I_")))
-            if issue is not None and not issue.deleted:
-                found[node] = IssueState(issue.open, issue.status)
+            if issue is None or issue.deleted:
+                continue
+            status = issue.status
+            if item is not None and item not in self.items:
+                status = REMOVED_FROM_PROJECT  # a person took the item off the project
+            found[node] = IssueState(open=issue.open, status=status)
         return found
 
     async def create_issue(self, repository: str, content: IssueContent) -> IssueRef:
@@ -101,7 +105,7 @@ class FakeGateway:
     async def edit_issue(self, repository: str, number: int, content: IssueContent) -> None:
         self._call("edit_issue", repository, number)
         issue = self.issues[number]
-        issue.title, issue.body, issue.labels = content.title, content.body, list(content.labels)
+        issue.title, issue.body = content.title, content.body  # labels are not part of an edit
 
     async def comment(self, repository: str, number: int, body: str) -> None:
         self._call("comment", repository, number)
@@ -193,7 +197,7 @@ class Harness:
         self.gateway_error: GitHubError | None = None
         self.clock = T0
 
-    async def _gateway_for(self, _user_id: uuid.UUID | None) -> FakeGateway:
+    async def _gateway_for(self, _project_id: uuid.UUID) -> FakeGateway:
         if self.gateway_error is not None:
             raise self.gateway_error
         return self.gateway

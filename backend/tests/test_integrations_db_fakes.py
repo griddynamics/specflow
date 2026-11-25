@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from db import integrations as integrations_module
-from db.integrations import WorkspaceMismatchError
+from db.integrations import BindingHeldError, WorkspaceMismatchError
 from integrations_db_fakes import PUBLIC_FUNCTIONS, FakeIntegrationsDb
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -44,6 +44,9 @@ async def test_a_binding_moves_to_another_member_of_its_workspace_but_not_to_ano
     fake = FakeIntegrationsDb()
     await fake.bind_integration(None, PROJECT, "github", user_id=ANA, workspace_id="a", workspace_name="A", now=NOW)
 
+    with pytest.raises(BindingHeldError):  # Ana's connection is still active: Bo cannot take it over
+        await fake.bind_integration(None, PROJECT, "github", user_id=BO, workspace_id="a", workspace_name="A", now=NOW)
+    fake.inactive.add(ANA)
     await fake.bind_integration(None, PROJECT, "github", user_id=BO, workspace_id="a", workspace_name="A", now=NOW)
     with pytest.raises(WorkspaceMismatchError):
         await fake.bind_integration(None, PROJECT, "github", user_id=ANA, workspace_id="b", workspace_name="B", now=NOW)

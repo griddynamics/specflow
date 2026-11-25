@@ -75,6 +75,15 @@ class Inspection:
     linked_issues: int
 
 
+def _linked_issues(page: dict[str, Any], host: str) -> int:
+    """The Jira issues the page links to; a page too deeply nested to read links none (as in the import)."""
+
+    try:
+        return len(references(page_storage(page), host).issue_keys)
+    except RecursionError:
+        return 0
+
+
 async def inspect(confluence: ConfluenceClient, source: ConfluenceImport, host: str) -> Inspection:
     """Read the target (a page with its descendants, or a space's page list) and report what an import would take.
     ``JiraError`` when a read is refused."""
@@ -82,7 +91,7 @@ async def inspect(confluence: ConfluenceClient, source: ConfluenceImport, host: 
     if isinstance(source.target, PageTarget):
         page = await confluence.page(source.target.page_id)
         below, capped = await confluence.descendants(source.target.page_id, MAX_PAGES - 1)
-        issues = len(references(page_storage(page), host).issue_keys) if source.follow else 0
+        issues = _linked_issues(page, host) if source.follow else 0
         return Inspection("page", str(page.get("title", "")), 1 + len(below), capped, issues)
     space = await confluence.space(source.target.key)
     pages, capped = await confluence.space_pages(str(space["id"]), MAX_PAGES)

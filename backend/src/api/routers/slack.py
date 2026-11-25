@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.contained import Contained
 from api.deps import MemberDep, RuntimeDep, UserDep
 from api.errors import ApiError
+from api.project_integrations import integration_forbidden
+from api.slack.app import NotBinderError
 from api.slack.links import LinkRefusedError
 from api.slack.threads import NO_CHANNEL, NOT_IN_CHANNEL, SlackThreads, WelcomeFailedError
 from logger.logger import INFO, WARNING, get_logger, log_event
@@ -115,7 +117,10 @@ async def get_slack_settings(runtime: RuntimeDep, access: MemberDep) -> SlackSet
 async def delete_slack_settings(runtime: RuntimeDep, user: UserDep, access: MemberDep) -> Response:
     if runtime.slack is None:
         raise slack_unavailable()
-    await runtime.slack.disconnect(str(access.project.id))
+    try:
+        await runtime.slack.disconnect(str(access.project.id), user_id=user.id, is_owner=access.is_owner)
+    except NotBinderError:
+        raise integration_forbidden() from None
     log_event(logger, INFO, "api.slack.unbound", project_id=str(access.project.id), user_id=str(user.id))
     return Response(status_code=204)
 

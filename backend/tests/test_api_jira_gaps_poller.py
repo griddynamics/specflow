@@ -15,10 +15,12 @@ Sequence of one poll::
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 import pytest
 
 from api.jira_gaps import text
+from db import jira_gaps as gaps_module
 from db.jira_gaps import GapIssueView
 from graph.gap import AnswerInvalidError
 from jira.gateway import JiraError
@@ -116,6 +118,25 @@ async def test_a_deeply_nested_comment_is_no_answer_and_does_not_stop_the_poll(r
     assert target is not None and target.poll_cursor is not None and target.last_polled_at is not None
     assert text.comment_text({"type": "doc", "version": 1, "content": [deep]}) == ""
     assert not text.is_hint_for({"type": "doc", "version": 1, "content": [deep]}, ANA_ACCOUNT)
+
+
+async def test_a_jira_project_changed_during_the_poll_keeps_the_new_targets_cursor_clear(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    [key] = await posted(rig)
+    rig.jira.say(key, ANA_ACCOUNT, "A")
+    original = rig.db.require_destination
+
+    async def another_project_meanwhile(session, project_id, jira_project) -> None:  # the owner saves meanwhile
+        rig.db.targets[project_id] = replace(rig.db.targets[project_id], jira_project="OTHER", poll_cursor=None)
+        await original(session, project_id, jira_project)
+
+    monkeypatch.setattr(gaps_module, "require_destination", another_project_meanwhile)
+
+    await rig.poller().poll_once(PID)
+
+    found = await rig.db.get_target(None, PROJECT)
+    assert found is not None and (found.poll_cursor, found.last_polled_at) == (None, None)
 
 
 async def test_an_assigned_gap_keeps_its_assignee(rig: Rig) -> None:

@@ -16,17 +16,22 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import JiraTarget, ProjectIntegration, ProjectRepository, User
+from db.models import AtlassianConnection, GitHubConnection, JiraTarget, ProjectIntegration, ProjectRepository, User
 
 ATLASSIAN, GITHUB, SLACK = "atlassian", "github", "slack"
 
 
 class WorkspaceMismatchError(Exception):
     """The project is bound to another workspace of this app (one organisation per app per project)."""
+
+
+class BindingHeldError(Exception):
+    """Another member's active connection holds the project's binding: it is taken over only once that member left, lost
+    the connection, or removed the integration."""
 
 
 @dataclass(frozen=True)
@@ -63,6 +68,19 @@ async def list_integrations(session: AsyncSession, project_id: uuid.UUID) -> lis
     return [_view(row, name) for row, name in (await session.execute(statement)).all()]
 
 
+async def _holds(session: AsyncSession, app: str, user_id: uuid.UUID) -> bool:
+    """Whether ``user_id`` has an active connection to ``app``. Slack has no per-member connection: whoever bound the
+    channel holds it."""
+
+    if app == ATLASSIAN:
+        probe = exists().where(AtlassianConnection.user_id == user_id, AtlassianConnection.status == "active")
+    elif app == GITHUB:
+        probe = exists().where(GitHubConnection.user_id == user_id, GitHubConnection.status == "active")
+    else:
+        return True
+    return bool((await session.execute(select(probe))).scalar())
+
+
 async def bind_integration(
     session: AsyncSession,
     project_id: uuid.UUID,
@@ -73,23 +91,30 @@ async def bind_integration(
     workspace_name: str,
     now: datetime,
 ) -> None:
-    """Bind the project's ``app`` to ``user_id``: a new row, a member taking over the same workspace, or any member
-    taking over a binding whose member is gone (nothing acts on its workspace any more).
-    ``WorkspaceMismatchError`` when the project is bound to another workspace of the app and a member acts on it."""
+    """Bind the project's ``app`` to ``user_id``: a new row, the same member again, a member taking over the same
+    workspace from a member whose connection is no longer active, or any member taking over a binding whose member is
+    gone (nothing acts on its workspace any more). The row is locked ``FOR UPDATE`` while it is decided.
+    ``WorkspaceMismatchError`` when the project is bound to another workspace of the app and a member acts on it;
+    ``BindingHeldError`` when another member's active connection holds it."""
 
     values = {"user_id": user_id, "workspace_id": workspace_id, "workspace_name": workspace_name, "connected_at": now}
-    statement = (
-        pg_insert(ProjectIntegration)
-        .values(project_id=project_id, app=app, **values)
-        .on_conflict_do_update(
-            index_elements=("project_id", "app"),
-            set_=values,
-            where=or_(ProjectIntegration.workspace_id == workspace_id, ProjectIntegration.user_id.is_(None)),
-        )
-        .returning(ProjectIntegration.app)
+    added = pg_insert(ProjectIntegration).values(project_id=project_id, app=app, **values).on_conflict_do_nothing()
+    if (await session.execute(added.returning(ProjectIntegration.app))).first() is not None:
+        return
+    locked = (
+        select(ProjectIntegration)
+        .where(ProjectIntegration.project_id == project_id, ProjectIntegration.app == app)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    if (await session.execute(statement)).first() is None:
-        raise WorkspaceMismatchError
+    row = (await session.execute(locked)).scalar_one()
+    if row.user_id is not None:
+        if row.workspace_id != workspace_id:
+            raise WorkspaceMismatchError
+        if row.user_id != user_id and await _holds(session, app, row.user_id):
+            raise BindingHeldError
+    row.user_id, row.workspace_id, row.workspace_name, row.connected_at = user_id, workspace_id, workspace_name, now
+    await session.flush()
 
 
 async def add_missing_integration(

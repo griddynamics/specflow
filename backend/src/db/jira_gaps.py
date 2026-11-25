@@ -20,6 +20,10 @@ from db.models import AtlassianConnection, JiraGapIssue, JiraGapTarget, ProjectM
 TARGETS_LIMIT = 10_000  # the targets one process polls
 
 
+class DestinationChangedError(Exception):
+    """The Jira project of the target changed (or the target went) since a pass read it: stop, write nothing more."""
+
+
 @dataclass(frozen=True)
 class GapTargetView:
     """The target row of a project's Jira gap channel."""
@@ -113,6 +117,18 @@ async def save_target(
     before.jira_project, before.grouping, before.enabled = jira_project, grouping, enabled
     await session.flush()
     return GapTargetSaved(turned_on=turned_on, project_changed=project_changed)
+
+
+async def require_destination(session: AsyncSession, project_id: uuid.UUID, jira_project: str) -> None:
+    """Lock the target row ``FOR SHARE`` and require that it still names ``jira_project``: the check a pass makes in
+    the transaction of each write, so it cannot put data of the old Jira project on a changed target.
+    ``DestinationChangedError`` otherwise."""
+
+    statement = (
+        select(JiraGapTarget.jira_project).where(JiraGapTarget.project_id == project_id).with_for_update(read=True)
+    )
+    if (await session.execute(statement)).scalar_one_or_none() != jira_project:
+        raise DestinationChangedError
 
 
 async def set_story(session: AsyncSession, project_id: uuid.UUID, story_key: str) -> None:

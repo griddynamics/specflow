@@ -21,7 +21,7 @@ from api.contained import Contained
 from api.jira_gaps import text
 from api.jira_gaps.acting import Acting, ActingError, acting_gateway
 from db import jira_gaps as gaps_db
-from db.jira_gaps import GapIssueView, GapTargetView
+from db.jira_gaps import DestinationChangedError, GapIssueView, GapTargetView
 from graph.plan.reader import LoadedPlan
 from jira.gateway import JiraError
 from jira.reasons import Reason
@@ -99,6 +99,9 @@ class JiraGapPoster:
             try:
                 acting = await acting_gateway(self._runtime, pid)
                 posted = await self._post(project_id, target, acting)
+            except DestinationChangedError:  # the Jira project changed during the pass: the change posts afresh
+                log_event(logger, INFO, "api.jira_gaps.post_superseded", project_id=project_id)
+                return 0
             except (ActingError, JiraError) as error:
                 code = error.reason.value if isinstance(error, JiraError) else error.code
                 async with self._runtime.transaction() as session:
@@ -112,11 +115,18 @@ class JiraGapPoster:
     async def _post(self, project_id: str, target: GapTargetView, acting: Acting) -> int:
         pid = uuid.UUID(project_id)
         service = await self._runtime.gaps.service()
-        page = await service.list_gaps(project_id, status=["open"], route=[ASK], limit=OPEN_MAX)
         async with self._runtime.transaction() as session:
             rows = await gaps_db.list_issues(session, pid)
         known = {row.gap_id for row in rows}
-        new = [gap.gap_id for gap in page.gaps if gap.gap_id not in known]
+        new: list[str] = []
+        cursor: str | None = None
+        while len(new) < OPEN_MAX:  # page past the gaps already posted: they must not hide the newer ones
+            page = await service.list_gaps(project_id, status=["open"], route=[ASK], cursor=cursor, limit=OPEN_MAX)
+            new += [gap.gap_id for gap in page.gaps if gap.gap_id not in known]
+            cursor = page.next
+            if cursor is None:
+                break
+        new = new[:OPEN_MAX]
         if not new:
             return 0
         views = [await service.get_gap(project_id, gap_id) for gap_id in new]
@@ -141,6 +151,7 @@ class JiraGapPoster:
         }
         key = await acting.gateway.create_issue(fields, project_id=project_id, node_id=STORY_NODE)
         async with self._runtime.transaction() as session:
+            await gaps_db.require_destination(session, uuid.UUID(project_id), target.jira_project)
             await gaps_db.set_story(session, uuid.UUID(project_id), key)
         log_event(logger, INFO, "api.jira_gaps.story_created", project_id=project_id)
         return key
@@ -182,6 +193,7 @@ class JiraGapPoster:
             )
         now = self._now()
         async with self._runtime.transaction() as session:
+            await gaps_db.require_destination(session, uuid.UUID(where.project_id), where.target.jira_project)
             for question, view in zip(questions, group.views, strict=True):
                 await gaps_db.add_issue(
                     session,

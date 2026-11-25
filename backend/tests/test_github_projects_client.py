@@ -13,21 +13,31 @@ from pydantic import SecretStr
 
 from github.client import GitHubClient
 from github.codes import GitHubCode, GitHubError
-from github.projects import IssueContent, IssueState, ProjectsApi
+from github.projects import REMOVED_FROM_PROJECT, IssueContent, IssueState, ProjectsApi
 
 TOKEN = SecretStr("ghu-token-canary-77")
 PROJECT = "PVT_1"
 CONTENT = IssueContent("Title", "Body", ["specflow"])
 
 
+SLEPT: list[float] = []
+
+
+async def fake_sleep(seconds: float) -> None:
+    SLEPT.append(seconds)
+
+
 def api_over(handler: Callable[[httpx.Request], httpx.Response]) -> tuple[ProjectsApi, list[httpx.Request]]:
     seen: list[httpx.Request] = []
+    SLEPT.clear()
 
     def record(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         return handler(request)
 
-    client = GitHubClient("id", SecretStr("secret"), "http://localhost/cb", transport=httpx.MockTransport(record))
+    client = GitHubClient(
+        "id", SecretStr("secret"), "http://localhost/cb", transport=httpx.MockTransport(record), sleep=fake_sleep
+    )
     return ProjectsApi(client), seen
 
 
@@ -129,6 +139,47 @@ async def test_a_rate_limit_or_a_server_error_is_unreachable_and_a_401_asks_for_
     assert await code_of(expired.comment(TOKEN, "acme/shop", 3, "x")) is GitHubCode.AUTH_FAILED
 
 
+async def test_a_secondary_limit_with_retry_after_is_waited_for_once_then_answers() -> None:
+    answers = iter(
+        [
+            httpx.Response(403, headers={"retry-after": "7"}),
+            httpx.Response(201, json={"number": 1, "id": 10, "node_id": "I_1"}),
+        ]
+    )
+    api, seen = api_over(lambda _request: next(answers))
+
+    ref = await api.create_issue(TOKEN, "acme/shop", CONTENT)
+
+    assert ref.number == 1 and SLEPT == [7.0] and len(seen) == 2
+
+
+async def test_a_second_limit_a_long_wait_and_a_silent_limit_end_as_one_closed_code() -> None:
+    twice, seen = api_over(status(429, {}, **{"retry-after": "500"}))
+    assert await code_of(twice.comment(TOKEN, "acme/shop", 1, "x")) is GitHubCode.UNREACHABLE
+    assert SLEPT == [60.0] and len(seen) == 2  # the wait is capped, and asked for once
+
+    silent, seen = api_over(
+        status(403, {"message": "You have exceeded a secondary rate limit"}, **{"retry-after": "abc"})
+    )
+    assert await code_of(silent.comment(TOKEN, "acme/shop", 1, "x")) is GitHubCode.UNREACHABLE
+    assert SLEPT == [] and len(seen) == 1
+
+    plain, _ = api_over(status(403, {"message": "Resource not accessible by integration"}))
+    assert await code_of(plain.comment(TOKEN, "acme/shop", 1, "x")) is GitHubCode.PERMISSIONS_MISSING
+
+
+async def test_a_graphql_call_waits_for_retry_after_the_same_way() -> None:
+    answers = iter(
+        [
+            httpx.Response(403, headers={"retry-after": "3"}),
+            httpx.Response(200, json={"data": {"organization": {"id": "O1", "projectsV2": {"nodes": []}}}}),
+        ]
+    )
+    api, _ = api_over(lambda _request: next(answers))
+
+    assert await api.organization_projects(TOKEN, "acme") == [] and SLEPT == [3.0]
+
+
 async def test_an_issue_is_created_with_its_three_ids_and_the_content_is_sent_as_given() -> None:
     api, seen = api_over(status(201, {"number": 7, "id": 70, "node_id": "I_7"}))
 
@@ -139,6 +190,14 @@ async def test_an_issue_is_created_with_its_three_ids_and_the_content_is_sent_as
     assert seen[0].url.path == "/repos/acme/shop/issues" and seen[0].method == "POST"
     bad, _ = api_over(status(201, {"number": "x"}))
     assert await code_of(bad.create_issue(TOKEN, "acme/shop", CONTENT)) is GitHubCode.REFUSED
+
+
+async def test_an_edit_sends_title_and_body_only_so_labels_stay() -> None:
+    api, seen = api_over(status(200, {}))
+
+    await api.edit_issue(TOKEN, "acme/shop", 4, CONTENT)
+
+    assert seen[0].method == "PATCH" and json.loads(seen[0].content) == {"title": "Title", "body": "Body"}
 
 
 async def test_a_sub_issue_that_is_already_one_and_a_label_that_is_already_gone_are_fine() -> None:
@@ -163,24 +222,32 @@ async def test_a_422_of_the_sub_issue_call_is_fine_only_when_it_says_the_issue_i
         assert await code_of(elsewhere.add_sub_issue(TOKEN, "acme/shop", 1, 20)) is GitHubCode.ITEM_INVALID
 
 
-async def test_issue_states_read_the_status_on_the_export_project_only() -> None:
-    def item(project: str, name: str | None) -> dict[str, Any]:
-        return {"project": {"id": project}, "fieldValueByName": None if name is None else {"name": name}}
+async def test_issue_states_read_the_status_of_the_issues_own_item_by_its_id() -> None:
+    def item(item_id: str, name: str | None) -> dict[str, Any]:
+        return {"id": item_id, "fieldValueByName": None if name is None else {"name": name}}
 
-    nodes = [
-        {"id": "I_1", "state": "OPEN", "projectItems": {"nodes": [item("other", "Done"), item(PROJECT, "Todo")]}},
-        {"id": "I_2", "state": "OPEN", "projectItems": {"nodes": [item(PROJECT, "In progress")]}},
-        {"id": "I_3", "state": "CLOSED", "projectItems": {"nodes": []}},
-        {"id": "I_4", "state": "OPEN", "projectItems": {"nodes": []}},
+    issues = [
+        {"id": "I_1", "state": "OPEN"},
+        {"id": "I_2", "state": "OPEN"},
+        {"id": "I_3", "state": "CLOSED"},
+        {"id": "I_4", "state": "OPEN"},
+        {"id": "I_6", "state": "OPEN"},
         None,
     ]
-    api, _ = api_over(graphql({"nodes": nodes}))
+    items = [item("PVTI_1", "Todo"), item("PVTI_2", "In progress"), item("PVTI_4", None), None]
+    api, seen = api_over(graphql({"issues": issues, "items": items}))
 
-    states = await api.issue_states(TOKEN, PROJECT, ["I_1", "I_2", "I_3", "I_4", "I_5"])
+    refs = [("I_1", "PVTI_1"), ("I_2", "PVTI_2"), ("I_3", None), ("I_4", "PVTI_4"), ("I_5", None), ("I_6", "PVTI_6")]
+    states = await api.issue_states(TOKEN, refs)
 
+    assert json.loads(seen[0].content)["variables"] == {
+        "ids": ["I_1", "I_2", "I_3", "I_4", "I_5", "I_6"],
+        "items": ["PVTI_1", "PVTI_2", "PVTI_4", "PVTI_6"],
+    }
     assert states["I_1"] == IssueState(open=True, status="Todo") and states["I_1"].not_started
     assert not states["I_2"].not_started and not states["I_3"].not_started
-    assert states["I_4"].not_started and "I_5" not in states
+    assert states["I_4"].not_started and "I_5" not in states  # an item with no Status is not started
+    assert states["I_6"].status == REMOVED_FROM_PROJECT and not states["I_6"].not_started  # taken off the project
 
 
 async def test_a_project_is_created_in_the_organization_and_an_item_is_added_and_moved() -> None:

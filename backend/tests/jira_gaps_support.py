@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import itertools
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -20,7 +20,7 @@ from api.jira_gaps import JiraGaps
 from api.jira_gaps.poller import JiraGapPoller
 from api.jira_gaps.poster import JiraGapPoster
 from db import jira_gaps as module
-from db.jira_gaps import GapIssueView, GapTargetSaved, GapTargetView
+from db.jira_gaps import DestinationChangedError, GapIssueView, GapTargetSaved, GapTargetView
 from graph.gap import GapNotFoundError, GapStateError
 from integrations_db_fakes import FakeIntegrationsDb
 from jira.gateway import JiraError, JiraProject
@@ -36,6 +36,7 @@ PUBLIC_FUNCTIONS = (
     "get_target",
     "enabled_targets",
     "save_target",
+    "require_destination",
     "set_story",
     "record_poll",
     "record_error",
@@ -106,6 +107,12 @@ class FakeJiraGapsDb:
             before, jira_project=jira_project, grouping=grouping, enabled=enabled, story_key=story, poll_cursor=cursor
         )
         return GapTargetSaved(turned_on=enabled and not before.enabled, project_changed=changed)
+
+    async def require_destination(self, session: AsyncSession, project_id: uuid.UUID, jira_project: str) -> None:
+        self.sessions.append(session)
+        target = self.targets.get(project_id)
+        if target is None or target.jira_project != jira_project:
+            raise DestinationChangedError
 
     async def set_story(self, session: AsyncSession, project_id: uuid.UUID, story_key: str) -> None:
         self.sessions.append(session)
@@ -197,6 +204,7 @@ class FakeJira:
         self.missing: frozenset[str] = frozenset()
         self.read_error: JiraError | None = None
         self.write_error: JiraError | None = None
+        self.on_create: Callable[[], None] | None = None  # runs after an issue was created (a person acts meanwhile)
         self._keys = itertools.count(1)
         self._comments = itertools.count(100)
 
@@ -221,6 +229,8 @@ class FakeJira:
             ("create", {"key": key, "node_id": node_id, "project_id": project_id, "fields": dict(fields)})
         )
         self.issues[key] = Issue(key, dict(fields), updated=self.clock())
+        if self.on_create is not None:
+            self.on_create()
         return key
 
     async def add_comment(self, key: str, doc: Mapping[str, Any]) -> None:
@@ -307,8 +317,13 @@ class FakeGapService:
         for item in gaps:
             self.gaps[item.gap_id] = item
 
-    async def list_gaps(self, _project_id: str, **_: Any) -> Any:
-        return SimpleNamespace(gaps=[g for g in self.gaps.values() if g.status == "open"])
+    async def list_gaps(self, _project_id: str, *, cursor: str | None = None, limit: int = 50, **_: Any) -> Any:
+        """The open gaps, ``limit`` at a time (``cursor`` is the index of the first, ``next`` that of the next page)."""
+
+        found = [g for g in self.gaps.values() if g.status == "open"]
+        start = int(cursor or 0)
+        more = start + limit < len(found)
+        return SimpleNamespace(gaps=found[start : start + limit], next=str(start + limit) if more else None)
 
     async def get_gap(self, _project_id: str, gap_id: str) -> Any:
         if gap_id not in self.gaps:

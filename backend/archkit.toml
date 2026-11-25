@@ -93,6 +93,7 @@ codes = [
     { code = "repository_not_found", http = 404 },
     { code = "atlassian_not_connected", http = 409 },
     { code = "integration_workspace_mismatch", http = 409 },
+    { code = "integration_already_connected", http = 409 },
     { code = "integration_not_found", http = 404 },
     { code = "integration_forbidden", http = 403 },
     { code = "slack_unavailable", http = 503 },
@@ -200,6 +201,7 @@ probes = [
     { name = "probe-79", class = "api.errors:ApiError", args = [404, "github_project_not_found", "The organization project does not exist or your account cannot see it."] },
     { name = "probe-80", class = "api.errors:ApiError", args = [422, "github_not_an_organization", "The repository belongs to a user, not to an organization."] },
     { name = "probe-81", class = "api.errors:ApiError", args = [422, "github_repo_read_only", "Your GitHub account cannot create issues in this repository."] },
+    { name = "probe-82", class = "api.errors:ApiError", args = [409, "integration_already_connected", "Another member's active connection is the project's connection to this app. They or the owner must remove it first."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

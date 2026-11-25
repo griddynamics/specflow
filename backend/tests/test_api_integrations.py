@@ -26,6 +26,7 @@ import pytest_asyncio
 
 from api.jira.connections import AtlassianConnections
 from api.jira.runner import JiraSyncRunner
+from api.slack.app import NotBinderError
 from api.slack.channels import Binding, SlackChannels
 from atlassian_support import CLOUD, FakeAtlassianDb, FakeOAuthClient, oauth_env, oauth_settings
 from github.connections import GitHubConnections
@@ -229,6 +230,35 @@ async def test_a_member_takes_over_a_workspace_whose_member_left_and_another_mem
     assert taken.status_code == 200 and taken.json()["workspace"]["id"] == "other-org"
     assert taken.json()["connected_by"]["user_id"] == str(rig.ben.id)
     assert rig.integrations.pointed == [("repositories", rig.alpha, rig.ben.id)]
+
+
+async def test_a_member_cannot_take_over_a_binding_whose_connection_is_still_active(rig) -> None:
+    await connect_github(rig, rig.ben.id, "octo")
+    rig.integrations.put(rig.alpha, "github", rig.alice.id, workspace_id="octo", workspace_name="octo")
+
+    held = await call(rig, "PUT", f"projects/{ALPHA}/integrations/github", BEN)
+    rig.integrations.inactive.add(rig.alice.id)  # her connection expired: the take-over is allowed
+    taken = await call(rig, "PUT", f"projects/{ALPHA}/integrations/github", BEN)
+
+    assert error_of(held) == (409, "integration_already_connected")
+    assert taken.status_code == 200 and taken.json()["connected_by"]["user_id"] == str(rig.ben.id)
+
+
+async def test_the_slack_disconnect_of_a_project_is_the_connectors_or_the_owners(rig) -> None:
+    calls: list[bool] = []
+
+    async def disconnect(_project_id: str, *, user_id: uuid.UUID, is_owner: bool) -> None:
+        calls.append(is_owner)
+        if not is_owner and user_id != rig.alice.id:
+            raise NotBinderError
+
+    rig.runtime.slack.disconnect = disconnect
+
+    refused = await call(rig, "DELETE", f"projects/{ALPHA}/slack", BEN)
+    allowed = await call(rig, "DELETE", f"projects/{ALPHA}/slack", ALICE)
+
+    assert error_of(refused) == (403, "integration_forbidden") and allowed.status_code == 204
+    assert calls == [False, True]
 
 
 async def test_the_apps_the_server_does_not_run_refuse_a_connect(rig) -> None:

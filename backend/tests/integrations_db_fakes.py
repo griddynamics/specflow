@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import integrations as integrations_module
-from db.integrations import IntegrationView, WorkspaceMismatchError
+from db.integrations import BindingHeldError, IntegrationView, WorkspaceMismatchError
 
 PUBLIC_FUNCTIONS = (
     "get_integration",
@@ -32,6 +32,7 @@ class FakeIntegrationsDb:
         self.names: dict[uuid.UUID, str] = {}
         self.pointed: list[tuple[str, uuid.UUID, uuid.UUID | None]] = []
         self.sessions: list[AsyncSession] = []  # the session each call got
+        self.inactive: set[uuid.UUID] = set()  # members whose connection to the app is expired (any app)
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for name in PUBLIC_FUNCTIONS:
@@ -81,8 +82,11 @@ class FakeIntegrationsDb:
     ) -> None:
         self.sessions.append(session)
         before = self.rows.get((project_id, app))
-        if before is not None and before.workspace_id != workspace_id and before.user_id is not None:
-            raise WorkspaceMismatchError
+        if before is not None and before.user_id is not None:
+            if before.workspace_id != workspace_id:
+                raise WorkspaceMismatchError
+            if before.user_id != user_id and before.user_id not in self.inactive:
+                raise BindingHeldError
         self.rows[project_id, app] = IntegrationView(
             project_id, app, user_id, self.names.get(user_id), workspace_id, workspace_name, now
         )

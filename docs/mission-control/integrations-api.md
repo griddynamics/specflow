@@ -24,9 +24,11 @@ The screens that call these routes: [ui.md](ui.md). The connector docs: [../sour
 | `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian` or `github`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
 | `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
 
-**Slack in the UI:** any member can also remove the channel with `DELETE /projects/{pid}/slack` (D6, the route of the
-Settings tab), so a screen must not tell a member that only the connector or the owner can disconnect Slack; only
-`DELETE /projects/{pid}/integrations/slack` is connector-or-owner.
+**Slack in the UI:** `DELETE /projects/{pid}/slack` (the route of the Settings tab) and `/specflow disconnect` follow the same rule as
+`DELETE /projects/{pid}/integrations/slack`: the member who connected the channel, or the owner (`403 integration_forbidden` for any
+other member). A channel bound before the integration row existed has no connector, so any member may remove it. `PUT` of an app
+another member still holds with an active connection is `409 integration_already_connected` (it is taken over only after that member
+left, lost the connection or removed the integration).
 
 Slack is bound by its own command in the channel (`/specflow connect <project id>`, [../slack/gap-answering.md](../slack/gap-answering.md)),
 which records the caller as the project's Slack member; there is no `PUT` for it. The caller connects Atlassian and
@@ -95,7 +97,7 @@ member's, owner or collaborator:
 |---|---|---|
 | `PUT /projects/{pid}/jira`, `POST /projects/{pid}/jira/access-check` | owner | member |
 | `POST /projects/{pid}/repositories`, `DELETE .../{rid}`, `POST .../{rid}/clone` | owner | member |
-| `DELETE /projects/{pid}/slack`; `/specflow connect`, `/specflow disconnect` in Slack | owner | member |
+| `DELETE /projects/{pid}/slack`; `/specflow connect`, `/specflow disconnect` in Slack | owner | member (disconnect: connector or owner) |
 | `editable` of `GET /projects/{pid}/jira` and of `GET /projects/{pid}/slack`; `can_manage` of `GET /projects/{pid}/repositories` | owner only | true for every member |
 | `PUT` / `DELETE /projects/{pid}/integrations/{app}` | new | member (`DELETE`: connector or owner) |
 
@@ -268,6 +270,7 @@ Organization projects (until then: `github_permissions_missing`).
 |---|---|---|
 | `atlassian_not_connected` | 409 | `PUT` Atlassian: the caller has no active Atlassian connection |
 | `github_not_connected` | 409 | `PUT` GitHub: the caller has no active GitHub connection; adding a repository: the project has no GitHub connection bound to a member |
+| `integration_already_connected` | 409 | `PUT`: another member's connection to the app is still active, so the binding is not taken over (they or the owner remove it first) |
 | `integration_workspace_mismatch` | 409 | `PUT`: the project is connected to another Atlassian site, GitHub account or Slack workspace |
 | `integration_not_found` | 404 | `DELETE`: the project has no connection to that app |
 | `integration_forbidden` | 403 | `DELETE`: the caller neither connected the app nor owns the project |

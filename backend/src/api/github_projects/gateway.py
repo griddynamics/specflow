@@ -21,7 +21,7 @@ class ProjectsGateway(Protocol):
 
     async def create_project(self, organization: str, title: str) -> ProjectInfo: ...
 
-    async def issue_states(self, project_id: str, issue_node_ids: Sequence[str]) -> dict[str, IssueState]: ...
+    async def issue_states(self, refs: Sequence[tuple[str, str | None]]) -> dict[str, IssueState]: ...
 
     async def create_issue(self, repository: str, content: IssueContent) -> IssueRef: ...
 
@@ -48,6 +48,12 @@ class MemberGateway:
         self._api = api
         self._user = user_id
 
+    @property
+    def user_id(self) -> uuid.UUID:
+        """The member whose connection every call uses."""
+
+        return self._user
+
     async def repository(self, full_name: str) -> RepositoryInfo:
         return await self._connections.call(self._user, lambda t: self._api.repository(t, full_name))
 
@@ -60,8 +66,8 @@ class MemberGateway:
     async def create_project(self, organization: str, title: str) -> ProjectInfo:
         return await self._connections.call(self._user, lambda t: self._api.create_project(t, organization, title))
 
-    async def issue_states(self, project_id: str, issue_node_ids: Sequence[str]) -> dict[str, IssueState]:
-        return await self._connections.call(self._user, lambda t: self._api.issue_states(t, project_id, issue_node_ids))
+    async def issue_states(self, refs: Sequence[tuple[str, str | None]]) -> dict[str, IssueState]:
+        return await self._connections.call(self._user, lambda t: self._api.issue_states(t, refs))
 
     async def create_issue(self, repository: str, content: IssueContent) -> IssueRef:
         return await self._connections.call(self._user, lambda t: self._api.create_issue(t, repository, content))

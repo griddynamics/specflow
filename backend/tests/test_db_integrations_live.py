@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from db import integrations, members
-from db.integrations import ATLASSIAN, GITHUB, SLACK, WorkspaceMismatchError
+from db.integrations import ATLASSIAN, GITHUB, SLACK, BindingHeldError, WorkspaceMismatchError
 from db.session import build_engine, build_session_factory
 from settings import DatabaseSettings
 from specflow_live import requires_live
@@ -101,6 +101,31 @@ async def test_a_member_of_the_workspace_takes_over_but_another_workspace_is_ref
     async with factory() as session:
         row = await integrations.get_integration(session, project, GITHUB)
     assert row is not None and (row.user_id, row.workspace_id, row.connected_at) == (bo, "octo", LATER)
+
+
+async def test_a_member_cannot_take_over_while_the_binders_connection_is_active_but_can_when_it_is_not(factory) -> None:
+    ana, bo = await new_user(factory, "Ana"), await new_user(factory, "Bo")
+    project = await new_project(factory, ana, bo)
+    async with factory() as session, session.begin():
+        await session.execute(
+            text(
+                "INSERT INTO github_connections (user_id, github_user_id, login, refresh_token, status, connected_at, "
+                "last_used_at) VALUES (:u, 1, 'ana', :t, 'active', now(), now())"
+            ),
+            {"u": ana, "t": b"cipher"},
+        )
+    await bind(factory, project, GITHUB, ana, workspace="octo")
+
+    await bind(factory, project, GITHUB, ana, workspace="octo", at=LATER)  # the binder again: fine
+    with pytest.raises(BindingHeldError):
+        await bind(factory, project, GITHUB, bo, workspace="octo")
+    async with factory() as session, session.begin():
+        await session.execute(text("UPDATE github_connections SET status = 'expired' WHERE user_id = :u"), {"u": ana})
+    await bind(factory, project, GITHUB, bo, workspace="octo")
+
+    async with factory() as session:
+        row = await integrations.get_integration(session, project, GITHUB)
+    assert row is not None and row.user_id == bo
 
 
 async def test_a_workspace_nobody_acts_on_is_replaced_by_the_next_member(factory) -> None:

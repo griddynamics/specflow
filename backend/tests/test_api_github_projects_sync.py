@@ -76,6 +76,19 @@ async def test_an_open_issue_that_is_not_started_takes_the_plan_fields() -> None
     assert harness.gateway.issues[number].comments == []
 
 
+async def test_labels_a_person_added_stay_when_the_plan_fields_are_written() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    number = harness.gateway.number_of("Task TASK::A::3")
+    harness.gateway.issues[number].labels.append("needs-design")
+    harness.plan = plan_with(title="Renamed task")
+
+    await harness.push()
+
+    labels = harness.gateway.issues[number].labels
+    assert "needs-design" in labels and "specflow" in labels and "area-a" in labels
+
+
 async def test_an_issue_past_to_do_gets_one_comment_and_is_left_as_it_is() -> None:
     harness = Harness()
     await first_pass(harness)
@@ -90,6 +103,24 @@ async def test_an_issue_past_to_do_gets_one_comment_and_is_left_as_it_is() -> No
     assert (result.counts.commented, result.counts.updated) == (1, 0)
     assert issue.title == "Task TASK::A::3" and len(issue.comments) == 1 and "Title changed." in issue.comments[0]
     assert (again.counts.commented, again.counts.unchanged) == (0, 8)  # the stored content moved on: no repeat
+
+
+async def test_a_story_taken_off_the_project_is_commented_not_overwritten() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    number = harness.gateway.number_of("Story STORY::A::ONE")
+    harness.gateway.items.remove(harness.store.items["STORY::A::ONE"].item_id)  # a person removed it from the project
+    harness.plan = make_plan(
+        [story("STORY::A::ONE", title="Renamed story"), story("STORY::A::TWO"), story("STORY::A::THREE")],
+        plan_with().current.tasks,
+        waits=[("TASK::A::2", "TASK::A::1")],
+    )
+
+    result = await harness.push()
+
+    issue = harness.gateway.issues[number]
+    assert (result.counts.commented, result.counts.updated) == (1, 0)
+    assert issue.title == "Story STORY::A::ONE" and len(issue.comments) == 1
 
 
 async def test_a_closed_issue_is_commented_not_edited() -> None:

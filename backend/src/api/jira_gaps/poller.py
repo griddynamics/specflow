@@ -29,7 +29,7 @@ from api.gap.replies import parse_reply, record_and_apply
 from api.jira_gaps import text
 from api.jira_gaps.acting import Acting, ActingError, acting_gateway
 from db import jira_gaps as gaps_db
-from db.jira_gaps import GapIssueView, GapTargetView
+from db.jira_gaps import DestinationChangedError, GapIssueView, GapTargetView
 from graph.gap import AnswerInput, AnswerInvalidError, GapNotFoundError, GapStateError
 from jira.gateway import JiraError
 from jira.http import TokenSource
@@ -182,8 +182,15 @@ class JiraGapPoller:
                 await gaps_db.record_error(session, pid, code)
             log_event(logger, WARNING, "api.jira_gaps.poll_refused", project_id=project_id, error_code=code)
             return 0
-        async with self._runtime.transaction() as session:
-            await gaps_db.record_poll(session, pid, cursor=_cursor(target, newest), now=self._now(), error_code=None)
+        try:
+            async with self._runtime.transaction() as session:
+                await gaps_db.require_destination(session, pid, target.jira_project)
+                await gaps_db.record_poll(
+                    session, pid, cursor=_cursor(target, newest), now=self._now(), error_code=None
+                )
+        except DestinationChangedError:  # the Jira project changed during the poll: its cursor is not the new one's
+            log_event(logger, INFO, "api.jira_gaps.poll_superseded", project_id=project_id)
+            return answered
         if answered:
             log_event(logger, INFO, "api.jira_gaps.answered", project_id=project_id, gaps=answered)
         return answered

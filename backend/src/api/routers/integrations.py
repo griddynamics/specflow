@@ -24,12 +24,13 @@ from api.github import github_connections, github_error
 from api.project_integrations import (
     atlassian_not_connected,
     integration_forbidden,
+    integration_held,
     integration_not_found,
     integration_workspace_mismatch,
 )
 from api.runtime import Runtime
 from db import integrations as integrations_db
-from db.integrations import ATLASSIAN, GITHUB, SLACK, IntegrationView, WorkspaceMismatchError
+from db.integrations import ATLASSIAN, GITHUB, SLACK, BindingHeldError, IntegrationView, WorkspaceMismatchError
 from github.codes import GitHubCode, GitHubError
 from logger.logger import INFO, WARNING, get_logger, log_event
 
@@ -156,7 +157,8 @@ async def put_project_integration(
     app: Annotated[BindableApp, Path()], runtime: RuntimeDep, user: UserDep, access: MemberDep
 ) -> ProjectIntegrationOut:
     """Connect the project's ``app`` as the caller (their own active connection); a member of the same workspace may
-    take over a connection the earlier member left or lost. The Jira target and the repositories then act as the
+    take over a connection the earlier member left or lost (never one whose connection is still active: 409
+    ``integration_already_connected``). The Jira target and the repositories then act as the
     caller."""
 
     pid = access.project.id
@@ -179,6 +181,9 @@ async def put_project_integration(
     except WorkspaceMismatchError:
         log_event(logger, INFO, "api.integrations.refused", project_id=str(pid), app=app, user_id=str(user.id))
         raise integration_workspace_mismatch() from None
+    except BindingHeldError:
+        log_event(logger, INFO, "api.integrations.held", project_id=str(pid), app=app, user_id=str(user.id))
+        raise integration_held() from None
     log_event(logger, INFO, "api.integrations.connected", project_id=str(pid), app=app, user_id=str(user.id))
     rows = await _rows(runtime, pid)
     return await _out(runtime, pid, app, rows.get(app))

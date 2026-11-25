@@ -166,3 +166,17 @@ async def test_accounts_are_found_only_for_members_of_the_project(factory) -> No
 
     assert accounts == {"acct-ana": ana, "acct-bo": bo}
     assert own == "acct-cy" and none is None
+
+
+async def test_a_write_is_guarded_by_the_jira_project_the_pass_started_with(factory) -> None:
+    ana = await new_user(factory, "Ana")
+    project = await new_project(factory, ana)
+    await save(factory, project, jira_project="SHOP")
+
+    async with factory() as session, session.begin():
+        await jira_gaps.require_destination(session, project, "SHOP")
+    await save(factory, project, jira_project="OTHER")
+    for stale, who in (("SHOP", project), ("OTHER", uuid.uuid4())):
+        with pytest.raises(jira_gaps.DestinationChangedError):
+            async with factory() as session, session.begin():
+                await jira_gaps.require_destination(session, who, stale)

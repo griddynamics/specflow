@@ -81,11 +81,12 @@ class PushResult:
 
 @dataclass(frozen=True)
 class PushDeps:
-    """What a pass needs from its host; ``gateway_for`` is the acting member's gateway (a refusal is a ``GitHubError``
-    and ends the pass ``failed`` with no GitHub call)."""
+    """What a pass needs from its host; ``gateway_for`` is the gateway of the member the project's GitHub is
+    connected by NOW, read for every pass (a refusal is a ``GitHubError`` and ends the pass ``failed`` with no GitHub
+    call)."""
 
     store: ProjectsStore
-    gateway_for: Callable[[uuid.UUID | None], Awaitable[ProjectsGateway]]
+    gateway_for: Callable[[uuid.UUID], Awaitable[ProjectsGateway]]
     load_plan: Callable[[str], Awaitable[LoadedPlan]]
     spec_names: Callable[[str, Sequence[str]], Awaitable[Mapping[str, SpecRef]]]
     now: Callable[[], datetime]
@@ -194,7 +195,7 @@ class _Pass:
         orders = self._wanted_order()
         if not (creates or changed or self.desired.removed or revived or self._missing_items() or self._moves(orders)):
             return SUCCEEDED, None
-        self.gateway = await self.deps.gateway_for(target.connected_user_id)
+        self.gateway = await self.deps.gateway_for(self.pid)
         for node in creates:
             await self._guard(node, self._create(node))
         self.desired = self._build()
@@ -338,11 +339,15 @@ class _Pass:
         return parent is not None and parent.issue_number is not None
 
     async def _states(self, nodes: Sequence[str]) -> dict[str, Any]:
-        wanted = {node: self.ids[node].issue_node_id for node in nodes if self.ids[node].issue_node_id}
-        if not wanted:
+        """The state of each node's issue; a story's Status is read from its own item on the project (a task has none:
+        its ``item_id`` marks the link, not an item)."""
+
+        rows = {node: self.ids[node] for node in nodes if self.ids[node].issue_node_id}
+        refs = [(str(row.issue_node_id), row.item_id if row.kind == "story" else None) for row in rows.values()]
+        if not refs:
             return {}
-        found = await self.gateway.issue_states(self.target.project_node_id, [str(v) for v in wanted.values()])
-        return {node: found.get(str(issue)) for node, issue in wanted.items()}
+        found = await self.gateway.issue_states(refs)
+        return {node: found.get(str(row.issue_node_id)) for node, row in rows.items()}
 
     async def _update_all(self, changed: Sequence[str]) -> None:
         batch: dict[str, Any] | None
@@ -365,6 +370,7 @@ class _Pass:
         written = issue_content(values, node)
         if state.not_started:
             await self.gateway.edit_issue(repo, int(number or 0), written)
+            await self.gateway.add_labels(repo, int(number or 0), written.labels)  # added, never replaced
             self.counts.updated += 1
         else:
             lines = changes(row.content, values) or ["The plan changed."]
