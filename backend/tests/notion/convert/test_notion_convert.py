@@ -455,3 +455,79 @@ def test_render_row_property_types() -> None:
 def test_render_row_without_properties_or_body() -> None:
     assert render_row("", {}, ConvertedPage("")) == "# Untitled\n"
     assert render_row("T", {"Name": {"type": "title", "title": []}}, ConvertedPage("b\n")) == "# T\n\nb\n"
+
+
+# Review fixes -----------------------------------------------------------------------------------------------------
+
+
+def test_render_row_real_people_files_and_rollup_shapes(rows: list[dict[str, Any]]) -> None:
+    owner = next(r["properties"]["Owner"] for r in rows if r["properties"].get("Owner", {}).get("people"))
+    person = {"object": "user", "id": "u1", "name": "Pat", "type": "person", "person": {"email": "pat@corp.com"}}
+    bot = {"object": "user", "id": "b1", "name": "Sync Bot", "type": "bot", "bot": {}}
+    props = {
+        "Owner": owner,
+        "Bots": {"type": "people", "people": [bot, person]},
+        "Spec": {
+            "type": "files",
+            "files": [
+                {"name": "a.pdf", "type": "file", "file": {"url": "https://s3.test/x?sig=1"}},
+                {"name": "b.png", "type": "external", "external": {"url": "https://x.test/b.png"}},
+            ],
+        },
+        "All": {"type": "rollup", "rollup": {"type": "array", "array": [{"type": "people", "people": [person]}]}},
+    }
+    doc = render_row("T", props, ConvertedPage(""))
+    assert "| Owner | Sample Author |" in doc
+    assert "| Bots | Sync Bot, Pat |" in doc
+    assert "| Spec | a.pdf, b.png |" in doc
+    assert "| All | Pat |" in doc
+    assert "s3.test" not in doc
+    assert "@" not in doc
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[Jo](user://abc/e@x.com)",
+        "`user://abc/e@x.com`",
+        "USER://abc-def/e@x.com",
+        '<span data-x="user://abc/e@x.com">t</span>',
+        "see User://abc",
+    ],
+)
+def test_user_ids_never_survive_outside_mention_tags(text: str) -> None:
+    assert "abc" not in scrub_original(text)
+    assert "user://abc" not in scrub_original(text).lower()
+    md = to_markdown(text).markdown
+    assert "abc" not in md
+    assert "user://" not in md.lower()
+    assert "@" not in md
+    doc = render_row("T", {"N": {"type": "rich_text", "rich_text": [{"plain_text": text}]}}, ConvertedPage(""))
+    assert "abc" not in doc
+    assert "user://" not in doc.lower()
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["jö@x.com", "o'brien@x.com", "first.last+tag@sub.example.co.uk", "a" * 120 + "@x.com", "名前@x.com"],
+)
+def test_scrub_hides_unusual_addresses_fully(address: str) -> None:
+    assert scrub_original(f"mail {address}, ok") == "mail (e-mail hidden), ok"
+
+
+def test_autolinks_are_kept_only_when_safe() -> None:
+    assert (
+        to_markdown("<javascript:alert(1)> <https://x.test/a>").markdown
+        == "&lt;javascript:alert(1)> <https://x.test/a>\n"
+    )
+
+
+def test_database_refs_are_validated_like_pages() -> None:
+    good = "https://app.notion.com/p/423ed3360645819b8a30d73a847eb5e6"
+    page = to_markdown(
+        '<database url="javascript:alert(1)">A</database>\n'
+        f'<database url="{good}" data-source-url="collection://----">B</database>\n'
+        f'<database url="{good}" data-source-url="collection://zzzzzzzz-0645-819d-aec9-000b2cecb51b">C</database>'
+    )
+    assert [(d.title, d.data_source_id) for d in page.databases] == [("B", None), ("C", None)]
+    assert "javascript" not in page.markdown

@@ -7,7 +7,7 @@ from typing import Any, Final
 
 from drive.convert._md import as_list, as_map, escape_inline, one_line, table_md, title_of
 from notion.convert.result import ConvertedPage
-from notion.convert.scrub import HIDDEN, scrub_emails
+from notion.convert.scrub import HIDDEN, scrub_text
 from notion.model import plain_text
 
 _SKIPPED: Final = frozenset({"title"})
@@ -39,7 +39,7 @@ def _unique_id(value: Any) -> str:
 
 
 def _listed(value: Any) -> str:
-    names = (_text(item) if "type" in as_map(item) else _name(item) for item in as_list(value))
+    names = (_text(i) if as_map(i).get("type") in _READERS else _name(i) for i in as_list(value))
     return ", ".join(name for name in names if name)
 
 
@@ -111,4 +111,4 @@ def render_row(title: str, properties: Mapping[str, Any], body: ConvertedPage) -
         parts.append(table_md(rows))
     if body.markdown.strip():
         parts.append(body.markdown.strip("\n"))
-    return scrub_emails("\n\n".join(parts)) + "\n"
+    return scrub_text("\n\n".join(parts)) + "\n"

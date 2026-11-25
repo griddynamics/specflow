@@ -12,7 +12,7 @@ from typing import Final
 from drive.convert._md import clean, link_target, table_md
 from notion.convert.inline import inline
 from notion.convert.result import ConvertedPage
-from notion.convert.scrub import scrub_emails
+from notion.convert.scrub import scrub_text
 from notion.convert.tree import Node, Raw, indent_of, parse
 from notion.links import dashed, parse_link
 from notion.model import DatabaseRef, PageRef
@@ -28,7 +28,8 @@ _LINKS: Final = frozenset({"bookmark", "embed", "pdf", "file", "audio", "video"}
 _TITLED: Final = frozenset({"toggle", "tab", "meeting-notes"})
 _HEADING: Final = re.compile(r"h([1-6])")
 _BLOCK_START: Final = re.compile(r"(#{1,6} |[-*+] |\d+[.)] |>|```|~~~|\||---)")
-_COLLECTION: Final = re.compile(r"collection://([0-9a-fA-F-]{32,36})$")
+_COLLECTION: Final = re.compile(r"collection://([0-9a-fA-F-]+)")
+_HEX32: Final = re.compile(r"[0-9a-fA-F]{32}")
 _CELL_TAG: Final = re.compile(r"<(/?)(tr|td|th)(?=[\s/>])[^<>]*?(/?)>", re.IGNORECASE)
 
 
@@ -206,8 +207,9 @@ class _Renderer:
             kind = "page"
         else:
             source = _COLLECTION.fullmatch(node.attrs.get("data-source-url", ""))
-            if url:
-                self.databases.append(DatabaseRef(title, url, dashed(source.group(1)) if source else None))
+            plain = source.group(1).replace("-", "") if source else ""
+            if page_id:
+                self.databases.append(DatabaseRef(title, url, dashed(plain) if _HEX32.fullmatch(plain) else None))
             kind = "database"
         target = link_target(url)
         return f"- Sub-{kind}: [{title}]({target})" if target else f"- Sub-{kind}: {title}"
@@ -259,5 +261,5 @@ def to_markdown(nfm: str) -> ConvertedPage:
     lines = renderer.items(parse(text).body)
     if truncated:
         lines += ["", TRUNCATED]
-    markdown = scrub_emails("\n".join(lines)).strip("\n")
+    markdown = scrub_text("\n".join(lines)).strip("\n")
     return ConvertedPage(f"{markdown}\n" if markdown else "", tuple(renderer.pages), tuple(renderer.databases))

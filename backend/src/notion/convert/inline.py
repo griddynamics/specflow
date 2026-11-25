@@ -121,7 +121,8 @@ class _Scanner:
         elif found[1] in "!?":
             self.out.append("&lt;" + found[1])
         elif m.group("name") is None:
-            self.out.append(found)  # an autolink
+            # an autolink is kept only when it is a link the converter would write
+            self.out.append(found if link_target(found[1:-1]) else "&lt;" + found[1:])
         else:
             return self._tag(m, pos)
         return pos
