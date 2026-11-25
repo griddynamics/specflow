@@ -5668,7 +5668,8 @@
               "gdrive",
               "upload",
               "confluence",
-              "jira_epic"
+              "jira_epic",
+              "linear_project"
             ],
             "title": "Kind",
             "type": "string"
@@ -6694,6 +6695,147 @@
           "epic_key"
         ],
         "title": "JiraSyncStatus",
+        "type": "object"
+      },
+      "LinearAuthorizeIn": {
+        "additionalProperties": false,
+        "description": "Where the browser returns after the consent: a path of this site (the Atlassian rule).",
+        "properties": {
+          "return_to": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "return_to"
+        ],
+        "title": "LinearAuthorizeIn",
+        "type": "object"
+      },
+      "LinearAuthorizeOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "LinearAuthorizeOut",
+        "type": "object"
+      },
+      "LinearCallbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "state"
+        ],
+        "title": "LinearCallbackIn",
+        "type": "object"
+      },
+      "LinearCallbackOut": {
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/LinearConnectionOut"
+          },
+          "return_to": {
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "return_to"
+        ],
+        "title": "LinearCallbackOut",
+        "type": "object"
+      },
+      "LinearConnectionOut": {
+        "description": "The caller's Linear connection; ``available`` is whether the server has the Linear app configured.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "none",
+              "active",
+              "expired",
+              "revoked"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Name"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LinearWorkspaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "status",
+          "user_name",
+          "workspace"
+        ],
+        "title": "LinearConnectionOut",
+        "type": "object"
+      },
+      "LinearWorkspaceOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "url_key": {
+            "title": "Url Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "url_key"
+        ],
+        "title": "LinearWorkspaceOut",
         "type": "object"
       },
       "MeOut": {
@@ -10048,7 +10190,8 @@
               "gdrive",
               "upload",
               "confluence",
-              "jira_epic"
+              "jira_epic",
+              "linear_project"
             ],
             "title": "Kind",
             "type": "string"
@@ -14923,6 +15066,124 @@
         "summary": "Github Setup",
         "tags": [
           "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/linear": {
+      "delete": {
+        "description": "Delete the caller's connection and revoke the tokens at Linear (best effort).",
+        "operationId": "disconnect_linear_api_v1_integrations_linear_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Disconnect Linear",
+        "tags": [
+          "linear"
+        ]
+      },
+      "get": {
+        "operationId": "get_linear_connection_api_v1_integrations_linear_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Linear Connection",
+        "tags": [
+          "linear"
+        ]
+      }
+    },
+    "/api/v1/integrations/linear/authorize": {
+      "post": {
+        "description": "Linear's consent URL; its ``state`` holds the user, ``return_to`` and a 10-minute expiry.",
+        "operationId": "authorize_linear_api_v1_integrations_linear_authorize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearAuthorizeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearAuthorizeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Authorize Linear",
+        "tags": [
+          "linear"
+        ]
+      }
+    },
+    "/api/v1/integrations/linear/callback": {
+      "post": {
+        "description": "Check ``state``, exchange ``code`` (with the PKCE verifier), read the viewer and keep the connection.",
+        "operationId": "linear_callback_api_v1_integrations_linear_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearCallbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Linear Callback",
+        "tags": [
+          "linear"
         ]
       }
     },

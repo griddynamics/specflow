@@ -5,7 +5,6 @@ from __future__ import annotations
 import inspect
 
 import pytest
-from pydantic import SecretStr
 
 from linear.errors import (
     LinearAlreadyExistsError,
@@ -21,7 +20,6 @@ from linear.errors import (
 from linear.fake import FakeLinear
 from linear.gateway import LinearGateway
 from linear.http import HttpLinearGateway
-from linear.oauth import LinearOAuthClient
 
 # The methods the streams S3 to S5 code against: a change here is a change of their contract.
 PROTOCOL_METHODS = (
@@ -76,16 +74,6 @@ async def test_the_http_gateway_is_a_stub_until_stream_s2() -> None:
     with pytest.raises(NotImplementedError, match="S2"):
         await gateway.viewer()
     assert "token-canary" not in repr(gateway)
-
-
-async def test_the_oauth_client_is_a_stub_until_stream_s1() -> None:
-    client = LinearOAuthClient("id", SecretStr("secret-canary"), "http://localhost/cb")
-
-    with pytest.raises(NotImplementedError, match="S1"):
-        client.authorize_url("state", "challenge")
-    with pytest.raises(NotImplementedError, match="S1"):
-        await client.exchange("code", "verifier")
-    assert "secret-canary" not in repr(client)
 
 
 @pytest.mark.parametrize(

@@ -252,7 +252,15 @@ const control = http.createServer(async (req, res) => {
     api.jiraGaps.seed(spec);
     return send(200, {});
   }
-  // LINEAR S1: POST /seed-linear ({available?, connection?}) -> api.linear.seed(spec); S4: seed a `linear_project` source through /seed-source.
+  // POST /seed-linear ({reset?, available?, connection?, callbackError?}) -> api.linear.seed(spec). LINEAR S4: seed a `linear_project` source through /seed-source.
+  if (req.method === "POST" && req.url === "/seed-linear") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const { reset, ...spec } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    if (reset === true) api.linear.reset();
+    api.linear.seed(spec);
+    return send(200, { ok: true });
+  }
   if (req.method === "POST" && (req.url === "/seed-source" || req.url === "/remove-source")) {
     const chunks = [];
     for await (const c of req) chunks.push(c);

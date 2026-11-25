@@ -227,6 +227,14 @@ export const authorizeAtlassian = (returnTo: string) =>
 /** 204: resolves with the HTTP status. */
 export const disconnectAtlassian = () => httpDelete("/integrations/atlassian").then((r) => r.status);
 
+// Linear (plans/LINEAR, stream S1): the caller's connection. Bodies stay `unknown`; the Linear port (lib/data/http/linear.ts) checks their shape. The
+// OAuth callback is not here: the route handler app/api/integrations/linear/callback calls the API on the server.
+export const getLinearConnection = () => httpGet("/integrations/linear").then((r) => r.body);
+export const authorizeLinear = (returnTo: string) =>
+  httpPost("/integrations/linear/authorize", json({ return_to: returnTo })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const disconnectLinear = () => httpDelete("/integrations/linear").then((r) => r.status);
+
 // GitHub (docs/github/api.md): the caller's connection, the repositories it can read and the repositories of a
 // project. Bodies stay `unknown`; the GitHub port (lib/data/http/github.ts) checks their shape. The OAuth callback and the setup return
 // are not here: the route handlers app/api/integrations/github/{callback,setup} call the API on the server.

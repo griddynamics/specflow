@@ -17,9 +17,8 @@ const validation = (...errors) => new StubError(422, "validation_failed", { erro
  * `roleOf(pid)` is the caller's role ("owner" or "collaborator"; throws 404 for a non-member). `jira` and `github` are the stub models whose
  * `state.connection` is the caller's own connection. `displayName` is the caller's name.
  */
-export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
-  // LINEAR S1: `linearAvailable` is false until stream S1 gives the stub a Linear connection (`linear` model, like `jira` and `github`).
-  const state = { slackAvailable: true, slackTest: "ok", linearAvailable: false };
+export function createIntegrationsModel({ roleOf, jira, github, linear, displayName }) {
+  const state = { slackAvailable: true, slackTest: "ok" };
   const projects = new Map(); // pid -> {atlassian, github, slack: row | null, channel: {id, name, private} | null}
   const mine = (pid) => {
     if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, linear: null, channel: null });
@@ -32,10 +31,16 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
       : app === "github"
         ? github.state.enabled
         : app === "linear"
-          ? state.linearAvailable
+          ? linear.state.available
           : state.slackAvailable;
-  // LINEAR S1: the caller has no Linear connection in the stub until S1 adds the model.
-  const callerConnection = (app) => (app === "atlassian" ? jira.state.connection : app === "github" ? github.state.connection : null);
+  const callerConnection = (app) =>
+    app === "atlassian"
+      ? jira.state.connection
+      : app === "github"
+        ? github.state.connection
+        : app === "linear"
+          ? linear.state.connection
+          : null;
 
   function healthOf(app, row) {
     if (row === null) return "none";
@@ -70,7 +75,11 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
     if (!availableOf(app)) throw new StubError(503, UNAVAILABLE[app]);
     const own = callerConnection(app);
     if (own === null || own.status !== "active") throw new StubError(409, NOT_CONNECTED[app]);
-    const workspace = app === "atlassian" ? { id: "cloud-stub", name: "example.atlassian.net" } : { id: own.login, name: own.login };
+    const workspaces = {
+      atlassian: { id: "cloud-stub", name: "example.atlassian.net" },
+      linear: { id: own.workspace?.id, name: own.workspace?.name },
+    };
+    const workspace = workspaces[app] ?? { id: own.login, name: own.login };
     const p = mine(pid);
     const current = p[app];
     if (current !== null && current.user_id !== null && current.workspace.id !== workspace.id)
@@ -119,7 +128,7 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
    */
   /** @param {{pid?: string, reset?: boolean, slackAvailable?: boolean, slackTest?: string, [app: string]: any}} spec */
   function seed({ pid, reset, slackAvailable, slackTest: outcome, ...bindings }) {
-    if (reset === true) Object.assign(state, { slackAvailable: true, slackTest: "ok", linearAvailable: false });
+    if (reset === true) Object.assign(state, { slackAvailable: true, slackTest: "ok" });
     if (slackAvailable !== undefined) state.slackAvailable = slackAvailable;
     if (outcome !== undefined) state.slackTest = outcome;
     if (pid === undefined) return;
