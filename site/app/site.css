@@ -1,0 +1,270 @@
+/* The page's own styles. Tokens, base, buttons and the brand come from @graphico/ui (the `gx` root class on <body>);
+   this file holds the layout of the landing page's sections only. Source: the frozen landing draft. */
+/* The page's own styles. Tokens, base, buttons and the brand come from @graphico/ui (the `gx` root class on <body>);
+   this file holds the layout of the landing page's sections only. Source: the frozen landing draft. */
+html {
+  scroll-padding-top: calc(var(--gx-header-h, 64px) + 16px + env(safe-area-inset-top, 0px));
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 30;
+  background: var(--gx-paper);
+}
+[hidden]:not([hidden="until-found" i]) {
+  display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--gx-font-display);
+  text-wrap: balance;
+  margin: 0;
+}
+p {
+  margin: 0;
+}
+ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.gx-eyebrow {
+  font-variant-feature-settings:
+    "liga" 0,
+    "calt" 0;
+}
+.wrap {
+  max-width: var(--gx-maxw);
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.linkbtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 15px;
+  color: var(--gx-ink);
+}
+.display {
+  font-size: clamp(40px, 6.2vw, 78px);
+  line-height: 0.98;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+.h2 {
+  font-size: clamp(30px, 3.8vw, 46px);
+  line-height: 1.04;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.h3 {
+  font-size: 21px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+.h4 {
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+.lede {
+  font-size: clamp(18px, 1.6vw, 21px);
+  line-height: 1.5;
+  color: var(--gx-ink-2);
+  max-width: 62ch;
+}
+.muted {
+  color: var(--gx-ink-3);
+}
+.small {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.tiny {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.section {
+  border-top: 1px solid var(--gx-rule);
+  padding-block: 84px;
+}
+.section.inv {
+  background: var(--gx-inv-bg);
+  color: var(--gx-inv-fg);
+  border-top-color: var(--gx-inv-bg);
+}
+.section-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: 48px;
+}
+.section-head .label {
+  justify-self: start;
+  width: 220px;
+  max-width: 100%;
+  margin-bottom: 28px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--gx-ink);
+  font-family: var(--gx-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gx-ink-3);
+}
+.section.inv .section-head .label {
+  border-bottom-color: var(--gx-inv-fg);
+  color: var(--gx-inv-mute);
+}
+.section-head .intro {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.section-head .lede {
+  max-width: none;
+}
+@media (max-width: 900px) {
+  .section {
+    padding-block: 60px;
+  }
+}
+.tag {
+  display: inline-block;
+  font-family: var(--gx-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 1px 6px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.tag.solid {
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+  border-color: var(--gx-ink);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--gx-rule);
+  background: var(--gx-paper);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--gx-ink);
+}
+.chip:hover {
+  border-color: var(--gx-ink);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--gx-ink);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.seg button {
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gx-ink);
+}
+.seg button[aria-pressed="true"],
+.seg button[aria-selected="true"] {
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 15px;
+}
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--gx-rule);
+}
+thead th {
+  font-family: var(--gx-font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gx-ink-3);
+  font-weight: 400;
+  background: var(--gx-wash);
+}
+tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.stack-8 {
+  display: grid;
+  gap: 8px;
+}
+.stack-12 {
+  display: grid;
+  gap: 12px;
+}
+.mt-24 {
+  margin-top: 24px;
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+/* The word of the brand hides on a phone; the mark stays and the link keeps its name. */
+@media (max-width: 560px) {
+  .site-header .gx-brand > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+.section.inv .muted,
+.section.inv .gx-eyebrow,
+.section.inv .lede {
+  color: var(--gx-inv-mute);
+}

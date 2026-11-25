@@ -1,5 +1,5 @@
 # Frontend image. The last stage (runtime) is the image; Infra and the local stack build it.
-# Build context = the repository root (npm workspace: package.json, package-lock.json, packages/ui, frontend/);
+# Build context = the repository root (npm workspace: package.json, package-lock.json, packages/ui, frontend/, the site manifest);
 # `docker build -f frontend/Dockerfile .`. The context is filtered by frontend/Dockerfile.dockerignore, which only
 # BuildKit reads: build with BuildKit, from the repository root, with `-f frontend/Dockerfile`.
 # The base tag is a literal in every FROM (no ARG), so --build-arg cannot change it.
@@ -15,6 +15,7 @@ USER node
 COPY --chown=node:node package.json package-lock.json ./
 COPY --chown=node:node frontend/package.json frontend/package.json
 COPY --chown=node:node packages/ui/package.json packages/ui/package.json
+COPY --chown=node:node site/package.json site/package.json
 RUN npm ci
 
 # build: `next build` with output: "standalone". No runtime env is needed here.

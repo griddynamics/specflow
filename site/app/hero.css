@@ -1,0 +1,61 @@
+/* Hero, and the Built for teams statement. */
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.hero {
+  padding-block: 64px 72px;
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 56px;
+  align-items: start;
+}
+.hero-copy {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.hero-proof {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 14px;
+  color: var(--gx-ink-3);
+}
+.hero-proof span::before {
+  content: "■ ";
+  font-size: 9px;
+  vertical-align: 2px;
+  color: var(--gx-ink);
+}
+@media (max-width: 1000px) {
+  .hero-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+  }
+}
+.team .wrap {
+  display: grid;
+  gap: 28px;
+}
+.team .display {
+  max-width: 18ch;
+}
+.team .section-head {
+  margin-bottom: 0;
+}
+.ways {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ways span {
+  border: 1px solid var(--gx-inv-mute);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 15px;
+  font-weight: 600;
+}

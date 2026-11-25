@@ -1,0 +1,118 @@
+component: site
+replicaCount: 1
+
+# The public landing page: a static export served by an unprivileged static server. No Secret, no database, no API.
+# The root filesystem is read-only (the chart default); the server writes nothing, so no /tmp volume is needed.
+
+image:
+  registry: docker.io
+  repository: griddynamics/specflow-site
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+command: []
+args: []
+containerPorts:
+  - name: http
+    containerPort: 8080
+    protocol: TCP
+
+env: []
+envFrom: []
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
+
+terminationGracePeriodSeconds: 30
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+startupProbe:
+  httpGet:
+    path: /
+    port: http
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+service:
+  enabled: true
+  type: ClusterIP
+  annotations: {}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+
+persistence:
+  enabled: false
+  existingClaim: ""
+  name: data
+  mountPath: ""
+  size: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClass: ""
+  retain: true
+  annotations: {}
+
+volumes: []
+volumeMounts: []
+
+# Public: set routing.type (ingress or httpRoute) and hostnames in the deployment's own values.
+routing:
+  type: none
+  hostnames: []
+  paths:
+    - path: /
+      pathType: Prefix
+  ingress:
+    className: ""
+    annotations: {}
+    tls: []
+  httpRoute:
+    parentRefs: []
+    annotations: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: null
+  behavior: {}
+podDisruptionBudget:
+  enabled: false
+  minAvailable: null
+  maxUnavailable: 1

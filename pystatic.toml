@@ -7,12 +7,14 @@
 [source-ownership]
 # Directories that each run their own validation over their sources: the two applications
 # (make validate-python-* / validate-cypher / validate-sql for backend, validate-typescript-* for
-# frontend), the validation kits (make validate-selftest) and the kit's CI report folder, whose
+# frontend), the public landing page (site: make site-lint, site-build and site-test), the validation kits
+# (make validate-selftest) and the kit's CI report folder, whose
 # tests (validation/ci/test_*.py) run in make validate-ci-selftest, part of validate-selftest.
 projects = [
     "backend",
     "frontend",
     "packages/ui",
+    "site",
     "validation/ci",
     "validation/python/lint",
     "validation/python/scripts",

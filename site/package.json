@@ -1,0 +1,27 @@
+{
+  "name": "site",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@graphico/ui": "*",
+    "next": "16.3.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.7",
+    "tsx": "4.23.15",
+    "typescript": "^5"
+  }
+}

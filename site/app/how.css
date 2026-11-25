@@ -1,0 +1,261 @@
+/* How it works: the accordion of steps and its figure. */
+.tab {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--gx-ink-3);
+  font-weight: 600;
+}
+.tab:hover {
+  color: var(--gx-ink);
+}
+.how {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 40px;
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .how {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.how-steps {
+  display: grid;
+}
+.how-step {
+  border-bottom: 1px solid var(--gx-rule);
+  border-left: 3px solid transparent;
+}
+.how-step:first-child {
+  border-top: 1px solid var(--gx-rule);
+}
+.how-step:has(> .tab[aria-expanded="true"]) {
+  border-left-color: var(--gx-ink);
+}
+.how-steps .tab {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 2px 12px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 4px 14px 12px;
+  margin: 0;
+  border: 0;
+  color: var(--gx-ink-3);
+}
+.how-steps .tab .n {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  grid-row: span 2;
+}
+.how-steps .tab .k {
+  font-family: var(--gx-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.how-steps .tab .t {
+  font-size: 17px;
+  font-weight: 700;
+}
+.how-steps .tab[aria-expanded="true"] {
+  color: var(--gx-ink);
+  cursor: default;
+}
+.how-copy {
+  display: grid;
+  gap: 14px;
+  padding: 0 16px 24px 68px;
+}
+@media (max-width: 640px) {
+  .how-copy {
+    padding-left: 16px;
+  }
+}
+.how-copy h3 {
+  font-size: 24px;
+  line-height: 1.2;
+}
+.how-copy p {
+  color: var(--gx-ink-2);
+}
+.stage-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  border-bottom: 1.5px solid var(--gx-ink);
+}
+.stage-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.stage-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1.5px solid var(--gx-ink);
+  min-height: 58px;
+}
+.stage-ctl .status {
+  font-size: 14px;
+  color: var(--gx-ink-2);
+  flex: 1 1 220px;
+}
+.st-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12.5px;
+  color: var(--gx-ink-3);
+  padding: 0 14px 12px;
+}
+.st-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.st-legend svg {
+  width: 14px;
+  height: 14px;
+}
+.stage-svg .layer1,
+.stage-svg .layer2,
+.stage-svg .layer3 {
+  transition: opacity 0.35s;
+}
+.stage-svg:not(.s1) .layer1 {
+  opacity: 0.12;
+}
+.stage-svg:not(.s2) .layer2 {
+  opacity: 0;
+  pointer-events: none;
+}
+.stage-svg:not(.s3) .layer3 {
+  opacity: 0;
+}
+.src-box rect {
+  fill: var(--gx-paper);
+  stroke: var(--gx-ink);
+  stroke-width: 1.4;
+}
+.src-box text,
+.m-chip text {
+  font-family: var(--gx-font-body);
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--gx-ink);
+}
+.strip {
+  fill: var(--gx-wash);
+  stroke: var(--gx-ink);
+  stroke-width: 1;
+}
+.feed {
+  fill: none;
+  stroke: var(--gx-ink-3);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 4;
+}
+.glink {
+  stroke: var(--gx-ink-3);
+  stroke-width: 1.4;
+  fill: none;
+}
+.gnode circle {
+  fill: var(--gx-paper);
+  stroke: var(--gx-ink);
+  stroke-width: 1.6;
+  transition:
+    fill 0.3s,
+    stroke-width 0.3s;
+}
+.gnode text {
+  font-family: var(--gx-font-mono);
+  font-size: 10px;
+  fill: var(--gx-ink-3);
+}
+.gnode.pop {
+  opacity: 0;
+  animation: pop 0.45s ease forwards;
+  animation-delay: var(--d, 0s);
+}
+.gnode {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.gflag circle {
+  fill: var(--gx-ink);
+  stroke: var(--gx-paper);
+  stroke-width: 1.5;
+}
+.gflag text {
+  fill: var(--gx-paper);
+  font-family: var(--gx-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.m-chip rect {
+  fill: var(--gx-paper);
+  stroke: var(--gx-ink);
+  stroke-width: 1.4;
+}
+.m-chip.lit rect {
+  fill: var(--gx-ink);
+}
+.m-chip.lit text {
+  fill: var(--gx-paper);
+}
+.scan {
+  fill: none;
+  stroke: var(--gx-ink);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 5;
+  opacity: 0.6;
+}
+.stage-svg.s3 .gnode.done circle {
+  fill: var(--gx-ink);
+}
+.stage-svg.s3 .gnode.prog circle {
+  fill: url(#hatch);
+  stroke-width: 2.4;
+}
+.stage-svg.s3 .gnode.ready circle {
+  stroke-width: 3.2;
+}
+.stage-svg.s3 .gnode.wait circle {
+  stroke-dasharray: 3 3;
+}
+.stage-svg.s3 .gnode.block circle {
+  stroke-dasharray: 3 3;
+}
+.agent-tag rect {
+  fill: var(--gx-ink);
+}
+.agent-tag text {
+  fill: var(--gx-paper);
+  font-family: var(--gx-font-mono);
+  font-size: 10px;
+}
+.hatch-a {
+  stroke: var(--gx-ink);
+  stroke-width: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gnode.pop {
+    animation: none;
+    opacity: 1;
+  }
+}

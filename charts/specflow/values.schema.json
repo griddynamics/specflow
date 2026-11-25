@@ -18,7 +18,7 @@
     "fullnameOverride": {"type": "string"},
     "component": {
       "type": "string",
-      "enum": ["api", "frontend", "mcp", "worker-agent", "worker-parse"]
+      "enum": ["api", "frontend", "mcp", "site", "worker-agent", "worker-parse"]
     },
     "replicaCount": {"type": "integer", "minimum": 1},
     "image": {"$ref": "#/definitions/image"},

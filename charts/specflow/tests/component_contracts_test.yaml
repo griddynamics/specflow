@@ -68,6 +68,38 @@ tests:
                 key: SESSION_SECRET
         template: deployment.yaml
 
+  - it: renders the site contract
+    values:
+      - ../examples/components/site.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/griddynamics/specflow-site:2.0.0
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8080
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 10001
+        template: deployment.yaml
+      - notExists:
+          path: spec.template.spec.containers[0].env
+        template: deployment.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+        template: service.yaml
+
   - it: renders the MCP contract
     values:
       - ../examples/components/mcp.yaml
