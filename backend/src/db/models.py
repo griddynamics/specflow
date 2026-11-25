@@ -389,7 +389,7 @@ GITHUB_PROJECT_TRIGGERS: Final = ("plan_run", "settings", "recovery")
 GITHUB_PROJECT_ITEM_KINDS: Final = ("story", "subtask")
 # Linear tables (migration 0011_linear): the plan destination reuses JIRA_RUN_STATUSES.
 LINEAR_CONNECTION_STATUSES: Final = ("active", "expired", "revoked")
-LINEAR_TRIGGERS: Final = ("plan_run", "settings", "recovery")
+LINEAR_TRIGGERS: Final = ("plan_run", "mcp", "settings", "recovery")
 LINEAR_ISSUE_KINDS: Final = ("story", "subtask")
 LINEAR_GAP_GROUPINGS: Final = ("one", "area")
 REPOSITORY_CLONE_STATES: Final = ("pending", "cloning", "cloned", "failed")

@@ -75,6 +75,11 @@ export function NodeDialog({
     <Stack>
       <Notice>{detail.text}</Notice>
       {detail.by === null ? null : <Notice>{detail.by}</Notice>}
+      {detail.link === undefined ? null : (
+        <a href={detail.link.href} target="_blank" rel="noreferrer">
+          {detail.link.label}
+        </a>
+      )}
       {failed ? <Notice role="alert">{CANVAS_COPY.removeFailed}</Notice> : null}
       {renaming ? (
         <RenameUpload

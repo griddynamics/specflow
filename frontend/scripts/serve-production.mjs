@@ -226,7 +226,19 @@ const control = http.createServer(async (req, res) => {
     api.jira.seed(spec);
     return send(200, {});
   }
-  // LINEAR S3: POST /seed-linear-plan ({pid?, available?, target?, access?}) -> api.linearPlan.seed(spec), like /seed-github-projects.
+  // POST /seed-linear-plan ({pid?, available?, workspace?, target?, access?}) -> api.linearPlan.seed(spec), like /seed-github-projects.
+  if (req.method === "POST" && req.url === "/seed-linear-plan") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.linearPlan.seed(spec);
+    return send(200, {});
+  }
   if (req.method === "POST" && req.url === "/seed-github-projects") {
     const chunks = [];
     for await (const c of req) chunks.push(c);

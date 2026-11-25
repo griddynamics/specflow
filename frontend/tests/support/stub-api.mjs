@@ -12,7 +12,7 @@ import { driveFilesCapped, driveFilesOf } from "./stub-drive-files.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
 // LINEAR S1: import the Linear connection model (stub-linear.mjs), like createGitHubModel below.
 import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
-// LINEAR S3: import the Linear plan destination model (stub-linear-plan.mjs).
+import { createLinearPlanModel } from "./stub-linear-plan.mjs";
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
 // LINEAR S5: import the Linear gap channel model (stub-linear-gaps.mjs).
 import { createGitHubModel } from "./stub-github.mjs";
@@ -131,7 +131,11 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     (pid) => integrations.githubActive(pid),
     (pid, id) => github.list(pid).repositories.find((r) => r.id === id),
   );
-  // LINEAR S3: const linearPlan = createLinearPlanModel((pid) => integrations.linearActive(pid));
+  /** Linear plan destination: any member; acts as the project's Linear binding (bound while the integrations stub has no Linear model). */
+  const linearPlan = createLinearPlanModel(
+    (pid) => (typeof integrations.linearActive === "function" ? integrations.linearActive(pid) : true),
+    (pid) => projects.get(pid)?.name ?? "Project",
+  );
   const readJson = async (req) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -1226,6 +1230,19 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/projects/{pid}/linear-plan[/teams|/projects|/access-check]` (plans/LINEAR/LINEAR-PLAN.md, S3): the destination, its teams and projects, the check. */
+  async function linearPlanRoute({ req, res, url, pid, did }) {
+    const m = req.method;
+    people.list(pid); // a non-member is a 404
+    if (!did && m === "GET") return json(res, 200, linearPlan.get(pid));
+    if (!did && m === "PUT") return json(res, 200, linearPlan.put(pid, await readJson(req)));
+    if (did === "teams" && m === "GET") return json(res, 200, linearPlan.teams(pid));
+    if (did === "projects" && m === "GET") return json(res, 200, linearPlan.projects(pid, url.searchParams.get("team_id") ?? ""));
+    if (did === "access-check" && m === "POST") return json(res, 200, linearPlan.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   /** `/integrations/atlassian[/authorize|/callback]` (docs/jira-sync/oauth.md#routes): the caller's Atlassian connection. */
   async function atlassianRoute({ req, res, action }) {
     const m = req.method;
@@ -1415,7 +1432,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     // LINEAR S5: if (b === "linear-gaps") return linearGapsRoute({ req, res, pid, did });
     if (b === "jira-gaps") return jiraGapsRoute({ req, res, pid, did });
     if (b === "github-projects") return githubProjectsRoute({ req, res, url, pid, did });
-    // LINEAR S3: if (b === "linear-plan") return linearPlanRoute({ req, res, url, pid, did });
+    if (b === "linear-plan") return linearPlanRoute({ req, res, url, pid, did });
     if (b === "integrations") return integrationsRoute({ req, res, pid, did });
     // LINEAR S4: sources/linear (check, add) is served inside sourcesRoute, next to "jira-epic".
     if (b === "slack") return slackRoute({ req, res, pid, did });
@@ -1503,7 +1520,9 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     jiraGaps,
     /** GitHub Projects destination: `githubProjects.state` (available, organization) and `githubProjects.seed({pid, available, organization, target, access})`. */
     githubProjects,
-    // LINEAR S1: linear (the connection model above), and S3: linearPlan.
+    // LINEAR S1: linear (the connection model above).
+    /** Linear plan destination: `linearPlan.state` (available, workspace) and `linearPlan.seed({pid, available, workspace, target, access})`. */
+    linearPlan,
     /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
     github,
     /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, ...})`. */

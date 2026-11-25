@@ -87,7 +87,7 @@ const http: HttpPorts = {
   slack: { get: never, unbind: never, test: never },
   integrations: { list: never, connect: never, disconnect: never },
   linear: { connection: never, authorize: never, disconnect: never },
-  linearPlan: { get: never },
+  linearPlan: { get: never, teams: never, projects: never, save: never, checkAccess: never },
   linearSource: { check: never, add: never },
   linearGaps: { get: never },
   github: {

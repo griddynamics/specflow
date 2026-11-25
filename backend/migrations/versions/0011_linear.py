@@ -65,7 +65,7 @@ OLD_KINDS = ("gdrive", "upload", "confluence", "jira_epic")
 NEW_KINDS = (*OLD_KINDS, "linear_project")
 CONNECTION_STATUSES = ("active", "expired", "revoked")
 RUN_STATUSES = ("running", "succeeded", "partial", "failed", "skipped")
-TRIGGERS = ("plan_run", "settings", "recovery")
+TRIGGERS = ("plan_run", "mcp", "settings", "recovery")
 ISSUE_KINDS = ("story", "subtask")
 GROUPINGS = ("one", "area")
 

@@ -1,7 +1,8 @@
 """The contract gate of the MCP tooling tools (MCP-TOOLING D29): ``list_areas``, ``list_stories``, ``preview_story``,
 ``claim_story``, ``release_story``, ``get_story_brief``, ``trace``, ``get_node``, ``search_spec``, ``similar``,
 ``get_evidence``, ``path``, ``expand_brief``, ``list_gaps``, ``browse_gaps``, ``open_gap``,
-``add_finding``, ``report_task``, ``complete_story``, ``sync_to_jira`` and ``jira_sync_status``, and the open gaps
+``add_finding``, ``report_task``, ``complete_story``, ``sync_to_jira``, ``jira_sync_status``, ``sync_to_linear`` and
+``linear_sync_status``, and the open gaps
 the briefs show (scenario ``gaps``), frozen
 as golden files NEXT TO the split's (whose files stay as the split froze them, ``tools/list`` aside).
 
@@ -53,6 +54,8 @@ ERROR_CODES = (
     "answer_invalid",
     "jira_unavailable",
     "jira_not_configured",
+    "linear_unavailable",
+    "linear_not_configured",
 )
 # Reached only after a person accepted the dialog of answer_gap, which a plain tools/call cannot do: covered by
 # test_mcp_answer_gap.py (gap_wrong_state) and test_api_agent_gaps.py (all three).
@@ -232,6 +235,17 @@ async def test_every_tool_answers_the_golden_success_results(tooling_double):
         )
         results["sync_to_jira"] = await tool(client, "sync_to_jira", project_id=ALPHA)
         names |= {key: key.removesuffix("_first_page").removesuffix("_second_page") for key in results if "jira" in key}
+    async with tooling_double.serve("linear") as client:  # the Linear twins, the same way
+        results["linear_sync_status_first_page"] = await tool(client, "linear_sync_status", project_id=ALPHA, limit=3)
+        first = results["linear_sync_status_first_page"]["structuredContent"]
+        assert len(first["items"]) == 3 and first["next_cursor"] is not None
+        results["linear_sync_status_second_page"] = await tool(
+            client, "linear_sync_status", project_id=ALPHA, limit=3, cursor=first["next_cursor"]
+        )
+        results["sync_to_linear"] = await tool(client, "sync_to_linear", project_id=ALPHA)
+        names |= {
+            key: key.removesuffix("_first_page").removesuffix("_second_page") for key in results if "linear" in key
+        }
     async with tooling_double.serve("free") as client:  # the writes: a claim, its repeat, a release, its repeat
         claim = {
             "project_id": ALPHA,
@@ -328,6 +342,8 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
         ),
         "jira_unavailable": ("jira_off", "sync_to_jira", {"project_id": ALPHA}),
         "jira_not_configured": ("jira", "sync_to_jira", {"project_id": BETA}),
+        "linear_unavailable": ("linear_off", "sync_to_linear", {"project_id": ALPHA}),
+        "linear_not_configured": ("linear", "sync_to_linear", {"project_id": BETA}),
         "invalid_commit": (
             "free",
             "complete_story",
@@ -359,6 +375,15 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
         "invalid_cursor:jira_sync_status": (
             "jira",
             "jira_sync_status",
+            {"project_id": ALPHA, "cursor": "not-a-cursor"},
+        ),
+    }
+    extra |= {
+        "linear_unavailable:linear_sync_status": ("linear_off", "linear_sync_status", {"project_id": ALPHA}),
+        "linear_not_configured:linear_sync_status": ("linear", "linear_sync_status", {"project_id": BETA}),
+        "invalid_cursor:linear_sync_status": (
+            "linear",
+            "linear_sync_status",
             {"project_id": ALPHA, "cursor": "not-a-cursor"},
         ),
     }

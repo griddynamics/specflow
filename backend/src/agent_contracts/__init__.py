@@ -75,6 +75,14 @@ from agent_contracts.jira_models import (
     JiraSyncStatus,
     JiraSyncStatusArgs,
 )
+from agent_contracts.linear_models import (
+    LinearSyncArgs,
+    LinearSyncCounts,
+    LinearSyncItem,
+    LinearSyncReport,
+    LinearSyncStatus,
+    LinearSyncStatusArgs,
+)
 from agent_contracts.models import (
     DEFAULT_LIMIT,
     MAX_CURSOR_CHARS,
@@ -353,6 +361,12 @@ __all__ = [
     "JiraSyncStatus",
     "JiraSyncStatusArgs",
     "Limit",
+    "LinearSyncArgs",
+    "LinearSyncCounts",
+    "LinearSyncItem",
+    "LinearSyncReport",
+    "LinearSyncStatus",
+    "LinearSyncStatusArgs",
     "ListAreasArgs",
     "ListFeatureTasksArgs",
     "ListFeaturesArgs",
