@@ -82,7 +82,10 @@ Item names: `page:<id>` is the item's `external_id`, the page title its name; fo
 ## Jira epic
 
 `POST /projects/{pid}/sources/jira-epic/check` and `POST /projects/{pid}/sources/jira-epic`, both `{key_or_link}`, any
-member. Shapes and codes: [integrations-api.md](../mission-control/integrations-api.md) "Jira epic source".
+member. The check also answers `children` (`{key, summary, type, status}` of the issues under the epic, in key order, at
+most the cap, read with a search of those three fields only) and `capped`; the add takes an optional `exclude` (issue keys
+such as `ABC-12`, at most 200, else 422 `validation_failed`): the epic is always imported, and every child whose key is
+listed is neither declared nor imported (keys that are not children are ignored; the log carries only their count). Shapes and codes: [integrations-api.md](../mission-control/integrations-api.md) "Jira epic source".
 
 **In the canvas** (the plus of the Graph stage, "Jira epic"; it needs the project's Atlassian integration, else the card says "Set up first" and returns with the form open): one field for the epic key or link, **Check epic** (says `KEY · summary · N issues`, and over the cap that the first 200 are read), then **Add source**. Changing the key or link asks for a new check. A refused check or add says its closed code in words (another site, not an epic key, not an epic, no such issue, not allowed, Atlassian not connected or in need of a reconnect). The node is named by the key and counts issues while it imports; it stops only when the API reports the import failed (`no_access` offers Reconnect Atlassian). Remove deletes the source and its documents.
 

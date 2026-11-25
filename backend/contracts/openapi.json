@@ -5838,6 +5838,17 @@
       "JiraEpicCheckOut": {
         "description": "The epic an import would take: its key, its summary (shown, not stored) and how many issues it has for the\nmember (at most the issue cap is imported).",
         "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/JiraEpicChildOut"
+            },
+            "title": "Children",
+            "type": "array"
+          },
           "issues": {
             "title": "Issues",
             "type": "integer"
@@ -5854,15 +5865,56 @@
         "required": [
           "key",
           "summary",
-          "issues"
+          "issues",
+          "children",
+          "capped"
         ],
         "title": "JiraEpicCheckOut",
+        "type": "object"
+      },
+      "JiraEpicChildOut": {
+        "description": "One issue under the epic: its key, summary (shown, not stored), issue type name and status name.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "summary",
+          "type",
+          "status"
+        ],
+        "title": "JiraEpicChildOut",
         "type": "object"
       },
       "JiraEpicIn": {
         "additionalProperties": false,
         "description": "A Jira epic by its key (``ABC-12``) or by a link of the configured site.",
         "properties": {
+          "exclude": {
+            "items": {
+              "maxLength": 64,
+              "pattern": "^[A-Z][A-Z0-9_]*-\\d+$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Exclude",
+            "type": "array"
+          },
           "key_or_link": {
             "maxLength": 2048,
             "title": "Key Or Link",

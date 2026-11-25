@@ -15,6 +15,7 @@ FIELDS: Final = "summary,description,status,issuetype,labels,comment"
 COMMENT_PAGE: Final = 100
 SEARCH_PAGE: Final = 100
 SEARCH_FIELDS: Final = FIELDS.split(",")
+LIST_FIELDS: Final = ["summary", "issuetype", "status"]
 CHILD_FIELDS: Final = [*SEARCH_FIELDS, "updated"]
 
 
@@ -49,16 +50,23 @@ class JiraIssueReader:
             if not token:
                 return
 
-    async def epic_issues(self, epic_key: str, limit: int) -> tuple[list[dict[str, Any]], bool]:
+    async def epic_issues(
+        self, epic_key: str, limit: int, fields: list[str] = SEARCH_FIELDS
+    ) -> tuple[list[dict[str, Any]], bool]:
         """The issues whose parent is the epic, in key order, at most ``limit``; and whether there were more. Issues the
         user cannot see are not returned by Jira at all."""
 
         issues: list[dict[str, Any]] = []
-        async for issue in self._search(f"parent = {json.dumps(epic_key)} ORDER BY key", SEARCH_FIELDS):
+        async for issue in self._search(f"parent = {json.dumps(epic_key)} ORDER BY key", fields):
             if len(issues) >= limit:
                 return issues, True
             issues.append(issue)
         return issues, False
+
+    async def epic_children(self, epic_key: str, limit: int) -> tuple[list[dict[str, Any]], bool]:
+        """The same issues as ``epic_issues`` with only summary, issue type and status (no comments), for the check."""
+
+        return await self.epic_issues(epic_key, limit, LIST_FIELDS)
 
     async def count_epic_issues(self, epic_key: str) -> int:
         """How many issues the epic has for this user."""

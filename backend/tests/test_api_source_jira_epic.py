@@ -19,7 +19,8 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
-from api.imports.jira_epic import JiraEpicImporter
+from api.imports.jira_epic import MAX_EPIC_ISSUES, JiraEpicImporter
+from api.schemas import EPIC_EXCLUDE_MAX
 from atlassian_import_support import (
     ACTING,
     SITE,
@@ -60,7 +61,16 @@ async def test_the_check_answers_the_key_summary_and_issue_count_as_any_member_f
         response = await call(rig, "POST", path(rig, "/check"), who, {"key_or_link": value})
 
         assert response.status_code == 200
-        assert response.json() == {"key": "PAY-1", "summary": CANARY, "issues": 2}
+        assert response.json() == {
+            "key": "PAY-1",
+            "summary": CANARY,
+            "issues": 2,
+            "children": [
+                {"key": "PAY-2", "summary": "Card flow", "type": "Story", "status": "In Progress"},
+                {"key": "PAY-3", "summary": "Wallet flow", "type": "Story", "status": "In Progress"},
+            ],
+            "capped": False,
+        }
 
 
 async def test_a_non_member_is_a_stranger_to_the_project(rig) -> None:
@@ -177,3 +187,43 @@ async def test_the_request_body_is_closed_and_the_summary_never_reaches_a_log(ri
     await call(rig, "POST", path(rig), ALICE, {"key_or_link": "PAY-1"})
 
     assert CANARY not in log_haystack(caplog)
+
+
+async def test_the_exclude_list_skips_those_children_and_is_counted_not_named_in_the_log(rig, caplog) -> None:
+    body = {"key_or_link": "PAY-1", "exclude": ["PAY-3", "PAY-3", "PAY-77"]}
+
+    response = await call(rig, "POST", path(rig), ALICE, body)
+
+    assert response.status_code == 201, response.text
+    (job, importer) = rig.imports.started[0]
+    writer = RecordingWriter()
+    await importer(job, as_writer(writer))
+    assert list(writer.added) == ["issue:PAY-1", "issue:PAY-2"]
+    assert "PAY-77" not in log_haystack(caplog)
+
+
+async def test_excluding_every_child_imports_only_the_epic(rig) -> None:
+    body = {"key_or_link": "PAY-1", "exclude": ["PAY-2", "PAY-3"]}
+
+    assert (await call(rig, "POST", path(rig), ALICE, body)).status_code == 201
+    (job, importer) = rig.imports.started[0]
+    writer = RecordingWriter()
+    await importer(job, as_writer(writer))
+    assert list(writer.added) == ["issue:PAY-1"]
+
+
+@pytest.mark.parametrize(
+    "exclude", [["pay-2"], ["PAY"], ["PAY-2 "], [""], [5], "PAY-2", [f"PAY-{n}" for n in range(201)]]
+)
+async def test_a_bad_exclude_is_a_validation_failure(rig, exclude) -> None:
+    response = await call(rig, "POST", path(rig), ALICE, {"key_or_link": "PAY-1", "exclude": exclude})
+
+    assert error_of(response) == (422, "validation_failed")
+    assert not rig.imports.started
+
+
+async def test_the_limit_of_exclude_is_the_issue_cap(rig) -> None:
+    assert EPIC_EXCLUDE_MAX == MAX_EPIC_ISSUES
+    exclude = [f"PAY-{n}" for n in range(1, MAX_EPIC_ISSUES + 1)]
+
+    assert (await call(rig, "POST", path(rig), ALICE, {"key_or_link": "PAY-1", "exclude": exclude})).status_code == 201

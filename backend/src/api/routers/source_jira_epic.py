@@ -7,6 +7,8 @@ documents only; events carry ids, the kind and counts.
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter
 
 from api.deps import MemberDep, RuntimeDep, UserDep
@@ -14,7 +16,7 @@ from api.errors import ApiError
 from api.imports.atlassian import AtlassianAccess, check_error, jira_reader, project_access
 from api.imports.jira_epic import EpicInspection, JiraEpicImport, JiraEpicImporter, inspect_epic
 from api.project_integrations import atlassian_site_mismatch
-from api.schemas import BatchSourceOut, JiraEpicCheckOut, JiraEpicIn
+from api.schemas import BatchSourceOut, JiraEpicCheckOut, JiraEpicChildOut, JiraEpicIn
 from api.source_imports import StartedImport, start_import
 from jira.epic_links import EpicLinkError, parse_epic
 from jira.gateway import JiraError
@@ -63,7 +65,13 @@ async def _inspected(access: AtlassianAccess, key: str) -> EpicInspection:
 async def check_jira_epic(body: JiraEpicIn, runtime: RuntimeDep, access: MemberDep) -> JiraEpicCheckOut:
     atlassian = await project_access(runtime, access.project.id)
     found = await _inspected(atlassian, _key(body.key_or_link, atlassian))
-    return JiraEpicCheckOut(key=found.key, summary=found.summary, issues=found.issues)
+    return JiraEpicCheckOut(
+        key=found.key,
+        summary=found.summary,
+        issues=found.issues,
+        children=[JiraEpicChildOut(**asdict(child)) for child in found.children],
+        capped=found.capped,
+    )
 
 
 @router.post("", status_code=201, response_model=BatchSourceOut)
@@ -73,7 +81,7 @@ async def add_jira_epic_source(
     pid = access.project.id
     atlassian = await project_access(runtime, pid)
     found = await _inspected(atlassian, _key(body.key_or_link, atlassian))
-    importer = JiraEpicImporter(runtime.jira.connections, JiraEpicImport(found.key))
+    importer = JiraEpicImporter(runtime.jira.connections, JiraEpicImport(found.key, frozenset(body.exclude)))
     created = await start_import(
         runtime,
         pid,
@@ -82,5 +90,13 @@ async def add_jira_epic_source(
         title=f"{found.key}: {found.summary}".rstrip(": "),
         link=f"https://{atlassian.site_host}/browse/{found.key}",
     )
-    log_event(logger, INFO, "api.imports.added", user_id=str(user.id), project_id=str(pid), kind=KIND)
+    log_event(
+        logger,
+        INFO,
+        "api.imports.added",
+        user_id=str(user.id),
+        project_id=str(pid),
+        kind=KIND,
+        excluded=len(set(body.exclude)),
+    )
     return created

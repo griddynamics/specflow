@@ -116,6 +116,50 @@ async def test_an_issue_whose_comments_the_member_cannot_read_is_skipped_and_cou
     assert writer.failed == [("issue:PAY-3", "no_access", "read")]
 
 
+async def test_excluded_children_are_neither_declared_nor_imported(monkeypatch) -> None:
+    source = JiraEpicImport("PAY-1", frozenset({"PAY-3", "PAY-99"}))
+
+    writer = await run(source, epic_fake(), monkeypatch)
+
+    assert [d[0] for d in writer.declared] == ["issue:PAY-1", "issue:PAY-2", "issue:PAY-4"]
+    assert list(writer.added) == ["issue:PAY-1", "issue:PAY-2", "issue:PAY-4"] and writer.failed == []
+
+
+async def test_excluding_every_child_imports_only_the_epic(monkeypatch) -> None:
+    source = JiraEpicImport("PAY-1", frozenset({"PAY-2", "PAY-3", "PAY-4"}))
+
+    writer = await run(source, epic_fake(), monkeypatch)
+
+    assert [d[0] for d in writer.declared] == ["issue:PAY-1"] and list(writer.added) == ["issue:PAY-1"]
+
+
+async def test_the_check_lists_the_children_in_order_with_only_the_light_fields() -> None:
+    fake = epic_fake()
+    jira, made = reader(fake)
+
+    found = await inspect_epic(jira, "PAY-1")
+    await made.aclose()
+
+    assert [(c.key, c.summary, c.type, c.status) for c in found.children] == [
+        ("PAY-2", "Card flow", "Story", "In Progress"),
+        ("PAY-3", "Wallet flow", "Story", "In Progress"),
+        ("PAY-4", "Refunds", "Story", "In Progress"),
+    ]
+    assert found.capped is False
+    searches = [json.loads(r.content) for r in fake.requests if r.url.path.endswith("/search/jql")]
+    assert searches and all(s["fields"] == ["summary", "issuetype", "status"] for s in searches)
+
+
+async def test_the_check_caps_the_children_and_says_so(monkeypatch) -> None:
+    monkeypatch.setattr(epic_module, "MAX_EPIC_ISSUES", 2)
+    jira, made = reader(epic_fake())
+
+    found = await inspect_epic(jira, "PAY-1")
+    await made.aclose()
+
+    assert [c.key for c in found.children] == ["PAY-2", "PAY-3"] and found.capped is True and found.issues == 3
+
+
 async def test_an_epic_without_issues_is_one_document(monkeypatch) -> None:
     fake = FakeAtlassian(issues={"PAY-1": epic_issue()})
 

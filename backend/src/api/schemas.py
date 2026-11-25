@@ -13,6 +13,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    StringConstraints,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -347,6 +348,8 @@ class PlanPreview(BaseModel):
 # Sources: Google Drive (INT-GDUI-0001..0004) -------------------------------
 
 LINK_MAX = 2048
+ISSUE_KEY_MAX = 64
+EPIC_EXCLUDE_MAX = 200  # = api.imports.jira_epic.MAX_EPIC_ISSUES (asserted in the tests)
 
 
 class DriveIdentityOut(BaseModel):
@@ -1059,12 +1062,26 @@ class ConfluenceCheckOut(BaseModel):
     linked_issues: int
 
 
+IssueKey = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]*-\d+$", max_length=ISSUE_KEY_MAX)]
+
+
 class JiraEpicIn(BaseModel):
     """A Jira epic by its key (``ABC-12``) or by a link of the configured site."""
 
     model_config = ConfigDict(extra="forbid")
 
     key_or_link: str = Field(max_length=LINK_MAX)
+    # issues under the epic not to import (the check ignores it)
+    exclude: list[IssueKey] = Field(default_factory=list, max_length=EPIC_EXCLUDE_MAX)
+
+
+class JiraEpicChildOut(BaseModel):
+    """One issue under the epic: its key, summary (shown, not stored), issue type name and status name."""
+
+    key: str
+    summary: str
+    type: str
+    status: str
 
 
 class JiraEpicCheckOut(BaseModel):
@@ -1074,3 +1091,5 @@ class JiraEpicCheckOut(BaseModel):
     key: str
     summary: str
     issues: int
+    children: list[JiraEpicChildOut]  # in key order, at most the issue cap
+    capped: bool  # more issues than the cap

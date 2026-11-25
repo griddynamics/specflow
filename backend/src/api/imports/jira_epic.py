@@ -29,9 +29,20 @@ EPIC_LEVEL: Final = 1  # ``issuetype.hierarchyLevel`` of an epic
 
 @dataclass(frozen=True)
 class JiraEpicImport:
-    """What to import: the epic with this key."""
+    """What to import: the epic with this key, and every issue under it whose key is not in ``exclude``."""
 
     key: str
+    exclude: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class EpicChild:
+    """One issue under the epic, as the check lists it."""
+
+    key: str
+    summary: str
+    type: str
+    status: str
 
 
 @dataclass(frozen=True)
@@ -42,6 +53,8 @@ class EpicInspection:
     summary: str
     issues: int
     is_epic: bool
+    children: tuple[EpicChild, ...] = ()
+    capped: bool = False
 
 
 def is_epic(issue: dict[str, Any]) -> bool:
@@ -57,7 +70,21 @@ async def inspect_epic(jira: JiraIssueReader, key: str) -> EpicInspection:
     summary = str((epic.get("fields") or {}).get("summary") or "")
     if not is_epic(epic):
         return EpicInspection(key, summary, 0, is_epic=False)
-    return EpicInspection(key, summary, await jira.count_epic_issues(key), is_epic=True)
+    found, capped = await jira.epic_children(key, MAX_EPIC_ISSUES)
+    children = tuple(_child(issue) for issue in found)
+    return EpicInspection(
+        key, summary, await jira.count_epic_issues(key), is_epic=True, children=children, capped=capped
+    )
+
+
+def _child(issue: dict[str, Any]) -> EpicChild:
+    fields = issue.get("fields") or {}
+    return EpicChild(
+        str(issue.get("key", "")),
+        str(fields.get("summary") or ""),
+        str((fields.get("issuetype") or {}).get("name") or ""),
+        str((fields.get("status") or {}).get("name") or ""),
+    )
 
 
 class JiraEpicImporter:
@@ -83,6 +110,7 @@ class JiraEpicImporter:
                         project_id=str(job.project_id),
                         cap=MAX_EPIC_ISSUES,
                     )
+                issues = [issue for issue in issues if issue["key"] not in self._source.exclude]
                 for issue in (epic, *issues):
                     await writer.declare(f"issue:{issue['key']}", issue_title(issue))
                 for issue in (epic, *issues):
