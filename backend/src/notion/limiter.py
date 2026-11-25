@@ -23,7 +23,7 @@ WINDOW_SECONDS: Final = 60.0
 class RateLimiter:
     """A sliding window of ``per_minute`` requests; ``acquire`` waits for a free place.
 
-    ``clock`` and ``sleep`` are for tests. Waiters are served in order: one holds the lock while it waits."""
+    ``clock`` and ``sleep`` are for tests. Waiters are served in order of their reserved places."""
 
     def __init__(
         self,
@@ -37,26 +37,31 @@ class RateLimiter:
         self._sleep = sleep
         self._starts: deque[float] = deque()  # when the requests of the last window left
         self._held_until = 0.0
-        self._lock = asyncio.Lock()
 
     async def acquire(self, budget: WaitBudget | None = None) -> None:
         """Wait for a request place; the wait counts against ``budget``, which raises ``NotionError`` with
-        ``notion_rate_limited`` when it is spent."""
+        ``notion_rate_limited`` when it is spent. The place is reserved at once (no lock is held while sleeping), so
+        the whole wait, queueing behind other callers included, is charged to ``budget``."""
 
-        async with self._lock:
-            while True:
-                now = self._clock()
-                while self._starts and self._starts[0] <= now - WINDOW_SECONDS:
-                    self._starts.popleft()
-                wait = max(0.0, self._held_until - now)
-                if len(self._starts) >= self._per_minute:
-                    wait = max(wait, self._starts[0] + WINDOW_SECONDS - now)
-                if wait <= 0:
-                    self._starts.append(now)
-                    return
-                if budget is not None:
-                    budget.spend(wait)
-                await self._sleep(wait)
+        now = self._clock()
+        while self._starts and self._starts[0] <= now - WINDOW_SECONDS:
+            self._starts.popleft()
+        slot = max(now, self._held_until)
+        if self._starts:
+            slot = max(slot, self._starts[-1])  # reservations stay in order
+        if len(self._starts) >= self._per_minute:
+            slot = max(slot, self._starts[-self._per_minute] + WINDOW_SECONDS)
+        wait = slot - now
+        if wait > 0 and budget is not None:
+            budget.spend(wait)
+        self._starts.append(slot)
+        if wait > 0:
+            await self._sleep(wait)
+        extra = self._held_until - self._clock()  # a 429 that came in while this caller slept
+        if extra > 0:
+            if budget is not None:
+                budget.spend(extra)
+            await self._sleep(extra)
 
     def hold(self, seconds: float) -> None:
         """Notion answered 429 with ``Retry-After``: no request leaves before ``seconds`` have passed."""

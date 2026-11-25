@@ -3,6 +3,7 @@ reads, writes, pagination, the wrong-kind confirmation, closed errors, retries a
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -188,10 +189,25 @@ async def test_a_page_cut_by_size_stays_truncated_without_a_follow_up() -> None:
     assert len(rig.requests) == 1
 
 
-async def test_a_follow_up_that_notion_refuses_fails_the_read_with_its_closed_code() -> None:
-    rig = markdown_server({"p": {"markdown": "top", "truncated": True, "unknown_block_ids": ["gone"]}})
+@pytest.mark.parametrize("status", [404, 403])
+async def test_an_unreadable_subtree_is_skipped_and_the_rest_kept(status: int) -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        block = request.url.path.split("/")[3]
+        if block == "p":
+            return reply(200, {"markdown": "top", "truncated": True, "unknown_block_ids": ["bad", "good"]})
+        return error(status, "x") if block == "bad" else reply(200, {"markdown": "good", "unknown_block_ids": []})
 
-    assert await code_of(rig.gateway.page_markdown("p")) is NotionCode.NOT_SHARED
+    result = await make_rig(handle).gateway.page_markdown("p")
+
+    assert result.markdown == "top\n\ngood" and result.unknown_block_ids == () and not result.truncated
+
+
+async def test_other_follow_up_failures_still_raise() -> None:
+    rig = make_rig(
+        lambda r: reply(200, {"markdown": "t", "unknown_block_ids": ["x"]}) if "/p/" in r.url.path else error(401, "u")
+    )
+
+    assert await code_of(rig.gateway.page_markdown("p")) is NotionCode.AUTH_FAILED
 
 
 # Wrong-kind ids -----------------------------------------------------------------------------------------------------
@@ -254,7 +270,8 @@ def wrong_kind_answer(request: httpx.Request, message: str) -> httpx.Response:
         (401, "unauthorized", NotionCode.AUTH_FAILED),
         (403, "restricted_resource", NotionCode.PERMISSIONS_MISSING),
         (404, NOT_FOUND, NotionCode.NOT_SHARED),
-        (400, "invalid_request", NotionCode.ITEM_INVALID),
+        (400, "validation_error", NotionCode.ITEM_INVALID),
+        (400, "invalid_request", NotionCode.UNREACHABLE),
         (400, "invalid_json", NotionCode.UNREACHABLE),
         (409, "conflict_error", NotionCode.UNREACHABLE),
         (418, "teapot", NotionCode.UNREACHABLE),
@@ -315,6 +332,14 @@ async def test_a_429_honours_retry_after_through_the_limiter_and_succeeds() -> N
     assert (await rig.gateway.page("p")).id == "p"
     assert rig.clock.sleeps == [3.0]
     assert rig.budget.remaining == 57.0
+
+
+async def test_retry_after_zero_is_honoured_as_zero() -> None:
+    rig = make_rig(sequence(error(429, "rate_limited", **{"retry-after": "0"}), reply(200, PAGE)))
+
+    await rig.gateway.page("p")
+
+    assert rig.clock.sleeps == []
 
 
 async def test_a_429_holds_every_caller_of_the_same_bot() -> None:
@@ -534,6 +559,25 @@ async def test_a_limiter_lets_per_minute_requests_through_then_waits_for_the_old
     assert clock.sleeps == [57.0]
     await gate.acquire()  # the second left 58 s ago
     assert clock.sleeps == [57.0, 1.0]
+
+
+async def test_concurrent_callers_queue_without_a_lock_and_each_wait_is_charged_end_to_end() -> None:
+    now = {"t": 0.0}
+
+    async def sleep(seconds: float) -> None:
+        target = now["t"] + seconds
+        await asyncio.sleep(0)
+        now["t"] = max(now["t"], target)
+
+    gate = RateLimiter(1, clock=lambda: now["t"], sleep=sleep)
+    budgets = [WaitBudget(60.0) for _ in range(3)]
+
+    results = await asyncio.gather(*(gate.acquire(b) for b in budgets), return_exceptions=True)
+
+    assert results[0] is None and results[1] is None  # places at 0 s and 60 s
+    assert isinstance(results[2], NotionError) and results[2].code is NotionCode.RATE_LIMITED  # 120 s does not fit
+    assert [b.remaining for b in budgets] == [60.0, 0.0, 60.0]
+    await gate.acquire(WaitBudget(60.0))  # the refused caller reserved nothing: the next place is at 120 s
 
 
 async def test_a_limiter_wait_that_does_not_fit_the_budget_raises_before_sleeping() -> None:

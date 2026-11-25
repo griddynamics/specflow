@@ -48,8 +48,8 @@ BACKOFF_BASE: Final = 1.0
 BACKOFF_CAP: Final = 30.0
 TIMEOUT_SECONDS: Final = 30
 MAX_FOLLOW_UPS: Final = 25  # ``unknown_block_ids`` subtrees read for one page
+UNREADABLE: Final = frozenset({NotionCode.NOT_SHARED, NotionCode.PERMISSIONS_MISSING})  # 404, 403
 RETRIED_ALWAYS: Final = frozenset({httpx.codes.TOO_MANY_REQUESTS, 529})  # 529: Notion's "overloaded"
-BAD_REQUEST_CODES: Final = frozenset({"validation_error", "invalid_request"})  # Notion refused the content
 
 
 class _ValidationError(NotionError):
@@ -74,8 +74,6 @@ def _refusal(response: httpx.Response) -> NotionError:
     status, error_code = response.status_code, _error_code(response)
     if status == httpx.codes.BAD_REQUEST and error_code == "validation_error":
         return _ValidationError()
-    if status == httpx.codes.BAD_REQUEST and error_code in BAD_REQUEST_CODES:
-        return NotionError(NotionCode.ITEM_INVALID)
     return NotionError(code_of_status(status, error_code))
 
 
@@ -169,7 +167,15 @@ class HttpNotionGateway:
                 continue
             seen.add(_key(block_id))
             reads += 1
-            sub = await self._request("GET", _path("pages", block_id, "markdown"), params={"markdown_version": "v2"})
+            try:
+                sub = await self._request(
+                    "GET", _path("pages", block_id, "markdown"), params={"markdown_version": "v2"}
+                )
+            except NotionError as error:
+                if error.code not in UNREADABLE:
+                    raise
+                log_event(logger, WARNING, "notion.http.subtree_unreadable", code=error.code.value)
+                continue
             if str(sub.get("markdown", "")):
                 parts.append(str(sub["markdown"]))
             more = self._unknown_ids(sub)
@@ -298,7 +304,7 @@ class HttpNotionGateway:
             if httpx.codes.is_success(status):
                 return self._object(response)
             if not last and status in RETRIED_ALWAYS:
-                self._limiter.hold(_retry_after(response) or _backoff(attempt))
+                self._limiter.hold(_backoff(attempt) if (after := _retry_after(response)) is None else after)
                 log_event(logger, WARNING, "notion.http.retry", status=status, attempt=attempt)
                 continue
             if not last and status >= httpx.codes.INTERNAL_SERVER_ERROR and repeatable:
