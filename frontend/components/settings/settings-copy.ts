@@ -15,6 +15,7 @@ export const SETTINGS_COPY = {
   slackUnbind: "Disconnect",
   slackUnbound: "The channel is disconnected; no more questions are posted there.",
   slackNone: "No Slack channel yet. The project's owner connects one from Slack.",
+  slackRemoveForbidden: "Only the member who connected the channel, or the owner, can disconnect it.",
   slackSaveFailed: "The Slack channel could not be disconnected. Try again.",
   slackHint:
     "Each open question is posted to this channel; anyone who replies in its thread with a letter (A, B…) or their own words answers it, and the answer is applied at once.",

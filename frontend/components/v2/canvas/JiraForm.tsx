@@ -3,13 +3,16 @@
 // `jira-logic.ts`). The target is saved on, and the plan syncs to it once it exists; the acting account is the project's Atlassian integration.
 import { useEffect, useId, useState } from "react";
 import { Button, Field, Notice, TextInput } from "@graphico/ui";
-import { failureOf, outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/settings/jira-logic";
+import { outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/settings/jira-logic";
 import { COPY } from "@/lib/copy";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";
 import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
+import { problemOf } from "./jira-outcome";
+import { JiraSpaceField } from "./JiraSpaceField";
+import { signedFor, type Signed } from "./signed";
 import { ReadGate, readGateState } from "./ReadGate";
 
 type Busy = "check" | "save" | null;
@@ -41,26 +44,20 @@ export function JiraFormBody({ projectId, spec, reload, onBack, onClose }: Reado
   const { jira } = useV2Ports();
   const [project, setProject] = useState("");
   const [epic, setEpic] = useState("");
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [held, setHeld] = useState<Signed<Outcome> | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const spaceId = useId();
   const epicId = useId();
   const check = spec.check ?? { test: "", testing: "", add: "" };
+  const target = targetOf(project, epic);
+  const signature = `${target.jiraProject}|${target.epicKey ?? ""}`;
+  const outcome = signedFor(held, signature);
   const phase = phaseOf(outcome, busy);
   const label = { check: check.test, checking: check.testing, save: check.add, saving: CANVAS_COPY.jiraSaving }[phase];
-  const target = targetOf(project, epic);
-
-  const edit = (set: (v: string) => void) => (v: string) => {
-    set(v);
-    setOutcome(null);
-  };
-  const fail = (e: unknown) => {
-    const f = failureOf(e);
+  // An answer belongs to the keys it was asked with (`signature`): a late one never shows under keys typed after it.
+  const fail = (sent: string) => (e: unknown) => {
     setBusy(null);
-    setOutcome({
-      kind: "problem",
-      texts: f.kind === "fields" ? f.texts : { alert: f.kind === "toast" || f.kind === "disconnected" ? f.text : "" },
-    });
+    setHeld({ signature: sent, value: problemOf(e) });
   };
   const run = () => {
     if (busy !== null || project.trim() === "") return;
@@ -69,14 +66,14 @@ export function JiraFormBody({ projectId, spec, reload, onBack, onClose }: Reado
       jira.save(projectId, { ...target, enabled: true }).then(() => {
         reload.current();
         onClose();
-      }, fail);
+      }, fail(signature));
       return;
     }
     setBusy("check");
     jira.checkAccess(projectId, target).then((access) => {
       setBusy(null);
-      setOutcome(outcomeOf(access, true));
-    }, fail);
+      setHeld({ signature, value: outcomeOf(access, true) });
+    }, fail(signature));
   };
   const texts = outcome?.kind === "problem" ? outcome.texts : {};
   return (
@@ -92,23 +89,15 @@ export function JiraFormBody({ projectId, spec, reload, onBack, onClose }: Reado
         </Button>
       }
     >
-      <Field label={CANVAS_COPY.jiraSpace} htmlFor={spaceId} error={texts.project}>
-        <TextInput
-          id={spaceId}
-          value={project}
-          spellCheck={false}
-          onChange={(e) => {
-            edit(setProject)(e.target.value);
-          }}
-        />
-      </Field>
+      <JiraSpaceField id={spaceId} value={project} busy={busy !== null} error={texts.project} onChange={setProject} />
       <Field label={CANVAS_COPY.jiraEpic} htmlFor={epicId} hint={CANVAS_COPY.jiraEpicHint} error={texts.epic}>
         <TextInput
           id={epicId}
           value={epic}
           spellCheck={false}
+          readOnly={busy !== null}
           onChange={(e) => {
-            edit(setEpic)(e.target.value);
+            setEpic(e.target.value);
           }}
         />
       </Field>

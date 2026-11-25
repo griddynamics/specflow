@@ -1,6 +1,6 @@
 // The canvas as the screen draws it: the view model and the measured geometry in, the presentational canvas of `@graphico/ui` out. No data
 // access here; the screen binds ports, dialogs and presses.
-import type { Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import { AddTile, Canvas, CanvasColumn, CanvasNode, CanvasZone, Hub, type BackdropView, type WireView } from "@graphico/ui";
 import { CANVAS_COPY } from "./canvas-copy";
 import type { CanvasModel, HubView, NodeView, ZoneId, ZoneView } from "./canvas-types";
@@ -9,6 +9,8 @@ export interface CanvasViewProps {
   model: CanvasModel;
   geometry: { width: number; height: number; wires: WireView[]; backdrop: BackdropView };
   rootRef: Ref<HTMLElement>;
+  /** A notice over the canvas (the status could not be read), with its action. */
+  alert?: ReactNode;
   onAdd: (zone: ZoneId) => void;
   /** A node's press, or `undefined` for a node that opens nothing. */
   onNode: (node: NodeView) => (() => void) | undefined;
@@ -67,12 +69,13 @@ function Add({ zone, onAdd }: Readonly<{ zone: ZoneView; onAdd: CanvasViewProps[
 /** A stage with more nodes than this packs them tighter. */
 const DENSE_FROM = 3;
 
-export function CanvasView({ model, geometry, rootRef, onAdd, onNode, onHub }: Readonly<CanvasViewProps>) {
+export function CanvasView({ model, geometry, rootRef, alert, onAdd, onNode, onHub }: Readonly<CanvasViewProps>) {
   const { graph, gap, plan } = model.zones;
   return (
     <Canvas
       label={CANVAS_COPY.canvasLabel}
       rootRef={rootRef}
+      alert={alert}
       backdrop={geometry.backdrop}
       wires={{ width: geometry.width, height: geometry.height, items: geometry.wires }}
     >

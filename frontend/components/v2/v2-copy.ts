@@ -31,6 +31,7 @@ export const V2_COPY = {
   notFound: "This project does not exist, or you are not a member of it.",
   errorTitle: "This project could not be shown. Check your connection and try again.",
   tryAgain: "Try again",
+  statusReadFailed: "The project could not be read, so what is shown may be out of date. Check your connection and try again.",
   // Members
   membersEyebrow: "Project",
   done: "Done",
@@ -111,6 +112,7 @@ export const V2_COPY = {
   },
   slackPrivate: "(private)",
   workspaceMismatch: "This project is connected to another workspace of this app. Remove that connection first.",
+  alreadyConnected: "Another member has already connected this app to the project. Ask them, or the owner, to remove it first.",
   notConnectedFirst: "Connect your own account first.",
   notAllowedToRemove: "Only the member who connected it, or the owner, can remove it.",
   actionFailed: "Something went wrong. Try again.",

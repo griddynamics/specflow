@@ -1,11 +1,13 @@
 "use client";
 // `/projects/<id>`: the canvas of the project (D10, AC1). It binds the ports to the view model, the model to the geometry, and the presses to
 // the one dialog. Everything the canvas shows comes from the ports; there is no endpoint of its own (AC9).
+import { Button, Notice } from "@graphico/ui";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CONNECTORS, NODE_MAPPERS } from "../connectors";
 import type { McpAddress } from "../connector-types";
 import { useV2Routes } from "../use-v2-data";
+import { V2_COPY } from "../v2-copy";
 import { parseCanvasQuery } from "@/lib/routes";
 import { buildCanvasModel } from "./canvas-model";
 import { useCanvasGeometry } from "./canvas-geometry";
@@ -36,7 +38,7 @@ function useReturnedForm(projectId: string, onOpen: (state: DialogState) => void
 
 export function CanvasScreen({ mcp }: Readonly<{ mcp: McpAddress }>) {
   const { projectId } = useParams<{ projectId: string }>();
-  const { input, reload, markBuild, markPlan } = useCanvasData(projectId);
+  const { input, reload, markBuild, markPlan, statusFailed } = useCanvasData(projectId);
   const model = useMemo(() => buildCanvasModel(input, NODE_MAPPERS), [input]);
   const rootRef = useRef<HTMLElement>(null);
   const geometry = useCanvasGeometry(rootRef, model.wires, model.reveal);
@@ -52,6 +54,21 @@ export function CanvasScreen({ mcp }: Readonly<{ mcp: McpAddress }>) {
         model={model}
         geometry={geometry}
         rootRef={rootRef}
+        alert={
+          statusFailed ? (
+            <>
+              <Notice role="alert">{V2_COPY.statusReadFailed}</Notice>
+              <Button
+                size="sm"
+                onClick={() => {
+                  reload.current();
+                }}
+              >
+                {V2_COPY.tryAgain}
+              </Button>
+            </>
+          ) : undefined
+        }
         onAdd={(zone) => {
           setDialog({ type: "add", zone });
         }}

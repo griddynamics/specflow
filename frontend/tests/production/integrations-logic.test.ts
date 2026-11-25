@@ -3,7 +3,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  canDisconnect,
   cardViewOf,
   disconnectsThroughSlackRoute,
   integrationFailure,
@@ -13,7 +12,7 @@ import {
 import { channelLabel, slackLandingToast, slackTestFailure } from "@/components/v2/integrations/slack-logic";
 import { COPY } from "@/lib/copy";
 import { DataError } from "@/lib/domain/errors";
-import type { Integration } from "@/lib/domain/integrations";
+import { canDisconnect, type Integration } from "@/lib/domain/integrations";
 import { parseIntegrationsQuery, routesFor } from "@/lib/routes";
 
 const row = (over: Partial<Integration> = {}): Integration => ({
@@ -67,9 +66,11 @@ test("Disconnect: the member who connected it or the owner; nothing to disconnec
   assert.equal(canDisconnect(row({ connectedBy: null }), "u2", true), true);
 });
 
-test("Slack can be disconnected by any member, through its own route", () => {
+test("Slack is disconnected through its own route, and only by the member who connected it or the owner", () => {
   const slack = row({ app: "slack" });
-  assert.equal(canDisconnect(slack, "u2", false), true);
+  assert.equal(canDisconnect(slack, "u1", false), true, "the connector");
+  assert.equal(canDisconnect(slack, "u2", false), false, "another member");
+  assert.equal(canDisconnect(slack, "u2", true), true, "the owner");
   assert.equal(disconnectsThroughSlackRoute("slack"), true);
   assert.equal(disconnectsThroughSlackRoute("github"), false);
   assert.equal(disconnectsThroughSlackRoute("atlassian"), false);
@@ -79,6 +80,10 @@ test("a failed connect or disconnect says what to do; the project being gone is 
   assert.deepEqual(integrationFailure(apiError("github_not_connected")), { kind: "text", text: "Connect your own account first." });
   assert.match(String(Reflect.get(integrationFailure(apiError("integration_workspace_mismatch")), "text")), /another workspace/);
   assert.match(String(Reflect.get(integrationFailure(apiError("integration_forbidden")), "text")), /connected it, or the owner/);
+  assert.match(
+    String(Reflect.get(integrationFailure(apiError("integration_already_connected")), "text")),
+    /Another member has already connected .* remove it first/,
+  );
   assert.deepEqual(integrationFailure(apiError("project_not_found")), { kind: "gone" });
   assert.equal(Reflect.get(integrationFailure(apiError("something_new")), "text"), "Something went wrong. Try again.");
   assert.equal(Reflect.get(integrationFailure(new Error("boom")), "text"), "Something went wrong. Try again.");

@@ -271,7 +271,7 @@ export async function stubLog(): Promise<StubEntry[]> {
   return (await control("GET", "/log")) as StubEntry[];
 }
 
-/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs, workFail, workReadFail, gapFail); a null time = never finishes. */
+/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs, workFail, workReadFail, gapFail, sourcesFail); a null time = never finishes. */
 export async function stubTiming(t: Record<string, number | string | null>): Promise<void> {
   await control("POST", "/timing", t);
 }
@@ -288,6 +288,7 @@ export const STUB_TIMING = {
   workFail: null,
   workReadFail: null,
   gapFail: null,
+  sourcesFail: null,
 };
 
 /** The V2 Integrations stub (`POST /seed-integrations`, tests/support/stub-integrations.mjs `seed`): the Slack knobs and, with `pid`, a project's bindings. */

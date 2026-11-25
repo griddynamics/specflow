@@ -4,7 +4,7 @@
 // round trip. The forms are the registry's (`connectors.ts`).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ReactNode, RefObject } from "react";
+import { useEffect, type ReactNode, type RefObject } from "react";
 import { Dialog, Notice } from "@graphico/ui";
 import { CONNECTORS } from "../connectors";
 import type { ConnectorSpec, McpAddress } from "../connector-types";
@@ -25,6 +25,19 @@ export type DialogState =
   | { type: "build" }
   | { type: "plan" }
   | { type: "gaps" };
+
+/** The plan destinations the plan goes to (Jira, GitHub Projects), by node name; null when it has none. */
+export function destinationsOf(nodes: readonly Pick<NodeView, "kind" | "name">[]): string | null {
+  const names = nodes.filter((n) => n.kind === "jira" || n.kind === "github_plan").map((n) => n.name);
+  return names.length === 0 ? null : names.join(", ");
+}
+
+/** The key of what the dialog shows: the focus moves when it changes (list to form to back), not when the same body is updated. */
+export const bodyKeyOf = (state: DialogState | null): string | null => {
+  if (state === null) return null;
+  if (state.type === "form") return `form:${state.kind}`;
+  return state.type === "add" ? `add:${state.zone}` : state.type;
+};
 
 const stageOf = (zone: ZoneId): string => `${CANVAS_COPY.zoneNumber[zone]} · ${CANVAS_COPY.zoneName[zone]}`;
 
@@ -141,7 +154,7 @@ export function CanvasDialogs({
     }
     if (s.type === "plan") {
       const replan = model.hubs.plan.decision?.label === "Replan";
-      const destination = model.zones.plan.nodes.find((n) => n.kind === "jira")?.name ?? null;
+      const destination = destinationsOf(model.zones.plan.nodes);
       return {
         title: replan ? CANVAS_COPY.replanTitle : CANVAS_COPY.planTitle,
         eyebrow: stageOf("plan"),
@@ -168,8 +181,13 @@ export function CanvasDialogs({
   };
 
   const shown = frame();
+  const key = shown === null ? null : bodyKeyOf(state);
+  // A dialog whose subject is gone (a node removed, the status not read) must not show again when the subject comes back.
+  useEffect(() => {
+    if (state !== null && shown === null) onState(null);
+  });
   return (
-    <Dialog open={shown !== null} onClose={close} title={shown?.title ?? ""} eyebrow={shown?.eyebrow}>
+    <Dialog open={shown !== null} onClose={close} title={shown?.title ?? ""} eyebrow={shown?.eyebrow} focusKey={key ?? undefined}>
       {shown?.body}
     </Dialog>
   );

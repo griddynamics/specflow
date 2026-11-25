@@ -96,3 +96,7 @@ Stopped nodes: a lost Atlassian or GitHub connection (reconnect), or the closed 
 | Slack added after a posted test only | A channel whose test failed is already a node; the form closes and says what to fix | The binding exists once the command ran (AC49) |
 | "Set up" sets a switch | OAuth consent per app, then the canvas form | Integration flows of main (AC8) |
 | Remove on every node | Sources and repositories only; the owner | AC46 |
+| Header: project menu, Members, Integrations | Also a **Mission Control** link and a theme switch | The brand link goes to the newest project, so from a project's Integrations page the person needs a way back to that project's canvas; the style has a light and a dark theme and V1 had a switch (AC36) |
+| A hub's status shows only as a tooltip | The same text is in the page for screen readers, hidden visually | The hubs carry no visible name or count (D14); a tooltip is not reachable by keyboard or by a screen reader |
+| A failed read leaves the canvas as it was | A notice with "Try again" over the canvas when the project's status cannot be read | An empty canvas that is really a failed read misleads |
+| Build starts at once | The dialog waits for the API's answer and says in words when a start is refused (a build already running, the service down) | The hub is marked as starting only when the start was accepted |

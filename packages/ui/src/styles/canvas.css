@@ -8,6 +8,23 @@
   background: var(--gx-paper);
 }
 
+/* A read that failed: one notice over the top of the canvas, with its Try again. */
+.gx-canvas__alert {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(640px, calc(100% - 32px));
+  padding: 10px 14px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 10px;
+  background: var(--gx-paper);
+  transform: translateX(-50%);
+}
+
 .gx-backdrop,
 .gx-wires {
   position: absolute;

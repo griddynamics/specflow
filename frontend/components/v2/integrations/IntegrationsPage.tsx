@@ -7,12 +7,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Dialog, Notice, Page } from "@graphico/ui";
 import { useToast } from "@/components/ui/Toast";
-import type { BindableApp, IntegrationApp } from "@/lib/domain/integrations";
+import { canDisconnect, type BindableApp, type IntegrationApp } from "@/lib/domain/integrations";
 import { parseIntegrationsQuery } from "@/lib/routes";
 import { useV2Routes } from "../use-v2-data";
 import { V2_COPY } from "../v2-copy";
 import { IntegrationCards } from "./IntegrationCards";
-import { canDisconnect, integrationFailure, isLinked, returnToast } from "./integration-logic";
+import { integrationFailure, isLinked, returnToast } from "./integration-logic";
 import { INTEGRATION_CARDS } from "./registry";
 import { useIntegrations } from "./use-integrations";
 

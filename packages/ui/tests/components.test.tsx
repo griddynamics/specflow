@@ -66,7 +66,7 @@ test("Dialog: a native dialog named by its title, with a labelled close button",
   );
   assert.match(view, /^<dialog class="gx-dialog" aria-labelledby="([^"]+)"/);
   const id = /aria-labelledby="([^"]+)"/.exec(view)?.[1] ?? "";
-  assert.match(view, new RegExp(`<h2 id="${id}" class="gx-dialog__title">Members</h2>`));
+  assert.match(view, new RegExp(`<h2 id="${id}" class="gx-dialog__title" tabindex="-1">Members</h2>`));
   assert.match(view, /<p class="gx-eyebrow gx-dialog__eyebrow">Workspace<\/p>/);
   assert.match(view, /<button type="button" class="gx-dialog__close" aria-label="Close members">/);
   assert.match(view, /<p>body<\/p>/);

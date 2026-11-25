@@ -65,8 +65,9 @@ const BY_CODE: Record<string, DataErrorCode> = {
   // Project integrations and the Slack test message (docs/mission-control/integrations-api.md).
   atlassian_not_connected: "conflict", // 409 on PUT: the caller has no active Atlassian connection
   integration_workspace_mismatch: "conflict", // 409 on PUT: the project is bound to another workspace of that app
+  integration_already_connected: "conflict", // 409 on PUT: another member's connection is still active, so the binding is not taken over
   integration_not_found: "not_found", // 404 on DELETE: the project has no connection to that app
-  integration_forbidden: "forbidden", // 403 on DELETE: neither the member who connected it nor the owner
+  integration_forbidden: "forbidden", // 403 on DELETE (also the Slack channel): neither the member who connected it nor the owner
   slack_not_connected: "conflict", // 409: no channel is bound yet
   slack_not_in_channel: "conflict", // 409: the app left the channel or it is archived
   slack_unreachable: "unavailable", // 502: Slack did not answer

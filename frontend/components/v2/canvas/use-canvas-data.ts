@@ -14,6 +14,14 @@ import { clearsPending, startPendingTimer } from "./pending";
 import { usePolledRead } from "./use-polled-read";
 
 const GAPS_POLL_MS = 5000;
+/** While nothing is working (no gap run, no build) the counts change only when a person answers: read them rarely. */
+const GAPS_IDLE_POLL_MS = 30_000;
+const GAP_WORKING = new Set(["queued", "running", "building"]);
+
+/** How often the gaps are read: often while a gap run or a build is going on (or nothing is known yet), rarely otherwise. */
+export function gapsPollMs(phase: GapsSummary["phase"] | null, buildRunning: boolean): number {
+  return phase === null || buildRunning || GAP_WORKING.has(phase) ? GAPS_POLL_MS : GAPS_IDLE_POLL_MS;
+}
 const CLOCK_MS = 30_000;
 
 interface GapsRead {
@@ -21,7 +29,7 @@ interface GapsRead {
   rows: readonly GapRow[];
 }
 
-function useGapsRead(projectId: string, active: boolean): GapsRead | null {
+function useGapsRead(projectId: string, active: boolean, buildRunning: boolean): GapsRead | null {
   const { gaps } = useV2Ports();
   const [read, setRead] = useState<GapsRead | null>(null);
   const load = useCallback(() => {
@@ -32,11 +40,11 @@ function useGapsRead(projectId: string, active: boolean): GapsRead | null {
       () => undefined,
     );
   }, [gaps, projectId]);
+  const ms = gapsPollMs(read?.summary.phase ?? null, buildRunning);
   useEffect(() => {
-    if (!active) return undefined;
-    load();
-    return startPolling(true, load, GAPS_POLL_MS);
+    if (active) load();
   }, [active, load]);
+  useEffect(() => (active ? startPolling(true, load, ms) : undefined), [active, load, ms]);
   return active ? read : null;
 }
 
@@ -159,8 +167,8 @@ function useConnectionReads(projectId: string) {
 
 export function useCanvasData(projectId: string) {
   const { knowledge } = useV2Ports();
-  const { status, reload: reloadStatus } = useSourcesStatus(knowledge, projectId);
-  const gapsRead = useGapsRead(projectId, status?.ready === true);
+  const { status, failed: statusFailed, reload: reloadStatus } = useSourcesStatus(knowledge, projectId);
+  const gapsRead = useGapsRead(projectId, status?.ready === true, status?.build != null);
   const plan = usePlanState(projectId);
   const integrations = useIntegrationList(projectId);
   const { repos, target, channel, gapChannel, planProject } = useConnectionReads(projectId);
@@ -216,5 +224,5 @@ export function useCanvasData(projectId: string) {
       channel.reload();
     };
   });
-  return { input, reload, markBuild, markPlan };
+  return { input, reload, markBuild, markPlan, statusFailed };
 }

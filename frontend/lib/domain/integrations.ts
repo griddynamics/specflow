@@ -30,3 +30,12 @@ export interface IntegrationsPort {
   /** The member who connected it or the owner. */
   disconnect(projectId: string, app: IntegrationApp): Promise<void>;
 }
+
+/**
+ * Disconnect is for the member who connected the app or the owner (AC6), Slack included. A project with nothing connected has nothing to remove.
+ * The Slack channel bound before its integration row existed shows no connector: the card is off, and the Slack route lets any member remove it.
+ */
+export function canDisconnect(i: Integration, meId: string | null, isOwner: boolean): boolean {
+  if (i.connectedBy === null && i.workspace === null) return false;
+  return isOwner || (meId !== null && i.connectedBy?.userId === meId);
+}

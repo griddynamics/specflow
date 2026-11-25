@@ -68,12 +68,15 @@ export function Canvas({
   rootRef,
   backdrop,
   wires,
+  alert,
   children,
 }: Readonly<{
   label: string;
   rootRef?: Ref<HTMLElement>;
   backdrop?: BackdropView;
   wires: { width: number; height: number; items: readonly WireView[] };
+  /** A notice over the canvas (a read that failed), with its action; nothing when the canvas can be trusted. */
+  alert?: ReactNode;
   children: ReactNode;
 }>): JSX.Element {
   return (
@@ -94,6 +97,7 @@ export function Canvas({
           </g>
         ))}
       </svg>
+      {alert === undefined ? null : <div className="gx-canvas__alert">{alert}</div>}
       <div className="gx-zones">{children}</div>
     </main>
   );
@@ -215,6 +219,9 @@ export function Hub({ id, state, tooltip, label, progress, pill, decision, onPre
           {inner}
         </button>
       )}
+      <span className="gx-sr" data-testid={`hub-status-${id}`}>
+        {tooltip}
+      </span>
       {pill === undefined ? null : (
         <span className="gx-hub__pill" data-hole>
           {pill}

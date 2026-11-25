@@ -171,3 +171,32 @@ test("a dense column packs four sources or more; the pill has a paper ring that 
   assert.match(text, /overflow-wrap: anywhere/);
   assert.doesNotMatch(text, /white-space: nowrap|overflow-x/);
 });
+
+test("Hub: its status is text for screen readers (hidden visually, no visible label); the tile keeps no name or count under it", () => {
+  const view = html(<Hub id="gap" state="on" tooltip="14 found · 2 answered" label="Gaps" progress={null} />);
+  assert.match(view, /<span class="gx-sr" data-testid="hub-status-gap">14 found · 2 answered<\/span>/);
+  assert.match(
+    css.concat(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/styles/base.css"), "utf8")),
+    /\.gx-sr \{[^}]*clip-path: inset\(50%\)/,
+  );
+});
+
+test("Canvas: a notice over it only when one is given", () => {
+  const wires = { width: 10, height: 10, items: [] };
+  assert.doesNotMatch(
+    html(
+      <Canvas label="C" wires={wires}>
+        x
+      </Canvas>,
+    ),
+    /gx-canvas__alert/,
+  );
+  assert.match(
+    html(
+      <Canvas label="C" wires={wires} alert={<p>Read failed</p>}>
+        x
+      </Canvas>,
+    ),
+    /<div class="gx-canvas__alert"><p>Read failed<\/p><\/div>/,
+  );
+});

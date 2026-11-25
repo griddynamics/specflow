@@ -117,6 +117,8 @@ export const CANVAS_COPY = {
   estimate: "Takes {time}. Higher levels read more carefully and take longer.",
   build: "Build",
   update: "Update",
+  buildStartFailed: "The build could not be started. Try again.",
+  buildRunning: "A build is already running. Wait for it to finish.",
   buildFailed: "The last build failed ({code}). You can try again.",
   planTitle: "Build the plan",
   replanTitle: "Replan",

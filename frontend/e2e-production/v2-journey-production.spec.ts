@@ -100,6 +100,7 @@ test.describe("Mission Control V2: the journey", { tag: "@production" }, () => {
     // The gap run follows the build by itself; a critical gap is then seeded.
     await expect(hub(page, "gap")).toHaveAttribute(STATE, "on", { timeout: 20_000 });
     await seedGaps(pid, { gaps: shopGaps(), run: FINISHED_RUN });
+    await page.reload(); // an idle gap run is read every 30 s; a person who answered elsewhere sees it on the next read
     await expect(hub(page, "gap")).toContainText(/\d critical/, { timeout: 15_000 });
     await expect(nodes(page).filter({ hasText: "#northwind-specs" })).toContainText("found");
     await expect(nodes(page).filter({ hasText: "Jira · NWO gaps" })).toContainText("0 posted");

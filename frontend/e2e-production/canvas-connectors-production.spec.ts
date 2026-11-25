@@ -557,23 +557,25 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await form.getByLabel("Sub-tasks").selectOption("area");
     await form.getByRole("button", { name: CHECK_ACCESS }).click();
     await expect(form.getByText("Jira space Northwind.")).toBeVisible();
-    await form.getByLabel(SPACE_KEY).fill("nwo "); // a changed value is a new check
+    await form.getByLabel(SPACE_KEY).fill("nwo "); // the same key (trimmed): the check still holds
+    await expect(form.getByRole("button", { name: "Add channel" })).toBeVisible();
+    await form.getByLabel(SPACE_KEY).fill("nwx"); // another key is a new check
     await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible();
     await form.getByRole("button", { name: CHECK_ACCESS }).click();
     await form.getByRole("button", { name: "Add channel" }).click();
     await expect(form).toBeHidden();
     const saves = requests.filter((r) => r.method === "PUT" && r.path === `/api/backend/projects/${pid}/jira-gaps`);
-    expect(bodiesOf(saves)).toEqual([{ jira_project: "NWO", grouping: "area", enabled: true }]);
-    const node = nodes(page).filter({ hasText: "Jira · NWO gaps" });
+    expect(bodiesOf(saves)).toEqual([{ jira_project: "NWX", grouping: "area", enabled: true }]);
+    const node = nodes(page).filter({ hasText: "Jira · NWX gaps" });
     await expect(node).toHaveAttribute(STATE, "on");
     await expect(node).toContainText("0 posted · 0 answered");
     await seedJiraGaps({
       pid,
-      target: { jira_project: "NWO", grouping: "area", enabled: true, story_key: "NWO-5", posted: 7, answered: 2 },
+      target: { jira_project: "NWX", grouping: "area", enabled: true, story_key: "NWO-5", posted: 7, answered: 2 },
     });
     await expect(node).toContainText("7 posted · 2 answered", { timeout: 15_000 });
     await node.getByRole("button").click();
-    await expect(dialog(page, "Jira · NWO gaps").getByText(/Story NWO-5\./)).toBeVisible();
+    await expect(dialog(page, "Jira · NWX gaps").getByText(/Story NWO-5\./)).toBeVisible();
   });
 
   test("Jira plan: the space and epic keys, Check access, then Add destination saves the target and shows its node; a failed check names the field", async ({

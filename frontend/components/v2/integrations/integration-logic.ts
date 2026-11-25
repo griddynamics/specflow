@@ -30,14 +30,7 @@ export function cardViewOf(i: Integration): CardView {
   };
 }
 
-/** Disconnect for the member who connected it or the owner (AC6). Slack is also removable by any member through its own route (D6). */
-export function canDisconnect(i: Integration, meId: string | null, isOwner: boolean): boolean {
-  if (i.connectedBy === null && i.workspace === null) return false;
-  if (i.app === "slack") return true;
-  return isOwner || (meId !== null && i.connectedBy?.userId === meId);
-}
-
-/** Slack's web route is member-level; the other apps go through the integrations route. */
+/** Slack's channel is removed through its own web route; the other apps go through the integrations route. */
 export const disconnectsThroughSlackRoute = (app: IntegrationApp): boolean => app === "slack";
 
 /** The toast of `?github=` or `?atlassian=` on the way back from an app. */
@@ -52,6 +45,7 @@ const FAILURE: Record<string, string> = {
   atlassian_not_connected: V2_COPY.notConnectedFirst,
   github_not_connected: V2_COPY.notConnectedFirst,
   integration_workspace_mismatch: V2_COPY.workspaceMismatch,
+  integration_already_connected: V2_COPY.alreadyConnected,
   integration_forbidden: V2_COPY.notAllowedToRemove,
   slack_unavailable: V2_COPY.slackNotOnServer,
 };

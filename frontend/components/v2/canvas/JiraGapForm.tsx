@@ -2,8 +2,8 @@
 // Jira gap sub-tasks: the space key and the grouping, a check of access (as the member Atlassian is connected by), then Add channel. Any member
 // may add it. The open questions are posted in the background once it is saved; the node counts what was posted and answered.
 import { useEffect, useId, useState } from "react";
-import { Button, Field, Notice, Select, TextInput } from "@graphico/ui";
-import { failureOf, outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/settings/jira-logic";
+import { Button, Field, Notice, Select } from "@graphico/ui";
+import { outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/settings/jira-logic";
 import type { JiraGapGrouping } from "@/lib/domain/jira-gaps";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";
@@ -11,6 +11,9 @@ import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
 import { ReadGate, readGateState } from "./ReadGate";
+import { problemOf } from "./jira-outcome";
+import { JiraSpaceField } from "./JiraSpaceField";
+import { signedFor, type Signed } from "./signed";
 
 type Busy = "check" | "save" | null;
 
@@ -32,26 +35,21 @@ export function JiraGapFormBody({ projectId, spec, reload, onBack, onClose, poll
   const { jiraGaps } = useV2Ports();
   const [project, setProject] = useState("");
   const [grouping, setGrouping] = useState<JiraGapGrouping>("one");
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [held, setHeld] = useState<Signed<Outcome> | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const spaceId = useId();
   const groupingId = useId();
   const check = spec.check ?? { test: "", testing: "", add: "" };
+  const signature = `${targetOf(project, "").jiraProject}|${grouping}`;
+  const outcome = signedFor(held, signature);
   const phase = phaseOf(outcome, busy);
   const label = { check: check.test, checking: check.testing, save: check.add, saving: CANVAS_COPY.jiraSaving }[phase];
   const key = targetOf(project, "").jiraProject;
 
-  const edit = (apply: () => void) => {
-    apply();
-    setOutcome(null);
-  };
-  const fail = (e: unknown) => {
-    const f = failureOf(e);
+  // An answer belongs to what was typed when it was asked for (`signature`): a late one never shows under another key or grouping.
+  const fail = (sent: string) => (e: unknown) => {
     setBusy(null);
-    setOutcome({
-      kind: "problem",
-      texts: f.kind === "fields" ? f.texts : { alert: f.kind === "toast" || f.kind === "disconnected" ? f.text : "" },
-    });
+    setHeld({ signature: sent, value: problemOf(e) });
   };
   const run = () => {
     if (busy !== null || key === "") return;
@@ -60,14 +58,14 @@ export function JiraGapFormBody({ projectId, spec, reload, onBack, onClose, poll
       jiraGaps.save(projectId, { jiraProject: key, grouping, enabled: true }).then(() => {
         reload.current();
         onClose();
-      }, fail);
+      }, fail(signature));
       return;
     }
     setBusy("check");
     jiraGaps.checkAccess(projectId, key).then((access) => {
       setBusy(null);
-      setOutcome(outcomeOf(access, true));
-    }, fail);
+      setHeld({ signature, value: outcomeOf(access, true) });
+    }, fail(signature));
   };
   const texts = outcome?.kind === "problem" ? outcome.texts : {};
   return (
@@ -83,28 +81,15 @@ export function JiraGapFormBody({ projectId, spec, reload, onBack, onClose, poll
         </Button>
       }
     >
-      <Field label={CANVAS_COPY.jiraSpace} htmlFor={spaceId} error={texts.project}>
-        <TextInput
-          id={spaceId}
-          value={project}
-          spellCheck={false}
-          onChange={(e) => {
-            edit(() => {
-              setProject(e.target.value);
-            });
-          }}
-        />
-      </Field>
+      <JiraSpaceField id={spaceId} value={project} busy={busy !== null} error={texts.project} onChange={setProject} />
       <Field label={CANVAS_COPY.jiraGapGrouping} htmlFor={groupingId} hint={CANVAS_COPY.jiraGapNote.replace("{n}", String(pollSeconds))}>
         <Select
           id={groupingId}
           value={grouping}
+          disabled={busy !== null}
           onChange={(e) => {
             const next = e.target.value;
-            if (isGrouping(next))
-              edit(() => {
-                setGrouping(next);
-              });
+            if (isGrouping(next)) setGrouping(next);
           }}
         >
           {(Object.keys(GROUPING_TEXT) as JiraGapGrouping[]).map((g) => (

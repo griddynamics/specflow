@@ -79,6 +79,7 @@ const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
  * parseMs/summarizeMs = Infinity keeps the work "in progress" forever (stuck tests).
  * Knowledge build knobs on `state` (see `graphRoute`): graphMs (a build resolves when it has run that long; Infinity = never),
  * graphOutcome ("succeeded" | "partially_succeeded" | "failed") and graphStartFail (null | an API code: the POST answers 503 with it).
+ * `sourcesFail` (an API code) makes the sources status read answer 503 with it.
  * Gap knob: gapMs (the gap run a finished build queues completes after that long; Infinity = never).
  * Plan knob: planMs (a plan run takes that long, its ten steps evenly spread; see `planRoute`).
  */
@@ -99,6 +100,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     workFail: null,
     workReadFail: null,
     gapFail: null,
+    sourcesFail: null,
   };
   /** Drive: sources per project (SourceOut rows, mutable by tests), and the identity answer (a Reason string = 503 with that code). */
   const sources = new Map(); // pid -> SourceOut[]
@@ -962,6 +964,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       }
     };
     try {
+      if (!did && req.method === "GET" && state.sourcesFail) {
+        await drain();
+        return err(res, 503, state.sourcesFail); // the status read of the project cannot be answered
+      }
       if (!did && req.method === "GET") {
         await drain();
         return json(res, 200, url.searchParams.get("batches") === "1" ? model.status(pid) : progressOf(pid));
