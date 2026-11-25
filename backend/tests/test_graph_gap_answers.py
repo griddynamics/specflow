@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from pydantic import ValidationError
 
 from gap_acceptance_support import Planted
 from gap_answer_support import (
@@ -110,6 +111,20 @@ async def test_insert_after_any_project_line_is_allowed_but_replace_only_a_gap_l
     (row,) = await rig.world.amendments.for_clarification(rig.project_id, result.clr_id)
     assert (row.lineage, row.operation) == ("upload:payments-spec", "insert_after")
     assert row.heading_path and row.last_revision_id is not None and len(row.anchor_hash) == 64
+
+
+async def test_an_answer_given_through_jira_is_recorded_under_its_own_channel_and_an_unknown_one_is_refused() -> None:
+    rig = await answer_world()
+    gap = await rig.cancel_gap()
+
+    await rig.service.answer_gap(
+        rig.project_id, AnswerInput(gap_id=gap.gap_id, option_rank=1, answered_by=MEMBER, via="jira")
+    )
+
+    detail = await rig.service.get_gap(rig.project_id, gap.gap_id)
+    assert [event.detail["via"] for event in detail.history.events if event.event == "answered"] == ["jira"]
+    with pytest.raises(ValidationError):
+        AnswerInput(gap_id=gap.gap_id, option_rank=1, answered_by=MEMBER, via=cast(Any, "telegram"))
 
 
 async def test_answers_refuse_unknown_gaps_options_texts_and_states() -> None:

@@ -27,7 +27,7 @@ is a later planning decision that the owner reviews in the pull request.
 | D11 | Jira REST through an async HTTP client behind a gateway; no command-line tool in the service. | agent (approved with the plan) |
 | D12 | The sync runs in the API process like the plan and gap runs, not as a workflow on a worker (refines D8). | agent |
 | D13 | A removed item in To Do gets the label `specflow-removed` and a comment; in any other status only a comment. A redone task whose issue is past To Do gets only a comment (refines D6). | agent |
-| D14 | Any member may start a sync and read its status (web read and MCP); settings and the access check are owner-only. | agent |
+| D14 | Any member may start a sync and read its status (web read and MCP); settings and the access check were owner-only (settings and check: superseded by D56). | agent |
 | D15 | A disabled target blocks every sync, manual ones too (`409 jira_not_configured`). | agent |
 | D16 | The real gateway is used when the three `ATLASSIAN_*` are set; otherwise the Jira routes answer `503 jira_unavailable`. The fake gateway lives in the tests only. | agent |
 | D17 | Map keys: base task id (a redo stays the same Sub-task), story id, `EPIC` for a created Epic. | agent |
@@ -53,21 +53,23 @@ is a later planning decision that the owner reviews in the pull request.
 | D37 | A `Blocks` link a person made before Specflow wanted the same wait is stored in `blocked_by` like a Specflow link and is deleted when the plan drops the wait; links never in `blocked_by` are never deleted (refines D5). | agent |
 | D38 | The Jira tab confirms a save with the toast "Jira target saved", and its primary button stays disabled while the typed keys equal the saved target (refines D22). | agent |
 | D39 | An Epic read that Jira refuses with 403 during the access check is `jira_forbidden` with `field` `epic_key` (refines D29). | agent |
-| D40 | The acting account of a target is the owner who last saved it; any owner takes it over by connecting and saving. | agent (approved with the plan) |
+| D40 | The acting account of a target was the owner who last saved it (superseded by D55). | agent (approved with the plan) |
 | D41 | The one-account `token` mode stays as a fallback; `oauth` wins when both are configured (refines D1, D16). | agent (approved with the plan) |
 | D42 | The OAuth `state` is HMAC-signed, with no table; it expires after 10 minutes and is bound to the user who asked. | agent (approved with the plan) |
 | D43 | One Fernet key, `ATLASSIAN_TOKEN_KEY`, encrypts the refresh tokens and derives the `state` signing key. | agent (approved with the plan) |
 | D44 | No keep-alive refresh; `invalid_grant` marks the connection `expired`, never refreshed again until the user reconnects. | agent (approved with the plan) |
 | D45 | Confluence as a source stays out of this change; the connection already holds the Confluence scopes. | agent (approved with the plan) |
-| D46 | Every settings `PUT` sets `connected_user_id` to the saving owner, in both modes (`token` ignores it), so a switch to `oauth` keeps the last saver as the acting account. | agent |
+| D46 | Every settings `PUT` set `connected_user_id` to the saving owner (superseded by D55). | agent |
 | D47 | Only `ATLASSIAN_OAUTH_CLIENT_ID` turns `oauth` on; the token variables are then not read (a partial token set is not refused), and a secret or key without the client ID is ignored. `api.jira.mode` is logged at every start, in both modes. | agent |
 | D48 | A refresh failure other than `invalid_grant` keeps the connection `active`: `429`, `5xx` and network errors are `jira_unreachable`, any other refusal (a wrong client secret) `jira_auth_failed`. A refresh token that no longer decrypts (a rotated `ATLASSIAN_TOKEN_KEY`) counts as `invalid_grant` (refines D44). | agent |
 | D49 | Callback errors: a refused `accessible-resources` call is `atlassian_code_invalid`, a refused `/myself` is `atlassian_site_not_granted`. The callback body stays `{code, state}`: Atlassian's `?error=` never reaches the API; the web app maps it to `atlassian_consent_denied`. | agent |
 | D50 | `GET /integrations/atlassian` answers in every mode (`connected` false in `token` mode and off). `JiraSettingsOut.connection` is null outside `oauth` mode and when the project has no target; `connected_by_name` is the Atlassian display name of the acting connection, null when `missing`. | agent |
-| D51 | A settings `PUT` with the owner's own connection `expired` is 409 `jira_not_connected` too (refines D40). | agent |
+| D51 | A settings `PUT` with the owner's own connection `expired` was 409 `jira_not_connected` too (superseded by D55). | agent |
 | D52 | `return_to` also refuses a backslash, whitespace, control and non-ASCII characters, and is at most 2048 characters. | agent |
 | D53 | Access tokens are cached per api process; several replicas refresh on their own and the row's `FOR UPDATE` serializes the rotation. A gateway per user and cloud lives until shutdown, so a running pass keeps its client; a disconnect drops the token and the next call fails `jira_not_connected`, in the process that served it only: another replica keeps its cached access token until it expires (about an hour). | agent |
 | D54 | `cryptography` is declared in the api dependency extra (it was only transitive). | agent |
+| D55 | The acting account of a target is the member the project's Atlassian connection is bound to (`project_integrations`), whoever saves the target; `token` mode stores null (Mission Control V2 D1, D3). | owner (V2 decisions) |
+| D56 | Any member saves the settings and runs the access check; the members, rename and invite routes stay owner-only (Mission Control V2 D6). | owner (V2 decisions) |
 
 ## Design choices
 

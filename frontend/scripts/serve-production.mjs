@@ -13,6 +13,12 @@
 //                                          POST /seed-members ({name?, role?, members?, invites?, state?}: a project where the caller is owner or
 //                                            collaborator, with chosen members and invites; `state` sets people knobs such as allowedDomains or
 //                                            claimsReleased; answers the project; see stub-members.mjs `seed`)
+//                                          POST /seed-jira-gaps ({pid, available?, target?, access?}: the Jira gap channel of a project,
+//                                            `GET /projects/{pid}/jira-gaps`; see stub-jira-gaps.mjs)
+//                                          POST /seed-github-projects ({pid?, available?, organization?, target?, access?}: the GitHub Projects
+//                                            plan destination of a project, `GET /projects/{pid}/github-projects`; `organization` null = a user's
+//                                            repository; `target` = {repository_id, repository, project_node_id, project_title, enabled?, sync?} or
+//                                            null; `access` = "ok" or {reason, field?}; see stub-github-projects.mjs)
 //                                          POST /seed-jira ({pid, available?, target?, access?}: the Jira settings of a project. `available`
 //                                            false = the server has no Atlassian account (503 jira_unavailable); `target` = {jira_project,
 //                                            epic_key, enabled, created_epic_key?, sync?: JiraSyncStatus, which may carry progress: {step, done, total}} or null (no target); `access` = "ok" or
@@ -25,6 +31,17 @@
 //                                            `available` (the caller's repositories), `truncated`, `availableError`, `cloneMs` (null = a
 //                                            clone check keeps running), `cloneOutcome` ("cloned" or a failure code); with `pid` the
 //                                            project's repositories; `reset: true` puts every knob back first; see stub-github.mjs)
+//                                          POST /seed-integrations ({pid?, reset?, slackAvailable?, slackTest?, atlassian?, github?, slack?}: the V2
+//                                            Integrations page. `atlassian` and `github` are null (not connected) or {by?, workspace?, health?};
+//                                            `slack` null or {channel, by?}; `by: null` = the member left; `slackTest` is "ok" or the API code the
+//                                            next Test connection answers with; `reset: true` puts the Slack knobs back; the connect (PUT) of an
+//                                            app needs the caller's own connection, set with /seed-jira (mode "oauth", connection) or /seed-github;
+//                                            see stub-integrations.mjs)
+//                                          POST /seed-slack ({pid, channel, by?, available?, test?}: the Slack channel of a project, as
+//                                            `GET /projects/{pid}/slack` answers it: `channel` is null (none bound) or {id, name, private};
+//                                            `by: null` = the member left; `available: false` = Slack is off on the server; `test` = "ok" or the
+//                                            API code the next Test connection answers with; a thin door to /seed-integrations for the canvas
+//                                            specs; see stub-integrations.mjs)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)
 //                                          POST /seed-gaps ({pid, gaps, run, rules, corpus}: the gaps, the latest gap run, the noise rules
 //                                            and the corpus documents of a project; stub-api.mjs `gapRoute`)
@@ -95,7 +112,7 @@ const control = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const t = JSON.parse(Buffer.concat(chunks).toString() || "{}");
-    for (const k of ["parseMs", "summarizeMs", "graphMs"]) if (t[k] === null) t[k] = Infinity; // JSON has no Infinity: null keeps work running
+    for (const k of ["parseMs", "summarizeMs", "graphMs", "gapMs"]) if (t[k] === null) t[k] = Infinity; // JSON has no Infinity: null keeps work running
     api.setTiming(t);
     return send(200, { ok: true });
   }
@@ -153,6 +170,36 @@ const control = http.createServer(async (req, res) => {
     api.github.seed(spec);
     return send(200, { ok: true });
   }
+  if (req.method === "POST" && req.url === "/seed-integrations") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.integrations.seed(spec);
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/seed-slack") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    const { pid, channel, by, available, test } = spec;
+    api.integrations.seed({
+      pid,
+      slack: channel === null || channel === undefined ? null : { channel, ...(by === undefined ? {} : { by }) },
+      slackAvailable: available,
+      slackTest: test,
+    });
+    return send(200, { ok: true });
+  }
   if (req.method === "POST" && req.url === "/seed-members") {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -177,6 +224,30 @@ const control = http.createServer(async (req, res) => {
       return send(400, { error: "bad_json" });
     }
     api.jira.seed(spec);
+    return send(200, {});
+  }
+  if (req.method === "POST" && req.url === "/seed-github-projects") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.githubProjects.seed(spec);
+    return send(200, {});
+  }
+  if (req.method === "POST" && req.url === "/seed-jira-gaps") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.jiraGaps.seed(spec);
     return send(200, {});
   }
   if (req.method === "POST" && (req.url === "/seed-source" || req.url === "/remove-source")) {

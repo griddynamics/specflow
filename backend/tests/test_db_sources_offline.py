@@ -110,9 +110,9 @@ def test_the_downgrade_drops_each_source_table_before_what_it_references() -> No
 
 
 def test_the_source_check_constraints_equal_the_models() -> None:
-    """The migration text and the models carry the same CHECKs."""
+    """The migration text and the models carry the same CHECKs (0008 widens the kind check, so read up to the head)."""
 
-    sql = " ".join(offline(HEAD).split())
+    sql = " ".join(offline("head").split())
     for table in (CONNECTIONS, ITEMS):
         for constraint in table.constraints:
             if isinstance(constraint, CheckConstraint):

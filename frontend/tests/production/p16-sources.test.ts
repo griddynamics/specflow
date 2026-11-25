@@ -59,19 +59,26 @@ test("FR-GDUI-0009, INT-GDUI-0002: Test connection maps the ok answer (snake_cas
   const http = createHttpAdapter();
   const pid = await newProject(http, "Test ok");
   const r = await http.sources.testDrive(pid, folder(DRIVE_FOLDER));
-  assert.deepEqual(r, {
-    ok: true,
-    folderId: DRIVE_FOLDER,
-    folderName: "Recorded folder",
-    folderCount: 3,
-    fileCount: 11,
-    categories: [
-      { category: "google_docs", processingClass: "processed", count: 5 },
-      { category: "pdf", processingClass: "processed", count: 3 },
-      { category: "word", processingClass: "stored_only", count: 2 },
-      { category: "shortcuts", processingClass: "skipped", count: 1 },
-    ],
-  });
+  assert.ok(r.ok);
+  assert.equal(r.files.length, 11, "the files are mapped (canvas-pick.test.ts reads them)");
+  assert.deepEqual(
+    { ...r, files: [] },
+    {
+      ok: true,
+      folderId: DRIVE_FOLDER,
+      folderName: "Recorded folder",
+      folderCount: 3,
+      fileCount: 11,
+      categories: [
+        { category: "google_docs", processingClass: "processed", count: 5 },
+        { category: "pdf", processingClass: "processed", count: 3 },
+        { category: "word", processingClass: "stored_only", count: 2 },
+        { category: "shortcuts", processingClass: "skipped", count: 1 },
+      ],
+      files: [],
+      filesCapped: false,
+    },
+  );
   assert.equal((await http.sources.testDrive(pid, folder("fake-empty-folder"))).ok, true);
   const sent = env.sent.filter((s) => s.path === `/api/backend/projects/${pid}/sources/gdrive/test`);
   assert.equal(sent.length, 2);

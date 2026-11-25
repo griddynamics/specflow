@@ -4,6 +4,7 @@
 // (`client.ts`, G01-10). No fixture is imported here (R7).
 import type { GapsPort } from "@/lib/domain/gaps";
 import type { GitHubPort } from "@/lib/domain/github";
+import type { IntegrationsPort } from "@/lib/domain/integrations";
 import type { JiraPort } from "@/lib/domain/jira";
 import type { CreateProjectPort } from "@/lib/domain/create-project";
 import type { MembersPort } from "@/lib/domain/members";
@@ -11,17 +12,22 @@ import type { PeoplePort } from "@/lib/domain/people";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
 import type { PlanPort } from "@/lib/domain/plan";
 import type { ProjectsPort } from "@/lib/domain/projects";
+import type { GitHubProjectsPort } from "@/lib/domain/github-projects";
+import type { JiraGapsPort } from "@/lib/domain/jira-gaps";
 import type { SlackPort } from "@/lib/domain/slack";
 import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
 import { createHttpGaps } from "./gaps";
 import { createHttpGitHub } from "./github";
+import { createHttpIntegrations } from "./integrations";
 import { createHttpJira } from "./jira";
 import { createHttpKnowledge } from "./knowledge";
 import { createHttpMembers } from "./members";
 import { createHttpPeople } from "./me";
 import { createHttpPlan } from "./plan";
 import { createHttpProjects } from "./projects";
+import { createHttpGitHubProjects } from "./github-projects";
+import { createHttpJiraGaps } from "./jira-gaps";
 import { createHttpSlack } from "./slack";
 import { createHttpSources } from "./sources";
 import { createHttpWork } from "./work";
@@ -39,8 +45,11 @@ export interface HttpPorts {
   gaps: GapsPort;
   members: MembersPort;
   jira: JiraPort;
+  githubProjects: GitHubProjectsPort;
+  jiraGaps: JiraGapsPort;
   slack: SlackPort;
   github: GitHubPort;
+  integrations: IntegrationsPort;
 }
 
 /** TECH-SPECS §3.1. `pollMs` and `idleMs` are constructor options for the stub-API tests; production uses the defaults. */
@@ -63,7 +72,10 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     gaps: createHttpGaps(),
     members: createHttpMembers(),
     jira: createHttpJira(),
+    githubProjects: createHttpGitHubProjects(),
+    jiraGaps: createHttpJiraGaps(),
     slack: createHttpSlack(),
     github: createHttpGitHub(),
+    integrations: createHttpIntegrations(),
   };
 }

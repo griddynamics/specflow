@@ -140,7 +140,7 @@ COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_PRO
 # `env -u VIRTUAL_ENV`: the kit tools run in the kit's own environments, not a shell's active venv.
 VALIDATION := $(CURDIR)/validation
 VALIDATE_REPORTS ?= $(CURDIR)/.validation-reports
-VALIDATE_TRACKS := python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts
+VALIDATE_TRACKS := python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts typescript-lint-ui typescript-scripts-ui
 VALIDATE_TARGETS := $(addprefix validate-,$(VALIDATE_TRACKS))
 KIT_ENV := env -u VIRTUAL_ENV
 
@@ -152,7 +152,7 @@ BACKEND_TARGETS := setup models lint unit-test check test-graph-live graph-bench
 	api worker temporal-check rss-test
 
 .PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env check-graph-store-env up down down-volumes logs ps images \
-	frontend-setup frontend-dev frontend-lint frontend-build e2e e2e-production e2e-all
+	frontend-setup frontend-dev frontend-lint frontend-build e2e e2e-production e2e-all site-lint site-build site-test
 
 $(BACKEND_TARGETS):
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) $@
@@ -218,8 +218,9 @@ images:
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) image-test
 
 # Frontend on the host with live reload (stop the `frontend` container first: same port).
+# One install for the npm workspace (packages/ui, frontend): the root package-lock.json, node_modules/ at the root.
 frontend-setup:
-	npm --prefix frontend ci
+	npm ci
 
 # Explicit host and port: a clash with the container is a bind error, not a
 # silent move to another port.
@@ -266,7 +267,7 @@ e2e-all:
 # ---- Validation ---------------------------------------------------------------------------
 # make validate                           every track, keeps going after a failure, lists the failed ones
 # make validate TRACKS="python-lint sql"  a subset
-# make validate-<track>                   one track: python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts
+# make validate-<track>                   one track: python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts typescript-lint-ui typescript-scripts-ui
 # make validate-install                   install the kit tools (uv sync / npm install); once, and after a kit update
 # make validate-install-python-clones     only the jscpd engine of validate-python-scripts' clones step (Node.js 24)
 # make validate-selftest                  the kit's own tests (only after editing a kit rule)
@@ -338,6 +339,29 @@ validate-typescript-lint:
 
 validate-typescript-scripts:
 	$(KIT_ENV) node $(VALIDATION)/typescript/scripts/run.mjs --config frontend/validation.config.json
+
+# The same two kit runs over packages/ui (@graphico/ui), with its own configs in that folder.
+validate-typescript-lint-ui:
+	$(KIT_ENV) node $(VALIDATION)/typescript/lint/run.mjs --project packages/ui
+
+validate-typescript-scripts-ui:
+	$(KIT_ENV) node $(VALIDATION)/typescript/scripts/run.mjs --config packages/ui/validation.config.json
+
+# Render tests of packages/ui (node:test through tsx), run by the unit-typescript CI job too.
+ui-test:
+	npm test --workspace=@graphico/ui
+
+# The public landing page (site/, a static export): lint and tsc, the export into site/out, and its tests (run after site-build).
+# The root `npm ci` (make frontend-setup) installs it with the rest of the workspace.
+site-lint:
+	npm --prefix site run lint
+	npm --prefix site run typecheck
+
+site-build:
+	npm --prefix site run build
+
+site-test:
+	npm --prefix site test
 
 validate-install: validate-install-python validate-install-typescript
 

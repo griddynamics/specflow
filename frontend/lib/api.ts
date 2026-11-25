@@ -170,6 +170,18 @@ export const getSlack = (pid: string) => httpGet(`/projects/${encodeURIComponent
 /** 204: resolves with the HTTP status. */
 export const deleteSlack = (pid: string) => httpDelete(`/projects/${encodeURIComponent(pid)}/slack`).then((r) => r.status);
 
+/** 200 `{posted, channel}` (docs/mission-control/integrations-api.md "Slack test message"): the body stays `unknown`. */
+export const testSlackConnection = (pid: string) => httpPost(`/projects/${encodeURIComponent(pid)}/slack/test`).then((r) => r.body);
+
+// The project's integrations (docs/mission-control/integrations-api.md): who each app is connected by. Bodies stay `unknown`; the
+// integrations port (lib/data/http/integrations.ts) checks them.
+export const listProjectIntegrations = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/integrations`).then((r) => r.body);
+export const putProjectIntegration = (pid: string, app: string) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/integrations/${encodeURIComponent(app)}`).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const deleteProjectIntegration = (pid: string, app: string) =>
+  httpDelete(`/projects/${encodeURIComponent(pid)}/integrations/${encodeURIComponent(app)}`).then((r) => r.status);
+
 // Jira settings of a project (docs/jira-sync/api.md#web-routes). Bodies stay `unknown`; the Jira port (lib/data/http/jira.ts) checks
 // their shape. A failed access check is a 200 answer.
 export const getJira = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/jira`).then((r) => r.body);
@@ -179,6 +191,33 @@ export const checkJiraAccess = (pid: string, jiraProject: string, epicKey: strin
   httpPost(`/projects/${encodeURIComponent(pid)}/jira/access-check`, json({ jira_project: jiraProject, epic_key: epicKey })).then(
     (r) => r.body,
   );
+
+// The Jira gap channel of a project (docs/jira-sync/gaps.md). Bodies stay `unknown`; lib/data/http/jira-gaps.ts checks them.
+export const getJiraGaps = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/jira-gaps`).then((r) => r.body);
+export const putJiraGaps = (pid: string, jiraProject: string, grouping: string, enabled: boolean) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/jira-gaps`, json({ jira_project: jiraProject, grouping, enabled })).then((r) => r.body);
+export const checkJiraGapsAccess = (pid: string, jiraProject: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/jira-gaps/access-check`, json({ jira_project: jiraProject })).then((r) => r.body);
+
+// The GitHub Projects plan destination of a project (docs/github/projects.md). Bodies stay `unknown`; lib/data/http/github-projects.ts checks them.
+/** The project is named by `nodeId` (an existing one) or `newTitle` (created in the organization at save): the body names exactly one. */
+const projectBody = (pick: { nodeId: string } | { newTitle: string }) =>
+  "nodeId" in pick ? { project_node_id: pick.nodeId } : { new_project_title: pick.newTitle };
+export const getGitHubProjects = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/github-projects`).then((r) => r.body);
+export const listGitHubProjects = (pid: string, repositoryId: string) =>
+  httpGet(`/projects/${encodeURIComponent(pid)}/github-projects/projects?repository_id=${encodeURIComponent(repositoryId)}`).then(
+    (r) => r.body,
+  );
+export const putGitHubProjects = (pid: string, repositoryId: string, pick: { nodeId: string } | { newTitle: string }, enabled: boolean) =>
+  httpPut(
+    `/projects/${encodeURIComponent(pid)}/github-projects`,
+    json({ repository_id: repositoryId, ...projectBody(pick), enabled }),
+  ).then((r) => r.body);
+export const checkGitHubProjectsAccess = (pid: string, repositoryId: string, pick: { nodeId: string } | { newTitle: string }) =>
+  httpPost(
+    `/projects/${encodeURIComponent(pid)}/github-projects/access-check`,
+    json({ repository_id: repositoryId, ...projectBody(pick) }),
+  ).then((r) => r.body);
 
 // The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
 // app/api/integrations/atlassian/callback calls the API on the server.
@@ -222,8 +261,15 @@ export const listSourceFiles = (pid: string, sid: string, cursor?: string | null
 /** DELETE goes through `call`, so it carries the CSRF header like every non-GET. Resolves with the HTTP status (204 = removed). */
 export const removeSource = (pid: string, sid: string) =>
   httpDelete(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}`).then((r) => r.status);
-export const startBatch = (pid: string, expectedFiles: number) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/sources/uploads`, json({ expected_files: expectedFiles })).then((r) => r.body);
+/** `name` (optional, the batch's own name) is left out of the body when blank, so the server keeps the default. */
+export const startBatch = (pid: string, expectedFiles: number, name?: string) =>
+  httpPost(
+    `/projects/${encodeURIComponent(pid)}/sources/uploads`,
+    json(name === undefined || name.trim() === "" ? { expected_files: expectedFiles } : { expected_files: expectedFiles, name }),
+  ).then((r) => r.body);
+/** Renames an upload batch: 200 with the source summary, 422 for a bad name, 404 `source_not_found`, 409 `source_not_renamable`. */
+export const renameSource = (pid: string, sid: string, name: string) =>
+  httpPatch(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}`, json({ name })).then((r) => r.body);
 /** Same wire form as `uploadDocument`: the File is the raw body; the `Content-Type` is the canonical type of its extension. */
 export const addBatchFile = (pid: string, sid: string, file: File) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}/files?filename=${encodeURIComponent(file.name)}`, {
@@ -234,8 +280,21 @@ export const endBatch = (pid: string, sid: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}/end`).then((r) => r.body);
 export const testDriveFolder = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/gdrive/test`, json({ link })).then((r) => r.body);
-export const saveDriveFolder = (pid: string, link: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/sources/gdrive`, json({ link })).then((r) => r.body);
+export const saveDriveFolder = (pid: string, link: string, exclude: readonly string[] = []) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/gdrive`, json(exclude.length === 0 ? { link } : { link, exclude })).then(
+    (r) => r.body,
+  );
+export const checkConfluenceLink = (pid: string, link: string, follow: boolean) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/confluence/check`, json({ link, follow })).then((r) => r.body);
+export const addConfluenceSource = (pid: string, link: string, follow: boolean) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/confluence`, json({ link, follow })).then((r) => r.body);
+export const checkJiraEpicLink = (pid: string, keyOrLink: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/jira-epic/check`, json({ key_or_link: keyOrLink })).then((r) => r.body);
+export const addJiraEpicSource = (pid: string, keyOrLink: string, exclude: readonly string[] = []) =>
+  httpPost(
+    `/projects/${encodeURIComponent(pid)}/sources/jira-epic`,
+    json(exclude.length === 0 ? { key_or_link: keyOrLink } : { key_or_link: keyOrLink, exclude }),
+  ).then((r) => r.body);
 // Knowledge build (`/graph_build`): the GET is the build state, the POST starts a build. Bodies stay `unknown`; the knowledge port
 // (lib/data/http/knowledge.ts) checks their shape. The reasoning level is an integer 1..5 (the backend only logs it).
 export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);

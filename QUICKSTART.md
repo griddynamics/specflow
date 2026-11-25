@@ -111,6 +111,7 @@ exist any more, and nothing migrates its data. Once, on the upgrade:
 | `rustfs` | 19000 | Local S3-compatible object storage for uploaded files |
 | `temporal` (with `WITH=temporal`) | 7233, 8233 (UI) | Bundled Temporal dev server |
 | `langfuse-*` (with `WITH=langfuse`) | 3000 | Bundled Langfuse for traces |
+| `site` | 3002 | The public landing page: the static export of `site/` served by BusyBox httpd. No configuration and no dependency on the rest of the stack |
 | `keycloak` | 8180 | Local identity provider: signs you in to the web app and to Claude Code. It starts with every `make up` and keeps no data volume |
 
 All ports bind to `127.0.0.1` only.
@@ -190,7 +191,7 @@ default, and the cloud profile format.
 
 ```shell
 make setup           # backend virtual environment (uv)
-make frontend-setup  # frontend dependencies (npm)
+make frontend-setup  # one `npm ci` at the root for the npm workspace (packages/ui, frontend, site)
 ```
 
 | Command | What it does |
@@ -200,6 +201,8 @@ make frontend-setup  # frontend dependencies (npm)
 | `make api`, `make worker` | Run the API or a worker on your machine against the local stack |
 | `make check` | Backend lint and offline tests |
 | `make frontend-lint frontend-build` | Frontend lint and build |
+| `make ui-test` | Render tests of the shared UI package `packages/ui` |
+| `make site-lint site-build site-test` | The landing page: lint and types, the static export, its tests (run `site-build` first) |
 | `make e2e-production` | Offline browser tests against the built frontend |
 | `make validate` | All static validation tracks that CI runs |
 
@@ -207,6 +210,8 @@ make frontend-setup  # frontend dependencies (npm)
 |---|---|
 | `backend/` | Python service: API, workers, graph library. See [`backend/README.md`](backend/README.md). |
 | `frontend/` | Next.js web app. See [`frontend/README.md`](frontend/README.md). |
+| `packages/ui/` | `@graphico/ui`: the shared components and styles of the Mission Control canvas and the landing page |
+| `site/` | The public landing page, a static export (its own image, `specflow-site`) |
 | `docs/` | Configuration reference, graph design, design system |
 | `validation/` | The static checks that CI runs |
 

@@ -35,7 +35,7 @@ access on their next request and frees the stories they had claimed.
 | Actor | Who | Can |
 |---|---|---|
 | Owner | the project's creator; exactly one per project | everything a collaborator can, plus rename, add, remove, cancel invites |
-| Collaborator | a member added by the owner, or an invitee who signed in | read and work on the project (web and MCP), see the collaborators list, leave |
+| Collaborator | a member added by the owner, or an invitee who signed in | read and work on the project (web and MCP), set up its integrations (Jira target, GitHub repositories, Slack channel; D6 of Mission Control V2), see the collaborators list, leave |
 | Invitee | an email added before its owner ever signed in | nothing until the first sign-in with that email |
 | Non-member | any other signed-in user | nothing; the project answers 404 as if it did not exist |
 

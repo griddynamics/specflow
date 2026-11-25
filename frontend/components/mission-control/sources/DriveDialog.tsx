@@ -9,23 +9,19 @@ import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
-import { parseDriveLink } from "@/lib/domain/logic/source-link";
-import type { DriveIdentity, DriveReason, DriveTestResult, SourcesPort } from "@/lib/domain/sources";
+import type { SourcesPort } from "@/lib/domain/sources";
 import {
   COPIED_MS,
   COPY_FALLBACK_HINT,
   driveReasonMessage,
-  driveSummary,
-  EMAIL_LOADING,
-  EMAIL_UNAVAILABLE,
+  type DriveSummary,
+  emailLabel,
   GUIDE_STEPS,
   GUIDE_TOGGLE,
   NOTHING_TO_IMPORT,
-  SAVE_DEADLINE_MS,
   SAVE_TOO_LONG,
-  settle,
-  TEST_DEADLINE_MS,
 } from "./drive-logic";
+import { useDriveFlow } from "./use-drive-flow";
 // The four Google Drive screenshots (FR-GDUI-0007) are bundled, not served from /public: the sign-in proxy gates every path outside
 // /_next, so a public file would reach a signed-out preview as the login page.
 import shot1 from "./assets/1-share-with-us.png";
@@ -42,16 +38,7 @@ const SHOTS: Record<string, { src: string; width: number; height: number }> = {
   "4-copy-link.png": shot4,
 };
 
-type Tested = Extract<DriveTestResult, { ok: true }>;
-type Outcome = { kind: "tested"; result: Tested } | { kind: "failed"; reason: DriveReason } | null;
 type CopyState = "idle" | "copied" | "manual";
-
-/** FR-GDUI-0002: an unreadable email shows its reason: the setup message for setup_error, the generic text otherwise. */
-function emailLabel(identity: DriveIdentity | null): string {
-  if (identity === null) return EMAIL_LOADING;
-  if (identity.ok) return identity.email;
-  return identity.reason === "setup_error" ? driveReasonMessage("setup_error", null) : EMAIL_UNAVAILABLE;
-}
 
 function primaryLabel(canSave: boolean, saving: boolean, phase: "idle" | "testing" | "saving"): string {
   if (canSave) return saving ? "Saving…" : "Save";
@@ -143,7 +130,7 @@ function DriveResult({
   summary,
   failure,
   saveNote,
-}: Readonly<{ summary: ReturnType<typeof driveSummary> | null; failure: string | null; saveNote: boolean }>) {
+}: Readonly<{ summary: DriveSummary | null; failure: string | null; saveNote: boolean }>) {
   return (
     <div className="mcs-drive__result" role="status" data-testid="drive-result">
       {summary ? (
@@ -191,39 +178,17 @@ export function DriveDialog({
   const ids = useId();
   const linkId = `${ids}-link`;
   const guideId = `${ids}-guide`;
-  const [identity, setIdentity] = useState<DriveIdentity | null>(null);
-  const [link, setLink] = useState("");
-  const [badLink, setBadLink] = useState(false);
-  const [phase, setPhase] = useState<"idle" | "testing" | "saving">("idle");
-  const [outcome, setOutcome] = useState<Outcome>(null);
-  const [saveNote, setSaveNote] = useState(false);
+  const flow = useDriveFlow({ projectId, sources, onSaved });
+  const { identity, email, link, badLink, phase, busy, saving, saveNote, summary, canSave, blocked, failure, act } = flow;
   const [guide, setGuide] = useState(false);
-  const run = useRef(0); // a later answer of an older run (or after closing) is ignored
-  const alive = useRef(true);
   const linkField = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    alive.current = true;
-    sources.driveIdentity().then(
-      (i) => {
-        if (alive.current) setIdentity(i);
-      },
-      () => {
-        if (alive.current) setIdentity({ ok: false, reason: "unknown_error" });
-      },
-    );
     // The modal's own focus rule picks the first control; the link field is the one the user needs (FR-GDUI-0001.AC2).
     linkField.current?.querySelector("input")?.focus();
-    return () => {
-      alive.current = false;
-      run.current += 1;
-    };
-  }, [sources]);
+  }, []);
 
-  const email = truthy(identity?.ok) ? identity.email : null;
   const { copy, emailEl, copyEmail } = useCopyEmail(email);
-  const busy = phase !== "idle";
-  const saving = phase === "saving";
 
   // FR-GDUI-0020: Esc, Cancel and the close control close at any time before a save succeeds, except while a save runs.
   const close = useCallback(() => {
@@ -231,48 +196,7 @@ export function DriveDialog({
     onClose();
   }, [saving, onClose]);
 
-  async function test() {
-    if (busy || !truthy(email) || !link.trim()) return;
-    if (!truthy(parseDriveLink(link))) {
-      setBadLink(true); // FR-GDUI-0008: no request leaves for a link that is not accepted (NFR-SEC-0001)
-      return;
-    }
-    const mine = ++run.current;
-    setPhase("testing");
-    setOutcome(null);
-    setSaveNote(false);
-    const r = await settle(sources.testDrive(projectId, link), TEST_DEADLINE_MS);
-    if (!alive.current || mine !== run.current) return;
-    setPhase("idle");
-    if (r.kind === "timeout") setOutcome({ kind: "failed", reason: "too_slow" });
-    else if (r.kind === "lost") setOutcome({ kind: "failed", reason: "unknown_error" });
-    else setOutcome(r.value.ok ? { kind: "tested", result: r.value } : { kind: "failed", reason: r.value.reason });
-  }
-
-  async function save() {
-    if (busy || outcome?.kind !== "tested") return;
-    const mine = ++run.current;
-    setPhase("saving");
-    setSaveNote(false);
-    const r = await settle(sources.saveDrive(projectId, link), SAVE_DEADLINE_MS);
-    if (!alive.current || mine !== run.current) return;
-    if (r.kind === "ok" && r.value.ok) {
-      onSaved(); // FR-SRC-0024: the modal closes and the screen shows the new card
-      return;
-    }
-    setPhase("idle");
-    if (r.kind === "timeout")
-      setSaveNote(true); // NFR-REL-0002: the source may exist; closing is available again
-    else setOutcome({ kind: "failed", reason: r.kind === "ok" && !r.value.ok ? r.value.reason : "unknown_error" }); // FR-GDUI-0019: result removed, back to Test connection
-  }
-
-  const summary = outcome?.kind === "tested" ? driveSummary(outcome.result) : null;
-  const canSave = summary !== null && !summary.nothingToImport;
-  const unavailable = busy || !link.trim() || !truthy(email);
-  const blocked = canSave ? busy : unavailable;
   const emailText = emailLabel(identity);
-  const failure = outcome?.kind === "failed" ? driveReasonMessage(outcome.reason, email) : null;
-  const act = canSave ? save : test;
 
   return (
     <Modal
@@ -355,14 +279,10 @@ export function DriveDialog({
             spellCheck={false}
             error={badLink ? driveReasonMessage("invalid_link", email) : undefined}
             onChange={(e) => {
-              // FR-GDUI-0015 and FR-GDUI-0008.AC3: any edit removes the message and the check result.
-              setLink(e.target.value);
-              setBadLink(false);
-              setOutcome(null);
-              setSaveNote(false);
+              flow.edit(e.target.value);
             }}
             onBlur={() => {
-              if (link.trim() && !truthy(parseDriveLink(link))) setBadLink(true);
+              flow.leave();
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.nativeEvent.isComposing) {

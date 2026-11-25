@@ -63,6 +63,9 @@ DRIVE_IMPORT_EXECUTION_TIMEOUT: Final = timedelta(hours=12)
 
 CONNECTION_ORIGIN: Final = "connection"
 STALE_FAILURE_REASON: Final = "unknown_error"
+# The sources whose import state and failure reason the status reads (Drive and the importers of the API process);
+# an upload batch has no state of its own.
+PROGRESS_KINDS: Final = ("gdrive", "confluence", "jira_epic")
 FINAL_ITEM_STATES: Final = frozenset({"processed", "stored", "skipped", "error", "duplicate"})
 _INSERT_CHUNK: Final = 500  # rows per INSERT; 13 columns stay far below the bind limit
 
@@ -548,7 +551,7 @@ def _sources_progress_statement(project_id: uuid.UUID) -> Select[Any]:
         )
         .select_from(Connection)
         .outerjoin(items, items.c.connection_id == Connection.id)
-        .where(Connection.project_id == project_id, Connection.kind == "gdrive")
+        .where(Connection.project_id == project_id, Connection.kind.in_(PROGRESS_KINDS))
     )
     # An upload that is still 'uploaded' (not parsed yet) is not finished
     # (FR-GDUI-0021: Build knowledge waits for processed files).

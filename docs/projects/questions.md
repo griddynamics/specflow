@@ -20,7 +20,7 @@ file is written as decided; this file records why.
 | D4 | Per-project Settings, cog in the sidebar; first tab "General" = project name and collaborators. | owner |
 | D5 | An email that never signed in is a pending invite, adopted at the first sign-in with that email; the owner can cancel it. | owner |
 | D6 | Only the owner renames the project. | owner |
-| D7 | Collaborators see Settings read-only (the name part is replaced by D29). | owner |
+| D7 | Collaborators see Settings read-only (the name part is replaced by D29). Since Mission Control V2 (D6) the Jira, GitHub and Slack settings are editable by every member; the General tab stays as D29 says. | owner |
 | D8 | Create Project takes collaborator emails under the same rules as Settings, invites included. | owner |
 | D9 | While typing, suggest people who already signed in. | owner |
 | D10 | Suggestions start at 3 characters, match the start of name or email, at most 8. | owner |

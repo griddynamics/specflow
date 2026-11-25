@@ -9,10 +9,15 @@
 //  - Links are never logged or rebuilt: `SourceOut.link` is used as it comes.
 import {
   addBatchFile,
+  addConfluenceSource,
+  addJiraEpicSource,
+  checkConfluenceLink,
+  checkJiraEpicLink,
   endBatch,
   getDriveIdentity,
   listSourceFiles,
   removeSource,
+  renameSource,
   saveDriveFolder,
   startBatch,
   testDriveFolder,
@@ -26,16 +31,20 @@ import {
   type Connection,
   type DriveCategory,
   type DriveCategoryCount,
+  type DriveFile,
   type DriveIdentity,
   type DriveReason,
   type DriveSaveResult,
   type DriveTestResult,
+  type ConfluenceCheck,
+  type JiraEpicCheck,
+  type JiraEpicChild,
   type ProcessingClass,
   type SourcesPort,
   type UploadReport,
 } from "@/lib/domain/sources";
 import { expectShape, guard, isRecord, isString } from "./errors";
-import { BATCH_OUTCOMES, toFilePage, toProgress, type BatchOutcome } from "./sources-wire";
+import { BATCH_OUTCOMES, toFilePage, toProgress, toSource, type BatchOutcome } from "./sources-wire";
 
 const REASONS: ReadonlySet<string> = new Set<DriveReason>([
   "invalid_link",
@@ -88,7 +97,8 @@ export function toConnection(v: unknown): Connection | null {
   };
 }
 
-function toTest(body: unknown): DriveTestResult {
+/** `POST .../sources/gdrive/test` -> `DriveTestResult`; a body of another shape is `unknown_error`. */
+export function toTest(body: unknown): DriveTestResult {
   if (!isRecord(body)) return { ok: false, reason: "unknown_error" };
   if (body.result === "failed") return { ok: false, reason: isDriveReason(body.reason) ? body.reason : "unknown_error" };
   const folder = body.folder;
@@ -99,7 +109,9 @@ function toTest(body: unknown): DriveTestResult {
     !isString(folder.name) ||
     !isCount(body.folder_count) ||
     !isCount(body.file_count) ||
-    !Array.isArray(body.categories)
+    !Array.isArray(body.categories) ||
+    !Array.isArray(body.files) ||
+    typeof body.files_capped !== "boolean"
   ) {
     return { ok: false, reason: "unknown_error" };
   }
@@ -109,7 +121,22 @@ function toTest(body: unknown): DriveTestResult {
       return { ok: false, reason: "unknown_error" };
     categories.push({ category: c.category, processingClass: c.processing_class, count: c.count });
   }
-  return { ok: true, folderId: folder.id, folderName: folder.name, folderCount: body.folder_count, fileCount: body.file_count, categories };
+  const files: DriveFile[] = [];
+  for (const f of body.files) {
+    if (!isRecord(f) || !isString(f.id) || !isString(f.name) || !isString(f.path) || !isCategory(f.category))
+      return { ok: false, reason: "unknown_error" };
+    files.push({ id: f.id, name: f.name, path: f.path, category: f.category });
+  }
+  return {
+    ok: true,
+    folderId: folder.id,
+    folderName: folder.name,
+    folderCount: body.folder_count,
+    fileCount: body.file_count,
+    categories,
+    files,
+    filesCapped: body.files_capped,
+  };
 }
 
 const isOutcome = (v: unknown): v is BatchOutcome => (BATCH_OUTCOMES as readonly string[]).includes(v as string);
@@ -121,9 +148,14 @@ const keepOdd2xx = (e: unknown): unknown => {
 const apiCodeOf = (e: unknown): string | undefined => (isDataError(e) ? e.detail?.apiCode : undefined);
 
 /** Opens a Local files batch and returns its source id; `null` when no batch opened. */
-async function openBatch(projectId: string, fileCount: number, changed: (projectId: string) => void): Promise<string | null> {
+async function openBatch(
+  projectId: string,
+  fileCount: number,
+  name: string | undefined,
+  changed: (projectId: string) => void,
+): Promise<string | null> {
   try {
-    const body: unknown = await guard(() => startBatch(projectId, fileCount));
+    const body: unknown = await guard(() => startBatch(projectId, fileCount, name));
     // Lenient on purpose: a start body that parses badly still opened a batch, which must be ended.
     return isRecord(body) && isRecord(body.source) && isString(body.source.id) && body.source.id !== "" ? body.source.id : null;
   } catch {
@@ -208,7 +240,15 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         opts.changed(projectId);
       }
     },
-    async upload(projectId, files) {
+    async rename(projectId, sourceId, name) {
+      try {
+        const body: unknown = await guard(() => renameSource(projectId, sourceId, name));
+        return toSource(body); // the same summary as the `source` of a file page
+      } finally {
+        opts.changed(projectId);
+      }
+    },
+    async upload(projectId, files, name) {
       const report: UploadReport = {
         sourceId: null,
         picked: files.length,
@@ -218,7 +258,7 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         duplicates: 0,
         notAdded: files.length,
       };
-      const sourceId = await openBatch(projectId, files.length, opts.changed);
+      const sourceId = await openBatch(projectId, files.length, name, opts.changed);
       if (sourceId === null) return report; // no batch: nothing was added, the screen names every file
       report.sourceId = sourceId;
       try {
@@ -254,9 +294,9 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         return { ok: false, reason: reasonOfError(e) };
       }
     },
-    async saveDrive(projectId, link): Promise<DriveSaveResult> {
+    async saveDrive(projectId, link, exclude): Promise<DriveSaveResult> {
       try {
-        const body = await saveDriveFolder(projectId, link);
+        const body = await saveDriveFolder(projectId, link, exclude);
         const connection = isRecord(body) ? toConnection(body.source) : null;
         opts.changed(projectId); // the source exists on the server even if the answer was odd
         return connection ? { ok: true, connection } : { ok: false, reason: "unknown_error" };
@@ -264,5 +304,69 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         return { ok: false, reason: reasonOfError(e) };
       }
     },
+    async checkConfluence(projectId, { link, follow }) {
+      return toConfluenceCheck(await guard(() => checkConfluenceLink(projectId, link, follow)));
+    },
+    async addConfluence(projectId, { link, follow }) {
+      try {
+        await guard(() => addConfluenceSource(projectId, link, follow));
+      } finally {
+        opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
+      }
+    },
+    async checkJiraEpic(projectId, keyOrLink) {
+      return toJiraEpicCheck(await guard(() => checkJiraEpicLink(projectId, keyOrLink)));
+    },
+    async addJiraEpic(projectId, keyOrLink, exclude) {
+      try {
+        await guard(() => addJiraEpicSource(projectId, keyOrLink, exclude));
+      } finally {
+        opts.changed(projectId);
+      }
+    },
   };
+}
+
+const toEpicChild = (c: unknown): JiraEpicChild => {
+  expectShape(isRecord(c) && isString(c.key) && isString(c.summary) && isString(c.type) && isString(c.status));
+  return { key: c.key, summary: c.summary, type: c.type, statusName: c.status };
+};
+
+/** `POST .../sources/jira-epic/check` -> `JiraEpicCheck`; any other shape is `invalid_response`. */
+export function toJiraEpicCheck(body: unknown): JiraEpicCheck {
+  expectShape(
+    isRecord(body) &&
+      isString(body.key) &&
+      body.key !== "" &&
+      isString(body.summary) &&
+      typeof body.issues === "number" &&
+      Number.isInteger(body.issues) &&
+      body.issues >= 0 &&
+      typeof body.capped === "boolean" &&
+      Array.isArray(body.children),
+  );
+  return {
+    key: body.key,
+    summary: body.summary,
+    issues: body.issues,
+    capped: body.capped,
+    children: (body.children as unknown[]).map(toEpicChild),
+  };
+}
+
+/** `POST .../sources/confluence/check` -> `ConfluenceCheck`; any other shape is `invalid_response`. */
+export function toConfluenceCheck(body: unknown): ConfluenceCheck {
+  expectShape(
+    isRecord(body) &&
+      (body.kind === "page" || body.kind === "space") &&
+      isString(body.title) &&
+      typeof body.pages === "number" &&
+      Number.isInteger(body.pages) &&
+      body.pages >= 0 &&
+      typeof body.capped === "boolean" &&
+      typeof body.linked_issues === "number" &&
+      Number.isInteger(body.linked_issues) &&
+      body.linked_issues >= 0,
+  );
+  return { kind: body.kind, title: body.title, pages: body.pages, capped: body.capped, linkedIssues: body.linked_issues };
 }

@@ -31,7 +31,7 @@ from drive.gateway import (
     DriveError,
 )
 from drive.links import is_drive_id
-from drive.model import DriveFolder, DriveItem, Listing
+from drive.model import DriveFolder, DriveItem, FolderNode, Listing
 from drive.reasons import Reason, google_reason_from_content, reason_for_http
 from logger.logger import ERROR, get_logger, log_event
 
@@ -166,6 +166,7 @@ class GoogleDriveGateway:
         visited = {root.id}
         level = [root.id]
         items: dict[str, DriveItem] = {}
+        nodes: list[FolderNode] = []
         revisited = 0
         while level:
             next_level: list[str] = []
@@ -184,6 +185,14 @@ class GoogleDriveGateway:
                         elif is_drive_id(child["id"]):
                             visited.add(child["id"])
                             next_level.append(child["id"])
+                            parents = child.get("parents") or []
+                            nodes.append(
+                                FolderNode(
+                                    id=child["id"],
+                                    name=child.get("name", ""),
+                                    parent_id=next((p for p in parents if p in batch), batch[0]),
+                                )
+                            )
                     elif child["id"] not in items:
                         parents = child.get("parents") or []
                         parent = next((p for p in parents if p in batch), batch[0])
@@ -203,6 +212,7 @@ class GoogleDriveGateway:
             folder_count=len(visited),
             items=tuple(items.values()),
             revisited=revisited,
+            folders=tuple(nodes),
         )
 
     def _children(self, service: Any, parents: list[str], deadline: float | None) -> Iterator[Any]:

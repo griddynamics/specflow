@@ -640,7 +640,7 @@ class AnswerInput(GapModel):
     edits: tuple[Edit, ...] | None = None
     answered_by: str
     updated_at: AwareDatetime | None = None
-    via: Literal["web", "elicitation", "slack"] = "web"
+    via: Literal["web", "elicitation", "slack", "jira"] = "web"
 
     @model_validator(mode="after")
     def _one_answer(self) -> Self:

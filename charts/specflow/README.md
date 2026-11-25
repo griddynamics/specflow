@@ -1,13 +1,14 @@
 # Specflow Helm chart
 
 This chart deploys exactly one Specflow component. Install the same chart as
-five independent Helm releases to run the complete application:
+six independent Helm releases to run the complete application:
 
 | Release | `component` | Public Service |
 | --- | --- | --- |
 | `specflow-api` | `api` | Optional, port 8000 |
 | `specflow-frontend` | `frontend` | Optional, port 3000 |
 | `specflow-mcp` | `mcp` | Optional, port 8002 |
+| `specflow-site` | `site` | Optional, port 8080 (the public landing page, no Secret) |
 | `specflow-worker-agent` | `worker-agent` | No |
 | `specflow-worker-parse` | `worker-parse` | No |
 
@@ -410,7 +411,7 @@ From this chart directory:
 jq empty values.schema.json
 helm lint --strict .
 
-for component in api frontend mcp worker-agent worker-parse; do
+for component in api frontend mcp site worker-agent worker-parse; do
   helm template "specflow-${component}" . \
     --namespace specflow \
     --values "examples/components/${component}.yaml" >/dev/null

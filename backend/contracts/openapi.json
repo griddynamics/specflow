@@ -707,6 +707,17 @@
             "minimum": 1.0,
             "title": "Expected Files",
             "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           }
         },
         "required": [
@@ -1563,6 +1574,65 @@
         "title": "CompleteStoryBody",
         "type": "object"
       },
+      "ConfluenceCheckOut": {
+        "description": "What the link would import: ``pages`` (at most the page cap, ``capped`` when there are more) and\n``linked_issues``, the Jira issues the first page links to (0 without ``follow`` or for a space).",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "page",
+              "space"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "linked_issues": {
+            "title": "Linked Issues",
+            "type": "integer"
+          },
+          "pages": {
+            "title": "Pages",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "pages",
+          "capped",
+          "linked_issues"
+        ],
+        "title": "ConfluenceCheckOut",
+        "type": "object"
+      },
+      "ConfluenceLinkIn": {
+        "additionalProperties": false,
+        "description": "A Confluence page or space link of the configured site; ``follow`` also reads the pages and Jira issues the\nimported pages link to (one hop).",
+        "properties": {
+          "follow": {
+            "default": false,
+            "title": "Follow",
+            "type": "boolean"
+          },
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "ConfluenceLinkIn",
+        "type": "object"
+      },
       "CountsOut": {
         "properties": {
           "already_in_project": {
@@ -1824,6 +1894,35 @@
         "title": "DriveCategoryOut",
         "type": "object"
       },
+      "DriveFileOut": {
+        "description": "One listed file: ``path`` is the folder names below the shared root, joined with ``/`` (``\"\"`` in the root).",
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "path",
+          "category"
+        ],
+        "title": "DriveFileOut",
+        "type": "object"
+      },
       "DriveFolderOut": {
         "properties": {
           "id": {
@@ -1871,6 +1970,31 @@
         "title": "DriveLinkRequest",
         "type": "object"
       },
+      "DriveSaveRequest": {
+        "additionalProperties": false,
+        "description": "The link to add and the files of the folder not to import (the test ignores nothing: it has no such body).",
+        "properties": {
+          "exclude": {
+            "items": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Exclude",
+            "type": "array"
+          },
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "DriveSaveRequest",
+        "type": "object"
+      },
       "DriveTestFailed": {
         "properties": {
           "reason": {
@@ -1903,6 +2027,17 @@
             "title": "File Count",
             "type": "integer"
           },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DriveFileOut"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "files_capped": {
+            "title": "Files Capped",
+            "type": "boolean"
+          },
           "folder": {
             "$ref": "#/components/schemas/DriveFolderOut"
           },
@@ -1921,7 +2056,9 @@
           "folder",
           "folder_count",
           "file_count",
-          "categories"
+          "categories",
+          "files",
+          "files_capped"
         ],
         "title": "DriveTestOk",
         "type": "object"
@@ -4720,6 +4857,484 @@
         "title": "GitHubConnectionOut",
         "type": "object"
       },
+      "GitHubProjectChoice": {
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "number",
+          "title",
+          "url"
+        ],
+        "title": "GitHubProjectChoice",
+        "type": "object"
+      },
+      "GitHubProjectsAccessFailed": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "enum": [
+                  "repository",
+                  "project"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "reason": {
+            "enum": [
+              "github_not_connected",
+              "github_reconnect_required",
+              "github_unreachable",
+              "github_auth_failed",
+              "github_repo_not_accessible",
+              "github_not_an_organization",
+              "github_permissions_missing",
+              "github_project_not_found",
+              "github_repo_read_only"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "result": {
+            "const": "failed",
+            "default": "failed",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "field"
+        ],
+        "title": "GitHubProjectsAccessFailed",
+        "type": "object"
+      },
+      "GitHubProjectsAccessIn": {
+        "additionalProperties": false,
+        "description": "The typed destination before it is saved: the repository of the project and an organization project, or the\ntitle of a new one (the check then only proves the account may list and create projects).",
+        "properties": {
+          "new_project_title": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Project Title"
+          },
+          "project_node_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Node Id"
+          },
+          "repository_id": {
+            "format": "uuid",
+            "title": "Repository Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository_id"
+        ],
+        "title": "GitHubProjectsAccessIn",
+        "type": "object"
+      },
+      "GitHubProjectsAccessOk": {
+        "properties": {
+          "organization": {
+            "title": "Organization",
+            "type": "string"
+          },
+          "project_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Title"
+          },
+          "result": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "organization",
+          "project_title"
+        ],
+        "title": "GitHubProjectsAccessOk",
+        "type": "object"
+      },
+      "GitHubProjectsCounts": {
+        "properties": {
+          "commented": {
+            "default": 0,
+            "title": "Commented",
+            "type": "integer"
+          },
+          "created": {
+            "default": 0,
+            "title": "Created",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "ranked": {
+            "default": 0,
+            "title": "Ranked",
+            "type": "integer"
+          },
+          "removed": {
+            "default": 0,
+            "title": "Removed",
+            "type": "integer"
+          },
+          "unchanged": {
+            "default": 0,
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "default": 0,
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "title": "GitHubProjectsCounts",
+        "type": "object"
+      },
+      "GitHubProjectsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "new_project_title": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Project Title"
+          },
+          "project_node_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Node Id"
+          },
+          "repository_id": {
+            "format": "uuid",
+            "title": "Repository Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository_id",
+          "enabled"
+        ],
+        "title": "GitHubProjectsIn",
+        "type": "object"
+      },
+      "GitHubProjectsListOut": {
+        "description": "The open organization projects a project's repository can use (``organization`` null when a user owns it).",
+        "properties": {
+          "organization": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubProjectChoice"
+            },
+            "title": "Projects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "organization",
+          "projects"
+        ],
+        "title": "GitHubProjectsListOut",
+        "type": "object"
+      },
+      "GitHubProjectsOut": {
+        "description": "The GitHub Projects destination of a project: null fields while there is none. ``available`` is false when the\nGitHub integration is off on this server.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "connected_by_me": {
+            "title": "Connected By Me",
+            "type": "boolean"
+          },
+          "connected_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The login of the account the export acts as, or null.",
+            "title": "Connected By Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "project_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Node Id"
+          },
+          "project_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Title"
+          },
+          "project_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Url"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
+          },
+          "repository_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Id"
+          },
+          "sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitHubProjectsStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "repository_id",
+          "repository",
+          "project_node_id",
+          "project_title",
+          "project_url",
+          "enabled",
+          "sync",
+          "connected_by_name",
+          "connected_by_me"
+        ],
+        "title": "GitHubProjectsOut",
+        "type": "object"
+      },
+      "GitHubProjectsStatus": {
+        "description": "The last export pass of the destination (``error_code`` is one closed code, never GitHub text).",
+        "properties": {
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitHubProjectsCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_title": {
+            "title": "Project Title",
+            "type": "string"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "repository": {
+            "title": "Repository",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "running",
+              "succeeded",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "project_id",
+          "enabled",
+          "status",
+          "queued",
+          "trigger",
+          "started_at",
+          "finished_at",
+          "error_code",
+          "counts",
+          "repository",
+          "project_title"
+        ],
+        "title": "GitHubProjectsStatus",
+        "type": "object"
+      },
       "GitHubRepositoriesOut": {
         "properties": {
           "repositories": {
@@ -5051,7 +5666,9 @@
           "kind": {
             "enum": [
               "gdrive",
-              "upload"
+              "upload",
+              "confluence",
+              "jira_epic"
             ],
             "title": "Kind",
             "type": "string"
@@ -5073,6 +5690,50 @@
           "created_at"
         ],
         "title": "HolderOut",
+        "type": "object"
+      },
+      "IntegrationMemberOut": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name"
+        ],
+        "title": "IntegrationMemberOut",
+        "type": "object"
+      },
+      "IntegrationWorkspaceOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "IntegrationWorkspaceOut",
         "type": "object"
       },
       "InviteOut": {
@@ -5239,6 +5900,256 @@
           "status"
         ],
         "title": "JiraConnectionOut",
+        "type": "object"
+      },
+      "JiraEpicCheckOut": {
+        "description": "The epic an import would take: its key, its summary (shown, not stored) and how many issues it has for the\nmember (at most the issue cap is imported).",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/JiraEpicChildOut"
+            },
+            "title": "Children",
+            "type": "array"
+          },
+          "issues": {
+            "title": "Issues",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "summary",
+          "issues",
+          "children",
+          "capped"
+        ],
+        "title": "JiraEpicCheckOut",
+        "type": "object"
+      },
+      "JiraEpicChildOut": {
+        "description": "One issue under the epic: its key, summary (shown, not stored), issue type name and status name.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "summary",
+          "type",
+          "status"
+        ],
+        "title": "JiraEpicChildOut",
+        "type": "object"
+      },
+      "JiraEpicIn": {
+        "additionalProperties": false,
+        "description": "A Jira epic by its key (``ABC-12``) or by a link of the configured site.",
+        "properties": {
+          "exclude": {
+            "items": {
+              "maxLength": 64,
+              "pattern": "^[A-Z][A-Z0-9_]*-\\d+$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Exclude",
+            "type": "array"
+          },
+          "key_or_link": {
+            "maxLength": 2048,
+            "title": "Key Or Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_or_link"
+        ],
+        "title": "JiraEpicIn",
+        "type": "object"
+      },
+      "JiraGapAccessCheckIn": {
+        "additionalProperties": false,
+        "description": "The typed Jira project of the gap channel before it is saved: trimmed and upper-cased.",
+        "properties": {
+          "jira_project": {
+            "pattern": "^[A-Z][A-Z0-9_]{1,9}$",
+            "title": "Jira Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jira_project"
+        ],
+        "title": "JiraGapAccessCheckIn",
+        "type": "object"
+      },
+      "JiraGapsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "grouping": {
+            "enum": [
+              "one",
+              "area"
+            ],
+            "title": "Grouping",
+            "type": "string"
+          },
+          "jira_project": {
+            "pattern": "^[A-Z][A-Z0-9_]{1,9}$",
+            "title": "Jira Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jira_project",
+          "grouping",
+          "enabled"
+        ],
+        "title": "JiraGapsIn",
+        "type": "object"
+      },
+      "JiraGapsOut": {
+        "description": "The Jira gap channel of a project: the target (null fields while there is none), the counts of its sub-tasks and\nits last poll. ``available`` is false when the server has no Atlassian OAuth or gap runs are off.",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The closed code of the last refused post or poll, or null.",
+            "title": "Error Code"
+          },
+          "grouping": {
+            "anyOf": [
+              {
+                "enum": [
+                  "one",
+                  "area"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grouping"
+          },
+          "jira_project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jira Project"
+          },
+          "last_polled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Polled At"
+          },
+          "poll_seconds": {
+            "description": "Answers are read about every this many seconds.",
+            "title": "Poll Seconds",
+            "type": "integer"
+          },
+          "posted": {
+            "title": "Posted",
+            "type": "integer"
+          },
+          "story_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Key"
+          },
+          "story_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Url"
+          }
+        },
+        "required": [
+          "available",
+          "jira_project",
+          "grouping",
+          "enabled",
+          "story_key",
+          "story_url",
+          "posted",
+          "answered",
+          "last_polled_at",
+          "error_code",
+          "poll_seconds"
+        ],
+        "title": "JiraGapsOut",
         "type": "object"
       },
       "JiraSettingsIn": {
@@ -7969,6 +8880,91 @@
         "title": "ProjectCreate",
         "type": "object"
       },
+      "ProjectIntegrationOut": {
+        "description": "One app of the project. ``available``: the server runs the app. ``connected_by``: the member whose account\nthe project's uses act as (none when not connected, or when that member left). ``health``: ``active`` when that\naccount works, ``reconnect_required`` when its connection expired, ``none`` when nothing acts.",
+        "properties": {
+          "app": {
+            "enum": [
+              "atlassian",
+              "github",
+              "slack"
+            ],
+            "title": "App",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "connected_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationMemberOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "enum": [
+              "active",
+              "reconnect_required",
+              "none"
+            ],
+            "title": "Health",
+            "type": "string"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntegrationWorkspaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "app",
+          "available",
+          "connected_by",
+          "workspace",
+          "connected_at",
+          "health"
+        ],
+        "title": "ProjectIntegrationOut",
+        "type": "object"
+      },
+      "ProjectIntegrationsOut": {
+        "properties": {
+          "integrations": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectIntegrationOut"
+            },
+            "title": "Integrations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "integrations"
+        ],
+        "title": "ProjectIntegrationsOut",
+        "type": "object"
+      },
       "ProjectItem": {
         "properties": {
           "created_at": {
@@ -8846,7 +9842,7 @@
         "type": "object"
       },
       "SlackSettingsOut": {
-        "description": "``available``: the server runs the Slack app; ``channel`` the connected one (none when not connected);\n``editable``: the caller is the owner.",
+        "description": "``available``: the server runs the Slack app; ``channel`` the connected one (none when not connected);\n``editable``: the caller may disconnect it (every member).",
         "properties": {
           "available": {
             "title": "Available",
@@ -8873,6 +9869,24 @@
           "editable"
         ],
         "title": "SlackSettingsOut",
+        "type": "object"
+      },
+      "SlackTestOut": {
+        "description": "The welcome message was posted in ``channel``.",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/SlackChannelOut"
+          },
+          "posted": {
+            "title": "Posted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "posted",
+          "channel"
+        ],
+        "title": "SlackTestOut",
         "type": "object"
       },
       "SourceCreated": {
@@ -8974,6 +9988,20 @@
         "title": "SourceOut",
         "type": "object"
       },
+      "SourceRenameIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SourceRenameIn",
+        "type": "object"
+      },
       "SourceSummaryOut": {
         "properties": {
           "added_by": {
@@ -9017,7 +10045,9 @@
           "kind": {
             "enum": [
               "gdrive",
-              "upload"
+              "upload",
+              "confluence",
+              "jira_epic"
             ],
             "title": "Kind",
             "type": "string"
@@ -15776,6 +16806,218 @@
         ]
       }
     },
+    "/api/v1/projects/{pid}/github-projects": {
+      "get": {
+        "operationId": "get_github_projects_api_v1_projects__pid__github_projects_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubProjectsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Github Projects",
+        "tags": [
+          "github-projects"
+        ]
+      },
+      "put": {
+        "operationId": "put_github_projects_api_v1_projects__pid__github_projects_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubProjectsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubProjectsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Github Projects",
+        "tags": [
+          "github-projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/github-projects/access-check": {
+      "post": {
+        "operationId": "check_github_projects_access_api_v1_projects__pid__github_projects_access_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubProjectsAccessIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "failed": "#/components/schemas/GitHubProjectsAccessFailed",
+                      "ok": "#/components/schemas/GitHubProjectsAccessOk"
+                    },
+                    "propertyName": "result"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/GitHubProjectsAccessOk"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GitHubProjectsAccessFailed"
+                    }
+                  ],
+                  "title": "Response Check Github Projects Access Api V1 Projects  Pid  Github Projects Access Check Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Github Projects Access",
+        "tags": [
+          "github-projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/github-projects/projects": {
+      "get": {
+        "description": "The open projects of the organization that owns the project's repository (empty for a user's repository).",
+        "operationId": "list_github_projects_api_v1_projects__pid__github_projects_projects_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repository_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Repository Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubProjectsListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Github Projects",
+        "tags": [
+          "github-projects"
+        ]
+      }
+    },
     "/api/v1/projects/{pid}/graph_build": {
       "get": {
         "operationId": "graph_build_status_api_v1_projects__pid__graph_build_get",
@@ -15874,6 +17116,152 @@
         "summary": "Start Graph Build",
         "tags": [
           "graph"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/integrations": {
+      "get": {
+        "operationId": "list_project_integrations_api_v1_projects__pid__integrations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectIntegrationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Project Integrations",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/integrations/{app}": {
+      "delete": {
+        "description": "Remove the project's connection to ``app`` (the member who made it, or the owner): everything that used it\nstops, and no other member's account takes over.",
+        "operationId": "delete_project_integration_api_v1_projects__pid__integrations__app__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "enum": [
+                "atlassian",
+                "github",
+                "slack"
+              ],
+              "title": "App",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Project Integration",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "put": {
+        "description": "Connect the project's ``app`` as the caller (their own active connection); a member of the same workspace may\ntake over a connection the earlier member left or lost (never one whose connection is still active: 409\n``integration_already_connected``). The Jira target and the repositories then act as the\ncaller.",
+        "operationId": "put_project_integration_api_v1_projects__pid__integrations__app__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "enum": [
+                "atlassian",
+                "github"
+              ],
+              "title": "App",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectIntegrationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Project Integration",
+        "tags": [
+          "integrations"
         ]
       }
     },
@@ -16010,6 +17398,165 @@
         "summary": "Put Jira Settings",
         "tags": [
           "jira"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/jira-gaps": {
+      "get": {
+        "operationId": "get_jira_gaps_api_v1_projects__pid__jira_gaps_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraGapsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Jira Gaps",
+        "tags": [
+          "jira-gaps"
+        ]
+      },
+      "put": {
+        "operationId": "put_jira_gaps_api_v1_projects__pid__jira_gaps_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraGapsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraGapsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Jira Gaps",
+        "tags": [
+          "jira-gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/jira-gaps/access-check": {
+      "post": {
+        "operationId": "check_jira_gaps_access_api_v1_projects__pid__jira_gaps_access_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraGapAccessCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "failed": "#/components/schemas/JiraAccessFailed",
+                      "ok": "#/components/schemas/JiraAccessOk"
+                    },
+                    "propertyName": "result"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/JiraAccessOk"
+                    },
+                    {
+                      "$ref": "#/components/schemas/JiraAccessFailed"
+                    }
+                  ],
+                  "title": "Response Check Jira Gaps Access Api V1 Projects  Pid  Jira Gaps Access Check Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Jira Gaps Access",
+        "tags": [
+          "jira-gaps"
         ]
       }
     },
@@ -16607,7 +18154,7 @@
         ]
       },
       "post": {
-        "description": "Add a repository the owner's own connection can read, then start its clone check.",
+        "description": "Add a repository the project's GitHub connection can read, then start its clone check.",
         "operationId": "create_project_repository_api_v1_projects__pid__repositories_post",
         "parameters": [
           {
@@ -16830,6 +18377,49 @@
         ]
       }
     },
+    "/api/v1/projects/{pid}/slack/test": {
+      "post": {
+        "description": "Post the welcome message in the project's channel (any member, D6).",
+        "operationId": "test_slack_connection_api_v1_projects__pid__slack_test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackTestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Slack Connection",
+        "tags": [
+          "slack"
+        ]
+      }
+    },
     "/api/v1/projects/{pid}/sources": {
       "get": {
         "description": "INT-GDUI-0004: per source and for the project; uploads are counted too (K4).\n\n``?batches=1`` (INT-SRC-0001) answers the unified cards instead; without the flag\nthe body is the legacy shape, for old tabs and pods during a rolling deploy (SPECS 9).",
@@ -16898,6 +18488,110 @@
         ]
       }
     },
+    "/api/v1/projects/{pid}/sources/confluence": {
+      "post": {
+        "operationId": "add_confluence_source_api_v1_projects__pid__sources_confluence_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfluenceLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Confluence Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/confluence/check": {
+      "post": {
+        "operationId": "check_confluence_link_api_v1_projects__pid__sources_confluence_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfluenceLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfluenceCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Confluence Link",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
     "/api/v1/projects/{pid}/sources/gdrive": {
       "post": {
         "description": "INT-GDUI-0003: re-check, create the source once, start the import.",
@@ -16918,7 +18612,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DriveLinkRequest"
+                "$ref": "#/components/schemas/DriveSaveRequest"
               }
             }
           },
@@ -17009,6 +18703,110 @@
           }
         },
         "summary": "Test Drive Folder",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/jira-epic": {
+      "post": {
+        "operationId": "add_jira_epic_source_api_v1_projects__pid__sources_jira_epic_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraEpicIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Jira Epic Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/jira-epic/check": {
+      "post": {
+        "operationId": "check_jira_epic_api_v1_projects__pid__sources_jira_epic_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraEpicIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraEpicCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Jira Epic",
         "tags": [
           "sources"
         ]
@@ -17109,6 +18907,68 @@
           }
         },
         "summary": "Remove Source",
+        "tags": [
+          "sources"
+        ]
+      },
+      "patch": {
+        "description": "Rename an upload batch (any member, like a removal). The name is never logged.",
+        "operationId": "rename_source_api_v1_projects__pid__sources__sid__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Sid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRenameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceSummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Source",
         "tags": [
           "sources"
         ]

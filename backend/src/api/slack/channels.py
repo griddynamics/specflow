@@ -1,7 +1,7 @@
 """``SlackChannels``: the Slack channel a project is bound to and the gap message posted there for each gap
 (docs/slack/gap-answering.md "The channel flow").
 
-The project owner connects the channel from inside it (``/specflow connect <project id>``); every open question of the
+A project member connects the channel from inside it (``/specflow connect <project id>``); every open question of the
 project is then posted there once, and a reply in its thread answers it. A project has one channel and a channel one
 project. The store maps both ways: project to channel, and a message (channel and ``ts``, the thread a reply names) to
 its gap.
@@ -85,6 +85,13 @@ class SlackChannels:
     async def binding(self, project_id: str) -> Binding | None:
         data = await self._snapshot()
         return _binding(project_id, data["bindings"].get(project_id))
+
+    async def bindings(self) -> list[Binding]:
+        """Every binding, by project id."""
+
+        data = await self._snapshot()
+        found = [_binding(project_id, bound) for project_id, bound in sorted(data["bindings"].items())]
+        return [binding for binding in found if binding is not None]
 
     async def project_of(self, channel_id: str) -> str | None:
         """The project bound to ``channel_id``; ``None`` when none is."""

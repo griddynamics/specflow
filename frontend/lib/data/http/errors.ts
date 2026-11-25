@@ -25,6 +25,7 @@ const BY_CODE: Record<string, DataErrorCode> = {
   database_unavailable: "unavailable",
   source_not_found: "not_found", // sources-ux: the detail's apiCode tells it from a plain `not_found` (an old API's unknown route)
   batch_ended: "conflict",
+  source_not_renamable: "conflict", // 409 on PATCH: only an upload batch is renamed
   removal_unavailable: "unavailable",
   gap_unavailable: "unavailable", // 503: gap runs are not configured on this server (the Gaps screen says so)
   gap_not_found: "not_found",
@@ -62,6 +63,16 @@ const BY_CODE: Record<string, DataErrorCode> = {
   github_repo_too_large: "validation", // 422: over the clone size cap
   repository_exists: "conflict", // 409: the project has this repository already
   repository_not_found: "not_found", // 404: the project repository is gone
+  // Project integrations and the Slack test message (docs/mission-control/integrations-api.md).
+  atlassian_not_connected: "conflict", // 409 on PUT: the caller has no active Atlassian connection
+  integration_workspace_mismatch: "conflict", // 409 on PUT: the project is bound to another workspace of that app
+  integration_already_connected: "conflict", // 409 on PUT: another member's connection is still active, so the binding is not taken over
+  integration_not_found: "not_found", // 404 on DELETE: the project has no connection to that app
+  integration_forbidden: "forbidden", // 403 on DELETE (also the Slack channel): neither the member who connected it nor the owner
+  slack_not_connected: "conflict", // 409: no channel is bound yet
+  slack_not_in_channel: "conflict", // 409: the app left the channel or it is archived
+  slack_unreachable: "unavailable", // 502: Slack did not answer
+  slack_unavailable: "unavailable", // 503: the Slack app is off on this server
 };
 
 /** Retryable codes (TECH-SPECS §2.13): the same request may succeed later. */

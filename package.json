@@ -1,0 +1,12 @@
+{
+  "name": "graphico",
+  "private": true,
+  "workspaces": [
+    "packages/ui",
+    "frontend",
+    "site"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

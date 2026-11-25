@@ -189,7 +189,7 @@ async def test_get_without_a_target_is_off_with_no_sync_and_the_standing_of_the_
         "sync": None,
         "connection": None,  # token mode
     }
-    assert collaborator.json()["editable"] is False and collaborator.json()["available"] is True
+    assert collaborator.json()["editable"] is True and collaborator.json()["available"] is True  # D6: any member
 
 
 async def test_get_with_a_target_shows_it_with_the_epic_specflow_created_and_the_runner_status(rig):
@@ -200,7 +200,7 @@ async def test_get_with_a_target_shows_it_with_the_epic_specflow_created_and_the
     answer = (await web(rig, "GET", f"{ALPHA}/jira", BEN)).json()
 
     assert (answer["jira_project"], answer["epic_key"], answer["created_epic_key"]) == ("ABC", None, "ABC-7")
-    assert answer["enabled"] is True and answer["editable"] is False
+    assert answer["enabled"] is True and answer["editable"] is True
     assert answer["sync"]["status"] == "succeeded" and answer["sync"]["epic_key"] == "ABC-7"
 
 
@@ -316,15 +316,15 @@ async def test_put_refuses_a_value_the_rules_forbid_with_422_and_saves_nothing(r
     assert rig.alpha not in rig.db.targets and rig.stub.calls == []
 
 
-async def test_put_is_owner_only_a_collaborator_is_403_a_non_member_404(rig):
+async def test_put_is_for_any_member_and_a_non_member_is_404(rig):
     body = {"jira_project": "ABC", "epic_key": None, "enabled": True}
 
-    collaborator = await web(rig, "PUT", f"{ALPHA}/jira", BEN, body)
     outsider = await web(rig, "PUT", f"{ALPHA}/jira", CAROL, body)
+    collaborator = await web(rig, "PUT", f"{ALPHA}/jira", BEN, body)
 
-    assert error_of(collaborator) == (403, "owner_required")
     assert error_of(outsider) == (404, "project_not_found")
-    assert rig.db.targets == {} and rig.stub.calls == []
+    assert collaborator.status_code == 200 and collaborator.json()["editable"] is True
+    assert list(rig.db.targets) == [rig.alpha]
 
 
 async def test_put_without_a_jira_account_is_503_jira_unavailable_and_saves_nothing(rig):
@@ -459,22 +459,21 @@ async def test_access_check_stops_at_the_first_failure(rig):
     assert [m for m, _ in rig.gateway.calls] == ["myself"]
 
 
-async def test_access_check_is_owner_only_needs_jira_and_checks_the_body_like_put(rig, caplog):
+async def test_access_check_is_for_any_member_needs_jira_and_checks_the_body_like_put(rig, caplog):
     caplog.set_level("INFO")
-    collaborator = await check(rig, BEN)
     outsider = await check(rig, CAROL)
     invalid = await check(rig, jira_project="a")
     rig.gateway.projects["ABC"] = rig.gateway.projects["PRJ"]
     ok = await check(rig)
+    member = await check(rig, BEN)  # D6: a collaborator checks as the owner does
     rig.runtime.jira = None
     unavailable = await check(rig)
 
-    assert error_of(collaborator) == (403, "owner_required")
     assert error_of(outsider) == (404, "project_not_found")
     assert error_of(invalid) == (422, "validation_failed")
-    assert ok.json()["result"] == "ok"
+    assert ok.json()["result"] == member.json()["result"] == "ok"
     assert error_of(unavailable) == (503, "jira_unavailable")
-    (logged,) = events(caplog, "api.jira.access.checked")
+    logged = events(caplog, "api.jira.access.checked")[-2]  # the owner's ok, before the collaborator's
     assert (logged.result, logged.reason, logged.project_id) == ("ok", None, ALPHA)
     assert not rig.gateway.closed  # the check uses the runner's shared gateway and leaves it open
 

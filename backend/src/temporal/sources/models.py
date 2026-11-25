@@ -16,11 +16,16 @@ from pydantic import BaseModel, Field
 ItemKind = Literal["pdf", "document", "google", "stored"]
 
 
+DRIVE_EXCLUDE_MAX = 1000  # = api.schemas.DRIVE_FILES_LIST_MAX (asserted in the tests)
+
+
 class DriveImportInput(BaseModel):
     project_id: UUID
     connection_id: UUID
     #: Workflow-id prefix of tier-2 tests (empty in production); child parse ids carry it.
     id_prefix: str = Field(default="", max_length=64)
+    #: Drive file ids chosen not to import; the listing activity drops them (an id, never a name).
+    exclude: list[str] = Field(default_factory=list, max_length=DRIVE_EXCLUDE_MAX)
     #: Set by continue-as-new: the listing is already stored.
     listed: bool = False
     #: Epoch seconds of the first run; the soft deadline and the duration count from it.

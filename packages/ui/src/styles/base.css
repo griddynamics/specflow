@@ -1,0 +1,79 @@
+/* Base of the `.gx` root: page colours, type, focus ring, links, reduced motion. Scoped to the root class only. */
+.gx,
+.gx *,
+.gx *::before,
+.gx *::after {
+  box-sizing: border-box;
+}
+
+.gx {
+  background: var(--gx-paper);
+  color: var(--gx-ink);
+  font-family: var(--gx-font-body);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizelegibility;
+}
+
+.gx a:not([class]) {
+  color: inherit;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.gx a:not([class]):hover {
+  text-decoration-thickness: 2px;
+}
+
+.gx :focus-visible {
+  outline: 2px solid var(--gx-ink);
+  outline-offset: 2px;
+}
+
+.gx svg {
+  max-width: 100%;
+}
+
+/* Text for screen readers only: the status a visible label would repeat (the hubs carry no visible name or count). */
+.gx-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.gx-eyebrow {
+  margin: 0;
+  font-family: var(--gx-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gx-ink-3);
+  font-variant-ligatures: none;
+}
+
+.gx-vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gx,
+  .gx *,
+  .gx *::before,
+  .gx *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

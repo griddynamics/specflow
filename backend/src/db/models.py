@@ -55,7 +55,8 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # The Drive-related values mirror
 # drive.categories / reasons; a test keeps them equal. They are
 # written out here so the models do not import the Drive package.
-CONNECTION_KINDS: Final = ("gdrive", "upload")
+# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations).
+CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic")
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",
@@ -382,6 +383,10 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 # GitHub tables (docs/github/data-model.md). The failure codes mirror github.codes.CLONE_FAILURE_CODES; a test keeps
 # them equal (db does not import github).
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
+INTEGRATION_APPS: Final = ("atlassian", "github", "slack")
+JIRA_GAP_GROUPINGS: Final = ("one", "area")
+GITHUB_PROJECT_TRIGGERS: Final = ("plan_run", "settings", "recovery")
+GITHUB_PROJECT_ITEM_KINDS: Final = ("story", "subtask")
 REPOSITORY_CLONE_STATES: Final = ("pending", "cloning", "cloned", "failed")
 REPOSITORY_FAILURE_CODES: Final = (
     "github_not_connected",
@@ -776,3 +781,114 @@ class ProjectRepository(Base):
     cloned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
+
+
+class ProjectIntegration(Base):
+    """The member whose per-user connection a project's uses of an app act as (migration
+    ``0008_project_integrations``): one row per app per project, with the one workspace (Atlassian site, GitHub account,
+    Slack workspace) of the project. ``user_id`` is null once that member is no longer a member. Holds no credential."""
+
+    __tablename__ = "project_integrations"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "app"),
+        CheckConstraint(_one_of("app", INTEGRATION_APPS), name="app"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    app: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_name: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class JiraGapTarget(Base):
+    """The Jira gap channel of a project (migration ``0009_jira_gaps``): where its open questions are posted and how
+    they are grouped, the one Story they hang under, and the poll cursor (the newest Jira ``updated`` time read).
+    Holds no credential; the acting account is the member the project's Atlassian is connected by."""
+
+    __tablename__ = "jira_gap_targets"
+    __table_args__ = (CheckConstraint(_one_of("grouping", JIRA_GAP_GROUPINGS), name="grouping"),)
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    jira_project: Mapped[str] = mapped_column(Text, nullable=False)
+    grouping: Mapped[str] = mapped_column(Text, nullable=False)
+    story_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    poll_cursor: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class JiraGapIssue(Base):
+    """A gap posted to Jira: the sub-task that asks it, its ``area`` (the sub-task's group), its number in the sub-task
+    and when it was posted and answered. Holds no Jira text."""
+
+    __tablename__ = "jira_gap_issues"
+    __table_args__ = (PrimaryKeyConstraint("project_id", "gap_id"),)
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    gap_id: Mapped[str] = mapped_column(Text, nullable=False)
+    issue_key: Mapped[str] = mapped_column(Text, nullable=False)
+    area: Mapped[str] = mapped_column(Text, nullable=False)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GitHubProjectTarget(Base):
+    """The GitHub Projects destination of a project and its last export pass (migration ``0010_github_projects``,
+    docs/github/projects.md): the repository the issues are created in, the organization project they are added to. The
+    member the export acts as is read from ``project_integrations`` on every pass. Holds no credential."""
+
+    __tablename__ = "github_project_targets"
+    __table_args__ = (
+        CheckConstraint(_one_of("last_status", JIRA_RUN_STATUSES), name="last_status"),
+        CheckConstraint(_one_of("last_trigger", GITHUB_PROJECT_TRIGGERS), name="last_trigger"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_repositories.id", ondelete="CASCADE"), nullable=False
+    )
+    project_node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    project_title: Mapped[str] = mapped_column(Text, nullable=False)
+    project_url: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_status: Mapped[str | None] = mapped_column(Text)
+    last_trigger: Mapped[str | None] = mapped_column(Text)
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(Text)
+    last_counts: Mapped[Any] = _json(nullable=True)
+
+
+class GitHubProjectItem(Base):
+    """The issue of a plan node: a pending row (no number) before the create, the applied content after. A story is an
+    issue with an item on the project; a task is a sub-issue of its story's issue."""
+
+    __tablename__ = "github_project_items"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "node_id"),
+        UniqueConstraint("project_id", "issue_number"),
+        CheckConstraint(_one_of("kind", GITHUB_PROJECT_ITEM_KINDS), name="kind"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    issue_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    issue_node_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content: Mapped[Any] = _json(nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

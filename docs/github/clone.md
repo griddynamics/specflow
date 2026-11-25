@@ -8,7 +8,7 @@ tags: [github, worker]
 # clone.md: the clone check and the snapshot
 
 The API starts `GithubSnapshotWorkflow` on the `agents` queue (id `github-snapshot-{repository_id}`, `USE_EXISTING`,
-execution timeout 45 minutes) when an owner adds a repository or asks for a new check. The input holds ids only
+execution timeout 45 minutes) when a member adds a repository or asks for a new check. The input holds ids only
 (`project_id`, `repository_id`, `id_prefix`): never a token or a repository name (`temporal.github.models`).
 
 ## Steps

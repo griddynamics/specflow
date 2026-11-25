@@ -174,6 +174,11 @@
       "path": "/projects/{pid}/sources/{sid}"
     },
     {
+      "id": "rename_source_api_v1_projects__pid__sources__sid__patch",
+      "method": "PATCH",
+      "path": "/projects/{pid}/sources/{sid}"
+    },
+    {
       "id": "end_upload_batch_api_v1_projects__pid__sources__sid__end_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/{sid}/end"
@@ -197,6 +202,26 @@
       "id": "test_drive_folder_api_v1_projects__pid__sources_gdrive_test_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/gdrive/test"
+    },
+    {
+      "id": "add_confluence_source_api_v1_projects__pid__sources_confluence_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/confluence"
+    },
+    {
+      "id": "add_jira_epic_source_api_v1_projects__pid__sources_jira_epic_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/jira-epic"
+    },
+    {
+      "id": "check_jira_epic_api_v1_projects__pid__sources_jira_epic_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/jira-epic/check"
+    },
+    {
+      "id": "check_confluence_link_api_v1_projects__pid__sources_confluence_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/confluence/check"
     },
     {
       "id": "start_upload_batch_api_v1_projects__pid__sources_uploads_post",
@@ -274,6 +299,41 @@
       "path": "/projects/{pid}/jira/access-check"
     },
     {
+      "id": "get_jira_gaps_api_v1_projects__pid__jira_gaps_get",
+      "method": "GET",
+      "path": "/projects/{pid}/jira-gaps"
+    },
+    {
+      "id": "put_jira_gaps_api_v1_projects__pid__jira_gaps_put",
+      "method": "PUT",
+      "path": "/projects/{pid}/jira-gaps"
+    },
+    {
+      "id": "check_jira_gaps_access_api_v1_projects__pid__jira_gaps_access_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/jira-gaps/access-check"
+    },
+    {
+      "id": "get_github_projects_api_v1_projects__pid__github_projects_get",
+      "method": "GET",
+      "path": "/projects/{pid}/github-projects"
+    },
+    {
+      "id": "list_github_projects_api_v1_projects__pid__github_projects_projects_get",
+      "method": "GET",
+      "path": "/projects/{pid}/github-projects/projects"
+    },
+    {
+      "id": "put_github_projects_api_v1_projects__pid__github_projects_put",
+      "method": "PUT",
+      "path": "/projects/{pid}/github-projects"
+    },
+    {
+      "id": "check_github_projects_access_api_v1_projects__pid__github_projects_access_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/github-projects/access-check"
+    },
+    {
       "id": "get_atlassian_connection_api_v1_integrations_atlassian_get",
       "method": "GET",
       "path": "/integrations/atlassian"
@@ -302,6 +362,26 @@
       "id": "delete_slack_settings_api_v1_projects__pid__slack_delete",
       "method": "DELETE",
       "path": "/projects/{pid}/slack"
+    },
+    {
+      "id": "test_slack_connection_api_v1_projects__pid__slack_test_post",
+      "method": "POST",
+      "path": "/projects/{pid}/slack/test"
+    },
+    {
+      "id": "list_project_integrations_api_v1_projects__pid__integrations_get",
+      "method": "GET",
+      "path": "/projects/{pid}/integrations"
+    },
+    {
+      "id": "put_project_integration_api_v1_projects__pid__integrations__app__put",
+      "method": "PUT",
+      "path": "/projects/{pid}/integrations/{app}"
+    },
+    {
+      "id": "delete_project_integration_api_v1_projects__pid__integrations__app__delete",
+      "method": "DELETE",
+      "path": "/projects/{pid}/integrations/{app}"
     },
     {
       "id": "get_github_connection_api_v1_integrations_github_get",

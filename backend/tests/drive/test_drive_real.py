@@ -22,6 +22,7 @@ from googleapiclient.discovery import build
 
 from drive import real as real_module
 from drive.gateway import DriveError
+from drive.model import folder_path
 from drive.real import GoogleDriveGateway
 from drive.reasons import Reason
 from logger.logger import ERROR, get_logger, log_event
@@ -325,6 +326,28 @@ def test_listing_walks_all_levels_once_and_never_follows_shortcuts():
     uri = http.calls[1][1]
     assert "includeItemsFromAllDrives=true" in uri and "supportsAllDrives=true" in uri
     assert "pageSize=1000" in uri and "parents" in uri
+
+
+def test_listing_records_folder_names_and_parents_below_the_root():
+    root = "root000000"
+    one, two = fid("fold", 1), fid("fold", 2)
+    tree = {
+        root: [folder_(root, 1), file_(root, 1)],
+        one: [folder_(one, 2), file_(one, 2)],
+        two: [file_(two, 3)],
+    }
+    listing = gateway(FakeHttp(tree_routes(tree, root))).list_all(root)
+    assert [(f.id, f.name, f.parent_id) for f in listing.folders] == [(one, "d1", root), (two, "d2", one)]
+    assert listing.folder_count == 3  # the root is counted, not listed
+    assert [folder_path(listing, i) for i in listing.items] == ["", "d1", "d1/d2"]
+
+
+def test_a_folder_seen_again_is_listed_once():
+    root = "root000000"
+    one = fid("fold", 1)
+    tree = {root: [folder_(root, 1)], one: [{**folder_(one, 1), "parents": [one]}, file_(one, 1)]}
+    listing = gateway(FakeHttp(tree_routes(tree, root))).list_all(root)
+    assert [f.id for f in listing.folders] == [one] and listing.revisited == 1
 
 
 def test_listing_pages():

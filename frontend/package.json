@@ -18,6 +18,7 @@
     "check:tokens": "node scripts/check-tokens.mjs"
   },
   "dependencies": {
+    "@graphico/ui": "*",
     "@phosphor-icons/react": "2.1.10",
     "github-slugger": "2.0.0",
     "next": "16.3.7",

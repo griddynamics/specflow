@@ -7,18 +7,15 @@ live pass reads ``failed`` / ``interrupted`` (``skipped`` / ``jira_not_configure
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Final, Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from agent_contracts.jira_models import JiraItemKind, JiraSyncCounts, JiraSyncItem, JiraSyncStatus
-from api.jira.sync import FAILED, NOT_CONFIGURED, SKIPPED
+from api.exports.status import run_state
+from api.jira.sync import NOT_CONFIGURED
 from db.jira import JiraTargetView
 from db.models import JIRA_ISSUE_KINDS, JiraIssue
 
 Trigger = Literal["plan_run", "mcp", "settings", "recovery"]
-
-INTERRUPTED: Final = "interrupted"  # a stored run left running by a stopped process
-RUNNING: Final = "running"
-IDLE: Final = "idle"
 
 
 class JiraHooks(Protocol):
@@ -43,23 +40,10 @@ def status_of(target: JiraTargetView, *, live: bool, queued: bool, created_epic:
         "error_code": None,
         "counts": None,
     }
-    stored = target.last_status
-    if live:
-        return JiraSyncStatus(**{**base, "status": RUNNING})
-    if stored is None:
-        return JiraSyncStatus(**{**base, "status": IDLE})
-    if stored == RUNNING:  # the process stopped mid-run; recovery restarts an enabled target
-        status, code = (FAILED, INTERRUPTED) if target.enabled else (SKIPPED, NOT_CONFIGURED)
-        return JiraSyncStatus(**{**base, "status": status, "error_code": code})
-    counts = JiraSyncCounts(**target.last_counts) if target.last_counts else None
+    run = run_state(target, live=live, not_configured=NOT_CONFIGURED)
+    counts = JiraSyncCounts(**run.counts) if run.counts else None
     return JiraSyncStatus(
-        **{
-            **base,
-            "status": stored,
-            "finished_at": target.last_finished_at,
-            "error_code": target.last_error_code,
-            "counts": counts,
-        }
+        **{**base, "status": run.status, "finished_at": run.finished_at, "error_code": run.error_code, "counts": counts}
     )
 
 

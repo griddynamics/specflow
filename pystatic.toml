@@ -7,11 +7,14 @@
 [source-ownership]
 # Directories that each run their own validation over their sources: the two applications
 # (make validate-python-* / validate-cypher / validate-sql for backend, validate-typescript-* for
-# frontend), the validation kits (make validate-selftest) and the kit's CI report folder, whose
+# frontend), the public landing page (site: make site-lint, site-build and site-test), the validation kits
+# (make validate-selftest) and the kit's CI report folder, whose
 # tests (validation/ci/test_*.py) run in make validate-ci-selftest, part of validate-selftest.
 projects = [
     "backend",
     "frontend",
+    "packages/ui",
+    "site",
     "validation/ci",
     "validation/python/lint",
     "validation/python/scripts",
@@ -52,3 +55,10 @@ reason = "the local env file script; backend/tests/test_specflow_env_local.py an
 paths = ["scripts/postgres-tls.sh"]
 owner = "backend"
 reason = "the local TLS certificate script; backend/tests/test_postgres_tls.py runs it"
+
+# docs/mission-control is a clickable design prototype (static HTML, JavaScript and CSS) that is the visual and
+# behavioural source for Mission Control V2 (docs/mission-control/DECISIONS.md, D14). It is opened in a browser,
+# not built, linted or tested by any project here.
+[[source-ownership.external]]
+paths = ["docs/mission-control/*.js", "docs/mission-control/*.css"]
+reason = "design prototype for Mission Control V2, a static page opened in a browser; validated by nobody in this repository"

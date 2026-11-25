@@ -7,8 +7,8 @@ from itertools import permutations
 
 import pytest
 
-from api.jira.rank import RANK_LIMIT, Move, plan_moves
-from api.jira.rank import apply_moves as apply_to_order
+from api.exports.rank import RANK_LIMIT, Move, plan_moves
+from api.exports.rank import apply_moves as apply_to_order
 from jira_sync_support import apply_moves
 
 

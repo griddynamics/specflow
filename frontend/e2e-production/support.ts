@@ -50,6 +50,9 @@ export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
       page.on("request", (r) => {
         const u = new URL(r.url());
         if (u.protocol === "data:" || u.protocol === "blob:") return;
+        // The font hosts of the Graphico screens (V2) are not the app's traffic: their URLs carry an `@` by design (`wght@400`), which
+        // the specs that check "no email in a URL" must not mistake for data. They stay allowed origins; they are just not logged here.
+        if (ALLOWED_EXTRA_HOSTS.includes(u.hostname)) return;
         requests.push({
           method: r.method(),
           path: u.pathname,
@@ -96,13 +99,26 @@ export async function setTheme(page: Page, theme: "light" | "dark"): Promise<voi
   await page.context().addCookies([{ name: "specflow-theme", value: theme, url: baseURL }]);
 }
 
-/** FE-BP-03.AC5: the OIDC sign-in button on /login; the stub issuer signs the default user in and `/` follows. */
-export async function login(page: Page): Promise<void> {
+/** The V2 header's navigation (every V2 screen has it; the V1 shell does not). */
+export const v2Header = (page: Page): Locator => page.getByRole("navigation", { name: "App" });
+
+/** FE-BP-03.AC5: /login starts the OIDC sign-in by itself; the stub issuer signs the default user in and `/` (the V2 screens) follows. */
+export async function loginV2(page: Page): Promise<void> {
   await page.goto("/login");
-  await page.getByTestId("login-oidc").click();
+  await expect(v2Header(page)).toBeVisible();
+}
+
+/**
+ * Signs in and opens a project's V1 Mission Control, for the specs of the V1 screens (they stay at their own URLs until the clean-up).
+ * `/` is V2 now, so the way in is the one `/` used to take: the newest project of the list, or a new one when the list is empty.
+ */
+export async function login(page: Page): Promise<void> {
+  await loginV2(page);
+  const listed = (await bff(page, "GET", "/projects?limit=100")).json as { items: { id: string }[] };
+  const pid = listed.items.at(0)?.id ?? (await createProjectApi(page, `First project ${Date.now().toString(36)}`));
+  await page.goto(`/projects/${pid}/mission-control`);
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  // `/` settles on the newest project's Mission Control, or the empty state when there is no project (O12).
-  await expect(page.getByTestId("screen-mission-control").or(page.getByTestId("home-empty"))).toBeVisible();
+  await expect(page.getByTestId("screen-mission-control")).toBeVisible();
 }
 
 /** The top bar's current project name (inside the project switcher's trigger). */
@@ -254,7 +270,7 @@ export async function stubLog(): Promise<StubEntry[]> {
   return (await control("GET", "/log")) as StubEntry[];
 }
 
-/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs, workFail, workReadFail, gapFail); a null time = never finishes. */
+/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs, workFail, workReadFail, gapFail, sourcesFail); a null time = never finishes. */
 export async function stubTiming(t: Record<string, number | string | null>): Promise<void> {
   await control("POST", "/timing", t);
 }
@@ -264,13 +280,44 @@ export const STUB_TIMING = {
   summarizeMs: 1500,
   parseOutcome: "parsed",
   graphMs: 1500,
+  gapMs: 1000,
   graphOutcome: "succeeded",
   graphStartFail: null,
   planMs: 2000,
   workFail: null,
   workReadFail: null,
   gapFail: null,
+  sourcesFail: null,
 };
+
+/** The V2 Integrations stub (`POST /seed-integrations`, tests/support/stub-integrations.mjs `seed`): the Slack knobs and, with `pid`, a project's bindings. */
+export interface SeedIntegrations extends Record<string, unknown> {
+  /** Put the Slack knobs back first. */
+  reset?: boolean;
+  pid?: string;
+  slackAvailable?: boolean;
+  /** "ok", or the API code the next Test connection answers with. */
+  slackTest?: string;
+  atlassian?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
+  github?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
+  slack?: { channel?: { id: string; name: string; private: boolean }; by?: { user_id: string; name: string } | null } | null;
+}
+export async function seedIntegrations(spec: SeedIntegrations): Promise<void> {
+  await control("POST", "/seed-integrations", spec);
+}
+
+/** The Slack channel of a project in the stub (`POST /seed-slack`): `channel: null` = none bound yet; `available: false` = Slack is off on the server. */
+export interface SeedSlack extends Record<string, unknown> {
+  pid: string;
+  channel: { id: string; name: string; private: boolean } | null;
+  by?: { user_id: string; name: string } | null;
+  available?: boolean;
+  /** "ok", or the API code the next Test connection answers with. */
+  test?: string;
+}
+export async function seedSlack(spec: SeedSlack): Promise<void> {
+  await control("POST", "/seed-slack", spec);
+}
 
 /** Seeds a source with chosen file states in the stub (the case control port; see tests/support/stub-sources.mjs `seed`). Returns its id. */
 export async function seedSource(pid: string, source: Record<string, unknown>): Promise<string> {
@@ -350,6 +397,45 @@ export async function seedJira(spec: SeedJira): Promise<void> {
   await control("POST", "/seed-jira", spec);
 }
 
+/** The Jira gap channel of one seeded project (`POST /seed-jira-gaps`, tests/support/stub-jira-gaps.mjs `seed`). `target: null` removes it; `access` scripts the next checks. */
+export interface SeedJiraGaps extends Record<string, unknown> {
+  pid: string;
+  available?: boolean;
+  target?: {
+    jira_project: string;
+    grouping: "one" | "area";
+    enabled: boolean;
+    story_key?: string | null;
+    posted?: number;
+    answered?: number;
+    error_code?: string | null;
+  } | null;
+  access?: "ok" | { reason: string; field?: string | null };
+}
+export async function seedJiraGaps(spec: SeedJiraGaps): Promise<void> {
+  await control("POST", "/seed-jira-gaps", spec);
+}
+
+/** The GitHub Projects destination of one seeded project (`POST /seed-github-projects`, tests/support/stub-github-projects.mjs `seed`). */
+export interface SeedGitHubProjects extends Record<string, unknown> {
+  pid?: string;
+  available?: boolean;
+  /** null = the repository belongs to a user. */
+  organization?: string | null;
+  target?: {
+    repository_id: string;
+    repository: string;
+    project_node_id: string;
+    project_title: string;
+    enabled?: boolean;
+    sync?: Record<string, unknown>;
+  } | null;
+  access?: "ok" | { reason: string; field?: string | null };
+}
+export async function seedGitHubProjects(spec: SeedGitHubProjects): Promise<void> {
+  await control("POST", "/seed-github-projects", spec);
+}
+
 /** The GitHub stub (`POST /seed-github`, tests/support/stub-github.mjs `seed`): global knobs and, with `pid`, a project's repositories. */
 export interface SeedGitHub extends Record<string, unknown> {
   /** Put every global knob back first. */
@@ -371,8 +457,8 @@ export async function seedGitHub(spec: SeedGitHub): Promise<void> {
   await control("POST", "/seed-github", spec);
 }
 
-/** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */
-export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> {
+/** Builds the knowledge graph of a Ready project through the BFF and waits for it (the stub runs it without a model). */
+export async function buildGraph(page: Page, pid: string): Promise<void> {
   expect((await bff(page, "POST", `/projects/${pid}/graph_build`, { reasoning_level: 3 })).status).toBe(202);
   await expect
     .poll(
@@ -381,6 +467,11 @@ export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> 
       { timeout: 10_000 },
     )
     .toBe("succeeded");
+}
+
+/** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */
+export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> {
+  await buildGraph(page, pid);
   expect((await bff(page, "POST", `/projects/${pid}/plan`, { replan: false })).status).toBe(202);
   await expect
     .poll(async () => ((await bff(page, "GET", `/projects/${pid}/plan`)).json as { has_plan: boolean }).has_plan, { timeout: 15_000 })

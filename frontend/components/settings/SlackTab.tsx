@@ -9,15 +9,18 @@ import { CodeBlock } from "@/components/ui/CodeBlock";
 import { Icon } from "@/components/ui/Icon";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
+import { isDataError } from "@/lib/domain/errors";
 import { type SlackSettings, slackConnectCommand } from "@/lib/domain/slack";
 import { LoadFailed } from "./parts";
 import { SETTINGS_COPY } from "./settings-copy";
+import { useRemoveRight } from "./use-remove-right";
 import { useSlackPort } from "./use-settings-ports";
 
 const channelLabel = (name: string, isPrivate: boolean) => `${isPrivate ? "🔒" : "#"} ${name}`;
 
 export function SlackTab({ projectId }: Readonly<{ projectId: string }>) {
   const slack = useSlackPort();
+  const mayRemove = useRemoveRight(projectId, "slack");
   const toast = useToast();
   const [settings, setSettings] = useState<SlackSettings | "failed" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -79,10 +82,11 @@ export function SlackTab({ projectId }: Readonly<{ projectId: string }>) {
         setSettings({ ...settings, channel: null });
         toast({ title: SETTINGS_COPY.slackUnbound, tone: "success" });
       },
-      () => {
+      (e: unknown) => {
         if (!live.current) return;
         setBusy(false);
-        toast({ title: SETTINGS_COPY.slackSaveFailed, tone: "danger" });
+        const forbidden = isDataError(e) && e.detail?.apiCode === "integration_forbidden";
+        toast({ title: forbidden ? SETTINGS_COPY.slackRemoveForbidden : SETTINGS_COPY.slackSaveFailed, tone: "danger" });
       },
     );
   };
@@ -92,7 +96,7 @@ export function SlackTab({ projectId }: Readonly<{ projectId: string }>) {
     return (
       <div className="settings-sec" data-testid="slack-tab">
         <p data-testid="slack-bound">{channelLabel(bound.name, bound.private)}</p>
-        {settings.editable ? (
+        {mayRemove ? (
           <div>
             <Button variant="glass" disabled={busy} onClick={unbind} data-testid="slack-unbind">
               {SETTINGS_COPY.slackUnbind}

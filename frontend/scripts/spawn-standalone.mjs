@@ -6,10 +6,11 @@ import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// The standalone tree is rooted at the workspace root (next.config.ts outputFileTracingRoot): the server is frontend/server.js.
 
 export function spawnStandalone(env, secrets) {
   const child = spawn(process.execPath, ["server.js"], {
-    cwd: path.join(root, ".next/standalone"),
+    cwd: path.join(root, ".next/standalone/frontend"),
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });

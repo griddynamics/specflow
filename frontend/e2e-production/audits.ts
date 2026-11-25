@@ -3,8 +3,8 @@
 import type { Page } from "@playwright/test";
 
 /** Every visible text run (and every form control) that is not set in Fira Sans. */
-export function fontViolations(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+export function fontViolations(page: Page, monoSelector = ""): Promise<string[]> {
+  return page.evaluate((mono) => {
     const out = new Set<string>();
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
@@ -14,7 +14,8 @@ export function fontViolations(page: Page): Promise<string[]> {
       const cs = getComputedStyle(el);
       if (r.width === 0 || r.height === 0 || cs.visibility === "hidden") continue;
       const first = cs.fontFamily.split(",")[0].replace(/["']/g, "").trim();
-      if (first !== "Fira Sans")
+      const allowedMono = first === "Fira Code" && mono !== "" && el.closest(mono) !== null; // V2: Fira Code only where the style sets it
+      if (first !== "Fira Sans" && !allowedMono)
         out.add(
           `${el.tagName.toLowerCase()}.${(el.getAttribute("class") ?? "").split(" ")[0]} "${(n.textContent ?? "").trim().slice(0, 25)}" ${cs.fontFamily}`,
         );
@@ -26,13 +27,16 @@ export function fontViolations(page: Page): Promise<string[]> {
       if (first !== "Fira Sans") out.add(`${e.tagName.toLowerCase()} control font ${first}`);
     }
     return [...out];
-  });
+  }, monoSelector);
 }
 
 /** Text colours and backgrounds of visible elements that are not the resolved value of a colour token of the current theme. */
-export function colourViolations(page: Page): Promise<{ tokens: number; looked: number; texts: number; bgs: number; bad: string[] }> {
-  return page.evaluate(() => {
-    const root = document.querySelector(".gdg-root") ?? document.body;
+export function colourViolations(
+  page: Page,
+  rootSelector = ".gdg-root",
+): Promise<{ tokens: number; looked: number; texts: number; bgs: number; bad: string[] }> {
+  return page.evaluate((rootSel) => {
+    const root = document.querySelector(rootSel) ?? document.body;
     // the custom property names declared by any readable style sheet
     const collectNames = (): Set<string> => {
       const names = new Set<string>();
@@ -99,7 +103,7 @@ export function colourViolations(page: Page): Promise<{ tokens: number; looked: 
       }
     }
     return { tokens: tokens.size, looked: seen.size, texts: texts.size, bgs: bgs.size, bad: [...bad] };
-  });
+  }, rootSelector);
 }
 
 export interface Stop {
@@ -120,7 +124,11 @@ export interface TabWalkReport {
  * (2px solid --focus-ring, on the control or on the wrapper that carries it through :focus-within) and visibility. `lostMid` lists the places where
  * the focus fell to <body> in the middle of the walk and the next Tab reached a control not seen before.
  */
-export async function tabWalkReport(page: Page, max = 80): Promise<TabWalkReport> {
+export async function tabWalkReport(
+  page: Page,
+  max = 80,
+  ring: { root: string; token: string } = { root: ".gdg-root", token: "--focus-ring" },
+): Promise<TabWalkReport> {
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
     document.querySelectorAll("[data-kb]").forEach((e) => {
@@ -138,15 +146,15 @@ export async function tabWalkReport(page: Page, max = 80): Promise<TabWalkReport
   const lostMid: string[] = [];
   for (let i = 0; i < max; i++) {
     await page.keyboard.press("Tab");
-    const s = await page.evaluate(() => {
+    const s = await page.evaluate((rg) => {
       const pick = (...parts: (string | null)[]) => parts.find((p) => p !== null && p !== "") ?? ""; // the first non-empty text, as an `||` chain would pick it
       const el = document.activeElement as HTMLElement | null;
       if (!el || el === document.body || el === document.documentElement) return { body: true } as const;
       if (el.hasAttribute("data-kb")) return { again: true } as const;
       el.setAttribute("data-kb", "1");
       const probe = document.createElement("i");
-      probe.style.color = "var(--focus-ring)";
-      (el.closest(".gdg-root") ?? el.parentElement ?? document.body).appendChild(probe); // inside the theme root: the token depends on it
+      probe.style.color = `var(${rg.token})`;
+      (el.closest(rg.root) ?? el.parentElement ?? document.body).appendChild(probe); // inside the theme root: the token depends on it
       const token = getComputedStyle(probe).color;
       probe.remove();
       let ring = "none";
@@ -173,7 +181,7 @@ export async function tabWalkReport(page: Page, max = 80): Promise<TabWalkReport
         visible,
         inModal: !!el.closest("[role=dialog]"),
       };
-    });
+    }, ring);
     if ("body" in s) {
       if (stops.length === 0) lostMid.push("first Tab went to <body>");
       else {
@@ -194,6 +202,16 @@ export async function tabWalkReport(page: Page, max = 80): Promise<TabWalkReport
 }
 
 /** The stops of {@link tabWalkReport}. */
-export async function tabWalk(page: Page, max = 80): Promise<Stop[]> {
-  return (await tabWalkReport(page, max)).stops;
+export async function tabWalk(page: Page, max = 80, ring?: { root: string; token: string }): Promise<Stop[]> {
+  return (await tabWalkReport(page, max, ring)).stops;
+}
+
+/** The Tab walk of a page and what is wrong with it: stops that are not visible, and stops without the 2px solid focus ring. */
+export async function tabWalkProblems(
+  page: Page,
+  ring?: { root: string; token: string },
+): Promise<{ stops: number; invisible: string[]; noRing: string[] }> {
+  const stops = await tabWalk(page, 80, ring);
+  const named = (list: Stop[]) => list.map((s) => `${s.id} "${s.label}"`);
+  return { stops: stops.length, invisible: named(stops.filter((s) => !s.visible)), noRing: named(stops.filter((s) => s.ring === "none")) };
 }

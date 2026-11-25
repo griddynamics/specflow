@@ -40,9 +40,9 @@ export function createSourcesModel({ docs, sourcesOf }) {
   };
   const holderRef = (pid, id) => {
     const b = batchesOf(pid).find((x) => x.id === id);
-    if (b) return { id: b.id, kind: "upload", name: "Local files", name_suffix: b.suffix, created_at: b.created_at };
+    if (b) return { id: b.id, kind: "upload", name: b.name, name_suffix: b.suffix, created_at: b.created_at };
     const row = sourcesOf(pid).find((x) => x.id === id);
-    return row ? { id: row.id, kind: "gdrive", name: row.name, name_suffix: 1, created_at: row.created_at } : null;
+    return row ? { id: row.id, kind: row.kind ?? "gdrive", name: row.name, name_suffix: 1, created_at: row.created_at } : null;
   };
   const fileOfItem = (pid, item) => {
     if (item.fixed)
@@ -87,7 +87,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     return {
       id: b.id,
       kind: "upload",
-      name: "Local files",
+      name: b.name,
       name_suffix: b.suffix,
       added_by: USER,
       created_at: b.created_at,
@@ -112,7 +112,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     const total = STATES.reduce((n, s) => n + counts[s], 0);
     return {
       id: row.id,
-      kind: "gdrive",
+      kind: row.kind ?? "gdrive",
       name: row.name,
       name_suffix: 1,
       added_by: { ...USER, id: row.connected_by },
@@ -184,13 +184,30 @@ export function createSourcesModel({ docs, sourcesOf }) {
       list.filter((b) => !hidden(b)),
     );
   }
-  function start(pid, expected) {
+  const hasControl = (text) =>
+    [...text].some((c) => {
+      const n = c.codePointAt(0);
+      return n < 32 || (n >= 127 && n < 160) || n === 0x2028 || n === 0x2029;
+    });
+  /** A batch name as the API stores it: stripped, 1..80 characters, no control characters (`api/schemas.py clean_source_name`). */
+  function cleanName(value) {
+    if (typeof value !== "string") throw new StubError(422, "validation_failed");
+    const name = value.trim();
+    if (name.length < 1 || name.length > 80 || hasControl(name)) throw new StubError(422, "validation_failed");
+    return name;
+  }
+  /** `name` of a batch start: absent, null or blank = the default "Local files"; otherwise a valid name. */
+  const startName = (value) =>
+    value === undefined || value === null || (typeof value === "string" && value.trim() === "") ? "Local files" : cleanName(value);
+  function start(pid, expected, name) {
     if (!Number.isInteger(expected) || expected < 1 || expected > 10000) throw new StubError(422, "validation_failed");
+    const batchName = startName(name);
     dropHidden(pid);
     const minute = new Date().toISOString().slice(0, 16);
     const same = batchesOf(pid).filter((b) => b.created_at.slice(0, 16) === minute);
     const b = stamp({
       id: crypto.randomUUID(),
+      name: batchName,
       created_at: new Date().toISOString(),
       suffix: 1 + Math.max(0, ...same.map((x) => x.suffix)),
       expected,
@@ -206,6 +223,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     if (found) return found;
     const b = stamp({
       id: crypto.randomUUID(),
+      name: "Local files",
       created_at: new Date().toISOString(),
       suffix: 1,
       expected: 1,
@@ -265,6 +283,18 @@ export function createSourcesModel({ docs, sourcesOf }) {
     return { outcome: "added", file: fileOfItem(pid, item), holder: null, doc };
   }
 
+  /** PATCH a source: only an upload batch is renamed. 422 (the name) before 404 (no such source) before 409 (a source that is not an upload). */
+  function rename(pid, sid, name) {
+    const clean = cleanName(name);
+    const b = batchesOf(pid).find((x) => x.id === sid && !hidden(x));
+    if (b) {
+      b.name = clean;
+      return batchSummary(pid, b);
+    }
+    if (sourcesOf(pid).some((r) => r.id === sid)) throw new StubError(409, "source_not_renamable");
+    throw new StubError(404, "source_not_found");
+  }
+
   // ---- removal and seeding (the control endpoint of the tests) ----
   function remove(pid, sid) {
     const b = batchesOf(pid).find((x) => x.id === sid);
@@ -286,7 +316,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     removed.set(pid, (removed.get(pid) ?? 0) + n);
   }
 
-  /** spec: {kind:"gdrive"|"upload", name?, listing?, failure_reason?, open?, expected?, files:[{name,state,reason?,category?,holder?}]}. Returns the id. */
+  /** spec: {kind:"gdrive"|"upload", name? (an upload batch's own name too), listing?, failure_reason?, open?, expected?, files:[{name,state,reason?,category?,holder?}]}. Returns the id. */
   function seed(pid, spec) {
     const files = (spec.files ?? []).map((f) => ({
       id: crypto.randomUUID(),
@@ -299,6 +329,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     if (spec.kind === "upload") {
       const b = stamp({
         id: crypto.randomUUID(),
+        name: spec.name ?? "Local files",
         created_at: new Date().toISOString(),
         suffix: spec.name_suffix ?? 1,
         expected: spec.expected ?? files.length,
@@ -335,5 +366,5 @@ export function createSourcesModel({ docs, sourcesOf }) {
     return row.id;
   }
 
-  return { status, page, start, end, add, remove, seed, legacyBatch, summaries, stamp };
+  return { status, page, start, end, add, rename, remove, seed, legacyBatch, summaries, stamp };
 }

@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
+from api.exports.rank import Move
 from api.jira.desired import SpecRef
-from api.jira.rank import Move
 from api.jira.sync import SyncDeps, SyncResult, sync_once
 from db.jira import JiraTargetView
 from graph.plan.models import CurrentPlan, CurrentTask, PlanInfo, PlanLink, StoryInfo

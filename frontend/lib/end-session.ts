@@ -2,7 +2,8 @@ import { appConfig } from "./config";
 import { endSessionEndpoint } from "./oidc-refresh";
 import { idTokenFor } from "./session-token";
 
-const SIGNED_OUT_PATH = "/login?signedout=1";
+const SIGNED_OUT_PATH = "/login?signedout=1"; // local-only sign-out: the page says so and waits
+const IDP_SIGNED_OUT_PATH = "/login?signedout=idp"; // back from the provider's logout: the session there is gone, so /login signs in again at once
 
 /**
  * Server-only: where the browser goes to finish a sign-out. With an `end_session_endpoint` advertised by the issuer and an id_token in
@@ -28,7 +29,7 @@ export async function endSessionUrlFor(req: Request): Promise<string> {
       return fallback;
     }
     url.searchParams.set("id_token_hint", idToken);
-    url.searchParams.set("post_logout_redirect_uri", fallback);
+    url.searchParams.set("post_logout_redirect_uri", new URL(IDP_SIGNED_OUT_PATH, publicOrigin).href);
     url.searchParams.set("client_id", oidc.clientId);
     return url.href;
   } catch {

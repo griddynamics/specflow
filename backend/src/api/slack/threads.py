@@ -1,6 +1,6 @@
 """``SlackThreads``: the channel flow (docs/slack/gap-answering.md "The channel flow").
 
-- **Connect.** The project owner runs ``/specflow connect <project id>`` in a channel the app is in; every open
+- **Connect.** A project member runs ``/specflow connect <project id>`` in a channel the app is in; every open
   question of the project (route ``ask``) is posted there, one message each, and so is every new one after each gap
   run. A channel belongs to one project, and the command proves the caller is in it.
 - **Answer in the thread.** Anyone in the channel answers by replying in a gap's thread: one option letter, or their
@@ -23,8 +23,9 @@ from typing import Any, Final
 from agent_contracts import GapDetail
 from api.agent_views import holders_of
 from api.contained import Contained
-from api.gap.answering import record_answer
 from api.gap.cards import detail_user_ids, gap_detail
+from api.gap.replies import assign_answerer as assign_to_answerer
+from api.gap.replies import record_and_apply
 from api.slack.blocks import CONTRADICTION, escaped, gap_details, gap_headline, reply_answer
 from api.slack.channels import Binding, ChannelTakenError, Posted, SlackChannels
 from api.slack.links import SlackLinks, SlackUser
@@ -40,6 +41,10 @@ NOT_A_CHANNEL: Final = "not_a_channel"
 NOT_IN_CHANNEL: Final = "not_in_channel"
 SHARED: Final = "shared"
 TAKEN: Final = "taken"
+NO_CHANNEL: Final = "no_channel"
+UNREACHABLE: Final = "unreachable"
+LEFT_CHANNEL: Final = frozenset({"not_in_channel", "channel_not_found", "is_archived"})  # Slack's answers to a post
+ASSIGN_FAILED: Final = "api.slack.assign_failed"
 PENDING_MAX: Final = 20  # replies kept per unlinked Slack user
 
 
@@ -66,24 +71,19 @@ class ChannelRefusedError(Exception):
         self.code = code
 
 
-async def assign_answerer(runner: Any, project_id: str, gap_id: str, user_id: uuid.UUID) -> None:
-    """After a Slack answer: a gap nobody is assigned to is assigned to the person who answered, so the web shows it as
-    theirs (an assigned gap keeps its assignee). Never raises: the answer is recorded either way."""
+class WelcomeFailedError(Exception):
+    """The welcome message was not posted; ``code``: ``NO_CHANNEL`` (the project has no channel), ``NOT_IN_CHANNEL``
+    (the app left or cannot post in it) or ``UNREACHABLE`` (Slack did not answer)."""
 
-    with Contained() as assigned:
-        service = await runner.service()
-        gap = await service.get_gap(project_id, gap_id)
-        if gap.assigned_to is None:
-            await service.assign_gap(project_id, gap_id, str(user_id), by=str(user_id))
-    if assigned.error is not None:
-        log_event(
-            logger,
-            WARNING,
-            "api.slack.assign_failed",
-            project_id=project_id,
-            gap_id=gap_id,
-            error_type=type(assigned.error).__name__,
-        )
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+async def assign_answerer(runner: Any, project_id: str, gap_id: str, user_id: uuid.UUID) -> None:
+    """After a Slack answer: the shared assignment (``api.gap.replies``), its failure logged as a Slack event."""
+
+    await assign_to_answerer(runner, project_id, gap_id, user_id, event=ASSIGN_FAILED)
 
 
 class SlackThreads:
@@ -139,6 +139,24 @@ class SlackThreads:
         return SlackChannel(channel_id, str(found.get("name", "")), bool(found.get("is_private")))
 
     # Posting ------------------------------------------------------------------------------------------------------
+
+    async def post_welcome(self, project_id: str, project_name: str) -> Binding:
+        """Post the welcome message in the project's channel so the person sees the connection work; the binding.
+        ``WelcomeFailedError`` with a closed code. The text is never logged."""
+
+        binding = await self.channels.binding(project_id)
+        if binding is None:
+            raise WelcomeFailedError(NO_CHANNEL)
+        text = f"Welcome to the workspace of project {escaped(project_name, 150)}."
+        with Contained() as posted:
+            await self._client.chat_postMessage(channel=binding.channel_id, text=text)
+        if posted.error is not None:
+            response = getattr(posted.error, "response", None)
+            reason = response.get("error") if response is not None else None
+            log_event(logger, WARNING, "api.slack.welcome_failed", project_id=project_id, error_type=posted.error_type)
+            raise WelcomeFailedError(NOT_IN_CHANNEL if reason in LEFT_CHANNEL else UNREACHABLE)
+        log_event(logger, INFO, "api.slack.welcome_posted", project_id=project_id)
+        return binding
 
     async def post_open(self, project_id: str) -> int:
         """Post the project's open questions that its channel has not seen; how many were posted."""
@@ -232,7 +250,9 @@ class SlackThreads:
             gap_id=gap_id, option_rank=rank, own_text=own, answered_by=str(user_id), updated_at=None, via="slack"
         )
         try:
-            await record_answer(self._runtime.gaps, project_id, answer)
+            applied = await record_and_apply(
+                self._runtime.gaps, project_id, answer, user_id, assign_event=ASSIGN_FAILED
+            )
         except GapStateError as error:
             status = str(error.fields.get("status", "changed"))
             await self._private(slack, reply, f"Not recorded: this question is {status} now.")
@@ -244,8 +264,6 @@ class SlackThreads:
             log_event(logger, WARNING, "api.slack.answer_refused", project_id=project_id, error_code=error.code)
             await self._private(slack, reply, "Not recorded: answer this one on the web.")
             return
-        await assign_answerer(self._runtime.gaps, project_id, gap_id, user_id)
-        applied = await self._apply(project_id, user_id)
         chosen = next((o for o in detail.options if o.rank == rank), None)
         said = f"*{escaped(chosen.code, 2)}* ({escaped(chosen.title, 150)})" if chosen else "an own answer"
         state = "applying in one update build" if applied else "saved"
@@ -265,17 +283,6 @@ class SlackThreads:
             gap_id=gap_id,
             applied=applied,
         )
-
-    async def _apply(self, project_id: str, user_id: uuid.UUID) -> bool:
-        """``apply_now`` for the reply just recorded (and everything else staged); ``False`` when nothing waited (an
-        answer applied at once, or someone applied first)."""
-
-        service = await self._runtime.gaps.service()
-        try:
-            await service.apply_now(project_id, by=str(user_id))
-        except GapStateError:
-            return False
-        return True
 
     async def _private(self, slack: SlackUser, reply: _Reply, text: str) -> None:
         await self._client.chat_postEphemeral(

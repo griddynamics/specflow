@@ -37,9 +37,9 @@ test("AC-14.4: exact base image tag, no floating tags", () => {
 test("AC-14.2: runtime copies standalone, .next/static and public, runs as node", () => {
   const runtime = stage("runtime");
   const copies = runtime.filter((l) => l.startsWith("COPY")).join("\n");
-  assert.match(copies, /\/app\/\.next\/standalone/);
-  assert.match(copies, /\/app\/\.next\/static/);
-  assert.match(copies, /\/app\/public/);
+  assert.match(copies, /\/app\/frontend\/\.next\/standalone/);
+  assert.match(copies, /\/app\/frontend\/\.next\/static/);
+  assert.match(copies, /\/app\/frontend\/public/);
   assert.ok(runtime.includes("USER node"));
   assert.ok(runtime.some((l) => /^ENV .*HOSTNAME=0\.0\.0\.0/.test(l)));
   assert.ok(runtime.some((l) => /PORT=3000/.test(l)));
@@ -61,6 +61,20 @@ test("AC-14.2: runtime CMD runs check-env.mjs then server.js", () => {
 test("deps stage installs the locked dependencies; build stage runs the build", () => {
   assert.ok(stage("build").some((l) => /npm run build/.test(l)));
   assert.ok(stage("deps").some((l) => /npm ci/.test(l)));
+});
+
+test("deps stage copies the root manifest, the lock and every workspace manifest before npm ci", () => {
+  const deps = stage("deps");
+  const iCi = deps.findIndex((l) => /^RUN npm ci/.test(l));
+  const copied = deps
+    .slice(0, iCi)
+    .filter((l) => l.startsWith("COPY"))
+    .join("\n");
+  for (const manifest of ["package.json package-lock.json", "frontend/package.json", "packages/ui/package.json"]) {
+    assert.ok(copied.includes(manifest), `${manifest} is copied before npm ci`);
+  }
+  const workspaces = JSON.parse(readFileSync(path.join(root, "../package.json"), "utf8")).workspaces;
+  for (const dir of workspaces.filter((w) => w !== "frontend")) assert.ok(copied.includes(`${dir}/package.json`), dir);
 });
 
 test("AC-12.1: proxy.ts matcher is exactly the specified string", () => {

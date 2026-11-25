@@ -108,21 +108,26 @@ Rules:
 
 ## Acting account of a target
 
-In `oauth` mode every Jira call of a project's sync uses the connection of the target's `connected_user_id`:
-- Every `PUT /projects/{pid}/jira` (the Sync switch included) sets `connected_user_id` to the saving owner, in both
-  modes (D46). In `oauth` mode the owner must have an `active` connection: none, or an `expired` one, is 409
-  `jira_not_connected` (D51). Any owner can take a target over by connecting and saving (D40).
+In `oauth` mode every Jira call of a project's sync uses the connection of the target's `connected_user_id`. That is
+the member the project's Atlassian connection is bound to (the `atlassian` row of `project_integrations`, set by
+`PUT /projects/{pid}/integrations/atlassian`, [integrations-api.md](../mission-control/integrations-api.md); D55):
+- Every `PUT /projects/{pid}/jira` (the Sync switch included) sets `connected_user_id` to that member, whoever saves
+  (any member, D6). In `oauth` mode a project with no bound member is 409 `jira_not_connected`. In `token` mode
+  `connected_user_id` is null. Another member takes the account over by connecting the project to Atlassian
+  themselves: that call also points the target at them.
 - The access check uses the caller's own connection: `reason` `jira_not_connected` or `jira_reconnect_required`, `field`
   null, and no Jira call.
-- A pass whose acting connection is missing (or a target no owner saved since `oauth` was turned on) ends `failed` with
-  `jira_not_connected`; an expired one with `jira_reconnect_required`; no Jira call is made. Every trigger (plan run,
-  MCP, settings, recovery) uses the target's account: a member who runs `sync_to_jira` acts through the owner the
-  target names.
+- A pass whose acting connection is missing (or a target no member's connection is bound to since `oauth` was turned
+  on) ends `failed` with `jira_not_connected`; an expired one with `jira_reconnect_required`; no Jira call is made.
+  Every trigger (plan run, MCP, settings, recovery) uses the target's account: a member who runs `sync_to_jira` acts
+  through the member the target names.
 - A refresh that fails during a pass ends the pass with the refresh's code ([Tokens](#tokens)).
 - The pass reads the acting account when it holds the sync slot, right before its first Jira call, so a takeover saved
   while it waited for the slot is the account it acts as.
 - A member removed from the project, or who leaves it, stops being its acting account in the same transaction
-  (`connected_user_id` becomes null), so the target is `missing` until an owner saves it again.
+  (`connected_user_id` and the `atlassian` row's member become null), so the target is `missing` until a member
+  connects the project to Atlassian again. Removing the project's Atlassian connection
+  (`DELETE /projects/{pid}/integrations/atlassian`) does the same.
 - In `token` mode `connected_user_id` is stored but ignored, and the deployment account is used (unchanged).
 
 ## Data
@@ -179,11 +184,11 @@ The web app's part; the full layout is in [ui.md](ui.md#atlassian-connection).
 - A route handler `frontend/app/api/integrations/atlassian/callback/route.ts` (signed-in session required; no session
   goes to sign-in) forwards `code` and `state` to the API and redirects to `return_to` with `?atlassian=connected` or
   `?atlassian=<code>`; Atlassian's `?error=` becomes `?atlassian=atlassian_consent_denied`.
-- In `oauth` mode the tab shows, for owners, a connection row above the fields: "Connected to Atlassian as *name*"
+- In `oauth` mode the tab shows, for members, a connection row above the fields: "Connected to Atlassian as *name*"
   with **Disconnect**, or **Connect Atlassian**, or for an expired one "Your Atlassian connection expired" with
   **Reconnect**. Below the target: "Syncs to Jira as *name*" (or "as you"), and a warning when the acting connection
   is expired or missing.
-- Check access and Save are disabled until the owner has an active connection.
+- Check access and Save are disabled until the project's connection is bound to a member.
 - `?atlassian=` shows one toast and is then removed from the URL.
 - In `token` mode the tab is unchanged.
 

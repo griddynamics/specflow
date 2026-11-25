@@ -1,0 +1,17 @@
+/* The /login card of the Graphico screens: one small card in the middle of the page, from the `.gx` tokens only. */
+.v2-login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+
+.v2-login__card {
+  width: 100%;
+  max-width: 380px;
+  gap: 16px;
+}
+
+.v2-login__button {
+  justify-self: start;
+}

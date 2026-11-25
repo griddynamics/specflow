@@ -1,0 +1,68 @@
+/* The two figure frames: the hero's untangle canvas and the shared panel box. */
+.panel-box {
+  margin: 0;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 8px 8px 0 var(--gx-ink);
+  background: var(--gx-paper);
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .panel-box {
+    box-shadow: 5px 5px 0 var(--gx-ink);
+  }
+}
+.ut-canvas {
+  display: block;
+  width: 100%;
+}
+.ut-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px 16px;
+  border-top: 1.5px solid var(--gx-ink);
+}
+.ut-say {
+  font-size: 15px;
+  font-weight: 700;
+  min-height: 1.5em;
+}
+.ut-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--gx-ink-2);
+  flex: 1 1 0;
+  min-width: 0;
+}
+.ut-legend[hidden],
+.ut-say[hidden] {
+  display: none;
+}
+.ut-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.ut-legend svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: var(--gx-ink);
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ut-legend svg .l {
+  stroke: var(--gx-ink-3);
+}
+.ut-legend svg .f {
+  fill: var(--gx-ink);
+}

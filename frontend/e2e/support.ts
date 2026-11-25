@@ -159,22 +159,21 @@ export async function submitKeycloakForm(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Sign In" }).click();
 }
 
-/** Sign-in on /login: "Sign in" -> the Keycloak form as alice -> back in the app; lands on `/` (the newest project's Mission Control, or the empty state). */
+/** Sign-in on /login: it goes straight to the Keycloak form (no click), as alice -> back in the app; lands on `/` (the newest project's Mission Control, or the empty state). */
 export async function login(page: Page): Promise<void> {
   await page.goto("/login");
-  await page.getByTestId("login-oidc").click();
   await submitKeycloakForm(page);
   await expect(page.getByTestId("app-shell")).toBeVisible();
   // `/` settles on the newest project's Mission Control, or the empty state when there is no project (O12).
   await expect(page.getByTestId("screen-mission-control").or(page.getByTestId("home-empty"))).toBeVisible();
 }
 
-/** FE-BP-03.AC4, B-08: "Sign out" from the avatar menu ends the app session and the Keycloak one, and shows /login?signedout=1. */
+/** FE-BP-03.AC4, B-08: "Sign out" from the avatar menu ends the app session and the Keycloak one: the browser returns to /login?signedout=idp, which signs in again at once, so the Keycloak form is shown. */
 export async function signOut(page: Page): Promise<void> {
   await networkQuiet(page); // a BFF response in flight after the sign-out could write the session cookie again (GAPS G-P17-4)
   await page.getByRole("button", { name: /^Account/ }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
-  await expect(page).toHaveURL(/\/login\?signedout=1$/);
+  await expect(keycloakUsername(page), "the Keycloak session ended: its form is shown").toBeVisible();
 }
 
 /** Creates a project through the top bar's "New" modal (name only, A9) and returns its id from the Mission Control URL. */

@@ -1,0 +1,203 @@
+/* Base components of @graphico/ui: button, dialog, field, card, brand, marks. From docs/mission-control/landing.css and
+   mission-control.css. Colour has three jobs: grey = not active, ink = working, yellow = a person is needed (at most one
+   yellow control per view). */
+
+/* Button: ink (default), ghost, yellow (the one decision) */
+.gx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: 1.5px solid var(--gx-ink);
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gx-btn:hover {
+  background: var(--gx-paper);
+  color: var(--gx-ink);
+  text-decoration: none;
+}
+
+.gx-btn--ghost {
+  background: transparent;
+  color: var(--gx-ink);
+}
+
+.gx-btn--ghost:hover {
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+}
+
+.gx-btn--yellow {
+  background: var(--gx-yellow);
+  color: var(--gx-on-yellow);
+  border-color: var(--gx-ink);
+  box-shadow: 3px 3px 0 var(--gx-ink);
+}
+
+.gx-btn--yellow:hover {
+  background: var(--gx-yellow);
+  color: var(--gx-on-yellow);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--gx-ink);
+}
+
+.gx-btn--sm {
+  padding: 7px 13px;
+  font-size: 13.5px;
+}
+
+.gx-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Dialog: a native modal <dialog> */
+.gx-dialog {
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 18px;
+  padding: 0;
+  width: min(720px, calc(100vw - 32px));
+  background: var(--gx-paper);
+  color: var(--gx-ink);
+  box-shadow: 8px 8px 0 var(--gx-ink);
+}
+
+.gx-dialog::backdrop {
+  background: var(--gx-scrim);
+}
+
+.gx-dialog__in {
+  display: grid;
+  gap: 18px;
+  padding: 26px 28px 28px;
+}
+
+.gx-dialog__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+
+.gx-dialog__title {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.gx-dialog__eyebrow {
+  margin-bottom: 6px;
+}
+
+.gx-dialog__close {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--gx-rule);
+  border-radius: 50%;
+  background: var(--gx-paper);
+  color: var(--gx-ink);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.gx-dialog__close:hover {
+  border-color: var(--gx-ink);
+}
+
+/* Field: a label over one control */
+.gx-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gx-field__label {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.gx-field__hint {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--gx-ink-3);
+}
+
+.gx-field__error {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.gx-input {
+  width: 100%;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: var(--gx-paper);
+  color: inherit;
+  font-family: inherit;
+  font-size: 16px;
+}
+
+/* Card */
+.gx-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+  border: 1px solid var(--gx-rule);
+  border-radius: 12px;
+  padding: 22px;
+  background: var(--gx-paper);
+}
+
+/* Brand and marks */
+.gx-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: inherit;
+  text-decoration: none;
+}
+
+.gx-brand__mark {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.gx-mark {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.gx-mark--logo {
+  fill: currentcolor;
+}
+
+.gx-mark--glyph {
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

@@ -15,3 +15,8 @@ its tab bar, view switch or breadcrumb goes into `<ShellHeader tabs=... tools=..
 (`components/shell/ShellHeader.tsx`), as Plan, Decisions, Connections and Guides do. Do not put a page title
 (`<h1>`) or a tab row at the top of the screen body. The body starts with the screen's content. Mockups follow
 the same rule.
+
+Exception for Mission Control V2 (`app/(v2)/`, `components/v2/`; decision D14 in `docs/mission-control/DECISIONS.md`):
+these screens follow the Graphico style of `packages/ui`, not the GD design system, and the semgrep `ds-*` rules skip
+those two paths. The header rule applies to V2 as: the V2 header holds the project menu, Members and Integrations;
+no `<h1>` or tab row in the body. Every other screen keeps the rules above.

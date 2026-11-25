@@ -52,6 +52,10 @@ class SourceNotFoundError(Exception):
     """No such source in this project (another project's id counts as absent)."""
 
 
+class NotRenamableError(Exception):
+    """The source is not an upload batch: only a batch has a name its owners choose."""
+
+
 class BatchEndedError(Exception):
     """The batch is ended, closed by the 15-minute rule, or not a Local files batch."""
 
@@ -201,8 +205,9 @@ async def start_batch(
     project_id: uuid.UUID,
     user_id: uuid.UUID,
     expected_files: int,
+    name: str = BATCH_NAME,
 ) -> Connection:
-    """Open a new Local files batch (FR-SRC-0020, FR-SRC-0021).
+    """Open a new Local files batch (FR-SRC-0020, FR-SRC-0021), called ``name``.
 
     Adopts the project's unheld documents (so old uploads have their day batch), deletes
     the project's hidden batches (upload kind only: a Drive source with no files is
@@ -213,7 +218,7 @@ async def start_batch(
     if not 1 <= expected_files <= MAX_EXPECTED_FILES:
         raise ValueError(f"expected_files must be 1..{MAX_EXPECTED_FILES}")
     try:
-        return await _start(session, project_id, user_id, expected_files)
+        return await _start(session, project_id, user_id, expected_files, name)
     except DBAPIError as exc:
         raise (timeout_from(exc) or conflict_from(exc) or exc) from exc
 
@@ -223,6 +228,7 @@ async def _start(
     project_id: uuid.UUID,
     user_id: uuid.UUID,
     expected_files: int,
+    name: str,
 ) -> Connection:
     await _bound_lock_wait(session)
     await session.execute(text(LOCK_PROJECT), {"pid": project_id})
@@ -244,7 +250,7 @@ async def _start(
         kind=BATCH_KIND,
         external_id=str(batch_id),
         link=None,
-        name=BATCH_NAME,
+        name=name,
         state="importing",  # never read for an upload (R03)
         connected_by=user_id,
         expected_files=expected_files,
@@ -310,6 +316,35 @@ async def end_batch(session: AsyncSession, project_id: uuid.UUID, batch_id: uuid
         raise (timeout_from(exc) or conflict_from(exc) or exc) from exc
     else:
         return batch
+
+
+async def rename_batch(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    batch_id: uuid.UUID,
+    name: str,
+) -> None:
+    """Give an upload batch a new name; ``name_suffix`` and the rest stay as they are.
+
+    Raises ``SourceNotFoundError`` for an absent source (or another project's) and
+    ``NotRenamableError`` for a source that is not an upload batch.
+    """
+
+    try:
+        await _bound_lock_wait(session)
+        batch = await _lock_connection(session, project_id, batch_id)
+        if batch is None:
+            raise SourceNotFoundError
+        if batch.kind != BATCH_KIND:
+            raise NotRenamableError
+        await session.execute(
+            update(Connection)
+            .where(Connection.id == batch_id)
+            .values(name=name, updated_at=func.now())
+            .execution_options(synchronize_session=False)
+        )
+    except DBAPIError as exc:
+        raise (timeout_from(exc) or conflict_from(exc) or exc) from exc
 
 
 async def legacy_day_batch(

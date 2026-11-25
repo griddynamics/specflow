@@ -1,0 +1,37 @@
+/* Graphico tokens. Everything lives under the one root class `.gx`; nothing here touches :root or the page, so the
+   existing screens are unaffected. Source: docs/mission-control/landing.css (black and white, dark inverts the same
+   tokens) and mission-control.css (the one yellow). Light and dark are one `light-dark()` pair per token: the OS decides,
+   `data-theme="light"` or `"dark"` on `.gx` (or on <html>) overrides it. */
+.gx {
+  color-scheme: light dark;
+  --gx-paper: light-dark(#fff, #0d0d0d);
+  --gx-ink: light-dark(#0b0b0b, #f2f2f2);
+  --gx-ink-2: light-dark(#3a3a3a, #c9c9c9);
+  --gx-ink-3: light-dark(#6c6c6c, #939393);
+  --gx-rule: light-dark(#d6d6d6, #333);
+  --gx-wash: light-dark(#f3f3f3, #181818);
+  --gx-inv-bg: light-dark(#0b0b0b, #f2f2f2);
+  --gx-inv-fg: light-dark(#f7f7f7, #0d0d0d);
+  --gx-inv-mute: light-dark(#a8a8a8, #555);
+  --gx-yellow: #ffc002;
+  --gx-on-yellow: #0b0b0b;
+  --gx-scrim: rgb(10 10 10 / 45%);
+  --gx-font-display: "Fira Sans", "Helvetica Neue", arial, sans-serif;
+  --gx-font-body: "Fira Sans", "Helvetica Neue", arial, sans-serif;
+  --gx-font-mono: "Fira Code", ui-monospace, sfmono-regular, menlo, consolas, monospace;
+  --gx-maxw: 1200px;
+  --gx-header-h: 64px;
+  --gx-ccard-h: 112px; /* one size for every connection card of the plus dialog: a one-line name, two lines of text, the tag */
+  --gx-tile: 84px;
+  --gx-hub: 124px;
+}
+
+.gx[data-theme="light"],
+:root[data-theme="light"] .gx {
+  color-scheme: light;
+}
+
+.gx[data-theme="dark"],
+:root[data-theme="dark"] .gx {
+  color-scheme: dark;
+}

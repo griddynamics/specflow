@@ -654,6 +654,156 @@
         }
       }
     },
+    "github_project_items": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "node_id": {
+          "type": "text"
+        },
+        "kind": {
+          "type": "text"
+        },
+        "issue_number": {
+          "type": "int"
+        },
+        "issue_id": {
+          "type": "bigint"
+        },
+        "issue_node_id": {
+          "type": "text"
+        },
+        "item_id": {
+          "type": "text"
+        },
+        "requested_at": {
+          "type": "timestamp"
+        },
+        "content": {
+          "type": "json"
+        },
+        "content_hash": {
+          "type": "text"
+        },
+        "position": {
+          "type": "int"
+        },
+        "removed_at": {
+          "type": "timestamp"
+        },
+        "error_code": {
+          "type": "text"
+        },
+        "synced_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "github_project_targets": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "repository_id": {
+          "type": "uuid",
+          "fk": "project_repositories.id"
+        },
+        "project_node_id": {
+          "type": "text"
+        },
+        "project_title": {
+          "type": "text"
+        },
+        "project_url": {
+          "type": "text"
+        },
+        "enabled": {
+          "type": "bool"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        },
+        "last_status": {
+          "type": "text"
+        },
+        "last_trigger": {
+          "type": "text"
+        },
+        "last_started_at": {
+          "type": "timestamp"
+        },
+        "last_finished_at": {
+          "type": "timestamp"
+        },
+        "last_error_code": {
+          "type": "text"
+        },
+        "last_counts": {
+          "type": "json"
+        }
+      }
+    },
+    "jira_gap_issues": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "gap_id": {
+          "type": "text"
+        },
+        "issue_key": {
+          "type": "text"
+        },
+        "area": {
+          "type": "text"
+        },
+        "number": {
+          "type": "int"
+        },
+        "posted_at": {
+          "type": "timestamp"
+        },
+        "answered_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "jira_gap_targets": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "jira_project": {
+          "type": "text"
+        },
+        "grouping": {
+          "type": "text"
+        },
+        "story_key": {
+          "type": "text"
+        },
+        "enabled": {
+          "type": "bool"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        },
+        "poll_cursor": {
+          "type": "timestamp"
+        },
+        "last_polled_at": {
+          "type": "timestamp"
+        },
+        "last_error_code": {
+          "type": "text"
+        }
+      }
+    },
     "jira_issues": {
       "columns": {
         "project_id": {
@@ -887,6 +1037,30 @@
         },
         "rolbypassrls": {
           "type": "bool"
+        }
+      }
+    },
+    "project_integrations": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "app": {
+          "type": "text"
+        },
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "workspace_id": {
+          "type": "text"
+        },
+        "workspace_name": {
+          "type": "text"
+        },
+        "connected_at": {
+          "type": "timestamp"
         }
       }
     },

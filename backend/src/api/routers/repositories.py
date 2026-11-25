@@ -1,8 +1,9 @@
 """The GitHub repositories of a project (docs/github/api.md "Project repository routes").
 
-A member reads them; only the owner adds, removes or re-checks one. An owner adds a repository only when their own
-GitHub connection can read it through the app (the list of ``GET /integrations/github/repositories``); every clone
-check then uses the connection of the user who added it (``added_by``). The clone check runs on the agents worker
+Any member reads them, adds, removes or re-checks one. A repository is added when the GitHub connection of the project
+(the member ``PUT /projects/{pid}/integrations/github`` bound, docs/mission-control/integrations-api.md) can read it
+through the app (the list of ``GET /integrations/github/repositories``, as that member); every clone check then uses
+that member's connection (``added_by``, kept equal to the bound member). The clone check runs on the agents worker
 (``GithubSnapshotWorkflow``); a start that fails marks the repository ``failed`` with ``github_clone_failed`` so the
 owner can try again. Events carry ids and codes only.
 """
@@ -15,13 +16,15 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Response
 from temporalio.exceptions import TemporalError
 
-from api.deps import MemberDep, OwnerDep, RuntimeDep, UserDep
+from api.deps import MemberDep, RuntimeDep, UserDep
 from api.github import github_connections, github_error, repository_exists, repository_not_found
+from api.project_integrations import acting_member
 from api.runtime import Runtime
 from api.schemas import ProjectRepositoriesOut, ProjectRepositoryIn, ProjectRepositoryOut
 from api.workflows import start_github_snapshot
 from db import github as github_db
 from db.github import RepositoryExistsError, RepositoryRow
+from db.integrations import GITHUB
 from github.client import Repository
 from github.codes import GitHubCode, GitHubError
 from github.connections import GitHubConnections
@@ -110,27 +113,30 @@ async def list_project_repositories(
         rows = await github_db.list_repositories(session, membership.project.id)
     return ProjectRepositoriesOut(
         enabled=runtime.github is not None,
-        can_manage=membership.is_owner,
+        can_manage=True,
         repositories=[_out(row, user.id) for row in rows],
     )
 
 
 @router.post("", status_code=201, response_model=ProjectRepositoryOut)
 async def create_project_repository(
-    body: ProjectRepositoryIn, membership: OwnerDep, runtime: RuntimeDep, user: UserDep
+    body: ProjectRepositoryIn, membership: MemberDep, runtime: RuntimeDep, user: UserDep
 ) -> ProjectRepositoryOut:
-    """Add a repository the owner's own connection can read, then start its clone check."""
+    """Add a repository the project's GitHub connection can read, then start its clone check."""
 
     connections = github_connections(runtime)
     pid = membership.project.id
+    acting = await acting_member(runtime, pid, GITHUB)
+    if acting is None:
+        raise github_error(GitHubError(GitHubCode.NOT_CONNECTED))
     try:
-        repository = await _readable(connections, user.id, body.github_repo_id)
+        repository = await _readable(connections, acting, body.github_repo_id)
     except GitHubError as error:
         log_event(logger, INFO, "api.github.add_refused", project_id=str(pid), code=error.code.value)
         raise github_error(error) from None
     try:
         async with runtime.transaction() as session:
-            rid = await github_db.add_repository(session, pid, repository, added_by=user.id)
+            rid = await github_db.add_repository(session, pid, repository, added_by=acting)
     except RepositoryExistsError:
         raise repository_exists() from None
     log_event(logger, INFO, "api.github.repository_added", project_id=str(pid), repository_id=str(rid))
@@ -139,7 +145,7 @@ async def create_project_repository(
 
 
 @router.delete("/{rid}", status_code=204)
-async def remove_project_repository(rid: str, membership: OwnerDep, runtime: RuntimeDep) -> Response:
+async def remove_project_repository(rid: str, membership: MemberDep, runtime: RuntimeDep) -> Response:
     """Remove the repository and its snapshots (a snapshot a running check stores after this is deleted by it)."""
 
     pid, repository_id = membership.project.id, _repository_id(rid)
@@ -158,7 +164,7 @@ async def remove_project_repository(rid: str, membership: OwnerDep, runtime: Run
 
 @router.post("/{rid}/clone", status_code=202, response_model=ProjectRepositoryOut)
 async def clone_project_repository(
-    rid: str, membership: OwnerDep, runtime: RuntimeDep, user: UserDep
+    rid: str, membership: MemberDep, runtime: RuntimeDep, user: UserDep
 ) -> ProjectRepositoryOut:
     """Check the clone again: ``pending`` (unless a check is ``cloning`` now) and start the workflow."""
 

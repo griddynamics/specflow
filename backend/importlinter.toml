@@ -228,7 +228,7 @@ ignore_imports = [
 # httpx (the ArcadeDB admin API, the MCP API client, the Slack gap notice) and pyTigerGraph (the `tigergraph` extra)
 # belong to named adapters only.
 [[tool.importlinter.contracts]]
-name = "httpx is used by the ArcadeDB graph store, the Jira gateway and OAuth client, the GitHub client, the MCP API client and the Slack gap notice only"
+name = "httpx is used by the ArcadeDB graph store, the Jira gateway, reader and OAuth client, the GitHub client and Projects calls, the MCP API client and the Slack gap notice only"
 id = "httpx-confined"
 type = "forbidden"
 allow_indirect_imports = true
@@ -243,9 +243,11 @@ ignore_imports = [
     "graph.stores.arcadedb.** -> httpx",
     "mcp_server.api_client -> httpx",
     "jira.http -> httpx",
+    "jira.reader -> httpx",
     "jira.oauth -> httpx",
     "api.gap.notice -> httpx",
     "github.client -> httpx",
+    "github.projects -> httpx",
 ]
 
 [[tool.importlinter.contracts]]
@@ -325,3 +327,13 @@ ignore_imports = [
     "temporal.agents.registration -> db.session",
     "temporal.documents.registration -> db.session",
 ]
+
+# The export lift (api.exports) is destination-neutral: the runner, digest, rank planner and run status know no
+# destination. Jira (and later GitHub Projects) depend on it, never the reverse.
+[[tool.importlinter.contracts]]
+name = "The destination-neutral export code imports no destination, database or graph module"
+id = "exports-destination-neutral"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["api.exports"]
+forbidden_modules = ["api.jira", "jira", "github", "db", "graph", "agent_contracts"]

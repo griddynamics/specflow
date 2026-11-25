@@ -65,7 +65,8 @@ BUILT = {
     "worker-parse": ("./backend", "docker/worker-parse/Dockerfile"),
     "worker-agents": ("./backend", "docker/worker-agents/Dockerfile"),
     "mcp": ("./backend", "docker/mcp/Dockerfile"),
-    "frontend": ("./frontend", "Dockerfile"),
+    "frontend": (".", "frontend/Dockerfile"),
+    "site": (".", "site/Dockerfile"),
 }
 # Database service -> public image.
 PUBLIC = {"postgres": "pgvector/pgvector:0.8.7-pg17", "neo4j": "neo4j:5.26.30-community"}
@@ -193,6 +194,7 @@ DEFAULT_SERVICES = {
     "worker-parse",
     "worker-agents",
     "frontend",
+    "site",
 }
 LANGFUSE_SERVICES = {f"langfuse-{n}" for n in ("postgres", "clickhouse", "redis", "minio", "worker", "web")}
 
@@ -266,6 +268,7 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
         "neo4j",
         "api",
         "frontend",
+        "site",
         "temporal",
         "langfuse-web",
         "rustfs",
@@ -275,6 +278,7 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
     }
     assert {name for name, _ in seen} == expected
     assert services()["frontend"]["ports"] == ["127.0.0.1:${FRONTEND_PORT:-3001}:3000"]
+    assert services()["site"]["ports"] == ["127.0.0.1:3002:8080"]
     assert services()["rustfs"]["ports"] == ["127.0.0.1:${RUSTFS_HOST_PORT:-19000}:9000"]
     assert services()["keycloak"]["ports"] == ["127.0.0.1:8180:8080"]
     assert services()["mcp"]["ports"] == ["127.0.0.1:8002:8002"]
@@ -283,7 +287,8 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
 def test_services_list_their_variables_explicitly():
     for name, svc in services().items():
         assert "env_file" not in svc, name
-        if name != "langfuse-redis":  # configured through its command line only
+        # langfuse-redis is configured through its command line only; the static site has no settings
+        if name not in ("langfuse-redis", "site"):
             assert env_of(svc), name
 
 
@@ -329,6 +334,19 @@ def test_secret_variables_reach_only_their_roles():
         var for var in names["frontend"] if re.search(r"(PASSWORD|SECRET|API_KEY|SIGNING_KEY|PUBLIC_KEY|TLS_KEY)$", var)
     }
     assert secrets <= allowed, secrets - allowed
+
+
+def test_the_site_is_a_static_unprivileged_read_only_image_with_no_dependency_on_the_stack():
+    """D15/D17: the public landing page is its own deployment; nothing else has to run for it."""
+
+    svc = services()["site"]
+    assert svc["read_only"] is True and svc["cap_drop"] == ["ALL"]
+    assert "depends_on" not in svc and "environment" not in svc
+    text = (ROOT / "site" / "Dockerfile").read_text()
+    final = text.split("AS runtime", 1)[1]
+    assert re.search(r"^USER \d+:\d+$", final, re.MULTILINE), "a numeric user, for runAsNonRoot"
+    assert re.search(r"^EXPOSE 8080$", final, re.MULTILINE)
+    assert 'CMD ["httpd", "-f"' in final
 
 
 def test_base_images_are_pinned_to_exact_tags():
@@ -482,11 +500,11 @@ def test_keycloak_is_pinned_always_started_and_imports_the_realm_read_only():
 
 
 def test_the_backend_services_run_on_a_read_only_root_filesystem():
-    """AC-15: read_only on the three backend services and mcp, as on Kubernetes; tmpfs /tmp on the two workers only."""
+    """AC-15: read_only on the backend services, mcp and the static site, as on Kubernetes; tmpfs /tmp on workers."""
 
     svcs = services()
     readonly = {name for name, svc in svcs.items() if svc.get("read_only") is True}
-    assert readonly == set(BACKEND_SERVICES) | {MCP_SERVICE}
+    assert readonly == set(BACKEND_SERVICES) | {MCP_SERVICE, "site"}  # and the static site
     assert svcs["worker-parse"]["tmpfs"] == [f"{PurePosixPath('/', 'tmp')}:size=1g"]
     assert svcs["worker-parse"]["mem_limit"] == "3g"  # Docling; the 1 GB tmpfs counts against it
     assert svcs["worker-parse"]["image"] == "specflow-worker-parse:local"

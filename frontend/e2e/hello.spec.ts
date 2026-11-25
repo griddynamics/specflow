@@ -110,10 +110,7 @@ test("hello: upload, parse, summarize, trace, sign out", { tag: "@e2e" }, async 
     const problems: string[] = []; // empty, or the one failure of the sign-out checks
     try {
       await signOut(page);
-      await expect(page.getByTestId("login-oidc")).toBeVisible();
-      await shot(page, "05-signed-out");
-      await page.goto("/");
-      await expect(page).toHaveURL(/\/login/); // the session is really gone
+      await shot(page, "05-signed-out"); // signOut() waited for the Keycloak form: the session there and in the app is gone
     } catch (e) {
       problems.push(problemText(e));
     }

@@ -1,7 +1,7 @@
 // P17 s06 (FE-BP-09.AC1, D09): the hello UI tests ported to the new screens on the production routes. UI behaviour (AC-12.2,
 // AC-12.3, AC-6.5 OIDC sign-in, AC-6.7 logout; FE-BP-03, FE-BP-08) driven with the already installed Playwright chromium against the
 // BUILT server, the stub issuer + stub API (no backend, no model call). Ports 3213-3216. Time-dependent checks use Playwright's fake clock.
-// Mapping (TECH-SPECS §1.7): `/` project list + create form -> `/` (newest project or the empty state) + the "New" modal;
+// Mapping (TECH-SPECS §1.7): `/` project list + create form -> `/` (the V2 start page: the newest project's canvas, or the first-run window);
 // `/projects/<id>` upload -> Mission Control, now the sources screen (GDRIVE plan 07): Local files card, parse on the server.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -70,36 +70,32 @@ const card = (page) => page.getByTestId("source-card");
 // The card once the server parsed its files and the poll read it: its state text (from the same state as `data-state`) is "Done".
 const doneCard = (page) => card(page).filter({ has: page.getByTestId("source-state-text").filter({ hasText: /^Done$/ }) });
 
-test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: OIDC sign-in button, the empty `/` creates a project through New, sign out ends the session", async () => {
+test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: OIDC sign-in button, the first-run window of `/` creates a project, sign out ends the session", async () => {
   const { context, page, errors } = await newPage({ loggedIn: false });
   try {
     await page.goto(fe.base + "/");
-    await page.waitForURL("**/login");
-    await page.getByTestId("login-oidc").click();
-    await page.waitForURL(fe.base + "/");
-    // No project yet (first test on a fresh stub): the empty state offers "New project" (O12).
-    await page.getByTestId("home-empty").waitFor();
-    await page.getByTestId("home-new").click();
+    await page.waitForURL(fe.base + "/"); // signed out: the proxy sends it to /login, which signs in at once (stub issuer)
+    // No project yet (first test on a fresh stub): the first-run window offers "Create project" (O12, D12).
+    const first = page.getByRole("dialog", { name: "Create your first project" });
+    await first.waitFor();
     const name = `UI project ${Date.now()}`;
-    await page.getByLabel("Name").fill(name);
-    await page.getByTestId("cp-create").click();
-    await page.waitForURL(/\/projects\/[0-9a-f-]{36}\/mission-control$/);
-    await page.getByTestId("mcs-empty").waitFor();
-    assert.equal(await page.getByTestId("topbar-project-name").textContent(), name, "the switcher shows the new project");
+    await first.getByLabel("Project name").fill(name);
+    await first.getByRole("button", { name: "Create project" }).click();
+    await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/);
+    await page.getByRole("button", { name: "Projects" }).filter({ hasText: name }).waitFor(); // the menu shows the new project
     const created = api.log.filter((e) => e.method === "POST" && e.path === "/api/v1/projects");
     assert.equal(created.length, 1, "one POST /projects (name only, A9)");
     // Sign out from the avatar menu (no "Reset demo" in production). Wait for quiet first: a BFF response still in flight after the
     // sign-out could write the session cookie again (GAPS G-P17-4).
     await page.waitForLoadState("networkidle");
-    await page.getByRole("button", { name: /^Account/ }).click();
+    await page.getByRole("button", { name: "Account" }).click();
     assert.equal(await page.getByRole("menuitem", { name: "Reset demo" }).count(), 0);
+    const logout = page.waitForRequest((r) => r.url().includes("/protocol/openid-connect/logout"), { timeout: 15_000 });
     await page.getByRole("menuitem", { name: "Sign out" }).click();
-    await page.waitForURL(/\/login\?signedout=1$/, { timeout: 15_000 });
-    await page.getByTestId("login-page").waitFor();
-    assert.equal(await page.getByTestId("login-signed-out").count(), 0, "D21: no signed-out note");
-    assert.equal(await page.getByTestId("login-still-signed-in").count(), 0, "the session is gone, so no still-signed-in alert");
-    await page.goto(fe.base + "/");
-    await page.waitForURL("**/login"); // the session is gone
+    const back = new URL(new URL((await logout).url()).searchParams.get("post_logout_redirect_uri") ?? "");
+    assert.equal(back.pathname + back.search, "/login?signedout=idp", "the provider returns to /login, which signs in again at once");
+    // The stub issuer keeps no session of its own, so that sign-in lands on `/` and the newest canvas again; the app session was replaced.
+    await page.getByRole("button", { name: "Account" }).waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
@@ -208,15 +204,17 @@ test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second d
   }
 });
 
-test("FE-BP-03.AC10, AC7: an unknown or non-UUID project id and the old hello routes lead to Mission Control or `/`", async () => {
+test("FE-BP-03.AC10, AC7: an unknown or non-UUID project id leads to `/` (the newest canvas), `/projects/<id>` is that canvas and the old document route still redirects", async () => {
   const pid = await seedProject(`Newest ${Date.now()}`);
   const { context, page, errors } = await newPage();
   try {
     for (const bad of ["00000000-0000-0000-0000-000000000000", "not-a-uuid"]) {
       await page.goto(`${fe.base}/projects/${bad}/gaps`);
-      await page.waitForURL(mc(pid), { timeout: 15_000 }); // -> `/` -> the newest project's Mission Control (O12)
+      await page.waitForURL(`${fe.base}/projects/${pid}`, { timeout: 15_000 }); // -> `/` -> the newest project's canvas (O12, V2 AC1)
     }
-    for (const old of [`/projects/${pid}`, `/projects/${pid}/documents/00000000-0000-0000-0000-000000000001`]) {
+    const canvas = await fetch(`${fe.base}/projects/${pid}`, { redirect: "manual", headers: { cookie: jar.header() } });
+    assert.equal(canvas.status, 200, "the canvas of the project");
+    for (const old of [`/projects/${pid}/documents/00000000-0000-0000-0000-000000000001`]) {
       const res = await fetch(fe.base + old, { redirect: "manual", headers: { cookie: jar.header() } });
       assert.equal(res.status, 307, old);
       assert.equal(new URL(res.headers.get("location"), fe.base).pathname, `/projects/${pid}/mission-control`, old);
@@ -234,7 +232,7 @@ test("a non-JSON error body (HTML 502 from an ingress) shows a generic message, 
       route.fulfill({ status: 502, contentType: "text/html", body: "<html><body><h1>Bad Gateway SECRET-HTML</h1></body></html>" }),
     );
     await page.goto(fe.base + "/");
-    const msg = page.getByTestId("home-error");
+    const msg = page.getByRole("alert").filter({ hasText: "could not be loaded" });
     await msg.waitFor();
     const text = await msg.textContent();
     assert.match(text, /could not be loaded/);

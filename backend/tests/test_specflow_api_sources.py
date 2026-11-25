@@ -19,6 +19,7 @@ from api import workflows
 from api.app import create_app
 from api.routers import sources as router
 from api.runtime import Runtime
+from api.schemas import DRIVE_FILES_LIST_MAX
 from api.workflows import start_drive_import as real_start_drive_import
 from db import removal
 from db import sources as sources_repo
@@ -35,6 +36,7 @@ from specflow_sources_support import (
     SYNTHETIC,
     new_project,
 )
+from temporal.sources.models import DRIVE_EXCLUDE_MAX
 
 SOURCE_KEYS = {
     "id",
@@ -330,7 +332,7 @@ async def test_an_invalid_link_cannot_be_saved(sources):
 async def test_a_failed_import_start_removes_the_source_and_says_unknown_error(sources, monkeypatch, caplog):
     await new_project(sources)
 
-    async def boom(runtime, project_id, connection_id):
+    async def boom(runtime, project_id, connection_id, exclude=()):
         raise RuntimeError("temporal down secret-text")
 
     monkeypatch.setattr(workflows, "start_drive_import", boom)
@@ -648,7 +650,7 @@ def test_pdf_constant_is_importable():  # keeps the shared import used
 
 # ---- review fixes ------------------------------------------------------------
 async def _failing_start(monkeypatch):
-    async def boom(runtime, project_id, connection_id):
+    async def boom(runtime, project_id, connection_id, exclude=()):
         raise RuntimeError("temporal down")
 
     monkeypatch.setattr(workflows, "start_drive_import", boom)
@@ -738,3 +740,98 @@ async def test_a_refused_start_closes_the_runtime(monkeypatch, valid_env):
         async with app.router.lifespan_context(app):
             pass
     assert closed == [True]
+
+
+# ---- pick the files of a folder before adding it -----------------------------
+async def test_a_test_lists_the_files_with_their_folder_paths_in_order(sources):
+    await new_project(sources)
+    body = (await sources.test(SYNTHETIC)).json()
+    files = body["files"]
+    assert len(files) == body["file_count"] == 30 and body["files_capped"] is False
+    assert all(set(f) == {"id", "name", "path", "category"} for f in files)
+    assert [f["path"] for f in files].count("") == 5  # directly in the root
+    assert {f["path"] for f in files} == {
+        "",
+        "Folder 1",
+        "Folder 1/Folder 4",
+        "Folder 1/Folder 5",
+        "Folder 2",
+        "Folder 3",
+        "Folder 3/Folder 6",
+    }
+    keys = [(f["path"].casefold(), f["name"].casefold()) for f in files]
+    assert keys == sorted(keys)
+    assert files[0]["path"] == ""  # root files come first
+    assert {f["category"] for f in files} == {c["category"] for c in body["categories"]}
+
+
+async def test_a_test_caps_the_list_and_says_so(sources, monkeypatch):
+    monkeypatch.setattr(router, "DRIVE_FILES_LIST_MAX", 7)
+    await new_project(sources)
+    body = (await sources.test(SYNTHETIC)).json()
+    assert len(body["files"]) == 7 and body["files_capped"] is True
+    assert body["file_count"] == 30  # the counts still cover every file
+
+
+async def test_the_files_of_an_empty_folder_are_an_empty_list(sources):
+    await new_project(sources)
+    body = (await sources.test(link("fake-empty-folder"))).json()
+    assert body["files"] == [] and body["files_capped"] is False
+
+
+async def test_a_test_logs_no_file_names_or_paths(sources, caplog):
+    await new_project(sources)
+    with caplog.at_level("DEBUG"):
+        body = (await sources.test(SYNTHETIC)).json()
+    for secret in {f["name"] for f in body["files"]} | {"Folder 1/Folder 4"}:
+        assert secret not in caplog.text
+
+
+async def test_a_save_passes_the_excluded_ids_to_the_import(sources, caplog):
+    await new_project(sources)
+    with caplog.at_level("INFO"):
+        response = await sources.post(
+            "", json={"link": SYNTHETIC, "exclude": ["fake-synthetic-30-i1", "nope_0-9", "fake-synthetic-30-i1"]}
+        )
+    assert response.status_code == 201
+    assert sources.excluded == [["fake-synthetic-30-i1", "nope_0-9", "fake-synthetic-30-i1"]]
+    [saved] = events(caplog, "api.drive.saved")
+    assert fields(saved)["excluded"] == 2  # a count, never the ids
+    assert "fake-synthetic-30-i1" not in caplog.text
+
+
+async def test_a_save_without_exclude_starts_the_import_as_before(sources):
+    await new_project(sources)
+    assert (await sources.save(SYNTHETIC)).status_code == 201
+    assert sources.excluded == [[]]
+
+
+@pytest.mark.parametrize(
+    "exclude",
+    ["abc", [5], [""], ["a b"], ["a/b"], ["x" * 129], ["ok", "bad id"], ["z"] * (DRIVE_FILES_LIST_MAX + 1)],
+)
+async def test_a_bad_exclude_is_422_validation_failed(sources, exclude):
+    await new_project(sources)
+    response = await sources.post("", json={"link": SYNTHETIC, "exclude": exclude})
+    assert response.status_code == 422 and code(response) == "validation_failed"
+    assert not sources.repo.rows and not sources.started
+
+
+async def test_the_test_body_still_refuses_exclude(sources):
+    await new_project(sources)
+    response = await sources.post("/test", json={"link": SYNTHETIC, "exclude": []})
+    assert response.status_code == 422 and code(response) == "validation_failed"
+
+
+async def test_a_failed_import_start_after_an_exclude_removes_the_source(sources, monkeypatch):
+    async def boom(runtime, project_id, connection_id, exclude=()):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(workflows, "start_drive_import", boom)
+    await new_project(sources)
+    response = await sources.post("", json={"link": SYNTHETIC, "exclude": ["a1"]})
+    assert response.status_code == 502 and not sources.repo.rows
+
+
+def test_the_exclude_caps_agree():
+    assert DRIVE_FILES_LIST_MAX == DRIVE_EXCLUDE_MAX

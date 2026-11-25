@@ -17,6 +17,9 @@ rules:
       - typescript
     paths:
       exclude:
+        # Mission Control V2 uses the Graphico style of packages/ui, not the GD design system (D14, docs/mission-control/DECISIONS.md).
+        - "**/app/(v2)/**"
+        - "**/components/v2/**"
         - "**/*.test.tsx"
         - "**/*.test.ts"
         - "**/components/ui/Modal.tsx"
@@ -41,6 +44,9 @@ rules:
       - typescript
     paths:
       exclude:
+        # Mission Control V2 uses the Graphico style of packages/ui, not the GD design system (D14, docs/mission-control/DECISIONS.md).
+        - "**/app/(v2)/**"
+        - "**/components/v2/**"
         - "**/*.test.tsx"
         - "**/*.test.ts"
         - "**/components/ui/Modal.tsx"
@@ -69,6 +75,9 @@ rules:
       - typescript
     paths:
       exclude:
+        # Mission Control V2 uses the Graphico style of packages/ui, not the GD design system (D14, docs/mission-control/DECISIONS.md).
+        - "**/app/(v2)/**"
+        - "**/components/v2/**"
         - "**/*.test.tsx"
         - "**/*.test.ts"
         - "**/components/ui/**"
@@ -110,6 +119,9 @@ rules:
       - typescript
     paths:
       exclude:
+        # Mission Control V2 uses the Graphico style of packages/ui, not the GD design system (D14, docs/mission-control/DECISIONS.md).
+        - "**/app/(v2)/**"
+        - "**/components/v2/**"
         - "**/*.test.tsx"
         - "**/*.test.ts"
         # Playwright specs and their support code run in the browser harness, not in the product UI: they read geometry, focus and the URL on purpose to assert on them.
@@ -135,6 +147,9 @@ rules:
       - typescript
     paths:
       exclude:
+        # Mission Control V2 uses the Graphico style of packages/ui, not the GD design system (D14, docs/mission-control/DECISIONS.md).
+        - "**/app/(v2)/**"
+        - "**/components/v2/**"
         - "**/*.test.tsx"
         - "**/*.test.ts"
         - "**/components/ui/SegmentedControl.tsx"

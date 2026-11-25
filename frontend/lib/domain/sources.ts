@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload";
+export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;
@@ -46,8 +46,26 @@ export interface DriveCategoryCount {
   processingClass: ProcessingClass;
   count: number;
 }
+/** One file a Drive import would take: `path` is the folders from the shared root (root left out) to its parent, joined with "/"; "" for a file in the root. */
+export interface DriveFile {
+  id: string;
+  name: string;
+  path: string;
+  category: DriveCategory;
+}
 export type DriveTestResult =
-  | { ok: true; folderId: string; folderName: string; folderCount: number; fileCount: number; categories: DriveCategoryCount[] }
+  | {
+      ok: true;
+      folderId: string;
+      folderName: string;
+      folderCount: number;
+      fileCount: number;
+      categories: DriveCategoryCount[];
+      /** The files of the folder, ordered by path then name; at most the import cap. */
+      files: DriveFile[];
+      /** The folder has more files than the list holds: only the first ones are listed and imported. */
+      filesCapped: boolean;
+    }
   | { ok: false; reason: DriveReason };
 export type DriveSaveResult = { ok: true; connection: Connection } | { ok: false; reason: DriveReason };
 /** Import progress of one source or of the project (INT-GDUI-0004). Finished = processed, stored, skipped or error. */
@@ -233,6 +251,42 @@ export interface UploadReport {
   tooLarge?: TooLargeFile[]; // the refused files among `notAdded` that are over their cap; absent when none
 }
 
+/** What a Confluence link import needs: the link as pasted and whether the pages and Jira issues it links to are read too (one hop). */
+export interface ConfluenceInput {
+  link: string;
+  follow: boolean;
+}
+/** What the check of a Confluence link found, nothing stored: a page (with its descendants) or a space; `pages` an import would take (at most
+ * the cap), `capped` = there are more; `linkedIssues` the Jira issues the first page links to (only with follow). */
+export interface ConfluenceCheck {
+  kind: "page" | "space";
+  title: string;
+  pages: number;
+  capped: boolean;
+  linkedIssues: number;
+}
+
+/** What the check of a Jira epic found, nothing stored: its key and summary and the issues under it that the bound member can see (an import
+ * takes at most `EPIC_ISSUE_CAP`). */
+export interface JiraEpicCheck {
+  key: string;
+  summary: string;
+  issues: number;
+  /** The issues an import would take, in key order (at most `EPIC_ISSUE_CAP`); each can be left out. */
+  children: JiraEpicChild[];
+  /** There are more issues under the epic than the cap: only the first `EPIC_ISSUE_CAP` are listed and imported. */
+  capped: boolean;
+}
+export interface JiraEpicChild {
+  key: string;
+  summary: string;
+  type: string;
+  /** The name of its Jira status ("In Progress"); free text, not a closed set. */
+  statusName: string;
+}
+/** The most issues one epic import reads (the backend's `MAX_EPIC_ISSUES`). */
+export const EPIC_ISSUE_CAP = 200;
+
 /** Collect side (D1, D6, D7): sources, sync, access, uploads and removal. The status read carries the counts per source; `files` the
  * file list of one source (sources-ux). */
 export interface SourcesPort {
@@ -248,14 +302,28 @@ export interface SourcesPort {
   syncNow(projectId: string, connectionId: string): Promise<void>;
   /** Phase 1: a simulated token check; the token is never stored. */
   addToken(projectId: string, connectionId: string, token: string): Promise<void>;
-  /** One Local files batch: start, add the files one by one, end (INT-SRC-0004). The build button processes them (D7). */
-  upload(projectId: string, files: File[]): Promise<UploadReport>;
+  /** One Local files batch: start, add the files one by one, end (INT-SRC-0004). The build button processes them (D7). `name` is the batch's
+   * own name (the server trims it; blank or absent keeps "Local files"). */
+  upload(projectId: string, files: File[], name?: string): Promise<UploadReport>;
+  /** Renames an upload batch (any member). Rejects `validation` for a bad name, `not_found` (apiCode `source_not_found`) for a source that is gone and
+   * `conflict` (apiCode `source_not_renamable`) for a source that is not an upload. */
+  rename(projectId: string, sourceId: string, name: string): Promise<Source>;
   /** The Drive account email to share folders with (FR-GDUI-0002). A failure is a reason, not an exception. */
   driveIdentity(): Promise<DriveIdentity>;
   /** Lists the folder, creates nothing (FR-GDUI-0009). Transport failures reject; the modal shows them as `unknown_error`. */
   testDrive(projectId: string, link: string): Promise<DriveTestResult>;
-  /** Adds the folder as a source and starts its import (FR-GDUI-0017). The UI owns the 60 s and 30 s cutoffs. */
-  saveDrive(projectId: string, link: string): Promise<DriveSaveResult>;
+  /** Adds the folder as a source and starts its import (FR-GDUI-0017). `exclude` are the ids of the files not to import. The UI owns the 60 s and 30 s cutoffs. */
+  saveDrive(projectId: string, link: string, exclude?: readonly string[]): Promise<DriveSaveResult>;
+  /** Reads a Confluence page or space link of the project's Atlassian site and counts what an import would take; stores nothing. A refusal rejects
+   * a `DataError` whose `detail.apiCode` is the closed code (`confluence_not_found`, `atlassian_not_connected`, ...). */
+  checkConfluence(projectId: string, input: ConfluenceInput): Promise<ConfluenceCheck>;
+  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
+  addConfluence(projectId: string, input: ConfluenceInput): Promise<void>;
+  /** Reads a Jira epic (a key such as `ABC-12`, or its link) of the project's Atlassian site and counts its issues; stores nothing. Rejects like the Confluence check. */
+  checkJiraEpic(projectId: string, keyOrLink: string): Promise<JiraEpicCheck>;
+  /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). `exclude` are the keys of the children not to import (the epic
+   * itself is always imported); a key that is not a child rejects `validation`. */
+  addJiraEpic(projectId: string, keyOrLink: string, exclude?: readonly string[]): Promise<void>;
 }
 
 /** The source-aware Mission Control port (D9, D11): project status and knowledge builds. */

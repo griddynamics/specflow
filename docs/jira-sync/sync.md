@@ -57,17 +57,17 @@ comment posted, removal and revival included), `removed` (newly marked removed, 
 ### Acting account
 
 In `token` mode every pass calls Jira as the deployment's one account. In `oauth` mode a pass acts as the target's
-`connected_user_id`, the owner who last saved the target, whatever started it (plan run, `sync_to_jira`, settings,
+`connected_user_id`, the member the project's Atlassian connection is bound to, whatever started it (plan run, `sync_to_jira`, settings,
 recovery) ([oauth.md](oauth.md#acting-account-of-a-target)):
 
 | Acting connection | Effect |
 |---|---|
 | `active` | the pass runs with that user's Jira permissions |
-| missing (never connected, disconnected, or no owner saved the target since `oauth` was turned on) | the pass ends `failed` with `jira_not_connected`, no Jira call |
+| missing (never connected, disconnected, or no member's connection bound to the project since `oauth` was turned on) | the pass ends `failed` with `jira_not_connected`, no Jira call |
 | `expired` | the pass ends `failed` with `jira_reconnect_required`, no Jira call |
 | expires during the pass (Atlassian refuses the refresh token) | the pass stops `failed` with `jira_reconnect_required` |
 
-The owner fixes either code by connecting or reconnecting Atlassian in the Jira tab and saving the target.
+A member fixes either code by connecting or reconnecting Atlassian for the project (the Integrations page; in the V1 Jira tab, by saving the target).
 
 ### Target change during a pass
 

@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StringConstraints,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from agent_contracts import JiraSyncStatus
 from integrations.return_to import RETURN_TO_MAX, is_same_site_path
@@ -17,7 +28,7 @@ SUGGESTION_Q_MIN, SUGGESTION_Q_MAX = 3, 254
 
 
 class InvalidNameError(ValueError):
-    """A project name is blank or too long."""
+    """A project or source name is blank, too long or has a control character."""
 
 
 class InvalidSuggestionTextError(ValueError):
@@ -26,6 +37,10 @@ class InvalidSuggestionTextError(ValueError):
 
 class JiraEpicPrefixError(ValueError):
     """The Epic key does not start with the Jira project key."""
+
+
+class ProjectChoiceError(ValueError):
+    """A GitHub Projects target names both or neither of an existing project and a new project's title."""
 
 
 class ReturnToError(ValueError):
@@ -333,6 +348,11 @@ class PlanPreview(BaseModel):
 # Sources: Google Drive (INT-GDUI-0001..0004) -------------------------------
 
 LINK_MAX = 2048
+ISSUE_KEY_MAX = 64
+DRIVE_FILES_LIST_MAX = (
+    1000  # = temporal.sources.models.DRIVE_EXCLUDE_MAX (asserted in the tests); the import has no cap
+)
+EPIC_EXCLUDE_MAX = 200  # = api.imports.jira_epic.MAX_EPIC_ISSUES (asserted in the tests)
 
 
 class DriveIdentityOut(BaseModel):
@@ -347,6 +367,15 @@ class DriveLinkRequest(BaseModel):
     link: str = Field(max_length=LINK_MAX)
 
 
+DriveFileId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+
+
+class DriveSaveRequest(DriveLinkRequest):
+    """The link to add and the files of the folder not to import (the test ignores nothing: it has no such body)."""
+
+    exclude: list[DriveFileId] = Field(default_factory=list, max_length=DRIVE_FILES_LIST_MAX)
+
+
 class DriveFolderOut(BaseModel):
     id: str
     name: str
@@ -358,12 +387,23 @@ class DriveCategoryOut(BaseModel):
     count: int
 
 
+class DriveFileOut(BaseModel):
+    """One listed file: ``path`` is the folder names below the shared root, joined with ``/`` (``""`` in the root)."""
+
+    id: str
+    name: str
+    path: str
+    category: str
+
+
 class DriveTestOk(BaseModel):
     result: Literal["ok"] = "ok"
     folder: DriveFolderOut
     folder_count: int
     file_count: int
     categories: list[DriveCategoryOut]
+    files: list[DriveFileOut]  # by path, then name (case-insensitive), at most DRIVE_FILES_LIST_MAX
+    files_capped: bool  # more files than listed
 
 
 class DriveTestFailed(BaseModel):
@@ -423,7 +463,7 @@ FileStateName = Literal[
     "failed",
     "already_in_project",
 ]
-SourceKindName = Literal["gdrive", "upload"]
+SourceKindName = Literal["gdrive", "upload", "confluence", "jira_epic"]
 BatchOutcomeName = Literal["added", "already_in_project", "read_again", "duplicate"]
 MAX_EXPECTED_FILES = 10_000
 
@@ -489,10 +529,43 @@ class FilePageOut(BaseModel):
     next_cursor: str | None
 
 
+SOURCE_NAME_MAX = 80
+
+
+def clean_source_name(value: str) -> str:
+    """A batch name as stored: stripped, 1..80 characters, no control characters."""
+
+    name = value.strip()
+    if not 1 <= len(name) <= SOURCE_NAME_MAX:
+        raise InvalidNameError(f"the name must be 1..{SOURCE_NAME_MAX} characters")
+    if any(unicodedata.category(char) in ("Cc", "Zl", "Zp") for char in name):
+        raise InvalidNameError("the name must not contain control characters")
+    return name
+
+
 class BatchStartIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_files: StrictInt = Field(ge=1, le=MAX_EXPECTED_FILES)
+    name: str | None = None  # absent, null or blank: the batch keeps its default name
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return clean_source_name(value)
+
+
+class SourceRenameIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        return clean_source_name(value)
 
 
 class BatchSourceOut(BaseModel):
@@ -673,6 +746,166 @@ class JiraAccessFailed(BaseModel):
 JiraAccessResult = Annotated[JiraAccessOk | JiraAccessFailed, Field(discriminator="result")]
 
 
+# --- Jira gaps (docs/jira-sync/gaps.md "Routes") -------------------------------------------------------------------
+
+
+class JiraGapAccessCheckIn(BaseModel):
+    """The typed Jira project of the gap channel before it is saved: trimmed and upper-cased."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    jira_project: str = Field(pattern=JIRA_PROJECT_PATTERN)
+
+    @field_validator("jira_project", mode="before")
+    @classmethod
+    def _normalise_project(cls, value: object) -> object:
+        return value.strip().upper() if isinstance(value, str) else value
+
+
+class JiraGapsIn(JiraGapAccessCheckIn):
+    grouping: Literal["one", "area"]
+    enabled: StrictBool
+
+
+class JiraGapsOut(BaseModel):
+    """The Jira gap channel of a project: the target (null fields while there is none), the counts of its sub-tasks and
+    its last poll. ``available`` is false when the server has no Atlassian OAuth or gap runs are off."""
+
+    available: bool
+    jira_project: str | None
+    grouping: Literal["one", "area"] | None
+    enabled: bool
+    story_key: str | None
+    story_url: str | None
+    posted: int
+    answered: int
+    last_polled_at: datetime | None
+    error_code: str | None = Field(description="The closed code of the last refused post or poll, or null.")
+    poll_seconds: int = Field(description="Answers are read about every this many seconds.")
+
+
+# --- GitHub Projects (docs/github/projects.md "Routes") ------------------------------------------------------------
+
+GitHubProjectsState = Literal["idle", "running", "succeeded", "partial", "failed", "skipped"]
+PROJECT_NODE_ID_MAX = 100
+PROJECT_TITLE_MAX = 100
+
+
+class GitHubProjectsCounts(BaseModel):
+    created: int = 0
+    updated: int = 0
+    commented: int = 0
+    removed: int = 0
+    ranked: int = 0
+    unchanged: int = 0
+    failed: int = 0
+
+
+class GitHubProjectsStatus(BaseModel):
+    """The last export pass of the destination (``error_code`` is one closed code, never GitHub text)."""
+
+    project_id: str
+    enabled: bool
+    status: GitHubProjectsState
+    queued: bool
+    trigger: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_code: str | None
+    counts: GitHubProjectsCounts | None
+    repository: str
+    project_title: str
+
+
+class GitHubProjectsAccessIn(BaseModel):
+    """The typed destination before it is saved: the repository of the project and an organization project, or the
+    title of a new one (the check then only proves the account may list and create projects)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    repository_id: uuid.UUID
+    project_node_id: str | None = Field(default=None, min_length=1, max_length=PROJECT_NODE_ID_MAX)
+    new_project_title: str | None = Field(default=None, max_length=PROJECT_TITLE_MAX)
+
+    @field_validator("new_project_title", mode="before")
+    @classmethod
+    def _trim_title(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def _one_project(self) -> GitHubProjectsAccessIn:
+        if (self.project_node_id is None) == (self.new_project_title is None):
+            raise ProjectChoiceError("name an existing project or the title of a new one, not both and not neither")
+        return self
+
+
+class GitHubProjectsIn(GitHubProjectsAccessIn):
+    enabled: StrictBool
+
+
+class GitHubProjectChoice(BaseModel):
+    node_id: str
+    number: int
+    title: str
+    url: str
+
+
+class GitHubProjectsListOut(BaseModel):
+    """The open organization projects a project's repository can use (``organization`` null when a user owns it)."""
+
+    organization: str | None
+    projects: list[GitHubProjectChoice]
+
+
+class GitHubProjectsOut(BaseModel):
+    """The GitHub Projects destination of a project: null fields while there is none. ``available`` is false when the
+    GitHub integration is off on this server."""
+
+    available: bool
+    repository_id: uuid.UUID | None
+    repository: str | None
+    project_node_id: str | None
+    project_title: str | None
+    project_url: str | None
+    enabled: bool
+    sync: GitHubProjectsStatus | None
+    connected_by_name: str | None = Field(description="The login of the account the export acts as, or null.")
+    connected_by_me: bool
+
+
+GitHubProjectsAccessReason = Literal[
+    "github_not_connected",
+    "github_reconnect_required",
+    "github_unreachable",
+    "github_auth_failed",
+    "github_repo_not_accessible",
+    "github_not_an_organization",
+    "github_permissions_missing",
+    "github_project_not_found",
+    "github_repo_read_only",
+]
+GitHubProjectsAccessField = Literal["repository", "project"]
+
+
+class GitHubProjectsAccessOk(BaseModel):
+    result: Literal["ok"] = "ok"
+    organization: str
+    project_title: str | None
+
+
+class GitHubProjectsAccessFailed(BaseModel):
+    result: Literal["failed"] = "failed"
+    reason: GitHubProjectsAccessReason
+    field: GitHubProjectsAccessField | None
+
+
+GitHubProjectsAccessResult = Annotated[
+    GitHubProjectsAccessOk | GitHubProjectsAccessFailed, Field(discriminator="result")
+]
+
+
 # --- Atlassian connections (docs/jira-sync/oauth.md "Routes") ------------------------------------------------------
 
 
@@ -829,3 +1062,57 @@ class ProjectRepositoriesOut(BaseModel):
     enabled: bool
     can_manage: bool
     repositories: list[ProjectRepositoryOut]
+
+
+class ConfluenceLinkIn(BaseModel):
+    """A Confluence page or space link of the configured site; ``follow`` also reads the pages and Jira issues the
+    imported pages link to (one hop)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    link: str = Field(max_length=LINK_MAX)
+    follow: bool = False
+
+
+class ConfluenceCheckOut(BaseModel):
+    """What the link would import: ``pages`` (at most the page cap, ``capped`` when there are more) and
+    ``linked_issues``, the Jira issues the first page links to (0 without ``follow`` or for a space)."""
+
+    kind: Literal["page", "space"]
+    title: str
+    pages: int
+    capped: bool
+    linked_issues: int
+
+
+IssueKey = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]*-\d+$", max_length=ISSUE_KEY_MAX)]
+
+
+class JiraEpicIn(BaseModel):
+    """A Jira epic by its key (``ABC-12``) or by a link of the configured site."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key_or_link: str = Field(max_length=LINK_MAX)
+    # issues under the epic not to import (the check ignores it)
+    exclude: list[IssueKey] = Field(default_factory=list, max_length=EPIC_EXCLUDE_MAX)
+
+
+class JiraEpicChildOut(BaseModel):
+    """One issue under the epic: its key, summary (shown, not stored), issue type name and status name."""
+
+    key: str
+    summary: str
+    type: str
+    status: str
+
+
+class JiraEpicCheckOut(BaseModel):
+    """The epic an import would take: its key, its summary (shown, not stored) and how many issues it has for the
+    member (at most the issue cap is imported)."""
+
+    key: str
+    summary: str
+    issues: int
+    children: list[JiraEpicChildOut]  # in key order, at most the issue cap
+    capped: bool  # more issues than the cap

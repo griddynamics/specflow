@@ -5,8 +5,14 @@ import crypto from "node:crypto";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
+import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
+import { checkJiraEpic } from "./stub-jira-epic.mjs";
+import { driveFilesCapped, driveFilesOf } from "./stub-drive-files.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
+import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
+import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
+import { createIntegrationsModel } from "./stub-integrations.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
 const LEEWAY_SECONDS = 60; // as backend/src/auth/claims.py
@@ -62,6 +68,7 @@ const SAMPLE = {
   },
   "fake-empty-folder": { folder_count: 1, categories: [] },
   "fake-forms-only": { folder_count: 1, categories: [["other_google", "skipped", 2]] },
+  "fake-capped-folder": { folder_count: 2, categories: [["pdf", "processed", 1000]] },
 };
 const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
 
@@ -74,6 +81,8 @@ const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
  * parseMs/summarizeMs = Infinity keeps the work "in progress" forever (stuck tests).
  * Knowledge build knobs on `state` (see `graphRoute`): graphMs (a build resolves when it has run that long; Infinity = never),
  * graphOutcome ("succeeded" | "partially_succeeded" | "failed") and graphStartFail (null | an API code: the POST answers 503 with it).
+ * `sourcesFail` (an API code) makes the sources status read answer 503 with it.
+ * Gap knob: gapMs (the gap run a finished build queues completes after that long; Infinity = never).
  * Plan knob: planMs (a plan run takes that long, its ten steps evenly spread; see `planRoute`).
  */
 export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
@@ -86,12 +95,14 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     summarizeMs,
     parseOutcome,
     graphMs: 1500,
+    gapMs: 1000,
     graphOutcome: "succeeded",
     graphStartFail: null,
     planMs: 2000,
     workFail: null,
     workReadFail: null,
     gapFail: null,
+    sourcesFail: null,
   };
   /** Drive: sources per project (SourceOut rows, mutable by tests), and the identity answer (a Reason string = 503 with that code). */
   const sources = new Map(); // pid -> SourceOut[]
@@ -105,6 +116,15 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const jira = createJiraModel((pid) => people.list(pid).role);
   /** GitHub (docs/github/api.md): the caller's connection, their repositories, a project's repositories. */
   const github = createGitHubModel((pid) => people.list(pid).role, ME.name);
+  /** Project integrations (docs/mission-control/integrations-api.md): who each app is connected by, and the Slack channel of a project. */
+  const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, displayName: ME.name });
+  /** The Jira gap channel: any member; acts as the project's Atlassian binding. */
+  const jiraGaps = createJiraGapsModel((pid) => integrations.atlassianActive(pid));
+  /** GitHub Projects plan destination: any member; acts as the project's GitHub binding; the repository is one of the project's. */
+  const githubProjects = createGitHubProjectsModel(
+    (pid) => integrations.githubActive(pid),
+    (pid, id) => github.list(pid).repositories.find((r) => r.id === id),
+  );
   const readJson = async (req) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -150,7 +170,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       g.status = state.graphOutcome;
       g.finished_at = new Date().toISOString();
       if (g.status === "failed") g.error_code = "stub_failure";
-      else g.succeededBefore = true;
+      else {
+        g.succeededBefore = true;
+        queueGapRun(pid);
+      }
     }
     graphs.set(pid, g);
     return g;
@@ -459,6 +482,53 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const gapSets = new Map(); // pid -> {gaps, run, rules, reverted: AiAnswer[], seq}
   const gapsOf = (pid) =>
     gapSets.get(pid) ?? gapSets.set(pid, { gaps: [], run: { status: "idle", result: null }, rules: [], reverted: [], seq: 0 }).get(pid);
+  /**
+   * The gap run a finished build queues, as the API's `after_build` does (a run that was never made only: a seeded run is the truth). It is
+   * queued at once, runs for the second half of `state.gapMs` and then completes with no gap of its own; it is resolved when it is read
+   * (`settleStubRun`), like the build.
+   */
+  function queueGapRun(pid) {
+    const set = gapsOf(pid);
+    if (set.run.status !== "idle") return;
+    set.run = {
+      status: "queued",
+      run_id: "run-stub",
+      mode: "full",
+      step: null,
+      steps_done: 0,
+      steps_total: 7,
+      step_items_done: null,
+      step_items_total: null,
+      started_at: new Date().toISOString(),
+      result: null,
+    };
+    set.stubRunMs = Date.now();
+  }
+  function settleStubRun(set) {
+    if (set.stubRunMs === undefined || set.run.status === "completed") return;
+    const spent = Date.now() - set.stubRunMs;
+    if (spent >= state.gapMs) {
+      set.run = {
+        ...set.run,
+        status: "completed",
+        step: "finish",
+        steps_done: 7,
+        finished_at: new Date().toISOString(),
+        result: {
+          run_id: set.run.run_id,
+          mode: "full",
+          build_id: null,
+          status: "completed",
+          counts: {},
+          cost: {},
+          noise: { sections: [] },
+          deferred_sites: [],
+          held_tasks: [],
+          warnings: [],
+        },
+      };
+    } else if (spent >= state.gapMs / 2) set.run = { ...set.run, status: "running", step: "investigate", steps_done: 3 };
+  }
   const SEVERITY_RANK = { blocker: 0, major: 1, minor: 2 };
   const STUB_FIELDS = new Set(["stories", "old_ids"]);
   const publicGap = (g, full) => {
@@ -799,7 +869,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (b === "gap") {
       for await (const c of req) void c;
       if (req.method !== "GET" || did !== "runs") return err(res, 404, "not_found");
-      if (action === "latest") return json(res, 200, set.run);
+      if (action === "latest") {
+        settleStubRun(set);
+        return json(res, 200, set.run);
+      }
       if (rest === "noise" && set.run.result && set.run.result.run_id === decodeURIComponent(action))
         return json(res, 200, set.run.result.noise);
       return err(res, 404, "gap_run_not_found");
@@ -847,6 +920,38 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     }
   }
 
+  /**
+   * The source an import of a Confluence link or a Jira epic makes (`kind` confluence, no folder): it lists, then imports its pages for `parseMs`, then is done.
+   * The card is the same summary the unified status gives.
+   */
+  function importedSource(pid, { kind, name, link, pages }) {
+    const row = {
+      id: crypto.randomUUID(),
+      kind,
+      folder_id: null,
+      link,
+      name,
+      state: "listing",
+      failure_reason: null,
+      connected_by: "11111111-1111-4111-8111-111111111111",
+      created_at: new Date().toISOString(),
+      last_synced_at: null,
+      progress: { listing_finished: false, total: 0, finished: 0 },
+    };
+    sourcesOf(pid).push(model.stamp(row));
+    setTimeout(() => {
+      row.state = "importing";
+      row.progress = { listing_finished: true, total: pages, finished: 1 };
+    }, 300);
+    if (Number.isFinite(state.parseMs)) {
+      setTimeout(() => {
+        row.state = "done";
+        row.progress = { listing_finished: true, total: pages, finished: pages };
+      }, state.parseMs);
+    }
+    return model.summaries(pid).find((s) => s.id === row.id);
+  }
+
   async function sourcesRoute({ req, res, url, pid, did, action, entry }) {
     const drain = async () => {
       for await (const c of req) void c;
@@ -861,20 +966,60 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       }
     };
     try {
+      if (!did && req.method === "GET" && state.sourcesFail) {
+        await drain();
+        return err(res, 503, state.sourcesFail); // the status read of the project cannot be answered
+      }
       if (!did && req.method === "GET") {
         await drain();
         return json(res, 200, url.searchParams.get("batches") === "1" ? model.status(pid) : progressOf(pid));
       }
       if (did === "uploads" && req.method === "POST" && !action) {
-        const b = model.start(pid, (await readJson())?.expected_files);
+        const body = await readJson();
+        const b = model.start(pid, body?.expected_files, body?.name);
         return json(res, 201, { source: model.summaries(pid).find((s) => s.id === b.id) });
       }
-      if (did && did !== "gdrive" && did !== "uploads") {
+      if (did === "confluence" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const checked =
+          typeof body?.link === "string" ? checkConfluence(body.link, body.follow === true) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        return json(res, 201, {
+          source: importedSource(pid, { kind: "confluence", name: checked.body.title, link: body.link, pages: checked.body.pages }),
+        });
+      }
+      if (did === "jira-epic" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const checked =
+          typeof body?.key_or_link === "string" ? checkJiraEpic(body.key_or_link) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        const { key, summary, issues, children } = checked.body;
+        const exclude = body.exclude ?? [];
+        const known = new Set(children.map((c) => c.key));
+        if (!Array.isArray(exclude) || !exclude.every((k) => typeof k === "string" && known.has(k)))
+          return err(res, 422, "validation_failed");
+        const link = `https://${SITE_HOST}/browse/${key}`;
+        return json(res, 201, {
+          source: importedSource(pid, {
+            kind: "jira_epic",
+            name: `${key}: ${summary}`,
+            link,
+            pages: Math.min(issues, 200) - new Set(exclude).size,
+          }),
+        });
+      }
+      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic") {
         if (!action && req.method === "DELETE") {
           await drain();
           model.remove(pid, did);
           res.writeHead(204);
           return res.end();
+        }
+        if (!action && req.method === "PATCH") {
+          const body = await readJson();
+          return json(res, 200, model.rename(pid, did, body?.name));
         }
         if (action === "files" && req.method === "GET") {
           await drain();
@@ -905,7 +1050,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     }
     const chunks = [];
     for await (const c of req) chunks.push(c);
-    const link = JSON.parse(Buffer.concat(chunks).toString() || "{}").link;
+    const sent = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    const link = sent.link;
     if (typeof link !== "string") return err(res, 422, "validation_failed");
     const testing = action === "test";
     const fail = (reason) => (testing ? json(res, 200, { result: "failed", reason }) : err(res, REASON_HTTP[reason], reason));
@@ -924,8 +1070,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
         folder_count: shape.folder_count,
         file_count: shape.categories.reduce((n, c) => n + c[2], 0),
         categories: shape.categories.map(([category, processing_class, count]) => ({ category, processing_class, count })),
+        files: driveFilesOf(id),
+        files_capped: driveFilesCapped(id),
       });
     }
+    // `exclude`: ids of listed files not to import; anything else is a 422.
+    const listed = driveFilesOf(id);
+    const exclude = sent.exclude ?? [];
+    const known = new Set(listed.map((f) => f.id));
+    if (!Array.isArray(exclude) || !exclude.every((x) => typeof x === "string" && known.has(x))) return err(res, 422, "validation_failed");
+    const skipped = new Set(shape.categories.filter((c) => c[1] === "skipped").map((c) => c[0]));
     const source = {
       id: crypto.randomUUID(),
       kind: "gdrive",
@@ -939,6 +1093,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       last_synced_at: null,
       progress: { listing_finished: false, total: 0, finished: 0 },
     };
+    // The import has not listed anything yet, so `total` stays 0; the files it will take (the listed ones, less the skipped categories and `exclude`) are kept on the row for a test to read (`sources`).
+    Object.defineProperty(source, "_imports", { value: listed.filter((f) => !skipped.has(f.category) && !exclude.includes(f.id)) });
     sourcesOf(pid).push(model.stamp(source));
     return json(res, 201, { source });
   }
@@ -1040,6 +1196,29 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/projects/{pid}/jira-gaps` and `/projects/{pid}/jira-gaps/access-check` (docs/jira-sync/gaps.md). */
+  async function jiraGapsRoute({ req, res, pid, did }) {
+    const m = req.method;
+    people.list(pid); // a non-member is a 404
+    if (!did && m === "GET") return json(res, 200, jiraGaps.get(pid));
+    if (!did && m === "PUT") return json(res, 200, jiraGaps.put(pid, await readJson(req)));
+    if (did === "access-check" && m === "POST") return json(res, 200, jiraGaps.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
+  /** `/projects/{pid}/github-projects[/projects|/access-check]` (docs/github/projects.md): the destination, its projects, the check. */
+  async function githubProjectsRoute({ req, res, url, pid, did }) {
+    const m = req.method;
+    people.list(pid); // a non-member is a 404
+    if (!did && m === "GET") return json(res, 200, githubProjects.get(pid));
+    if (!did && m === "PUT") return json(res, 200, githubProjects.put(pid, await readJson(req)));
+    if (did === "projects" && m === "GET") return json(res, 200, githubProjects.projects(pid, url.searchParams.get("repository_id") ?? ""));
+    if (did === "access-check" && m === "POST") return json(res, 200, githubProjects.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   /** `/integrations/atlassian[/authorize|/callback]` (docs/jira-sync/oauth.md#routes): the caller's Atlassian connection. */
   async function atlassianRoute({ req, res, action }) {
     const m = req.method;
@@ -1052,6 +1231,32 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (action === "authorize" && m === "POST") return json(res, 200, jira.authorize(await readJson(req)));
     if (action === "callback" && m === "POST") return json(res, 200, jira.callback(await readJson(req)));
     await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
+  /** `/projects/{pid}/integrations[/{app}]` (integrations-api.md): list, connect, remove. */
+  async function integrationsRoute({ req, res, pid, did }) {
+    const m = req.method;
+    if (!did && m === "GET") return json(res, 200, integrations.list(pid));
+    if (did && m === "PUT") return json(res, 200, integrations.connect(pid, did));
+    if (did && m === "DELETE") {
+      integrations.disconnect(pid, did);
+      return noContent(res);
+    }
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
+  /** `/projects/{pid}/slack[/test]` (docs/slack/gap-answering.md "The channel flow", integrations-api.md "Slack test message"). */
+  async function slackRoute({ req, res, pid, did }) {
+    const m = req.method;
+    await drainBody(req);
+    if (!did && m === "GET") return json(res, 200, integrations.slackGet(pid));
+    if (!did && m === "DELETE") {
+      integrations.slackUnbind(pid);
+      return noContent(res);
+    }
+    if (did === "test" && m === "POST") return json(res, 200, integrations.slackTest(pid));
     return err(res, 404, "not_found");
   }
 
@@ -1200,6 +1405,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!b) return json(res, 200, project);
     if (b === "members" || b === "invites" || b === "leave") return membersRoute({ req, res, pid, b, did });
     if (b === "jira") return jiraRoute({ req, res, pid, did });
+    if (b === "jira-gaps") return jiraGapsRoute({ req, res, pid, did });
+    if (b === "github-projects") return githubProjectsRoute({ req, res, url, pid, did });
+    if (b === "integrations") return integrationsRoute({ req, res, pid, did });
+    if (b === "slack") return slackRoute({ req, res, pid, did });
     if (b === "repositories") return repositoriesRoute({ req, res, pid, did, action });
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
     if (b === "graph_build") return graphRoute({ req, res, pid, entry });
@@ -1279,8 +1488,14 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     people,
     /** Jira settings: `jira.state` (available, mode, connection, callbackError) and `jira.seed({pid, available, target, access, mode, ...})`. */
     jira,
+    /** Jira gap channel: `jiraGaps.state` (available) and `jiraGaps.seed({pid, available, target, access})`. */
+    jiraGaps,
+    /** GitHub Projects destination: `githubProjects.state` (available, organization) and `githubProjects.seed({pid, available, organization, target, access})`. */
+    githubProjects,
     /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
     github,
+    /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, ...})`. */
+    integrations,
     /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */
     seedProject: (name, spec) => {
       const project = { id: crypto.randomUUID(), name, created_at: new Date().toISOString() };
@@ -1296,7 +1511,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     seedGaps: (pid, seed) => {
       const mine = gapsOf(pid);
       if (seed.gaps) mine.gaps = seed.gaps;
-      if (seed.run) mine.run = seed.run;
+      if (seed.run) {
+        mine.run = seed.run;
+        mine.stubRunMs = undefined; // a seeded run is the truth: the stub no longer moves it
+      }
       if (seed.rules) mine.rules = seed.rules;
     },
     settleGaps,

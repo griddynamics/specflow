@@ -1,0 +1,870 @@
+/* The Mission Control canvas: three zones (Graph, Gap, Plan) on one line, hubs, nodes, wires, plus tiles, and a graph that grows behind them.
+   From docs/mission-control/mission-control.css. Colour has three jobs: grey = not active, ink = working, yellow = a person decides now
+   (the two decisions only, never a status). Every animation has its reduced-motion rule at the end of this file. */
+.gx-canvas {
+  position: relative;
+  overflow: hidden;
+  height: max(560px, calc(100svh - var(--gx-header-h)));
+  background: var(--gx-paper);
+}
+
+/* A read that failed: one notice over the top of the canvas, with its Try again. */
+.gx-canvas__alert {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(640px, calc(100% - 32px));
+  padding: 10px 14px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 10px;
+  background: var(--gx-paper);
+  transform: translateX(-50%);
+}
+
+.gx-backdrop,
+.gx-wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* The background graph: faint dots and hairlines, lighter than an inactive wire; they light up as the graph is built. */
+.gx-backdrop__line {
+  stroke: var(--gx-rule);
+  stroke-width: 0.75;
+  opacity: 0.35;
+  transition: opacity 0.6s;
+}
+
+.gx-backdrop__dot {
+  fill: var(--gx-rule);
+  opacity: 0.35;
+  transition: opacity 0.6s;
+}
+
+.gx-backdrop__line[data-lit="true"],
+.gx-backdrop__dot[data-lit="true"] {
+  opacity: 0.7;
+}
+
+.gx-mask-show {
+  fill: #fff;
+}
+
+.gx-mask-hide {
+  fill: #000;
+}
+
+.gx-mask-clear {
+  fill: none;
+  stroke: #000;
+  stroke-width: 24;
+}
+
+.gx-zones {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 1fr;
+  height: 100%;
+}
+
+.gx-zone {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+}
+
+/* A thin solid divider: dashed grey means "not active", so the dividers are solid. */
+.gx-zone + .gx-zone {
+  border-left: 1px solid var(--gx-rule);
+}
+
+.gx-zone__label {
+  position: absolute;
+  z-index: 1;
+  top: 18px;
+  left: 22px;
+  margin: 0;
+  font: 500 11.5px var(--gx-font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gx-ink-3);
+  font-variant-ligatures: none;
+}
+
+.gx-zone__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  min-height: 0;
+  padding: 24px 14px;
+}
+
+/* Gap: the hub is in the middle of its zone; its channels are a row right under it. */
+.gx-zone[data-zone="gap"] .gx-zone__body {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.gx-col {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 18px;
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.gx-col--scroll {
+  max-height: 100%;
+  overflow-y: auto;
+  padding-block: 36px;
+  scrollbar-width: none;
+}
+
+/* Four sources or more: smaller tiles and tighter gaps, so the plus stays on the screen at 1280 x 800. */
+.gx-col--dense {
+  gap: 8px;
+  padding-block: 20px;
+}
+
+.gx-col--dense .gx-cnode {
+  gap: 1px;
+}
+
+.gx-col--dense .gx-cnode__tile {
+  --gx-tile: 60px;
+}
+
+.gx-col--dense .gx-cnode__name {
+  margin-top: 4px;
+}
+
+.gx-col--dense .gx-cnode__mark {
+  width: 28px;
+  height: 28px;
+}
+
+.gx-col--dense > .gx-add:not(:only-child) {
+  margin-bottom: 22px;
+}
+
+.gx-col--row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% + var(--gx-hub) / 2 + 64px);
+  padding: 0;
+  grid-auto-flow: column;
+  justify-content: center;
+  align-items: start;
+  align-content: start;
+  gap: 18px 16px;
+}
+
+.gx-col--row .gx-cnode,
+.gx-col--row .gx-add {
+  width: 124px;
+}
+
+/* A node: a big tile, its name and one status line. */
+.gx-cnode {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  width: 150px;
+  text-align: center;
+}
+
+.gx-cnode__tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--gx-tile);
+  height: var(--gx-tile);
+  padding: 0;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 20px;
+  background: var(--gx-paper);
+  color: var(--gx-ink);
+  box-shadow: 4px 4px 0 var(--gx-ink);
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s,
+    border-color 0.3s,
+    color 0.3s,
+    background-color 0.3s;
+}
+
+button.gx-cnode__tile {
+  cursor: pointer;
+}
+
+button.gx-cnode__tile:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 var(--gx-ink);
+}
+
+.gx-cnode__mark {
+  width: 38px;
+  height: 38px;
+}
+
+.gx-cnode__name {
+  margin-top: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.25;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gx-cnode__meta {
+  min-height: 1.3em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: var(--gx-ink-3);
+}
+
+.gx-cnode__bar {
+  width: 96px;
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--gx-rule);
+  overflow: hidden;
+}
+
+.gx-cnode__bar i {
+  display: block;
+  height: 100%;
+  background: var(--gx-ink);
+  transition: width 0.25s linear;
+}
+
+.gx-cnode__bar[data-listing="true"] i {
+  width: 30%;
+  animation: gx-listing 1.2s ease-in-out infinite;
+}
+
+.gx-cnode__tag {
+  padding: 0 5px;
+  border: 1px solid var(--gx-rule);
+  border-radius: 4px;
+  font: 500 10px var(--gx-font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gx-ink-3);
+}
+
+@keyframes gx-listing {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(330%);
+  }
+}
+
+/* The state badge on the tile's corner. */
+.gx-cnode__badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 50%;
+  background: var(--gx-paper);
+}
+
+.gx-cnode__badge svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gx-cnode__badge[data-badge="spin"] {
+  border-color: var(--gx-rule);
+  border-top-color: var(--gx-ink);
+  animation: gx-spin 0.9s linear infinite;
+}
+
+@keyframes gx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* States: off = not connected; wait = connected, the stage before it is not built yet; stopped = the API says it stopped. */
+.gx-cnode[data-state="off"] .gx-cnode__tile,
+.gx-cnode[data-state="wait"] .gx-cnode__tile,
+.gx-cnode[data-state="stopped"] .gx-cnode__tile {
+  box-shadow: none;
+  border-color: var(--gx-ink-3);
+  color: var(--gx-ink-3);
+}
+
+.gx-cnode[data-state="off"] .gx-cnode__tile {
+  border-style: dashed;
+}
+
+.gx-cnode[data-state="wait"] .gx-cnode__tile,
+.gx-cnode[data-state="stopped"] .gx-cnode__tile {
+  background: var(--gx-wash);
+}
+
+.gx-cnode[data-state="off"] .gx-cnode__name,
+.gx-cnode[data-state="wait"] .gx-cnode__name,
+.gx-cnode[data-state="stopped"] .gx-cnode__name {
+  color: var(--gx-ink-3);
+}
+
+.gx-cnode[data-state="stopped"] .gx-cnode__badge {
+  border-color: var(--gx-ink);
+  color: var(--gx-ink);
+}
+
+/* The plus of a stage. */
+.gx-add {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  width: 150px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gx-ink-3);
+  font: 600 13.5px var(--gx-font-body);
+  cursor: pointer;
+}
+
+.gx-add__label {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+}
+
+.gx-col > .gx-add:not(:only-child) {
+  margin-bottom: 26px;
+}
+
+.gx-add__plus {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 1.5px dashed var(--gx-ink-3);
+  border-radius: 16px;
+  font: 300 30px/1 var(--gx-font-body);
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.gx-add:hover,
+.gx-add:focus-visible {
+  color: var(--gx-ink);
+}
+
+.gx-add:hover .gx-add__plus {
+  border-color: var(--gx-ink);
+  border-style: solid;
+  background: var(--gx-wash);
+}
+
+.gx-add--big .gx-add__plus {
+  width: var(--gx-tile);
+  height: var(--gx-tile);
+  border-radius: 20px;
+  font-size: 40px;
+}
+
+/* A hub: Graphico's own engine for the stage. No name or count under it: only a decision shows there. */
+.gx-hub {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  width: 190px;
+  text-align: center;
+}
+
+.gx-hub__tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--gx-hub);
+  height: var(--gx-hub);
+  padding: 0;
+  border: 2px solid var(--gx-ink);
+  border-radius: 50%;
+  background: var(--gx-paper);
+  color: var(--gx-ink);
+  transition:
+    background-color 0.35s,
+    color 0.35s,
+    border-color 0.35s;
+}
+
+button.gx-hub__tile {
+  cursor: pointer;
+}
+
+.gx-hub__glyph {
+  width: 52px;
+  height: 52px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gx-hub__glyph .gx-fill {
+  fill: currentcolor;
+  stroke: none;
+}
+
+.gx-hub__ring {
+  position: absolute;
+  inset: -11px;
+  width: calc(100% + 22px);
+  height: calc(100% + 22px);
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.gx-hub__ring[data-spin="true"] {
+  animation: gx-ring 1.6s linear infinite;
+}
+
+.gx-hub__arc {
+  fill: none;
+  stroke: var(--gx-ink);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.25s linear;
+}
+
+@keyframes gx-ring {
+  from {
+    transform: rotate(-90deg);
+  }
+
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+.gx-hub[data-state="off"] .gx-hub__tile,
+.gx-hub[data-state="wait"] .gx-hub__tile {
+  border-style: dashed;
+  border-color: var(--gx-ink-3);
+  color: var(--gx-ink-3);
+}
+
+.gx-hub[data-state="on"] .gx-hub__tile {
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+}
+
+.gx-hub[data-state="busy"] .gx-hub__tile {
+  border-color: var(--gx-rule);
+}
+
+/* The decision: the hub carries it under itself; the first one open is yellow, the other is ink. */
+.gx-hub__decision {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 0;
+  right: 0;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.gx-hub[data-state="ready"] .gx-hub__tile {
+  border-color: var(--gx-ink);
+  box-shadow: 5px 5px 0 var(--gx-ink);
+}
+
+.gx-hub[data-yellow="true"] .gx-hub__tile {
+  background: var(--gx-yellow);
+  color: var(--gx-on-yellow);
+}
+
+.gx-hub[data-state="ready"] .gx-hub__tile::after {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 50%;
+  animation: gx-halo 2.2s ease-out infinite;
+}
+
+@keyframes gx-halo {
+  from {
+    opacity: 0.7;
+    transform: scale(0.92);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
+/* The count on a hub: critical gaps are a solid ink pill, never yellow. */
+.gx-hub__pill {
+  position: absolute;
+  top: 2px;
+  right: 18px;
+  padding: 3px 9px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 999px;
+  background: var(--gx-ink);
+  color: var(--gx-paper);
+  font: 700 12px var(--gx-font-body);
+  white-space: nowrap;
+
+  /* A paper ring keeps the pill apart from an ink hub (in dark mode both are the light ink). */
+  box-shadow: 0 0 0 3px var(--gx-paper);
+}
+
+/* Wires. */
+.gx-wire {
+  fill: none;
+}
+
+.gx-wire[data-motion="off"] {
+  stroke: var(--gx-rule);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 5;
+}
+
+.gx-wire[data-motion="on"] {
+  stroke: var(--gx-ink);
+  stroke-width: 1.6;
+}
+
+.gx-wire[data-motion="flow"] {
+  stroke: var(--gx-ink);
+  stroke-width: 2;
+  stroke-dasharray: 7 7;
+  animation: gx-flow 0.7s linear infinite;
+}
+
+@keyframes gx-flow {
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+
+.gx-wire-end {
+  fill: var(--gx-paper);
+  stroke: var(--gx-ink);
+  stroke-width: 1.5;
+}
+
+.gx-wire-end[data-motion="off"] {
+  stroke: var(--gx-rule);
+}
+
+.gx-wire-arrow {
+  fill: var(--gx-ink);
+}
+
+/* Narrow screens: the zones stack and the canvas grows with them. */
+@media (width <= 900px) {
+  .gx-canvas {
+    height: auto;
+  }
+
+  .gx-zones {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .gx-zone {
+    grid-template-rows: auto auto;
+  }
+
+  .gx-zone + .gx-zone {
+    border-left: 0;
+    border-top: 1px solid var(--gx-rule);
+  }
+
+  .gx-zone__label {
+    position: static;
+    padding: 16px 16px 0;
+  }
+
+  .gx-zone__body {
+    padding: 8px 8px 28px;
+  }
+
+  .gx-col--row {
+    position: static;
+    padding-top: 110px;
+  }
+}
+
+@media (width <= 520px) {
+  .gx {
+    --gx-tile: 72px;
+    --gx-hub: 104px;
+  }
+
+  .gx-cnode,
+  .gx-add {
+    width: 120px;
+  }
+
+  .gx-hub {
+    width: 150px;
+  }
+}
+
+/* Reduced motion: nothing moves. A moving wire is solid with an arrow, so it never looks like an inactive dashed one. */
+@media (prefers-reduced-motion: reduce) {
+  .gx-backdrop__line,
+  .gx-backdrop__dot,
+  .gx-cnode__tile,
+  .gx-cnode__bar i,
+  .gx-add__plus,
+  .gx-hub__tile,
+  .gx-hub__arc {
+    transition: none;
+  }
+
+  .gx-wire[data-motion="flow"],
+  .gx-cnode__badge[data-badge="spin"],
+  .gx-cnode__bar[data-listing="true"] i,
+  .gx-hub__ring[data-spin="true"],
+  .gx-hub[data-state="ready"] .gx-hub__tile::after {
+    animation: none !important;
+  }
+
+  .gx-wire[data-motion="flow"] {
+    stroke-dasharray: none;
+    marker-end: url("#gx-wire-arrow");
+  }
+
+  .gx-hub[data-state="ready"] .gx-hub__tile::after {
+    opacity: 0.4;
+  }
+}
+
+/* The forms of the plus dialog: a stage's connections, a drop target for files, a command to copy, numbered steps. */
+.gx-ccards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  grid-auto-rows: var(--gx-ccard-h);
+  gap: 12px;
+}
+
+.gx-ccard {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  gap: 4px 12px;
+  align-items: start;
+  height: var(--gx-ccard-h);
+  overflow: hidden;
+  padding: 14px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 14px;
+  background: var(--gx-paper);
+  color: var(--gx-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gx-ccard:hover {
+  background: var(--gx-wash);
+}
+
+.gx-ccard[aria-disabled="true"] {
+  border-style: dashed;
+  border-color: var(--gx-ink-3);
+  background: none;
+  color: var(--gx-ink-3);
+  cursor: not-allowed;
+}
+
+.gx-ccard__icon {
+  display: grid;
+  grid-row: 1 / span 3;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1.5px solid currentcolor;
+  border-radius: 12px;
+}
+
+.gx-ccard b {
+  overflow: hidden;
+  font-size: 15.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gx-ccard small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--gx-ink-3);
+  font-size: 13px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.gx-ccard__tag {
+  grid-column: 2;
+  align-self: end;
+  justify-self: start;
+  margin-top: 4px;
+  padding: 0 5px;
+  border: 1px solid var(--gx-rule);
+  border-radius: 4px;
+  font: 500 10px var(--gx-font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gx-ink-3);
+}
+
+.gx-drop {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 28px;
+  border: 1.5px dashed var(--gx-ink-3);
+  border-radius: 14px;
+  color: var(--gx-ink-2);
+  text-align: center;
+}
+
+.gx-drop[data-over] {
+  border-style: solid;
+  border-color: var(--gx-ink);
+  background: var(--gx-wash);
+}
+
+.gx-drop__note {
+  color: var(--gx-ink-3);
+  font-size: 14px;
+}
+
+.gx-copyrow {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--gx-rule);
+  border-radius: 10px;
+}
+
+.gx-copyrow__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 13px var(--gx-font-mono);
+  font-variant-ligatures: none;
+}
+
+.gx-copyrow__btn {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gx-ink-2);
+  cursor: pointer;
+}
+
+.gx-copyrow__btn:hover {
+  background: var(--gx-wash);
+  color: var(--gx-ink);
+}
+
+/* "Show me how": a disclosure or a link, one look. */
+.gx-how {
+  justify-self: start;
+}
+
+.gx-how__face {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 14px 5px 10px;
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--gx-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  list-style: none;
+}
+
+.gx-how__face::-webkit-details-marker {
+  display: none;
+}
+
+.gx-how__face:hover,
+.gx-how[open] > .gx-how__face {
+  background: var(--gx-wash);
+  text-decoration: none;
+}
+
+.gx-how__body {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Letters, so the help steps are not mistaken for the numbered steps of the form around them. */
+.gx-how__body .gx-steps {
+  list-style: lower-alpha;
+}
+
+.gx-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--gx-ink-2);
+}

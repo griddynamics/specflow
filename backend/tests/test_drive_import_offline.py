@@ -54,6 +54,7 @@ from temporal.documents import registration
 from temporal.sources import activities as acts
 from temporal.sources import workflows as wf
 from temporal.sources.models import (
+    DriveImportInput,
     FinishItemInput,
     WaitDocumentInput,
 )
@@ -927,3 +928,64 @@ async def test_every_processed_status_is_done_on_a_retry_and_for_a_twin(monkeypa
     repo2.duplicate_of = SimpleNamespace(id=uuid.uuid4(), status=status, source_id=CID)
     result = await run_activity(activities, activities.drive_import_item, data(twin, "pdf"))
     assert result.action == "done" and repo2.finished[0]["state"] == "processed"
+
+
+# ------------------------------------------------- the files the owner unchecked
+async def _listed(monkeypatch, store, pool, exclude, caplog=None):
+    """Run the listing activity over the fake Drive; returns (result, the item ids that were stored)."""
+
+    activities, _ = build(store, pool)
+    stored: list[str] = []
+
+    async def get_connection(_session, _project_id, _connection_id):
+        return SimpleNamespace(id=CID, state="listing", external_id="fake-synthetic-30")
+
+    async def locked(_session, _project_id, _connection_id):
+        return SimpleNamespace(state="listing")
+
+    async def upsert(_session, _connection_id, _project_id, items):
+        stored.extend(item.id for item in items)
+
+    async def set_state(_session, _connection_id, _state, **_kw):
+        return None
+
+    monkeypatch.setattr(sources_repo, "get_connection", get_connection)
+    monkeypatch.setattr(sources_repo, "upsert_items", upsert)
+    monkeypatch.setattr(sources_repo, "set_connection_state", set_state)
+    monkeypatch.setattr(acts.DriveImportActivities, "_lock", staticmethod(locked))
+    arg = DriveImportInput(project_id=PID, connection_id=CID, exclude=exclude)
+    return await run_activity(activities, activities.drive_list, arg), stored
+
+
+async def test_the_listing_activity_skips_the_excluded_files(monkeypatch, store, pool, caplog):
+    caplog.set_level("INFO")
+    everything = [i.id for i in FakeDriveGateway(app_env="local").list_all("fake-synthetic-30").items]
+    skipped = [everything[0], everything[7], "not-in-this-folder"]
+    result, stored = await _listed(monkeypatch, store, pool, skipped)
+    assert result.outcome == "listed" and result.files == len(everything) - 2
+    assert stored == [i for i in everything if i not in skipped]
+    [logged] = events(caplog, "drive.import.listed")
+    assert fields(logged)["excluded"] == 2 and fields(logged)["file_count"] == len(everything) - 2
+    assert everything[0] not in caplog.text
+
+
+async def test_the_listing_activity_without_exclude_stores_every_file(monkeypatch, store, pool):
+    everything = [i.id for i in FakeDriveGateway(app_env="local").list_all("fake-synthetic-30").items]
+    result, stored = await _listed(monkeypatch, store, pool, [])
+    assert result.files == len(everything) and stored == everything
+
+
+def test_the_exclude_rides_in_the_workflow_input_and_survives_continue_as_new():
+    ids = ["a1", "b-2", "c_3"]
+    first = DriveImportInput(project_id=PID, connection_id=CID, exclude=ids)
+    assert DriveImportInput.model_validate_json(first.model_dump_json()).exclude == ids
+    again = first.model_copy(update={"listed": True})  # what the workflow passes to continue_as_new
+    assert again.exclude == ids
+    assert DriveImportInput(project_id=PID, connection_id=CID).exclude == []  # a history from before
+
+
+async def test_the_hook_puts_the_exclude_into_the_workflow_input(valid_env):
+    temporal = Temporal()
+    await api_workflows.start_drive_import(runtime(temporal, valid_env), PID, CID, ["x1", "y2"])
+    [call] = temporal.calls
+    assert call["arg"].exclude == ["x1", "y2"]

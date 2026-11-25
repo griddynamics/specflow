@@ -71,7 +71,7 @@ async def test_a_failed_import_start_deletes_the_new_source(live, monkeypatch):
     live.runtime.drive = FakeDriveGateway(app_env="local", file_delay_s=0)
     pid = await make_project(live)
 
-    async def boom(runtime, project_id, connection_id):
+    async def boom(runtime, project_id, connection_id, exclude=()):
         raise RuntimeError("temporal down")
 
     monkeypatch.setattr(workflows, "start_drive_import", boom)

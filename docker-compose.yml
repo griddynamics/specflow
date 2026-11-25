@@ -672,7 +672,9 @@ services:
   # The standalone Next.js server (the image Infra builds). For live reload, stop it and
   # run `make frontend-dev` on the host instead (same port).
   frontend:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     image: specflow-frontend:local
     container_name: specflow-frontend
     mem_limit: 512m
@@ -702,6 +704,27 @@ services:
       timeout: 30s
       retries: 6
       start_period: 60s
+
+  # The public landing page: the static export of site/ served by BusyBox httpd, no dependency on the rest of the stack.
+  # Unprivileged and read-only; open http://localhost:3002.
+  site:
+    build:
+      context: .
+      dockerfile: site/Dockerfile
+    image: specflow-site:local
+    container_name: specflow-site
+    mem_limit: 64m
+    read_only: true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:3002:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
 volumes:
   specflow-rustfs-data:

@@ -488,7 +488,7 @@ https://github.com/simple-icons/simple-icons
 Additional third-party dependencies (transitive) and their licenses can be
 found by running:
   backend:  uv run --with pip-licenses pip-licenses --from=mixed --format=table
-  frontend: npx license-checker --production --summary (in frontend/)
+  frontend: npx license-checker --production --summary (at the repository root, the npm workspace)
 
 Please refer to each dependency's own license file for full terms.
 

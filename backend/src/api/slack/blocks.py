@@ -10,13 +10,13 @@ every ``mrkdwn`` text is ``verbatim``, so it cannot make links or mentions.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
 
 from agent_contracts import GapDetail, GapDetailOption
+from api.gap.replies import parse_reply
 
 CALLBACK_ID: Final = "specflow_gap_answers"
 PAGE_SIZE: Final = 5
@@ -215,19 +215,13 @@ def message_view(title: str, lines: Sequence[str]) -> dict[str, Any]:
 
 # The channel flow: one message per gap, answered in its thread --------------------------------------------------------
 
-REPLY_OPTION: Final = re.compile(r"^\s*([A-Da-d])[\s.!)]*$")
 OPTION_LINE_MAX: Final = 300
 
 
 def reply_answer(text: str, codes: Mapping[str, int]) -> tuple[int | None, str | None]:
-    """A thread reply as an answer: one option letter alone (``B``, ``b.``) is that option when the gap offers it;
-    any other text is the person's own answer. ``(None, None)`` for an empty reply."""
+    """A thread reply as an answer (``api.gap.replies.parse_reply``, cut at the length of a Slack text input)."""
 
-    found = REPLY_OPTION.match(text)
-    if found is not None and found.group(1).upper() in codes:
-        return codes[found.group(1).upper()], None
-    own = " ".join(text.split())
-    return None, (own[:OWN_MAX] or None)
+    return parse_reply(text, codes, OWN_MAX)
 
 
 SEVERITY_MARK: Final = {"blocker": "🔴", "major": "🟠", "minor": "🟡"}

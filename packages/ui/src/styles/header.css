@@ -1,0 +1,207 @@
+/* The app header: brand, project menu, navigation, theme switch, account menu. From docs/mission-control/mission-control.css
+   (.mc-head, .crumb, .proj, .proj-menu, .avatar) and landing.css (.site-header, .head-nav, .theme-btn). */
+.gx-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--gx-paper);
+  border-bottom: 1px solid var(--gx-rule);
+}
+
+.gx-header__in {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: var(--gx-header-h);
+  padding-inline: 24px;
+}
+
+.gx-header__project {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 15px;
+  color: var(--gx-ink-3);
+}
+
+.gx-header__project::before {
+  content: "/";
+  color: var(--gx-rule);
+  font-size: 20px;
+}
+
+.gx-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+}
+
+.gx-nav__item {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: inherit;
+  color: var(--gx-ink-2);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.gx-nav__item:hover {
+  color: var(--gx-ink);
+  text-decoration: underline;
+}
+
+.gx-nav__item[aria-current="page"] {
+  color: var(--gx-ink);
+  font-weight: 600;
+}
+
+/* Light and dark switch: a bare icon; the separator is its left border. */
+.gx-theme {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 24px;
+  padding: 0 0 0 18px;
+  border: 0;
+  border-left: 1px solid var(--gx-rule);
+  background: none;
+  color: var(--gx-ink-2);
+  cursor: pointer;
+}
+
+.gx-theme:hover {
+  color: var(--gx-ink);
+}
+
+.gx-theme svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Menu: a trigger and a list under it */
+.gx-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.gx-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.gx-menu__trigger--project {
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: none;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--gx-ink);
+}
+
+.gx-menu__trigger--project:hover {
+  background: var(--gx-wash);
+}
+
+.gx-menu__trigger--project svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+}
+
+.gx-menu__trigger--avatar {
+  padding: 0;
+  border-radius: 50%;
+  background: none;
+}
+
+.gx-menu__list {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  min-width: 240px;
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--gx-paper);
+  border: 1.5px solid var(--gx-ink);
+  border-radius: 12px;
+  box-shadow: 4px 4px 0 var(--gx-ink);
+}
+
+.gx-menu__trigger--avatar + .gx-menu__list {
+  left: auto;
+  right: 0;
+}
+
+.gx-menu__item {
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gx-ink);
+  cursor: pointer;
+}
+
+.gx-menu__item:hover,
+.gx-menu__item:focus-visible {
+  background: var(--gx-wash);
+}
+
+.gx-menu__check {
+  width: 12px;
+  height: 12px;
+  margin-left: 6px;
+  fill: none;
+  stroke: var(--gx-ink-3);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The last group stays at the bottom edge of a long list (the projects scroll, "Create new project" does not). */
+.gx-menu__sep {
+  position: sticky;
+  bottom: -6px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--gx-rule);
+  background: var(--gx-paper);
+}
+
+@media (max-width: 720px) {
+  .gx-header__in {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 8px 16px;
+  }
+
+  .gx-nav {
+    gap: 12px;
+  }
+}

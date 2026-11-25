@@ -35,8 +35,7 @@ overwritten, they get one comment per change instead.
 
 | Actor | Who | Can |
 |---|---|---|
-| Owner | the Specflow project's owner | set, check and change the target; turn the sync on and off; in `oauth` mode connect their own Atlassian account, which the target's sync then acts as ([oauth.md](oauth.md#acting-account-of-a-target)); everything a member can |
-| Member | owner or collaborator | see the Jira tab read-only; run `sync_to_jira` and `jira_sync_status` from a coding agent |
+| Member | owner or collaborator (D6: no owner-only Jira action) | set, check and change the target; turn the sync on and off; in `oauth` mode connect their own Atlassian account to the project, which the target's sync then acts as ([oauth.md](oauth.md#acting-account-of-a-target)); run `sync_to_jira` and `jira_sync_status` from a coding agent |
 | Plan runner | Specflow itself | start a sync after each plan run that does not fail |
 | Deployment admin | whoever runs Specflow | set `ATLASSIAN_SITE_URL` and either the OAuth app (`ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY`) or the one account (`ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN`) ([../configuration.md](../configuration.md#jira-sync)) |
 | Jira users | people working in the Jira project | change status, assignee and anything else; Specflow never undoes it |

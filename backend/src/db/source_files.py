@@ -56,6 +56,7 @@ from db.models import Connection, ConnectionItem, Document, User
 from db.query_files import read_query
 from db.sources import (
     DRIVE_IMPORT_EXECUTION_TIMEOUT,
+    PROGRESS_KINDS,
     STALE_FAILURE_REASON,
     UPLOAD_STALE_AFTER,
 )
@@ -108,6 +109,7 @@ UPLOAD_OUTCOMES: Final = ("added", "already_in_project", "read_again", "duplicat
 API_ERROR_CODES: Final = (
     "source_not_found",
     "batch_ended",
+    "source_not_renamable",
     "removal_unavailable",
     "project_not_found",
     "validation_failed",
@@ -496,7 +498,7 @@ def _summaries_statement(project_id: uuid.UUID, source_id: uuid.UUID | None = No
             (items + to_come).label("total"),
             case(
                 (drive_stale, STALE_FAILURE_REASON),
-                (c.kind == "gdrive", c.failure_reason),
+                (c.kind.in_(PROGRESS_KINDS), c.failure_reason),
                 else_=null(),
             ).label("failure_reason"),
             case((c.kind == "gdrive", c.external_id), else_=null()).label("folder_id"),

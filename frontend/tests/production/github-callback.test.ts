@@ -6,7 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callbackDestination, setupDestination } from "@/lib/github-callback";
-import { codeOfAnswer, isSameSitePath, locationOn, withParam, type CallbackAnswer } from "@/lib/oauth-callback";
+import { codeOfAnswer, locationOn, withParam, type CallbackAnswer } from "@/lib/oauth-callback";
+import { isSameSitePath } from "@/lib/same-site-path";
 
 const BACK = "/projects/p1/settings?tab=github";
 const stateFor = (r: unknown, p = "authorize") => `nonce.${Buffer.from(JSON.stringify({ u: "u1", r, p, e: 1 })).toString("base64url")}.sig`;

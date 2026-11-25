@@ -7,6 +7,10 @@ on:
     paths:
       - backend/**
       - frontend/**
+      - packages/**
+      - site/**
+      - package.json
+      - package-lock.json
       - validation/**
       - Makefile
       - .github/workflows/specflow-dockerhub.yaml
@@ -32,7 +36,7 @@ jobs:
           DOCKERHUB_OAT: ${{ secrets.DOCKERHUB_OAT }}
         run: |
           if [[ -z "$DOCKERHUB_LOGIN" || -z "$DOCKERHUB_OAT" ]]; then
-            echo "::error::Configure DOCKERHUB_LOGIN and DOCKERHUB_OAT as Actions secrets with write access to the five public Specflow repositories."
+            echo "::error::Configure DOCKERHUB_LOGIN and DOCKERHUB_OAT as Actions secrets with write access to the six public Specflow repositories."
             exit 1
           fi
 
@@ -61,8 +65,11 @@ jobs:
             context: backend
             dockerfile: backend/docker/worker-agents/Dockerfile
           - image: specflow-frontend
-            context: frontend
+            context: .
             dockerfile: frontend/Dockerfile
+          - image: specflow-site
+            context: .
+            dockerfile: site/Dockerfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Set up Docker Buildx

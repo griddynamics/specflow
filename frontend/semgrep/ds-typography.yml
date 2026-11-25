@@ -15,6 +15,9 @@ rules:
       - typescript
     paths:
       exclude:
+        # Mission Control V2 uses the Graphico style of packages/ui, not the GD design system (D14, docs/mission-control/DECISIONS.md).
+        - "**/app/(v2)/**"
+        - "**/components/v2/**"
         - "**/*.test.tsx"
         - "**/*.test.ts"
         - "**/components/ui/TopBar.tsx"
@@ -33,6 +36,9 @@ rules:
       - typescript
     paths:
       exclude:
+        # Mission Control V2 uses the Graphico style of packages/ui, not the GD design system (D14, docs/mission-control/DECISIONS.md).
+        - "**/app/(v2)/**"
+        - "**/components/v2/**"
         - "**/*.test.tsx"
         - "**/*.test.ts"
         - "**/components/ui/TopBar.tsx"
@@ -164,6 +170,9 @@ rules:
       - typescript
     paths:
       exclude:
+        # Mission Control V2 uses the Graphico style of packages/ui, not the GD design system (D14, docs/mission-control/DECISIONS.md).
+        - "**/app/(v2)/**"
+        - "**/components/v2/**"
         - "**/*.test.tsx"
         - "**/components/ui/**"
     patterns:

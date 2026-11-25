@@ -240,7 +240,7 @@ test("B-08: with an end_session_endpoint, the end-session route answers the issu
   const url = new URL(body.url);
   assert.equal(url.origin + url.pathname, `${PUBLIC_ISSUER}/protocol/openid-connect/logout`);
   assert.equal(url.searchParams.get("id_token_hint"), issuer.idTokens.at(-1), "the id_token of this sign-in");
-  assert.equal(url.searchParams.get("post_logout_redirect_uri"), `${fe.base}/login?signedout=1`);
+  assert.equal(url.searchParams.get("post_logout_redirect_uri"), `${fe.base}/login?signedout=idp`);
   assert.equal(url.searchParams.get("client_id"), CLIENT_ID);
   assert.ok(!body.url.includes(issuer.accessTokens.at(-1)) && !body.url.includes("rt-"), "no access or refresh token in the URL");
 
@@ -248,14 +248,14 @@ test("B-08: with an end_session_endpoint, the end-session route answers the issu
   const before = issuer.endSessionRequests.length;
   const idp = await fetch(`http://127.0.0.1:${ISSUER_PORT}${url.pathname}${url.search}`, { redirect: "manual" });
   assert.equal(idp.status, 302);
-  assert.equal(idp.headers.get("location"), `${fe.base}/login?signedout=1`);
+  assert.equal(idp.headers.get("location"), `${fe.base}/login?signedout=idp`);
   assert.equal(issuer.endSessionRequests.length - before, 1);
   assert.deepEqual(
     { ...issuer.endSessionRequests.at(-1), idTokenHint: undefined },
     {
       idTokenHint: undefined,
       idTokenHintValid: true,
-      postLogoutRedirectUri: `${fe.base}/login?signedout=1`,
+      postLogoutRedirectUri: `${fe.base}/login?signedout=idp`,
       clientId: CLIENT_ID,
       ok: true,
     },
@@ -296,7 +296,7 @@ test("B-08: the return address comes from PUBLIC_URL only: no query, header or H
   );
   const { url } = await res.json();
   assert.doesNotMatch(url, /evil/);
-  assert.equal(new URL(url).searchParams.get("post_logout_redirect_uri"), `${fe.base}/login?signedout=1`);
+  assert.equal(new URL(url).searchParams.get("post_logout_redirect_uri"), `${fe.base}/login?signedout=idp`);
 });
 
 test("B-08: without a session the end-session route answers the local sign-out URL; GET is not allowed", async () => {

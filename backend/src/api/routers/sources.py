@@ -26,11 +26,14 @@ from api.errors import ApiError, required
 from api.routers.documents import require_project
 from api.runtime import DriveTimeoutError, Runtime
 from api.schemas import (
+    DRIVE_FILES_LIST_MAX,
     ConnectionStateName,
     DriveCategoryOut,
+    DriveFileOut,
     DriveFolderOut,
     DriveIdentityOut,
     DriveLinkRequest,
+    DriveSaveRequest,
     DriveTestFailed,
     DriveTestOk,
     ProgressOut,
@@ -43,9 +46,10 @@ from api.schemas import (
 from db import source_files
 from db import sources as repo
 from db.models import Connection
+from drive.categories import categorize
 from drive.gateway import DriveError
 from drive.links import canonical_link, parse_folder_link
-from drive.model import ordered, summarize
+from drive.model import Listing, folder_path, ordered, summarize
 from drive.reasons import Reason
 from logger.logger import INFO, WARNING, get_logger, log_event
 
@@ -120,6 +124,19 @@ async def _folder_of(runtime: Runtime, pid: uuid.UUID, link: str) -> str:
     return folder_id
 
 
+def _file_rows(listing: Listing) -> tuple[list[DriveFileOut], bool]:
+    """The files for the owner's check list: by path, then name (case-insensitive), capped; names never logged."""
+
+    rows = [
+        DriveFileOut(
+            id=item.id, name=item.name, path=folder_path(listing, item), category=categorize(item.mime_type)[0].value
+        )
+        for item in listing.items
+    ]
+    rows.sort(key=lambda r: (r.path.casefold(), r.name.casefold(), r.id))
+    return rows[:DRIVE_FILES_LIST_MAX], len(rows) > DRIVE_FILES_LIST_MAX
+
+
 def _log_level(reason: Reason | None) -> int:
     return WARNING if reason in _LOUD else INFO
 
@@ -183,6 +200,7 @@ async def test_drive_folder(
             rows = ordered(summarize(listing))
             folders, files = listing.folder_count, len(listing.items)
             counts = {row.category.value: row.count for row in rows}
+            listed, capped = _file_rows(listing)
             result = DriveTestOk(
                 folder=DriveFolderOut(id=folder.id, name=folder.name),
                 folder_count=folders,
@@ -195,6 +213,8 @@ async def test_drive_folder(
                     )
                     for row in rows
                 ],
+                files=listed,
+                files_capped=capped,
             )
         except DriveError as error:
             reason = error.reason
@@ -308,7 +328,7 @@ async def _create_source(
 
 @router.post("/projects/{pid}/sources/gdrive", status_code=201, response_model=SourceCreated)
 async def save_drive_folder(
-    pid: uuid.UUID, body: DriveLinkRequest, runtime: RuntimeDep, user: UserDep
+    pid: uuid.UUID, body: DriveSaveRequest, runtime: RuntimeDep, user: UserDep
 ) -> SourceCreated:
     """INT-GDUI-0003: re-check, create the source once, start the import."""
 
@@ -328,7 +348,7 @@ async def save_drive_folder(
             created = await _create_source(runtime, pid, user.id, folder_id, folder.name)
             connection_id = created.source.id
             try:
-                await workflows.start_drive_import(runtime, pid, connection_id)
+                await workflows.start_drive_import(runtime, pid, connection_id, body.exclude)
             except Exception as error:
                 log_event(
                     logger,
@@ -356,6 +376,7 @@ async def save_drive_folder(
         result="ok" if created else ("error" if failure else "failed"),
         reason=reason.value if reason else None,
         error_type=failure,
+        excluded=len(set(body.exclude)),
         duration_ms=_millis(started),
     )
     if created is None:

@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import text
 
 from db import batches, source_files
-from db.batches import BatchEndedError, LockConflictError, SourceNotFoundError
+from db.batches import BatchEndedError, LockConflictError, NotRenamableError, SourceNotFoundError
 from db.removal import remove_source
 from db.sources import UPLOAD_STALE_AFTER
 from specflow_live import requires_live
@@ -102,6 +102,29 @@ async def test_end_refuses_another_projects_batch_and_a_drive_source(sources_wor
         await tx(w, lambda s: batches.end_batch(s, w.project_b, batch.id))
     with pytest.raises(SourceNotFoundError):
         await tx(w, lambda s: batches.end_batch(s, w.project_a, drive))
+
+
+async def test_start_names_the_batch_and_rename_changes_only_the_name(sources_world) -> None:
+    w = sources_world
+    first = await tx(w, lambda s: batches.start_batch(s, w.project_a, w.user_id, 2, "Pricing research"))
+    second = await tx(w, lambda s: batches.start_batch(s, w.project_a, w.user_id, 2))
+    assert (first.name, second.name) == ("Pricing research", batches.BATCH_NAME)
+    assert second.name_suffix == first.name_suffix + 1
+    await tx(w, lambda s: batches.rename_batch(s, w.project_a, first.id, "Board decks"))
+    summary = await tx(w, lambda s: source_files.source_summary(s, w.project_a, first.id))
+    assert summary is not None and (summary.name, summary.name_suffix) == ("Board decks", first.name_suffix)
+
+
+async def test_rename_refuses_another_projects_batch_and_a_drive_source(sources_world) -> None:
+    w = sources_world
+    batch = await tx(w, lambda s: batches.start_batch(s, w.project_a, w.user_id, 1))
+    drive = await tx(w, lambda s: make_drive(s, w.project_a, w.user_id))
+    with pytest.raises(SourceNotFoundError):
+        await tx(w, lambda s: batches.rename_batch(s, w.project_b, batch.id, "New"))
+    with pytest.raises(NotRenamableError):
+        await tx(w, lambda s: batches.rename_batch(s, w.project_a, drive, "New"))
+    summary = await tx(w, lambda s: source_files.source_summary(s, w.project_a, batch.id))
+    assert summary is not None and summary.name == batches.BATCH_NAME
 
 
 async def test_same_minute_batches_get_the_next_suffix_under_the_project_lock(sources_world) -> None:

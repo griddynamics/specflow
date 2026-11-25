@@ -127,11 +127,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        track: [typescript-lint, typescript-scripts]
+        include:
+          - { track: typescript-lint, unit: frontend, prefix: frontend }
+          - { track: typescript-scripts, unit: frontend, prefix: frontend }
+          - { track: typescript-lint-ui, unit: ui, prefix: packages/ui }
+          - { track: typescript-scripts-ui, unit: ui, prefix: packages/ui }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+        with: { node-version: "24", cache: npm, cache-dependency-path: package-lock.json }
       - uses: astral-sh/setup-uv@v10.2.0
         with: { enable-cache: true, python-version: "3.12" }
       - run: make frontend-setup
@@ -143,13 +147,40 @@ jobs:
       - if: matrix.track == 'typescript-scripts'
         run: make frontend-build
       - run: >-
-          python3 validation/ci/ci_report.py run --job static-${{ matrix.track }} --unit frontend
-          --step ${{ matrix.track }} --path-prefix frontend --findings-codes 1 2 --
+          python3 validation/ci/ci_report.py run --job static-${{ matrix.track }} --unit ${{ matrix.unit }}
+          --step ${{ matrix.track }} --path-prefix ${{ matrix.prefix }} --findings-codes 1 2 --
           make validate-${{ matrix.track }}
       - if: always()
         uses: actions/upload-artifact@v7
         with:
           name: validation-reports-static-${{ matrix.track }}-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  site:
+    name: Site (landing page)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: npm, cache-dependency-path: package-lock.json }
+      - run: make frontend-setup
+      - run: >-
+          python3 validation/ci/ci_report.py run --job site --unit site --step lint --path-prefix site
+          --findings-codes 1 2 -- make site-lint
+      - run: >-
+          python3 validation/ci/ci_report.py run --job site --unit site --step build --path-prefix site
+          --findings-codes 1 2 -- make site-build
+      - run: >-
+          python3 validation/ci/ci_report.py run --job site --unit site --step node-test --path-prefix site
+          --findings-codes 1 2 -- make site-test
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-site-${{ github.run_attempt }}
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
@@ -201,7 +232,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+        with: { node-version: "24", cache: npm, cache-dependency-path: package-lock.json }
       - run: make frontend-setup
       # The server tests start the standalone build.
       - run: make frontend-build
@@ -217,6 +248,12 @@ jobs:
           node --test --test-reporter=spec --test-reporter-destination=stdout
           --test-reporter=junit --test-reporter-destination=junit.xml
           "tests/unit/**/*.test.mjs" "tests/ui/**/*.test.mjs"
+      - run: >-
+          python3 validation/ci/ci_report.py run --job unit-typescript --unit ui --step node-test
+          --cwd packages/ui --junit junit.xml --findings-codes 1 2 --
+          node --import tsx --test --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=junit --test-reporter-destination=junit.xml
+          "tests/**/*.test.tsx"
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -243,7 +280,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+        with: { node-version: "24", cache: npm, cache-dependency-path: package-lock.json }
       - run: make frontend-setup
       - run: >-
           python3 validation/ci/ci_report.py run --job e2e-build --unit frontend --step next-build
@@ -284,7 +321,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+        with: { node-version: "24", cache: npm, cache-dependency-path: package-lock.json }
       - run: make frontend-setup
       - uses: actions/download-artifact@v8
         with: { name: "${{ needs.e2e-build.outputs.artifact }}" }
@@ -330,7 +367,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+        with: { node-version: "24", cache: npm, cache-dependency-path: package-lock.json }
       - run: make frontend-setup
       - uses: actions/download-artifact@v8
         with:
@@ -359,7 +396,7 @@ jobs:
   validation-gate:
     name: Validation gate
     if: always()
-    needs: [static-python, static-licences, static-typescript, unit-python, unit-typescript, e2e-build, e2e-production]
+    needs: [static-python, static-licences, static-typescript, site, unit-python, unit-typescript, e2e-build, e2e-production]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -377,7 +414,7 @@ jobs:
         run: >-
           python3 validation/ci/ci_report.py merge --expect
           static-python-lint static-python-scripts static-python-arch static-cypher static-sql static-licences
-          static-typescript-lint static-typescript-scripts unit-python unit-typescript
+          static-typescript-lint static-typescript-scripts static-typescript-lint-ui static-typescript-scripts-ui site unit-python unit-typescript
           e2e-build
           e2e-production-shard1 e2e-production-shard2
       # Writes the tables to the run summary and file/line annotations to the pull request.

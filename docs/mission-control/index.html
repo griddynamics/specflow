@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Graphico Mission Control</title>
+<meta name="description" content="Prototype: Mission Control as one canvas. Connect sources, build the graph, and let gaps and the plan flow to the tools the team uses.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Fira+Sans:wght@300;400;600;700;800&display=swap">
+<script>(function(){var t;try{t=localStorage.getItem("sf-theme")}catch(e){}if(t!=="light"&&t!=="dark")t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t)})();</script>
+<link rel="stylesheet" href="landing.css">
+<link rel="stylesheet" href="mission-control.css">
+<!-- Prototype for the next Mission Control. The canvas: Graph, Gap, Plan. Decisions: DECISIONS.md. The prototype bar under it switches scenes and design alternatives. -->
+</head>
+<body>
+<header class="site-header mc-head">
+  <div class="wrap">
+    <a class="brand" href="#" aria-label="Graphico home">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" fill="currentColor"/><path d="M7 7.5 L17 12 L7 16.5" fill="none" stroke="var(--paper)" stroke-width="1.6"/><circle cx="7" cy="7.5" r="2.1" fill="var(--paper)"/><circle cx="17" cy="12" r="2.1" fill="var(--paper)"/><circle cx="7" cy="16.5" r="2.1" fill="var(--paper)"/></svg>
+      <span class="brand-name">Graphico</span>
+    </a>
+    <span class="crumb"><button class="proj" type="button">Northwind ordering<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg></button></span>
+    <nav class="head-nav" aria-label="App">
+      <a href="index.html" aria-current="page">Mission Control</a>
+      <button class="nav-btn" type="button" id="members-open" aria-haspopup="dialog">Members</button>
+      <a href="integrations.html">Integrations</a>
+      <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch to dark mode"><svg class="i-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16 12.6A6.6 6.6 0 0 1 7.4 4a6.6 6.6 0 1 0 8.6 8.6z"/></svg><svg class="i-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4"/><path d="M10 1.8v2.2M10 16v2.2M1.8 10H4M16 10h2.2M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></svg></button>
+      <span class="avatar" aria-label="Your account">AK</span>
+    </nav>
+  </div>
+</header>
+
+<main class="mc">
+  <section class="canvas" id="canvas" data-trigger="hub" data-bg="graph" data-glyph="graph" aria-label="Mission Control canvas">
+    <svg class="bg" id="bg" aria-hidden="true"></svg>
+    <svg class="wires" id="wires" aria-hidden="true"></svg>
+    <div class="zones">
+      <div class="zone" data-zone="knowledge">
+        <p class="zone-label">01 · Graph</p>
+        <div class="zone-body">
+          <div class="col col-in" id="col-sources"></div>
+          <div class="col" id="col-khub"></div>
+        </div>
+      </div>
+      <div class="zone" data-zone="gap">
+        <p class="zone-label">02 · Gap</p>
+        <div class="zone-body">
+          <div class="col" id="col-ghub"></div>
+          <div class="col" id="col-channels"></div>
+        </div>
+      </div>
+      <div class="zone" data-zone="plan">
+        <p class="zone-label">03 · Plan</p>
+        <div class="zone-body">
+          <div class="col" id="col-phub"></div>
+          <div class="col" id="col-dests"></div>
+        </div>
+      </div>
+    </div>
+    <button class="btn yellow seam" type="button" id="seam" data-label="Build graph" aria-label="Build graph"><svg viewBox="0 0 20 12" width="22" height="13" aria-hidden="true" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M1 6 H18 M13 1 L18 6 L13 11"/></svg></button>
+    <button class="btn yellow seam" type="button" id="seam-p" data-label="Build plan" aria-label="Build plan"><svg viewBox="0 0 20 12" width="22" height="13" aria-hidden="true" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M1 6 H18 M13 1 L18 6 L13 11"/></svg></button>
+    <div class="dock" id="dock">
+      <span class="say" id="dock-say"></span>
+      <label class="sr-only" for="dock-level">Reasoning level</label>
+      <select id="dock-level"></select>
+      <button class="btn yellow sm" type="button" id="dock-btn">Build graph</button>
+    </div>
+  </section>
+
+  <section class="proto" aria-label="Prototype controls">
+    <div class="proto-head">
+      <p class="eyebrow">Prototype · not part of the product</p>
+      <p>Step through the scenes, or use the plus buttons and the hubs. Switch the alternatives to compare them.</p>
+    </div>
+    <div class="proto-row">
+      <div class="proto-ctl">
+        <span>Scene</span>
+        <button class="icon-btn" type="button" id="sc-prev" aria-label="Previous scene"><svg viewBox="0 0 14 14"><path d="M9 2 4 7l5 5"/></svg></button>
+        <span class="scene-name" id="sc-name" aria-live="polite"></span>
+        <button class="icon-btn" type="button" id="sc-next" aria-label="Next scene"><svg viewBox="0 0 14 14"><path d="m5 2 5 5-5 5"/></svg></button>
+        <button class="btn sm ghost" type="button" id="sc-play">Play all</button>
+        <button class="btn sm ghost" type="button" id="sc-first">First run</button>
+      </div>
+    </div>
+    <div class="proto-row">
+      <div class="proto-ctl"><span>Build button</span>
+        <div class="seg" role="group" aria-label="Where the build button is" data-alt="trigger">
+          <button type="button" data-v="hub" aria-pressed="true">A · The hub</button><button type="button" data-v="seam" aria-pressed="false">B · On the seam</button><button type="button" data-v="dock" aria-pressed="false">C · A dock</button>
+        </div>
+      </div>
+      <div class="proto-ctl"><span>Graph icon</span>
+        <div class="seg" role="group" aria-label="The graph hub's icon" data-alt="glyph">
+          <button type="button" data-v="graph" aria-pressed="true">Graph</button><button type="button" data-v="brain" aria-pressed="false">Brain</button>
+        </div>
+      </div>
+      <div class="proto-ctl"><span>Background</span>
+        <div class="seg" role="group" aria-label="Canvas background" data-alt="bg">
+          <button type="button" data-v="graph" aria-pressed="true">Growing graph</button><button type="button" data-v="dots" aria-pressed="false">Dots</button><button type="button" data-v="plain" aria-pressed="false">Plain</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<dialog class="mdl" id="mdl" aria-labelledby="mdl-title">
+  <div class="mdl-in" id="mdl-in"></div>
+</dialog>
+
+<script src="landing.js"></script>
+<script src="icons.js"></script>
+<script src="mission-control.js"></script>
+<script src="members.js"></script>
+</body>
+</html>
