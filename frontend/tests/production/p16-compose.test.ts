@@ -89,7 +89,7 @@ const http: HttpPorts = {
   linear: { connection: never, authorize: never, disconnect: never },
   linearPlan: { get: never },
   linearSource: { check: never, add: never },
-  linearGaps: { get: never },
+  linearGaps: { get: never, save: never, checkAccess: never },
   github: {
     connection: never,
     authorize: never,

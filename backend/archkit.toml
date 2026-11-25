@@ -253,7 +253,7 @@ method_not_allowed = "DELETE /api/v1/me"
 unauthenticated_path = "/api/v1/me"
 
 [route_contract]
-public_operations = ["GET /healthz", "GET /readyz"]
+public_operations = ["GET /healthz", "GET /readyz", "POST /api/v1/integrations/linear/webhook"]
 create_operation_prefix = "create_"
 
 [openapi_snapshot]

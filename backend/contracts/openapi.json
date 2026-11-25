@@ -6697,6 +6697,73 @@
         "title": "JiraSyncStatus",
         "type": "object"
       },
+      "LinearAccessFailed": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "enum": [
+                  "team_key",
+                  "linear_project"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "reason": {
+            "description": "A closed Linear API code, for example linear_team_not_found.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "result": {
+            "const": "failed",
+            "default": "failed",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "field"
+        ],
+        "title": "LinearAccessFailed",
+        "type": "object"
+      },
+      "LinearAccessOk": {
+        "properties": {
+          "linear_project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linear Project Name"
+          },
+          "result": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Result",
+            "type": "string"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name",
+          "linear_project_name"
+        ],
+        "title": "LinearAccessOk",
+        "type": "object"
+      },
       "LinearAuthorizeIn": {
         "additionalProperties": false,
         "description": "Where the browser returns after the consent: a path of this site (the Atlassian rule).",
@@ -6767,6 +6834,52 @@
         "title": "LinearCallbackOut",
         "type": "object"
       },
+      "LinearCheckOut": {
+        "description": "What an import would take: the kind and name of the target, how many issues it has for the member (at most the\ncap is imported, listed in order) and how many project documents.",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "issues": {
+            "title": "Issues",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LinearItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "project",
+              "issue"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "issues",
+          "items",
+          "capped",
+          "documents"
+        ],
+        "title": "LinearCheckOut",
+        "type": "object"
+      },
       "LinearConnectionOut": {
         "description": "The caller's Linear connection; ``available`` is whether the server has the Linear app configured.",
         "properties": {
@@ -6813,6 +6926,255 @@
           "workspace"
         ],
         "title": "LinearConnectionOut",
+        "type": "object"
+      },
+      "LinearGapAccessCheckIn": {
+        "additionalProperties": false,
+        "description": "The typed team and optional Linear project of the gap channel before it is saved: the team key is trimmed and\nupper-cased, a blank project is null. The project is its name or a link to it.",
+        "properties": {
+          "linear_project": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linear Project"
+          },
+          "team_key": {
+            "pattern": "^[A-Z][A-Z0-9]{0,14}$",
+            "title": "Team Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_key"
+        ],
+        "title": "LinearGapAccessCheckIn",
+        "type": "object"
+      },
+      "LinearGapsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "grouping": {
+            "enum": [
+              "one",
+              "area"
+            ],
+            "title": "Grouping",
+            "type": "string"
+          },
+          "linear_project": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linear Project"
+          },
+          "team_key": {
+            "pattern": "^[A-Z][A-Z0-9]{0,14}$",
+            "title": "Team Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_key",
+          "grouping",
+          "enabled"
+        ],
+        "title": "LinearGapsIn",
+        "type": "object"
+      },
+      "LinearGapsOut": {
+        "description": "The Linear gap channel of a project: the target (null fields while there is none), the counts of its issues and\nthe parent issue. ``available`` is false when the server has no Linear OAuth app or gap runs are off.",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The closed code of the last refused post or read, or null.",
+            "title": "Error Code"
+          },
+          "grouping": {
+            "anyOf": [
+              {
+                "enum": [
+                  "one",
+                  "area"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grouping"
+          },
+          "linear_project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linear Project Id"
+          },
+          "parent_identifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Identifier"
+          },
+          "parent_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Url"
+          },
+          "posted": {
+            "title": "Posted",
+            "type": "integer"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "team_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Key"
+          }
+        },
+        "required": [
+          "available",
+          "enabled",
+          "team_id",
+          "team_key",
+          "linear_project_id",
+          "grouping",
+          "parent_identifier",
+          "parent_url",
+          "posted",
+          "answered",
+          "error_code"
+        ],
+        "title": "LinearGapsOut",
+        "type": "object"
+      },
+      "LinearItemOut": {
+        "description": "One issue an import would take: identifier, title and state name (shown, not stored here), parent identifier.",
+        "properties": {
+          "identifier": {
+            "title": "Identifier",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier",
+          "title",
+          "state",
+          "parent"
+        ],
+        "title": "LinearItemOut",
+        "type": "object"
+      },
+      "LinearSourceIn": {
+        "additionalProperties": false,
+        "description": "A Linear project or issue by its link, or an issue by its identifier (``GRA-12``).",
+        "properties": {
+          "exclude": {
+            "items": {
+              "maxLength": 64,
+              "pattern": "^[A-Z][A-Z0-9_]*-\\d+$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Exclude",
+            "type": "array"
+          },
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "LinearSourceIn",
         "type": "object"
       },
       "LinearWorkspaceOut": {
@@ -12063,6 +12425,20 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WebhookAck": {
+        "description": "The answer to a delivery: it was verified and handed on.",
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "WebhookAck",
+        "type": "object"
+      },
       "WitnessView": {
         "additionalProperties": false,
         "description": "A ``CITES`` witness of a gap: the fragment, the quote and its lines, and where it is: the document (its graph id,\nthe corpus lineage), and, from ``get_gap`` only, the document's title and path and the section's heading path.",
@@ -15187,6 +15563,27 @@
         ]
       }
     },
+    "/api/v1/integrations/linear/webhook": {
+      "post": {
+        "operationId": "receive_linear_webhook_api_v1_integrations_linear_webhook_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Receive Linear Webhook",
+        "tags": [
+          "linear"
+        ]
+      }
+    },
     "/api/v1/integrations/slack/link": {
       "post": {
         "description": "Link the Slack user the nonce was made for to the caller, and tell them in Slack.",
@@ -17933,6 +18330,165 @@
         ]
       }
     },
+    "/api/v1/projects/{pid}/linear-gaps": {
+      "get": {
+        "operationId": "get_linear_gaps_api_v1_projects__pid__linear_gaps_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearGapsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Linear Gaps",
+        "tags": [
+          "linear-gaps"
+        ]
+      },
+      "put": {
+        "operationId": "put_linear_gaps_api_v1_projects__pid__linear_gaps_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearGapsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearGapsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Linear Gaps",
+        "tags": [
+          "linear-gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/linear-gaps/access-check": {
+      "post": {
+        "operationId": "check_linear_gaps_access_api_v1_projects__pid__linear_gaps_access_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearGapAccessCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "failed": "#/components/schemas/LinearAccessFailed",
+                      "ok": "#/components/schemas/LinearAccessOk"
+                    },
+                    "propertyName": "result"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/LinearAccessOk"
+                    },
+                    {
+                      "$ref": "#/components/schemas/LinearAccessFailed"
+                    }
+                  ],
+                  "title": "Response Check Linear Gaps Access Api V1 Projects  Pid  Linear Gaps Access Check Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Linear Gaps Access",
+        "tags": [
+          "linear-gaps"
+        ]
+      }
+    },
     "/api/v1/projects/{pid}/members": {
       "get": {
         "operationId": "list_members_api_v1_projects__pid__members_get",
@@ -19071,6 +19627,110 @@
           }
         },
         "summary": "Check Jira Epic",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/linear": {
+      "post": {
+        "operationId": "add_linear_source_api_v1_projects__pid__sources_linear_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearSourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Linear Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/linear/check": {
+      "post": {
+        "operationId": "check_linear_source_api_v1_projects__pid__sources_linear_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearSourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Linear Source",
         "tags": [
           "sources"
         ]
