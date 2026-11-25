@@ -84,12 +84,31 @@ async def get_target(session: AsyncSession, project_id: uuid.UUID) -> PlanTarget
     return None if row is None else _view(*row)
 
 
+async def reset_database(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """Forget the database of the target and the project's map rows (the next pass makes a new database)."""
+
+    await session.execute(delete(NotionPlanItem).where(NotionPlanItem.project_id == project_id))
+    await session.execute(
+        update(NotionPlanTarget)
+        .where(NotionPlanTarget.project_id == project_id)
+        .values(database_id=None, data_source_id=None, database_url=None)
+    )
+
+
 async def save_target(
-    session: AsyncSession, project_id: uuid.UUID, *, parent: ParentChoice, enabled: bool, now: datetime
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    parent: ParentChoice,
+    enabled: bool,
+    now: datetime,
+    database_lost: bool = False,
 ) -> TargetSaved:
-    """Create or change the target. The row is locked ``FOR UPDATE`` first; a change of the parent page clears the
-    database columns and deletes the project's map rows in the same transaction, so no pass writes a row of the old
-    destination (the next pass makes a new database)."""
+    """Create or change the target. The row is locked ``FOR UPDATE`` first; a change of the parent page, or
+    ``database_lost`` (the caller found the stored database trashed or unshared), clears the database columns and
+    deletes the project's map rows in the same transaction, so no pass writes a row of the old destination (the next
+    pass makes a new database). A target with no database yet starts a pass when saved again: the one that made it may
+    have ended on ``notion_database_gone``."""
 
     locked = (
         select(NotionPlanTarget)
@@ -112,8 +131,9 @@ async def save_target(
         )
         await session.flush()
         return TargetSaved(destination_changed=False, turned_on=enabled, keys_changed=True)
-    changed = before.parent_page_id != parent.page_id
+    changed = before.parent_page_id != parent.page_id or database_lost
     turned_on = enabled and not before.enabled
+    no_database = before.database_id is None
     if changed:
         await session.execute(delete(NotionPlanItem).where(NotionPlanItem.project_id == project_id))
         before.database_id = before.data_source_id = before.database_url = None
@@ -122,7 +142,7 @@ async def save_target(
     before.parent_page_id, before.parent_page_title, before.parent_page_url = parent.page_id, parent.title, parent.url
     before.enabled = enabled
     await session.flush()
-    return TargetSaved(destination_changed=changed, turned_on=turned_on, keys_changed=changed)
+    return TargetSaved(destination_changed=changed, turned_on=turned_on, keys_changed=changed or no_database)
 
 
 async def target_unchanged(session: AsyncSession, project_id: uuid.UUID, *, parent_page_id: str) -> bool:

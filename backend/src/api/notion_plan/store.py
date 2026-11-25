@@ -30,6 +30,8 @@ class PlanStore(Protocol):
         self, target: PlanTargetView, *, database_id: str, data_source_id: str, database_url: str
     ) -> None: ...
 
+    async def reset_database(self, target: PlanTargetView) -> None: ...
+
     async def add_pending(self, target: PlanTargetView, *, node_id: str, kind: str, requested_at: datetime) -> None: ...
 
     async def update_item(self, target: PlanTargetView, node_id: str, **columns: Any) -> None: ...
@@ -66,6 +68,13 @@ class DbStore:
                 data_source_id=data_source_id,
                 database_url=database_url,
             )
+
+    async def reset_database(self, target: PlanTargetView) -> None:
+        """The database is gone: forget it and the map."""
+
+        async with self._transaction() as session:
+            await self._guard(session, target)
+            await plan_db.reset_database(session, target.project_id)
 
     async def add_pending(self, target: PlanTargetView, *, node_id: str, kind: str, requested_at: datetime) -> None:
         async with self._transaction() as session:

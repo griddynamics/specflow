@@ -133,7 +133,7 @@ async def test_a_row_in_the_to_do_group_takes_the_plans_properties_and_body() ->
     result = await harness.push()
 
     assert result.counts == counts(updated=1, unchanged=7)
-    assert [call.method for call in harness.gateway.calls[mark:] if call.method != "data_source"] == [
+    assert [call.method for call in harness.gateway.calls[mark:] if call.method not in ("data_source", "database")] == [
         "page",
         "update_page",
         "replace_markdown",
@@ -359,18 +359,91 @@ async def test_a_refusal_of_the_database_create_is_one_closed_run_code(code: Not
     assert harness.store.saved == [] and harness.gateway.called("create_page") == []
 
 
-async def test_a_write_that_finds_nothing_is_a_trashed_database_or_a_share_taken_back() -> None:
+async def test_a_write_that_finds_nothing_in_a_database_that_is_there_is_a_share_taken_back() -> None:
     harness = Harness()
     harness.gateway.fail("create_page", NotionCode.NOT_SHARED)
 
-    unshared = await harness.push()
+    result = await harness.push()
 
-    assert unshared.error_code == "notion_not_shared"
+    assert result.error_code == "notion_not_shared"
+    assert harness.store.resets == 0 and harness.store.target.database_id
+
+
+def trash_database(harness: Harness) -> None:
     database = harness.gateway.databases[str(harness.store.target.database_id)]
     harness.gateway.databases[database.id] = replace(database, in_trash=True)
-    harness.gateway.fail("create_page", NotionCode.NOT_SHARED)
+
+
+@pytest.mark.parametrize("how", ["trashed", "unshared"])
+async def test_a_trashed_or_unshared_database_stops_the_pass_before_any_row_is_written_and_is_forgotten(how) -> None:
+    harness = Harness()
+    await first_pass(harness)
+    harness.plan = edit_task(harness.plan, "TASK::A::3", title="Renamed")
+    if how == "trashed":
+        trash_database(harness)
+    else:
+        harness.gateway.unshare(str(harness.store.target.database_id))
+    mark = len(harness.gateway.calls)
+
+    result = await harness.push()
+
+    assert (result.status, result.error_code) == ("failed", "notion_database_gone")
+    assert {c.method for c in harness.gateway.calls[mark:]} == {"database"}
+    assert harness.store.target.database_id is None and harness.store.items == {} and harness.store.resets == 1
+
+
+async def test_the_next_pass_after_a_lost_database_makes_a_new_one_with_all_the_rows() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    harness.plan = edit_task(harness.plan, "TASK::A::3", title="Renamed")
+    trash_database(harness)
+    await harness.push()
+
+    again = await harness.push()
+
+    assert (again.status, again.counts.created) == ("succeeded", 8)
+    assert len(harness.gateway.called("create_database")) == 2 and len(harness.store.saved) == 2
+
+
+async def test_a_database_that_fails_a_write_and_is_in_the_trash_is_lost_too() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    harness.plan = edit_task(harness.plan, "TASK::A::3", title="Renamed")
+    harness.gateway.fail("page", NotionCode.NOT_SHARED)
+    trash_database(harness)
+    harness.gateway.fail("database", NotionCode.UNREACHABLE)  # the pass-start check is not what finds it
+
+    first = await harness.push()
+    assert first.error_code == "notion_unreachable"
     gone = await harness.push()
-    assert (gone.status, gone.error_code) == ("failed", "notion_database_gone")
+    assert gone.error_code == "notion_database_gone" and harness.store.resets == 1
+
+
+async def test_a_target_with_a_database_but_no_data_source_resolves_it_and_makes_no_second_database() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    harness.store.target = replace(harness.store.target, data_source_id=None)
+    harness.plan = edit_task(harness.plan, "TASK::A::3", title="Renamed")
+
+    result = await harness.push()
+
+    assert result.status == "succeeded" and len(harness.gateway.called("create_database")) == 1
+    assert harness.store.target.data_source_id == harness.gateway.source().id
+    assert result.counts.commented + result.counts.updated == 1
+
+
+async def test_a_trashed_row_is_settled_when_it_leaves_the_plan_not_failed_in_every_pass() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    harness.gateway.trash("TASK::A::4")
+    harness.plan = without_tasks(harness.plan, "TASK::A::4")
+
+    first = await harness.push()
+    second = await harness.push()
+
+    assert (first.status, first.counts.removed, first.counts.failed) == ("succeeded", 1, 0)
+    assert harness.store.items["TASK::A::4"].error_code == NotionCode.PAGE_GONE.value
+    assert second.counts == counts(unchanged=7) and harness.gateway.comments == []
 
 
 async def test_the_relations_a_crash_left_out_are_added_by_the_next_pass_before_any_row_is_written() -> None:

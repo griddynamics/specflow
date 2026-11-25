@@ -309,22 +309,52 @@ class _Pass:
     # Database --------------------------------------------------------------------------------------------------------
 
     async def _database(self, *, repair: bool) -> None:
-        """Make the database and its relations when the target has none. ``repair``: the target has one but no row was
-        ever written, so a crash may have stopped it before the relations; they are read and completed."""
+        """Make the database and its relations when the target has none; otherwise prove it is still there (a trashed or
+        unshared database ends the pass ``notion_database_gone`` before any row is written, and the stored database
+        and map are forgotten). ``repair``: no row was ever written, so a crash may have stopped the first pass before
+        the relations; they are read and completed."""
 
         target = self.target
-        if target.database_id is not None and target.data_source_id is not None:
+        if target.database_id is not None:
+            source_id = await self._live_source(target.database_id)
             if repair:
-                await self._relations(target.data_source_id, (await self._source()).properties)
+                await self._relations(source_id, (await self._source()).properties)
             return
         title = f"Graphico plan · {target.project_name}"
         database = await self.gateway.create_database(target.parent_page_id, title, DATABASE_PROPERTIES)
         source_id = database.data_sources[0].id
-        await self.deps.store.save_database(
-            target, database_id=database.id, data_source_id=source_id, database_url=database.url
-        )
-        self.target = replace(target, database_id=database.id, data_source_id=source_id, database_url=database.url)
+        await self._remember(database.id, source_id, database.url)
         await self._relations(source_id, None)
+
+    async def _remember(self, database_id: str, source_id: str, url: str) -> None:
+        await self.deps.store.save_database(
+            self.target, database_id=database_id, data_source_id=source_id, database_url=url
+        )
+        self.target = replace(self.target, database_id=database_id, data_source_id=source_id, database_url=url)
+
+    async def _live_source(self, database_id: str) -> str:
+        """The data source of the stored database, read from Notion; one the target lacks is resolved here, never made
+        again."""
+
+        try:
+            database = await self.gateway.database(database_id)
+        except NotionError as error:
+            if error.code is NotionCode.NOT_SHARED:
+                await self._lost()
+            raise
+        if database.in_trash:
+            await self._lost()
+        if self.target.data_source_id is not None:
+            return self.target.data_source_id
+        source_id = database.data_sources[0].id
+        await self._remember(database.id, source_id, self.target.database_url or database.url)
+        return source_id
+
+    async def _lost(self) -> None:
+        """The database is gone: forget it and its rows (a later pass makes a new one) and end this pass."""
+
+        await self.deps.store.reset_database(self.target)
+        raise NotionError(NotionCode.DATABASE_GONE)
 
     async def _relations(self, source_id: str, existing: Mapping[str, Any] | None) -> None:
         """Add the two-way self-relations (they need the data source's own id) and rename the synced sides."""
@@ -377,7 +407,9 @@ class _Pass:
         """A write found nothing: when the database is in the trash say so, else it is a share that was taken back."""
 
         database = await self.gateway.database(str(self.target.database_id))
-        raise NotionError(NotionCode.DATABASE_GONE if database.in_trash else NotionCode.NOT_SHARED)
+        if database.in_trash:
+            await self._lost()
+        raise NotionError(NotionCode.NOT_SHARED)
 
     async def _store(self, node: str, **columns: Any) -> None:
         await self.deps.store.update_item(self.target, node, **columns)
@@ -462,6 +494,9 @@ class _Pass:
 
     async def _flag(self, node: str, *, removed: bool) -> bool:
         page_id = str(self.ids[node].page_id)
+        if (await self.gateway.page(page_id)).in_trash:
+            await self._gone(node)  # a trashed row is settled once, not failed in every pass
+            return True
         await self.gateway.update_page(page_id, properties={"Removed": {"checkbox": removed}})
         await self.gateway.create_comment(page_id, _REMOVED_LINE if removed else _RETURNED_LINE)
         now = self.deps.now()

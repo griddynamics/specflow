@@ -51,11 +51,18 @@ class FakePlanDb:
         return self.targets.get(project_id)
 
     async def save_target(
-        self, _session: Any, project_id: uuid.UUID, *, parent: ParentChoice, enabled: bool, now: datetime
+        self,
+        _session: Any,
+        project_id: uuid.UUID,
+        *,
+        parent: ParentChoice,
+        enabled: bool,
+        now: datetime,
+        database_lost: bool = False,
     ) -> TargetSaved:
         before = self.targets.get(project_id)
         base = before or target_view(project_id)
-        changed = before is None or before.parent_page_id != parent.page_id
+        changed = before is None or before.parent_page_id != parent.page_id or database_lost
         self.targets[project_id] = replace(
             base,
             parent_page_id=parent.page_id,
@@ -68,7 +75,7 @@ class FakePlanDb:
         return TargetSaved(
             destination_changed=before is not None and changed,
             turned_on=enabled and (before is None or not before.enabled),
-            keys_changed=changed,
+            keys_changed=changed or base.database_id is None,
         )
 
     async def record_start(self, _session: Any, project_id: uuid.UUID, *, trigger: str, queued_at: datetime) -> None:
@@ -172,7 +179,9 @@ async def test_saving_a_destination_resolves_the_page_as_the_bound_member_and_st
     assert later["sync"]["counts"]["deferred"] == 1
 
 
-async def test_saving_the_same_page_again_starts_no_second_pass_and_turning_it_off_saves_it_disabled(rig) -> None:
+async def test_saving_the_same_page_again_before_its_database_exists_asks_for_a_pass_and_turning_it_off_saves_it(
+    rig,
+) -> None:
     bind(rig)
     await call(rig, "PUT", PATH, ALICE, body())
     await settle(rig)
@@ -182,7 +191,10 @@ async def test_saving_the_same_page_again_starts_no_second_pass_and_turning_it_o
     await settle(rig)
 
     assert again.status_code == off.status_code == 200
-    assert off.json()["enabled"] is False and rig.passes == [ALPHA]
+    assert off.json()["enabled"] is False and rig.passes == [
+        ALPHA,
+        ALPHA,
+    ]  # no database yet: the first pass may have failed
 
 
 async def test_a_pass_acts_in_the_workspace_of_the_member_the_project_is_bound_to_not_the_caller(rig) -> None:
@@ -317,3 +329,32 @@ async def test_an_access_check_of_another_member_acts_as_the_bound_member(rig) -
     await call(rig, "POST", f"{PATH}/access-check", ALICE, {"link": ROOT_LINK})
 
     assert rig.connections.gateways_asked == [rig.ben]
+
+
+async def test_saving_the_same_page_while_its_database_is_trashed_starts_over_and_starts_a_pass(rig) -> None:
+    bind(rig)
+    await call(rig, "PUT", PATH, ALICE, body())
+    await settle(rig)
+    made = await rig.fake.create_database(ROOT_PAGE_ID, "Graphico plan", {})
+    rig.db.targets[PID] = replace(rig.db.targets[PID], database_id=made.id, data_source_id="ds")
+    rig.fake.databases[made.id] = replace(made, in_trash=True)
+
+    answer = await call(rig, "PUT", PATH, ALICE, body())
+    await settle(rig)
+
+    assert answer.status_code == 200
+    assert rig.db.targets[PID].database_id is None
+    assert rig.passes == [ALPHA, ALPHA]
+
+
+async def test_saving_the_same_page_while_its_database_is_alive_keeps_it_and_starts_no_pass(rig) -> None:
+    bind(rig)
+    await call(rig, "PUT", PATH, ALICE, body())
+    await settle(rig)
+    made = await rig.fake.create_database(ROOT_PAGE_ID, "Graphico plan", {})
+    rig.db.targets[PID] = replace(rig.db.targets[PID], database_id=made.id, data_source_id="ds")
+
+    await call(rig, "PUT", PATH, ALICE, body())
+    await settle(rig)
+
+    assert rig.db.targets[PID].database_id == made.id and rig.passes == [ALPHA]

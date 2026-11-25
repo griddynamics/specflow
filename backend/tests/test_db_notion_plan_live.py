@@ -189,3 +189,42 @@ async def test_the_run_columns_record_the_start_and_the_end_and_recovery_finds_a
     with pytest.raises(IntegrityError):  # a closed set of triggers
         async with factory() as session, session.begin():
             await plan_db.record_start(session, project, trigger="mcp", queued_at=NOW)
+
+
+async def test_a_lost_database_is_forgotten_on_a_save_of_the_same_page_and_a_pass_is_asked_for(factory) -> None:
+    ana = await new_user(factory, "Ana")
+    project = await new_project(factory, ana)
+    await save(factory, project)
+    async with factory() as session, session.begin():
+        await plan_db.update_target(session, project, parent_page_id="page-1", database_id="db", data_source_id="ds")
+        await plan_db.add_pending(session, project, node_id="STORY::A", kind="story", requested_at=NOW)
+
+    async with factory() as session, session.begin():
+        saved = await plan_db.save_target(session, project, parent=PAGE_ONE, enabled=True, now=NOW, database_lost=True)
+    async with factory() as session:
+        target = await plan_db.get_target(session, project)
+        left = await plan_db.list_items(session, project)
+    again = await save(factory, project)
+
+    assert saved == TargetSaved(destination_changed=True, turned_on=False, keys_changed=True)
+    assert target is not None and target.database_id is None and left == []
+    assert again == TargetSaved(destination_changed=False, turned_on=False, keys_changed=True)  # no database yet
+
+
+async def test_the_pass_forgets_a_lost_database_and_its_map_and_saving_a_live_one_changes_nothing(factory) -> None:
+    ana = await new_user(factory, "Ana")
+    project = await new_project(factory, ana)
+    await save(factory, project)
+    async with factory() as session, session.begin():
+        await plan_db.update_target(session, project, parent_page_id="page-1", database_id="db", data_source_id="ds")
+        await plan_db.add_pending(session, project, node_id="STORY::A", kind="story", requested_at=NOW)
+    live = await save(factory, project)
+
+    async with factory() as session, session.begin():
+        await plan_db.reset_database(session, project)
+    async with factory() as session:
+        target = await plan_db.get_target(session, project)
+        left = await plan_db.list_items(session, project)
+
+    assert live == TargetSaved(destination_changed=False, turned_on=False, keys_changed=False)
+    assert target is not None and (target.database_id, target.data_source_id) == (None, None) and left == []

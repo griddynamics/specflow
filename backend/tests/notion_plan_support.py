@@ -163,6 +163,7 @@ class FakeStore:
         self.items: dict[str, NotionPlanItem] = {}
         self.changed = False
         self.saved: list[dict[str, str]] = []
+        self.resets = 0
 
     async def get_target(self, project_id: uuid.UUID) -> PlanTargetView | None:
         return self.target if self.target is not None and self.target.project_id == project_id else None
@@ -180,6 +181,13 @@ class FakeStore:
         self.target = replace(
             self.target, database_id=database_id, data_source_id=data_source_id, database_url=database_url
         )
+
+    async def reset_database(self, target: PlanTargetView) -> None:
+        if self.changed or self.target is None or target.project_id != self.target.project_id:
+            raise TargetChangedError
+        self.resets += 1
+        self.items.clear()
+        self.target = replace(self.target, database_id=None, data_source_id=None, database_url=None)
 
     async def add_pending(self, target: PlanTargetView, *, node_id: str, kind: str, requested_at: datetime) -> None:
         if self.changed:

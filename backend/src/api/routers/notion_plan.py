@@ -104,7 +104,9 @@ async def put_notion_plan(body: NotionPlanIn, runtime: RuntimeDep, user: UserDep
     runner = _runner(runtime)
     pid = access.project.id
     try:
-        parent = await _resolved(runtime, pid, body.link)
+        gateway = await _gateway(runtime, pid)
+        parent = await resolve(gateway, body.link)
+        lost = await _database_lost(runtime, gateway, pid, parent)
     except AccessRefusedError as refused:
         raise notion_error(NotionError(NotionCode(refused.reason))) from None
     except NotionError as error:
@@ -116,6 +118,7 @@ async def put_notion_plan(body: NotionPlanIn, runtime: RuntimeDep, user: UserDep
             parent=ParentChoice(parent.page_id, parent.title, parent.url),
             enabled=body.enabled,
             now=datetime.now(UTC),
+            database_lost=lost,
         )
     log_event(
         logger,
@@ -130,8 +133,20 @@ async def put_notion_plan(body: NotionPlanIn, runtime: RuntimeDep, user: UserDep
     return await _out(runtime, pid, user.id)
 
 
-async def _resolved(runtime: Runtime, pid: uuid.UUID, link: str) -> ResolvedParent:
-    return await resolve(await _gateway(runtime, pid), link)
+async def _database_lost(runtime: Runtime, gateway: NotionGateway, pid: uuid.UUID, parent: ResolvedParent) -> bool:
+    """Whether the stored database of the same parent page is in the trash or no longer shared: saving the page again
+    then starts over with a new database."""
+
+    async with runtime.transaction() as session:
+        target = await plan_db.get_target(session, pid)
+    if target is None or target.database_id is None or target.parent_page_id != parent.page_id:
+        return False
+    try:
+        return (await gateway.database(target.database_id)).in_trash
+    except NotionError as error:
+        if error.code is NotionCode.NOT_SHARED:
+            return True
+        raise
 
 
 @router.post("/access-check", response_model=NotionPlanAccessResult)
