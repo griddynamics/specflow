@@ -154,3 +154,35 @@ async def test_the_children_changed_lately_come_in_one_search_with_a_relative_wi
     assert searches[0]["jql"] == 'parent = "PAY-1" ORDER BY key'
     assert searches[2]["jql"] == 'parent = "PAY-1" AND updated >= -1m ORDER BY key'
     assert "updated" in searches[0]["fields"] and "comment" in searches[0]["fields"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        f"https://evil@{HOST}/browse/PAY-12",
+        f"https://user:secret@{HOST}/browse/PAY-12",
+        f"https://{HOST}@evil.example/browse/PAY-12",  # the host is evil.example, and it has credentials
+        f"http://{HOST}/browse/PAY-12",
+        f"//{HOST}/browse/PAY-12",
+    ],
+)
+def test_a_link_with_credentials_or_without_https_is_refused_as_malformed(value: str) -> None:
+    with pytest.raises(EpicLinkError) as caught:
+        parse_epic(value, HOST)
+
+    assert not caught.value.site_mismatch
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        f"https://{HOST}.evil.example/browse/PAY-12",
+        f"https://evil{HOST}/browse/PAY-12",
+        f"https://evil.example/{HOST}/browse/PAY-12",
+    ],
+)
+def test_a_lookalike_host_is_a_foreign_site(value: str) -> None:
+    with pytest.raises(EpicLinkError) as caught:
+        parse_epic(value, HOST)
+
+    assert caught.value.site_mismatch

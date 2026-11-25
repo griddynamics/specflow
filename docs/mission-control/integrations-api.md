@@ -60,7 +60,7 @@ of the configured site; the GitHub one is the account login; the Slack one the w
 - **Remove** (`DELETE`): the member who connected the app, or the owner (AC6). The check and the delete are one
   statement (the row goes only if that member still holds it). The row is deleted and the Jira target's
   `connected_user_id` or the repositories' `added_by` becomes null in the same transaction, so everything that used the
-  account stops and no other member's account takes over (D2). The existence and holder checks are the same for every app, Slack included (also when Slack is off on the server). For Slack the channel is unbound first and the row goes only once that worked; a failed unbind is `502 slack_unreachable` (the row stays), and a binding taken over by another member meanwhile is `403 integration_forbidden`. A
+  account stops and no other member's account takes over (D2). The existence and holder checks are the same for every app, Slack included (also when Slack is off on the server). For Slack the binding is read first (a failed read is `502 slack_unreachable` too) and the channel is unbound before the row goes, only once that worked; a failed unbind is `502 slack_unreachable` (the row stays), and a binding taken over by another member meanwhile is `403 integration_forbidden`. A
   member who is removed from the project or leaves it stops being the member of every row of the project in the
   same transaction.
 - No transaction is open across a call to an app; events `api.integrations.connected`, `.removed`, `.refused` carry
@@ -115,7 +115,7 @@ the graph build changes: an importer writes `parsed` documents the build already
   `processed` (a duplicate of content the project holds is `duplicate`, linking the first document); `fail(...)` ends
   one item `error`. A removed source stops the importer at its next write (`SourceGoneError`).
 - A restart ends the tasks: at startup every source of those kinds still `listing` or `importing` and not touched since
-  before this process started is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). The start instant is read once from the database clock (`SELECT now()`) and compared with `connections.updated_at`, so no process clock is involved; a source added after it is never ended. One API replica is assumed, as for the Slack bindings.
+  before this process started is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). The start instant is read once from the database clock (`SELECT now()`) and compared with `connections.updated_at`, so no process clock is involved; a source added after it is never ended. If the clock read fails (the database is still coming up) it is tried again after 0.5, 1 and 2 seconds; after the last failure a warning (`api.imports.recovery_failed`, the error class only) is logged and no source is ended. One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
 - The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source" and "Jira epic source" below.

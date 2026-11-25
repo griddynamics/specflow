@@ -364,3 +364,20 @@ async def test_a_channel_bound_before_its_row_existed_can_still_be_removed(rig) 
     answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack", BEN)
 
     assert answer.status_code == 204 and await rig.channels.binding(str(rig.alpha)) is None
+
+
+async def test_a_binding_that_cannot_be_read_is_a_closed_502_and_the_row_stays(rig, monkeypatch, caplog) -> None:
+    rig.integrations.put(rig.alpha, "slack", rig.alice.id)
+
+    async def broken(_project_id: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(rig.channels, "binding", broken)
+
+    with caplog.at_level(logging.INFO):
+        answer = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/slack")
+
+    assert error_of(answer) == (502, "slack_unreachable")  # not a 500: the removal is not attempted
+    assert "disk full" not in answer.text and "disk full" not in caplog.text
+    assert "api.integrations.binding_failed" in caplog.text
+    assert (rig.alpha, "slack") in rig.integrations.rows

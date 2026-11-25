@@ -198,7 +198,7 @@ async def delete_project_integration(
     # is unbound before its row goes, so a row that says "connected" never outlives a failed unbind.
     async with runtime.transaction() as session:
         bound = await integrations_db.get_integration(session, pid, app)
-    channel = app == SLACK and threads is not None and await threads.channels.binding(str(pid)) is not None
+    channel = app == SLACK and threads is not None and await _is_bound(threads, pid)
     if bound is None and not channel:
         raise integration_not_found()
     if bound is not None and only is not None and bound.user_id != only:
@@ -216,6 +216,17 @@ async def delete_project_integration(
             raise integration_forbidden() if exists else integration_not_found()  # taken over, or removed, meanwhile
     log_event(logger, INFO, "api.integrations.removed", project_id=str(pid), app=app, user_id=str(user.id))
     return Response(status_code=204)
+
+
+async def _is_bound(threads: Any, pid: uuid.UUID) -> bool:
+    """Whether the project's Slack channel is bound; a failed read (the binding file) is a closed answer, no 500."""
+
+    with Contained(passing=(ApiError,)) as read:
+        bound = await threads.channels.binding(str(pid)) is not None
+    if read.failed:
+        log_event(logger, WARNING, "api.integrations.binding_failed", project_id=str(pid), error_type=read.error_type)
+        raise ApiError(502, "slack_unreachable", "Slack could not be reached. Try again later.")
+    return bound
 
 
 async def _unbind_channel(threads: Any, pid: uuid.UUID) -> None:

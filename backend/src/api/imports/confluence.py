@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from api.imports.atlassian import (
+    CONVERT_FAILED,
+    CONVERT_STEP,
     NO_ACCESS,
     READ_STEP,
     SKIPPABLE,
@@ -31,6 +33,7 @@ from jira.confluence import ConfluenceClient
 from jira.confluence_links import PageTarget, References, SpaceTarget, TitledPage, references
 from jira.gateway import JiraError
 from jira.issues import JiraIssueReader
+from jira.markdown_safe import MarkupTooDeepError
 from jira.storage_markdown import to_markdown
 from logger.logger import WARNING, get_logger, log_event
 
@@ -159,14 +162,19 @@ class _Run:
             await self._writer.fail(f"page:{page_id}", f"page {page_id}", reason=NO_ACCESS, step=READ_STEP)
             return
         title = str(page.get("title", ""))
+        try:
+            markdown = page_markdown(page)
+        except MarkupTooDeepError:  # one page nested too deep to convert: its item is an error, the import goes on
+            await self._writer.fail(f"page:{page_id}", title, reason=CONVERT_FAILED, step=CONVERT_STEP)
+            return
         await self._writer.add(
-            f"page:{page_id}",
-            name=title,
-            original=json.dumps(page, sort_keys=True).encode(),
-            markdown=page_markdown(page),
+            f"page:{page_id}", name=title, original=json.dumps(page, sort_keys=True).encode(), markdown=markdown
         )
         if follow:
-            found = references(page_storage(page), self._host)
+            try:
+                found = references(page_storage(page), self._host)
+            except RecursionError:  # as deep as a page the converter refused: no links are followed from it
+                return
             self._found.page_ids.extend(found.page_ids)
             self._found.issue_keys.extend(found.issue_keys)
             space_id = str(page["spaceId"]) if page.get("spaceId") else None

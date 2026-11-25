@@ -35,6 +35,7 @@ from api.imports import (
     NotImportedKindError,
     SourceGoneError,
 )
+from api.imports.runner import CLOCK_BACKOFF
 from api.schemas import SourceKindName
 from db import imports as imports_db
 from db import sources as sources_db
@@ -316,12 +317,44 @@ async def test_a_database_that_cannot_give_its_clock_ends_no_source_and_the_star
         raise OSError(ERROR_TEXT)
 
     monkeypatch.setattr(imports_db, "database_now", broken)
+    waits: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    runner._sleep = sleep
 
     with caplog.at_level(logging.WARNING):
         await runner.start_recovery()
 
     assert runner._recovery is None and database.interrupted == []
     assert "api.imports.recovery_failed" in caplog.text and ERROR_TEXT not in caplog.text
+    assert waits == list(CLOCK_BACKOFF)  # it tried again after each wait, then gave up, logging once
+    assert caplog.text.count("api.imports.recovery_failed") == 1
+
+
+async def test_a_database_that_is_late_at_the_start_gives_its_clock_on_a_new_try(runner, database, monkeypatch) -> None:
+    tries: list[int] = []
+
+    async def late(_session: Any) -> datetime:
+        tries.append(1)
+        if len(tries) < 3:
+            raise OSError(ERROR_TEXT)
+        return database.clock
+
+    waits: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    monkeypatch.setattr(imports_db, "database_now", late)
+    runner._sleep = sleep
+
+    await runner.start_recovery()
+    await asyncio.wait_for(runner._recovery, timeout=2)
+
+    assert len(tries) == 3 and waits == list(CLOCK_BACKOFF[:2])
+    assert database.before == [database.clock]  # the recovery ran with the clock it finally read
 
 
 async def test_a_lost_race_on_an_item_fails_the_source_with_the_closed_unknown_reason(runner, database) -> None:

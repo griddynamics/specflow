@@ -12,6 +12,8 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
 
+from jira.markdown_safe import MarkupTooDeepError, fence, link
+
 _SPACES: Final = re.compile(r"[ \t]+")
 _BREAK: Final = "\x00"  # a hard break in inline text, kept apart from the spaces the collapse folds
 _AROUND_BREAK: Final = re.compile(r"[ \t]*\x00[ \t]*")
@@ -31,11 +33,24 @@ _BLOCK_CONTAINERS: Final = frozenset(
 
 
 def adf_to_markdown(doc: Any) -> str:
-    """Markdown of an ADF document (blocks separated by a blank line); an empty or malformed value is ``""``."""
+    """Markdown of an ADF document (blocks separated by a blank line); an empty or malformed value is ``""``.
+    ``MarkupTooDeepError`` when it nests deeper than the walk can follow."""
 
     if not isinstance(doc, Mapping):
         return ""
-    return "\n\n".join(_blocks(_children(doc)))
+    try:
+        return "\n\n".join(_blocks(_children(doc)))
+    except RecursionError:
+        raise MarkupTooDeepError from None
+
+
+def _number(value: Any, default: int) -> int:
+    """An integer attribute; ``default`` for anything that is not one (a page can write any text there)."""
+
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 def _children(node: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -71,7 +86,7 @@ def _paragraph(node: Mapping[str, Any]) -> str:
 
 
 def _heading(node: Mapping[str, Any]) -> str:
-    level = min(max(int(_attrs(node).get("level", 1) or 1), 1), 6)
+    level = min(max(_number(_attrs(node).get("level"), 1), 1), 6)
     text = _inline(_children(node))
     return f"{'#' * level} {text}" if text else ""
 
@@ -86,7 +101,7 @@ def _task_list(node: Mapping[str, Any]) -> str:
 
 def _code_block(node: Mapping[str, Any]) -> str:
     text = "".join(str(child.get("text", "")) for child in _children(node))
-    return f"```{_attrs(node).get('language', '') or ''}\n{text.strip(chr(10))}\n```"
+    return fence(text, str(_attrs(node).get("language", "") or ""))
 
 
 def _quoted(node: Mapping[str, Any]) -> str:
@@ -113,7 +128,7 @@ def _quote(text: str) -> str:
 def _list(node: Mapping[str, Any], indent: str) -> list[str]:
     lines: list[str] = []
     ordered = node.get("type") == "orderedList"
-    number = int(_attrs(node).get("order", 1) or 1)
+    number = _number(_attrs(node).get("order"), 1)
     for item in _children(node):
         marker = f"{number}. " if ordered else "- "
         number += 1
@@ -156,7 +171,7 @@ def _cell(cell: Mapping[str, Any]) -> str:
 
 def _card(node: Mapping[str, Any]) -> str:
     url = str(_attrs(node).get("url", "") or "")
-    return f"[{url}]({url})" if url else ""
+    return link(url, url) if url else ""
 
 
 _BLOCK_RENDERERS: Final = {
@@ -237,9 +252,9 @@ def _marked(text: str, marks: Any) -> str:
         if name in names and text.strip():
             lead, core, tail = text[: len(text) - len(text.lstrip())], text.strip(), text[len(text.rstrip()) :]
             text = f"{lead}{token}{core}{token}{tail}"
-    link = names.get("link")
-    href = str(_attrs(link).get("href", "")) if link is not None else ""
-    return f"[{text}]({href})" if href else text
+    marked = names.get("link")
+    href = str(_attrs(marked).get("href", "")) if marked is not None else ""
+    return link(text, href) if href else text
 
 
 def _date(timestamp: Any) -> str:

@@ -21,6 +21,16 @@ def _q(value: str) -> str:
     return quote(value, safe="")
 
 
+def _relative(body: dict[str, Any]) -> str | None:
+    """The ``_links.next`` of a result page when it is a path on this site (one ``/``, no backslash); anything else
+    ends the paging, so the bearer token is never sent to another host."""
+
+    link = (body.get("_links") or {}).get("next")
+    if isinstance(link, str) and link.startswith("/") and not link.startswith("//") and "\\" not in link:
+        return link
+    return None
+
+
 class ConfluenceClient:
     """The reads of one user's Confluence."""
 
@@ -73,6 +83,5 @@ class ConfluenceClient:
                 if len(items) >= limit:
                     return items, True
                 items.append(item)
-            link = (body.get("_links") or {}).get("next")
-            next_path, query = (link if isinstance(link, str) and link else None), None
+            next_path, query = _relative(body), None
         return items, False

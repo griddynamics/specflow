@@ -14,6 +14,8 @@ from collections.abc import Iterator
 from html.parser import HTMLParser
 from typing import Final, override
 
+from jira.markdown_safe import MarkupTooDeepError, fence, link
+
 _VOID: Final = frozenset({"br", "hr", "img", "col", "input", "meta"})
 _CDATA: Final = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.DOTALL)
 _SPACES: Final = re.compile(r"\s+")
@@ -112,7 +114,10 @@ def parse_storage(storage: str) -> Node:
 def to_markdown(storage: str) -> str:
     """Markdown of a storage-format body (blocks separated by a blank line, no trailing newline)."""
 
-    return "\n\n".join(_blocks(parse_storage(storage)))
+    try:
+        return "\n\n".join(_blocks(parse_storage(storage)))
+    except RecursionError:
+        raise MarkupTooDeepError from None
 
 
 def _blocks(parent: Node) -> list[str]:
@@ -166,7 +171,7 @@ def _task_list(node: Node) -> list[str]:
 
 
 def _pre(node: Node) -> list[str]:
-    return [_fence(node.text(), "")]
+    return [fence(node.text(), "")]
 
 
 def _quote(node: Node) -> list[str]:
@@ -186,15 +191,11 @@ def _macro(node: Node) -> list[str]:
     }
     if name in _CODE_MACROS:
         body = node.named("ac:plain-text-body")
-        return [_fence(body.text() if body is not None else "", params.get("language", ""))]
+        return [fence(body.text() if body is not None else "", params.get("language", ""))]
     body = node.named("ac:rich-text-body")
     blocks = _blocks(body) if body is not None else []
     title = params.get("title", "")
     return ([f"**{title}**"] if title else []) + blocks
-
-
-def _fence(code: str, language: str) -> str:
-    return f"```{language}\n{code.strip(chr(10))}\n```"
 
 
 def _list(node: Node, indent: str) -> list[str]:
@@ -293,7 +294,7 @@ def _line_break(_node: Node) -> str:
 
 def _anchor(node: Node) -> str:
     text, href = _inline_text(node), node.attrs.get("href", "")
-    return f"[{text}]({href})" if text and href else text
+    return link(text, href) if href else text
 
 
 def _emoticon(node: Node) -> str:
@@ -310,7 +311,7 @@ def _link(node: Node) -> str:
     page = node.named("ri:page")
     url = node.named("ri:url")
     if url is not None and url.attrs.get("ri:value"):
-        return f"[{text or url.attrs['ri:value']}]({url.attrs['ri:value']})"
+        return link(text or url.attrs["ri:value"], url.attrs["ri:value"])
     if page is not None:
         return text or page.attrs.get("ri:content-title", "")
     return text

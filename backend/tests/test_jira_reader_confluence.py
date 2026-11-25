@@ -152,3 +152,44 @@ async def test_a_page_is_found_by_title_in_a_space() -> None:
     assert await client.find_page("10", "Nothing") is None
     assert await client.find_page("11", "Refund policy") is None
     await reader.aclose()
+
+
+@pytest.mark.parametrize(
+    "next_link",
+    [
+        "https://evil.example/wiki/api/v2/pages/10/descendants?cursor=2",  # another host
+        "http://evil.example/steal",
+        "//evil.example/wiki/api/v2/pages/10/descendants",  # a network-path reference: another host too
+        "/\\evil.example/x",
+        "wiki/api/v2/pages/10/descendants?cursor=2",  # not a path of this site
+        "",
+        5,
+    ],
+)
+async def test_a_next_link_that_is_not_a_path_of_the_site_ends_the_paging_and_the_token_goes_nowhere(
+    next_link: object,
+) -> None:
+    hosts: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        body = {"results": [descendant("11")], "_links": {"next": next_link}}
+        return httpx.Response(200, json=body)
+
+    reader = AtlassianReader(confluence_url(CLOUD), FakeTokens(), transport=httpx.MockTransport(handle), sleep=no_sleep)
+
+    found, capped = await ConfluenceClient(reader).descendants("10", 10)
+    await reader.aclose()
+
+    assert [page["id"] for page in found] == ["11"] and not capped
+    assert hosts == ["api.atlassian.com"]  # one request: nothing was sent to the host the link named
+
+
+async def test_a_relative_next_link_is_followed() -> None:
+    fake = FakeAtlassian(below={"10": [descendant(str(n)) for n in range(11, 14)]}, page_size=2)
+    client, reader = client_for(fake)
+
+    found, _ = await client.descendants("10", 10)
+    await reader.aclose()
+
+    assert [page["id"] for page in found] == ["11", "12", "13"] and len(fake.requests) == 2

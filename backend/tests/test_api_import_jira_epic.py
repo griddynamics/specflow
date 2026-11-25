@@ -219,3 +219,16 @@ def test_an_epic_is_an_issue_of_hierarchy_level_one_or_named_epic() -> None:
     assert is_epic({"fields": {"issuetype": {"name": "Epic"}}})
     assert not is_epic({"fields": {"issuetype": {"name": "Story", "hierarchyLevel": 0}}})
     assert not is_epic({"fields": {}})
+
+
+async def test_an_issue_nested_too_deep_to_convert_is_one_item_in_error_and_the_import_goes_on(monkeypatch) -> None:
+    fake = epic_fake()
+    node: dict = {"type": "paragraph", "content": [{"type": "text", "text": "deep"}]}
+    for _ in range(400):
+        node = {"type": "blockquote", "content": [node]}
+    fake.issues["PAY-3"]["fields"]["description"] = {"type": "doc", "version": 1, "content": [node]}
+
+    writer = await run(JiraEpicImport("PAY-1"), fake, monkeypatch)
+
+    assert list(writer.added) == ["issue:PAY-1", "issue:PAY-2", "issue:PAY-4"]
+    assert writer.failed == [("issue:PAY-3", "convert_failed", "convert")]

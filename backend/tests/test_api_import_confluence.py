@@ -325,3 +325,23 @@ def test_the_follow_defaults_are_off_in_the_request_model() -> None:
     assert ConfluenceLinkIn(link="https://x").follow is False
     payload: dict[str, Any] = ConfluenceLinkIn(link="https://x", follow=True).model_dump()
     assert payload == {"link": "https://x", "follow": True}
+
+
+async def test_a_page_nested_too_deep_to_convert_is_one_item_in_error_and_the_import_goes_on(monkeypatch) -> None:
+    deep = "<blockquote>" * 3000 + "deep" + "</blockquote>" * 3000
+    fake = tree_fake()
+    fake.pages["6"] = storage_page("6", "Child 6", deep)
+
+    writer = await run(ConfluenceImport(PageTarget("5"), follow=False), fake, monkeypatch)
+
+    assert list(writer.added) == ["page:5", "page:7"]  # the pages around it were stored
+    assert writer.failed == [("page:6", "convert_failed", "convert")]
+
+
+async def test_following_links_from_a_page_nested_too_deep_does_not_fail_the_import(monkeypatch) -> None:
+    deep = "<blockquote>" * 3000 + "deep" + "</blockquote>" * 3000
+    fake = FakeAtlassian(pages={"5": storage_page("5", "Root", deep)})
+
+    writer = await run(ConfluenceImport(PageTarget("5"), follow=True), fake, monkeypatch)
+
+    assert writer.failed == [("page:5", "convert_failed", "convert")] and writer.added == {}

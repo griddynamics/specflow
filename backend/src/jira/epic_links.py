@@ -26,8 +26,8 @@ def parse_epic(value: str, site_host: str) -> str:
     if _KEY.match(text):
         return text.upper()
     parts = urlsplit(text)
-    if parts.scheme != "https" or not parts.hostname:
-        raise EpicLinkError
+    if parts.scheme != "https" or not parts.hostname or parts.username is not None or parts.password is not None:
+        raise EpicLinkError  # not https, no host, or an address with credentials in it
     if parts.hostname.lower() != site_host.lower():
         raise EpicLinkError(site_mismatch=True)
     found = _BROWSE.search(unquote(parts.path))

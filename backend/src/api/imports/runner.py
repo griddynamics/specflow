@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from typing import Any, Final, Protocol
@@ -44,6 +44,7 @@ logger = get_logger("api.imports")
 
 MAX_CONCURRENT_IMPORTS: Final = 2
 UNKNOWN_REASON: Final = imports_db.INTERRUPTED_REASON
+CLOCK_BACKOFF: Final = (0.5, 1.0, 2.0)  # seconds waited before each new try of the clock read at start
 
 
 class Importer(Protocol):
@@ -61,7 +62,9 @@ class ImportRunner:
         transaction: Callable[[], AbstractAsyncContextManager[Any]],
         store: ObjectStore,
         max_concurrent: int = MAX_CONCURRENT_IMPORTS,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
+        self._sleep = sleep
         self._transaction = transaction
         self._store = store
         self._slots = asyncio.Semaphore(max_concurrent)
@@ -109,13 +112,25 @@ class ImportRunner:
         """Take this process's start instant from the database clock (before anything is served), then end, in the
         background, the sources a stopped process left ``listing`` or ``importing``: those not touched since it."""
 
-        with Contained() as read:
-            async with self._transaction() as session:
-                started = await imports_db.database_now(session)
-        if read.failed:
-            log_event(logger, WARNING, "api.imports.recovery_failed", error_type=read.error_type)
+        started = await self._clock()
+        if started is None:
             return
         self._recovery = asyncio.create_task(self._recover(started), name="import-recovery")
+
+    async def _clock(self) -> datetime | None:
+        """The database clock, tried once and again after each ``CLOCK_BACKOFF`` wait (a database that is still coming
+        up at the start); ``None`` after the last failure, which is logged once, by class only."""
+
+        error_type: str | None = None
+        for wait in (0.0, *CLOCK_BACKOFF):
+            if wait:
+                await self._sleep(wait)
+            with Contained() as read:
+                async with self._transaction() as session:
+                    return await imports_db.database_now(session)
+            error_type = read.error_type
+        log_event(logger, WARNING, "api.imports.recovery_failed", error_type=error_type)
+        return None
 
     async def aclose(self) -> None:
         """Cancel the tasks (the sources they leave are ended by the next start's recovery)."""

@@ -5,11 +5,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from api.imports.atlassian import NO_ACCESS, READ_STEP, SKIPPABLE
+from api.imports.atlassian import CONVERT_FAILED, CONVERT_STEP, NO_ACCESS, READ_STEP, SKIPPABLE
 from api.imports.writer import ImportWriter
 from jira.gateway import JiraError
 from jira.issue_document import issue_markdown, issue_original, issue_title
 from jira.issues import JiraIssueReader
+from jira.markdown_safe import MarkupTooDeepError
 
 
 async def import_issue(
@@ -28,9 +29,9 @@ async def import_issue(
             raise
         await writer.fail(external_id, key, reason=NO_ACCESS, step=READ_STEP)
         return
-    await writer.add(
-        external_id,
-        name=issue_title(found),
-        original=issue_original(found, comments),
-        markdown=issue_markdown(found, comments),
-    )
+    try:
+        markdown = issue_markdown(found, comments)
+    except MarkupTooDeepError:  # one issue nested too deep to convert: its item is an error, the import goes on
+        await writer.fail(external_id, key, reason=CONVERT_FAILED, step=CONVERT_STEP)
+        return
+    await writer.add(external_id, name=issue_title(found), original=issue_original(found, comments), markdown=markdown)

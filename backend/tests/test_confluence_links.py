@@ -99,3 +99,36 @@ def test_a_body_without_links_has_no_references() -> None:
     found = references("<p>plain</p>", HOST)
 
     assert (found.page_ids, found.titled, found.issue_keys) == ([], [], [])
+
+
+@pytest.mark.parametrize(
+    ("link", "code"),
+    [
+        (f"https://evil@{HOST}/wiki/spaces/ORD/pages/5/T", LinkCode.INVALID),  # credentials in the address
+        (f"https://user:secret@{HOST}/wiki/spaces/ORD/pages/5/T", LinkCode.INVALID),
+        (f"https://{HOST}@evil.example/wiki/spaces/ORD/pages/5/T", LinkCode.INVALID),  # the host is evil.example
+        (f"https://{HOST}.evil.example/wiki/spaces/ORD/pages/5/T", LinkCode.SITE_MISMATCH),  # a lookalike
+        (f"https://evil{HOST}/wiki/spaces/ORD/pages/5/T", LinkCode.SITE_MISMATCH),
+        (f"https://evil.example/{HOST}/wiki/spaces/ORD/pages/5/T", LinkCode.SITE_MISMATCH),
+        (f"https://{HOST}.:443/wiki/spaces/ORD/pages/5/T", LinkCode.SITE_MISMATCH),
+        (f"http://{HOST}/wiki/spaces/ORD/pages/5/T", LinkCode.INVALID),  # not https
+        (f"ftp://{HOST}/wiki/spaces/ORD/pages/5/T", LinkCode.INVALID),
+        (f"//{HOST}/wiki/spaces/ORD/pages/5/T", LinkCode.INVALID),
+    ],
+)
+def test_a_link_that_is_not_https_on_the_site_alone_is_refused(link: str, code: LinkCode) -> None:
+    with pytest.raises(LinkError) as caught:
+        parse_link(link, HOST)
+
+    assert caught.value.code is code
+
+
+def test_a_followed_link_with_credentials_or_on_a_lookalike_host_is_not_a_reference() -> None:
+    body = (
+        f'<a href="https://evil@{HOST}/wiki/spaces/ORD/pages/1/T">a</a>'
+        f'<a href="https://{HOST}.evil.example/wiki/spaces/ORD/pages/2/T">b</a>'
+        f'<a href="http://{HOST}/wiki/spaces/ORD/pages/3/T">c</a>'
+        f'<a href="https://{HOST}/wiki/spaces/ORD/pages/4/T">d</a>'
+    )
+
+    assert references(body, HOST).page_ids == ["4"]

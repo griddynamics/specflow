@@ -72,8 +72,8 @@ def parse_link(link: str, site_host: str) -> PageTarget | SpaceTarget:
     """The page or space a link of ``site_host`` points to; ``LinkError`` for anything else."""
 
     parts = urlsplit(link.strip())
-    if parts.scheme != "https" or not parts.hostname:
-        raise LinkError(LinkCode.INVALID)
+    if parts.scheme != "https" or not parts.hostname or parts.username is not None or parts.password is not None:
+        raise LinkError(LinkCode.INVALID)  # not https, no host, or an address with credentials in it
     if parts.hostname.lower() != site_host.lower():
         raise LinkError(LinkCode.SITE_MISMATCH)
     path = unquote(parts.path)
@@ -97,7 +97,7 @@ def _href_reference(href: str, site_host: str) -> tuple[str, str] | None:
     """``("page", id)`` or ``("issue", key)`` for a same-site link, else ``None``."""
 
     parts = urlsplit(href)
-    if parts.scheme != "https" or (parts.hostname or "").lower() != site_host.lower():
+    if parts.scheme != "https" or (parts.hostname or "").lower() != site_host.lower() or parts.username is not None:
         return None
     path = unquote(parts.path)
     page = _PAGE_PATH.match(path)

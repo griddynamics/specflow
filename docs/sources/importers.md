@@ -30,7 +30,8 @@ Rules shared by every importer:
 - **What the member cannot see is skipped, not failed.** A page or issue the bound member cannot read ends as one item in
   error (`no_access`, step `read`) and the import goes on; the card counts it as a problem file. A target that cannot be
   read at all fails the source with `no_access`; any other failure of Atlassian (down, rate limited after the retries, an
-  answer that is not JSON) fails it with `unknown_error` (AC24: no new failure vocabulary).
+  answer that is not JSON) fails it with `unknown_error` (AC24: no new failure vocabulary). A page or issue nested too deep to
+  convert (about 100 levels or more) is one item in error (`convert_failed`, step `convert`), and the import goes on.
 - **Refresh.** A `401` refreshes the member's token once and repeats the call (`jira/http.py` `BearerAuth`); an expired
   connection fails the source with `no_access` (the member connects again, the source is added again).
 - **Logs.** Events carry ids, the kind, caps and counts. A title, a page text or an issue text lives in the document and
@@ -48,11 +49,13 @@ Rules shared by every importer:
 |---|---|
 | a page URL (`/wiki/spaces/<KEY>/pages/<id>/<title>`, `/wiki/pages/viewpage.action?pageId=<id>`) | the page and every page below it (descendants; folders, databases and whiteboards are left out) |
 | a space URL (`/wiki/spaces/<KEY>`, `.../overview`) | the current pages of the space |
+| a link that is not `https`, or has credentials in it (`https://user@host/...`) | refused: `confluence_link_invalid` (a Jira key or link the same: `jira_epic_link_invalid`); a host that is not the site's, lookalikes included, is `atlassian_site_mismatch` |
 | a short link (`/wiki/x/<tiny id>`) | refused: `confluence_short_link_unsupported`. Confluence documents no tiny-id algorithm to decode locally, and the call that resolves one (the v1 content API) needs a scope the site admin did not grant; paste the full page address |
 
 Reads (Confluence Cloud REST v2, `https://api.atlassian.com/ex/confluence/{cloud id}`): `GET /pages/{id}?body-format=storage`,
 `GET /pages/{id}/descendants`, `GET /spaces?keys=`, `GET /spaces/{id}/pages`, `GET /pages?space-id=&title=`; results follow
-`_links.next`.
+`_links.next` only while it is a path of the site (starts with one `/`); an absolute or protocol-relative link ends the paging, so
+the bearer token is never sent to another host.
 
 **Caps** (constants in `api/imports/confluence.py`): `MAX_PAGES = 100` pages per import (the target, its descendants and the
 followed pages together) and `MAX_LINKED_ISSUES = 50` Jira issues. A cap that is hit stops the listing there, is logged once
@@ -65,8 +68,9 @@ macro become documents too (the issue with its comments, as in the Jira epic imp
 ignored; a link that does not resolve or that the member cannot see is skipped.
 
 **Storage format to Markdown** (`jira/storage_markdown.py`): headings, paragraphs, bold, italic, code, strikethrough, line
-breaks, links as text links (`[text](url)`; a page link keeps its title as text), nested bullet and numbered lists, task
-lists (`- [x]`), tables (first row is the header; pipes escaped), code macros as fenced blocks with their language, panel
+breaks, links as text links (`[text](url)`; a page link keeps its title as text; only `http`, `https` and `mailto` addresses are
+linked, with spaces and parentheses percent-encoded and `]` in the text escaped, any other address leaves the text alone), nested bullet and numbered lists, task
+lists (`- [x]`), tables (first row is the header; pipes escaped), code macros as fenced blocks with their language (the fence is longer than any run of backticks in the code), panel
 macros as their text (the title in bold), quotes and rules. Images, attachments, placeholders and macros without text are
 dropped.
 
