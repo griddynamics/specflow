@@ -6,7 +6,7 @@ import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
 import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
-// LINEAR S4: import the Linear source check (stub-linear-source.mjs), like checkJiraEpic below.
+import { checkLinearSource } from "./stub-linear-source.mjs";
 import { checkJiraEpic } from "./stub-jira-epic.mjs";
 import { driveFilesCapped, driveFilesOf } from "./stub-drive-files.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
@@ -1018,7 +1018,27 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           }),
         });
       }
-      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic") {
+      if (did === "linear" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const checked = typeof body?.link === "string" ? checkLinearSource(body.link) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        const { kind, name, issues, items, documents } = checked.body;
+        const exclude = body.exclude ?? [];
+        const known = new Set(items.map((item) => item.identifier));
+        if (!Array.isArray(exclude) || !exclude.every((id) => typeof id === "string" && known.has(id)))
+          return err(res, 422, "validation_failed");
+        const taken = kind === "issue" ? 1 : 0;
+        return json(res, 201, {
+          source: importedSource(pid, {
+            kind: "linear_project",
+            name,
+            link: checked.link,
+            pages: issues - new Set(exclude).size + documents + taken,
+          }),
+        });
+      }
+      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic" && did !== "linear") {
         if (!action && req.method === "DELETE") {
           await drain();
           model.remove(pid, did);
@@ -1433,7 +1453,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (b === "github-projects") return githubProjectsRoute({ req, res, url, pid, did });
     // LINEAR S3: if (b === "linear-plan") return linearPlanRoute({ req, res, url, pid, did });
     if (b === "integrations") return integrationsRoute({ req, res, pid, did });
-    // LINEAR S4: sources/linear (check, add) is served inside sourcesRoute, next to "jira-epic".
+    // LINEAR S4: sources/linear (check, add) is served inside sourcesRoute, next to "jira-epic" (stub-linear-source.mjs).
     if (b === "slack") return slackRoute({ req, res, pid, did });
     if (b === "repositories") return repositoriesRoute({ req, res, pid, did, action });
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });

@@ -90,6 +90,7 @@ class Issue:
     priority: int = 0  # 0 none, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    assignee_name: str | None = None  # the display name only, never an e-mail address
 
     @property
     def label_ids(self) -> tuple[str, ...]:
