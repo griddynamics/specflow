@@ -55,8 +55,8 @@ export function IntegrationsPage({ projectId, mcp }: Readonly<{ projectId: strin
     const clean = routes.integrations(projectId, { setup: returnedApp, next: next ?? undefined });
     if (isLinked(code)) {
       void connect(returnedApp).then((bound) => {
-        // GitHub still needs its repositories picked here; Atlassian is done, so the form that asked comes back.
-        if (bound && next !== null && returnedApp === "atlassian") router.replace(next);
+        // GitHub still needs its repositories picked here; Atlassian and Notion are done, so the form that asked comes back.
+        if (bound && next !== null && returnedApp !== "github") router.replace(next);
         else router.replace(clean, { scroll: false });
       });
     } else {

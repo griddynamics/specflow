@@ -6,6 +6,7 @@ import { isDataError } from "@/lib/domain/errors";
 import type { BindableApp, Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { IntegrationState } from "@graphico/ui";
 import { V2_COPY } from "../v2-copy";
+import { NOTION_WORDS, notionReturnWord } from "./notion-setup-logic";
 
 export interface CardView {
   state: IntegrationState;
@@ -33,9 +34,9 @@ export function cardViewOf(i: Integration): CardView {
 /** Slack's channel is removed through its own web route; the other apps go through the integrations route. */
 export const disconnectsThroughSlackRoute = (app: IntegrationApp): boolean => app === "slack";
 
-/** The toast of `?notion=` on the way back from Notion: connected, or what failed (stream C2 owns the words). */
-function notionToast(code: string): { title: string; tone: "success" | "danger" } {
-  return code === "connected" ? { title: V2_COPY.connectedToast, tone: "success" } : { title: V2_COPY.actionFailed, tone: "danger" };
+/** The toast of `?notion=` on the way back from Notion: connected, or what failed. */
+export function notionToast(code: string): { title: string; tone: "success" | "danger" } {
+  return code === "connected" ? { title: V2_COPY.connectedToast, tone: "success" } : { title: notionReturnWord(code), tone: "danger" };
 }
 
 /** The toast of `?github=`, `?atlassian=` or `?notion=` on the way back from an app. */
@@ -51,6 +52,8 @@ const FAILURE: Record<string, string> = {
   atlassian_not_connected: V2_COPY.notConnectedFirst,
   github_not_connected: V2_COPY.notConnectedFirst,
   notion_not_connected: V2_COPY.notConnectedFirst,
+  notion_reconnect_required: NOTION_WORDS.reconnectFirst,
+  notion_unavailable: NOTION_WORDS.unavailable,
   integration_workspace_mismatch: V2_COPY.workspaceMismatch,
   integration_already_connected: V2_COPY.alreadyConnected,
   integration_forbidden: V2_COPY.notAllowedToRemove,
