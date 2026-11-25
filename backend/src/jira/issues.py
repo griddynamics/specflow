@@ -5,7 +5,7 @@ nothing Jira says is kept here."""
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from typing import Any, Final
 from urllib.parse import quote
 
@@ -15,6 +15,7 @@ FIELDS: Final = "summary,description,status,issuetype,labels,comment"
 COMMENT_PAGE: Final = 100
 SEARCH_PAGE: Final = 100
 SEARCH_FIELDS: Final = FIELDS.split(",")
+CHILD_FIELDS: Final = [*SEARCH_FIELDS, "updated"]
 
 
 def _q(value: str) -> str:
@@ -32,30 +33,32 @@ class JiraIssueReader:
 
         return await self._reader.get(f"/rest/api/3/issue/{_q(key)}", {"fields": FIELDS})
 
+    async def _search(self, jql: str, fields: list[str]) -> AsyncIterator[dict[str, Any]]:
+        """The issues of one search, page by page."""
+
+        token: str | None = None
+        while True:
+            body: dict[str, Any] = {"jql": jql, "fields": fields, "maxResults": SEARCH_PAGE}
+            if token:
+                body["nextPageToken"] = token
+            page = await self._reader.post("/rest/api/3/search/jql", body)
+            for issue in page.get("issues") or []:
+                if isinstance(issue, dict):
+                    yield issue
+            token = page.get("nextPageToken")
+            if not token:
+                return
+
     async def epic_issues(self, epic_key: str, limit: int) -> tuple[list[dict[str, Any]], bool]:
         """The issues whose parent is the epic, in key order, at most ``limit``; and whether there were more. Issues the
         user cannot see are not returned by Jira at all."""
 
         issues: list[dict[str, Any]] = []
-        token: str | None = None
-        while True:
-            body: dict[str, Any] = {
-                "jql": f"parent = {json.dumps(epic_key)} ORDER BY key",
-                "fields": SEARCH_FIELDS,
-                "maxResults": SEARCH_PAGE,
-            }
-            if token:
-                body["nextPageToken"] = token
-            page = await self._reader.post("/rest/api/3/search/jql", body)
-            for issue in page.get("issues") or []:
-                if not isinstance(issue, dict):
-                    continue
-                if len(issues) >= limit:
-                    return issues, True
-                issues.append(issue)
-            token = page.get("nextPageToken")
-            if not token:
-                return issues, False
+        async for issue in self._search(f"parent = {json.dumps(epic_key)} ORDER BY key", SEARCH_FIELDS):
+            if len(issues) >= limit:
+                return issues, True
+            issues.append(issue)
+        return issues, False
 
     async def count_epic_issues(self, epic_key: str) -> int:
         """How many issues the epic has for this user."""
@@ -82,3 +85,12 @@ class JiraIssueReader:
                 break
             found += more
         return found
+
+    async def updated_children(self, parent_key: str, within_minutes: int | None) -> list[dict[str, Any]]:
+        """The issues whose parent is ``parent_key`` and that changed in the last ``within_minutes`` (all of them for
+        ``None``), with their comments and ``updated``: one search, paged. The window is relative, so it does not depend
+        on the time zone of the account."""
+
+        since = "" if within_minutes is None else f" AND updated >= -{max(int(within_minutes), 1)}m"
+        jql = f"parent = {json.dumps(parent_key)}{since} ORDER BY key"
+        return [issue async for issue in self._search(jql, CHILD_FIELDS)]

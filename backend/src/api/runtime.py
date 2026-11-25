@@ -21,6 +21,9 @@ from api.graph_build.runner import GraphBuildRunner
 from api.imports import ImportRunner
 from api.jira.connections import AtlassianConnections
 from api.jira.runner import JiraSyncRunner
+from api.jira_gaps import JiraGaps
+from api.jira_gaps.poller import JiraGapPoller
+from api.jira_gaps.poster import JiraGapPoster
 from api.plan.runner import GraphPlanRunner
 from api.plan_destinations import PlanDestinations
 from db import session as db_session
@@ -29,7 +32,9 @@ from db.models import Project
 from db.session import is_database_unreachable
 from github.connections import GitHubConnections
 from graph.core import InfrastructureUnavailableError
+from graph.core.store import as_executor
 from graph.gap import GapSettings
+from graph.plan.reader import load_plan
 from graph.stores import build_store
 from health import (
     Readiness,
@@ -99,6 +104,8 @@ class Runtime:
     github: Any = None
     # api.plan_destinations.PlanDestinations: the plan runner's one post-plan hook; Jira is the first destination.
     plan_destinations: Any = None
+    # api.jira_gaps.JiraGaps: the Jira gap channel; None without Atlassian OAuth or gap runs
+    jira_gaps: Any = None
     # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics)
     imports: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
@@ -307,6 +314,7 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
     if runtime.gaps is not None:  # answers are applied by update builds of this runner
         runtime.gaps.use_builds(runtime.graph_builds)
         runtime.gaps.start_recovery()  # applies a restart left behind (their update builds)
+        _add_jira_gaps(runtime, stack)
     destinations = PlanDestinations()
     if runtime.jira is not None:
         destinations.register(runtime.jira)
@@ -315,3 +323,21 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
     # Pushed last, so they run first: plan runs, builds and then gap runs stop before the store and engine close.
     stack.push_async_callback(runtime.graph_builds.aclose)
     stack.push_async_callback(runtime.plans.aclose)
+
+
+def _add_jira_gaps(runtime: Runtime, stack: AsyncExitStack) -> None:
+    """The Jira gap channel: a gap-run notice that posts the open questions as sub-tasks and a poller that reads the
+    answers back. It acts as the member the project's Atlassian is connected by, so it needs the users' connections."""
+
+    if runtime.jira is None or runtime.jira.connections is None or runtime.gaps is None:
+        return
+    store = runtime.graph_store
+    poster = JiraGapPoster(
+        runtime,
+        project_name=functools.partial(project_name, runtime.session_factory),
+        load_plan=lambda project_id: load_plan(as_executor(store), project_id),
+    )
+    runtime.jira_gaps = JiraGaps(runtime, poster, JiraGapPoller(runtime))
+    runtime.gaps.add_notice(runtime.jira_gaps)
+    runtime.jira_gaps.start()
+    stack.push_async_callback(runtime.jira_gaps.aclose)

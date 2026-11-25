@@ -203,6 +203,29 @@ where the runtime is built (`api.runtime._add_runners`).
 `AnswerInput.via` (the gap library) accepts `jira` besides `web`, `elicitation` and `slack`, so a Jira answer is
 recorded in the answer history under its own name. No column stores it, no consumer switches over the literal.
 
+## Jira gap channel
+
+What the canvas form (space key and grouping, Check access, Add channel) and the channel node call. Any member (D6).
+Design, posting, polling and limits: [../jira-sync/gaps.md](../jira-sync/gaps.md). The channel acts as the member the
+project's Atlassian is connected by (R1); it needs Atlassian OAuth and gap runs.
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `GET /projects/{pid}/jira-gaps` | | 200 `JiraGapsOut` | 404 `project_not_found` |
+| `PUT /projects/{pid}/jira-gaps` | `{jira_project, grouping, enabled}` | 200 `JiraGapsOut` | 404; 409 `jira_not_connected` (no Atlassian bound to a member); 422 `validation_failed`; 503 `atlassian_oauth_unavailable`, `gap_unavailable` |
+| `POST /projects/{pid}/jira-gaps/access-check` | `{jira_project}` | 200 `JiraAccessResult` (`ok` with `project_name`, `epic_summary` null; or `failed` with `reason` and `field`) | 404; 503 as above |
+
+- `jira_project` is trimmed and upper-cased (`^[A-Z][A-Z0-9_]{1,9}$`); `grouping` is `one` or `area`; the body is closed.
+- `JiraGapsOut`: `available` (false when the server has no Atlassian OAuth or gap runs are off: then the other fields are
+  empty), `jira_project`, `grouping`, `enabled`, `story_key`, `story_url` (`<site>/browse/<key>`), `posted` and `answered`
+  (questions posted and answered, for the node), `last_polled_at`, `error_code` (the closed code of the last refused post or
+  poll), `poll_seconds` (60: the form says answers are read about every 60 seconds).
+- The access check failed reasons: `jira_not_connected`, `jira_reconnect_required` (no field), `jira_auth_failed`,
+  `jira_unreachable`, `jira_unexpected` (no field), `jira_not_found`, `jira_forbidden`, `jira_issue_types_missing` (field
+  `jira_project`).
+- `PUT` never waits for Jira: turning the channel on (or another Jira project) posts the open questions in the background;
+  read `GET` for `story_key` and the counts.
+
 ## Codes
 
 | Code | HTTP | When |
@@ -214,7 +237,8 @@ recorded in the answer history under its own name. No column stores it, no consu
 | `integration_forbidden` | 403 | `DELETE`: the caller neither connected the app nor owns the project |
 | `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable` | 503 | the app is not configured on this server |
 | `slack_link_invalid` | 400 | `POST /integrations/slack/link`: the nonce expired or was used |
-| `jira_not_connected` | 409 | `PUT /projects/{pid}/jira` in `oauth` mode: the project has no Atlassian connection bound to a member |
+| `jira_not_connected` | 409 | `PUT /projects/{pid}/jira` and `PUT /projects/{pid}/jira-gaps` in `oauth` mode: the project has no Atlassian connection bound to a member |
+| `gap_unavailable` | 503 | `PUT` and the check of `jira-gaps`: gap runs are off on this server |
 
 ## Data
 

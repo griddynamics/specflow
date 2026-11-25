@@ -5386,6 +5386,164 @@
         "title": "JiraEpicIn",
         "type": "object"
       },
+      "JiraGapAccessCheckIn": {
+        "additionalProperties": false,
+        "description": "The typed Jira project of the gap channel before it is saved: trimmed and upper-cased.",
+        "properties": {
+          "jira_project": {
+            "pattern": "^[A-Z][A-Z0-9_]{1,9}$",
+            "title": "Jira Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jira_project"
+        ],
+        "title": "JiraGapAccessCheckIn",
+        "type": "object"
+      },
+      "JiraGapsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "grouping": {
+            "enum": [
+              "one",
+              "area"
+            ],
+            "title": "Grouping",
+            "type": "string"
+          },
+          "jira_project": {
+            "pattern": "^[A-Z][A-Z0-9_]{1,9}$",
+            "title": "Jira Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jira_project",
+          "grouping",
+          "enabled"
+        ],
+        "title": "JiraGapsIn",
+        "type": "object"
+      },
+      "JiraGapsOut": {
+        "description": "The Jira gap channel of a project: the target (null fields while there is none), the counts of its sub-tasks and\nits last poll. ``available`` is false when the server has no Atlassian OAuth or gap runs are off.",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The closed code of the last refused post or poll, or null.",
+            "title": "Error Code"
+          },
+          "grouping": {
+            "anyOf": [
+              {
+                "enum": [
+                  "one",
+                  "area"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grouping"
+          },
+          "jira_project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jira Project"
+          },
+          "last_polled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Polled At"
+          },
+          "poll_seconds": {
+            "description": "Answers are read about every this many seconds.",
+            "title": "Poll Seconds",
+            "type": "integer"
+          },
+          "posted": {
+            "title": "Posted",
+            "type": "integer"
+          },
+          "story_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Key"
+          },
+          "story_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Url"
+          }
+        },
+        "required": [
+          "available",
+          "jira_project",
+          "grouping",
+          "enabled",
+          "story_key",
+          "story_url",
+          "posted",
+          "answered",
+          "last_polled_at",
+          "error_code",
+          "poll_seconds"
+        ],
+        "title": "JiraGapsOut",
+        "type": "object"
+      },
       "JiraSettingsIn": {
         "additionalProperties": false,
         "properties": {
@@ -16406,6 +16564,165 @@
         "summary": "Put Jira Settings",
         "tags": [
           "jira"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/jira-gaps": {
+      "get": {
+        "operationId": "get_jira_gaps_api_v1_projects__pid__jira_gaps_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraGapsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Jira Gaps",
+        "tags": [
+          "jira-gaps"
+        ]
+      },
+      "put": {
+        "operationId": "put_jira_gaps_api_v1_projects__pid__jira_gaps_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraGapsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JiraGapsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Jira Gaps",
+        "tags": [
+          "jira-gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/jira-gaps/access-check": {
+      "post": {
+        "operationId": "check_jira_gaps_access_api_v1_projects__pid__jira_gaps_access_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JiraGapAccessCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "failed": "#/components/schemas/JiraAccessFailed",
+                      "ok": "#/components/schemas/JiraAccessOk"
+                    },
+                    "propertyName": "result"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/JiraAccessOk"
+                    },
+                    {
+                      "$ref": "#/components/schemas/JiraAccessFailed"
+                    }
+                  ],
+                  "title": "Response Check Jira Gaps Access Api V1 Projects  Pid  Jira Gaps Access Check Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Jira Gaps Access",
+        "tags": [
+          "jira-gaps"
         ]
       }
     },

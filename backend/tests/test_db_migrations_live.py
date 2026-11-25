@@ -64,6 +64,8 @@ APP_TABLES = [
     "gap_suppression",
     "gap_verdict",
     "github_connections",
+    "jira_gap_issues",
+    "jira_gap_targets",
     "jira_issues",
     "jira_targets",
     "project_integrations",
@@ -80,7 +82,8 @@ HEAD_0004 = "0004_gap_assignment"
 HEAD_0005 = "0005_jira_sync"
 HEAD_0006 = "0006_atlassian_connections"
 HEAD_0007 = "0007_github"
-HEAD = "0008_project_integrations"
+HEAD_0008 = "0008_project_integrations"
+HEAD = "0009_jira_gaps"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
@@ -381,8 +384,8 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(
         "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
         "AND relnamespace = 'public'::regnamespace",
     ) == [
-        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 4
-    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's, 0005's, 0006's, 0007's two, 0008's
+        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 6
+    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's to 0008's, 0009's two
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
@@ -979,9 +982,9 @@ def test_l30_0008_backfills_the_bindings_and_widens_the_source_kinds_and_its_dow
             at=datetime.fromisoformat(f"{created}T00:00:00+00:00"),
         )
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_0008)
 
-    assert stamped_versions(scratch_database) == [HEAD]
+    assert stamped_versions(scratch_database) == [HEAD_0008]
     bound = run_app(
         scratch_database,
         "SELECT project_id::text || ' ' || app || ' ' || user_id::text || ' ' || workspace_id || ' ' || workspace_name "
@@ -1044,4 +1047,56 @@ def test_l30_0008_backfills_the_bindings_and_widens_the_source_kinds_and_its_dow
     assert run_app(scratch_database, "SELECT kind FROM connections") == ["upload"]
     assert run_app(scratch_database, "SELECT count(*) FROM documents") == [0]
     assert run_app(scratch_database, "DELETE FROM connections WHERE kind = 'upload' RETURNING 1") == [1]
+    assert fingerprint(scratch_database) == before
+
+
+# The Jira gap channel, added by revision 0009 on top of 0008 ------------------------------------------------
+
+
+def test_l31_0009_adds_the_gap_tables_scoped_to_the_agent_role_and_its_downgrade_returns_to_0008(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0008)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+
+    command.upgrade(cfg, "head")
+
+    assert stamped_versions(scratch_database) == [HEAD]
+    for table in ("jira_gap_targets", "jira_gap_issues"):
+        assert run_app(
+            scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
+        ) == ["true"]
+        assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = :table", table=table) == [
+            1
+        ]
+        assert run_app(
+            scratch_database,
+            "SELECT has_table_privilege(:role, :table, 'SELECT,INSERT,UPDATE,DELETE')::text",
+            role=SESSION_AGENT_ROLE,
+            table=table,
+        ) == ["false"]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    target = (
+        "INSERT INTO jira_gap_targets (project_id, jira_project, grouping, enabled, updated_at) "
+        "VALUES (:p, 'SHOP', :grouping, true, now())"
+    )
+    with pytest.raises(IntegrityError):  # a closed set of groupings
+        run_app(scratch_database, target, p=project, grouping="both")
+    run_app(scratch_database, target, p=project, grouping="area")
+    with pytest.raises(IntegrityError):  # one target per project
+        run_app(scratch_database, target, p=project, grouping="one")
+    issue = (
+        "INSERT INTO jira_gap_issues (project_id, gap_id, issue_key, area, number, posted_at) "
+        "VALUES (:p, 'G-1', 'SHOP-2', 'a', 1, now())"
+    )
+    run_app(scratch_database, issue, p=project)
+    with pytest.raises(IntegrityError):  # one row per gap
+        run_app(scratch_database, issue, p=project)
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0008]
     assert fingerprint(scratch_database) == before

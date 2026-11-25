@@ -139,3 +139,18 @@ def test_anything_else_is_refused_and_a_foreign_site_is_told_apart(value: str, f
         parse_epic(value, HOST)
 
     assert caught.value.site_mismatch is (foreign == "foreign")
+
+
+async def test_the_children_changed_lately_come_in_one_search_with_a_relative_window() -> None:
+    fake = FakeAtlassian(issues={f"PAY-{n}": child(f"PAY-{n}") for n in range(2, 5)}, page_size=2)
+    jira, reader = reader_for(fake)
+
+    everything = await jira.updated_children("PAY-1", None)
+    recent = await jira.updated_children("PAY-1", 0)  # never below one minute
+    await reader.aclose()
+
+    assert [issue["key"] for issue in everything] == ["PAY-2", "PAY-3", "PAY-4"] and len(recent) == 3
+    searches = [json.loads(r.content) for r in fake.requests if r.url.path.endswith("/search/jql")]
+    assert searches[0]["jql"] == 'parent = "PAY-1" ORDER BY key'
+    assert searches[2]["jql"] == 'parent = "PAY-1" AND updated >= -1m ORDER BY key'
+    assert "updated" in searches[0]["fields"] and "comment" in searches[0]["fields"]

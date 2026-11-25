@@ -673,6 +673,44 @@ class JiraAccessFailed(BaseModel):
 JiraAccessResult = Annotated[JiraAccessOk | JiraAccessFailed, Field(discriminator="result")]
 
 
+# --- Jira gaps (docs/jira-sync/gaps.md "Routes") -------------------------------------------------------------------
+
+
+class JiraGapAccessCheckIn(BaseModel):
+    """The typed Jira project of the gap channel before it is saved: trimmed and upper-cased."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    jira_project: str = Field(pattern=JIRA_PROJECT_PATTERN)
+
+    @field_validator("jira_project", mode="before")
+    @classmethod
+    def _normalise_project(cls, value: object) -> object:
+        return value.strip().upper() if isinstance(value, str) else value
+
+
+class JiraGapsIn(JiraGapAccessCheckIn):
+    grouping: Literal["one", "area"]
+    enabled: StrictBool
+
+
+class JiraGapsOut(BaseModel):
+    """The Jira gap channel of a project: the target (null fields while there is none), the counts of its sub-tasks and
+    its last poll. ``available`` is false when the server has no Atlassian OAuth or gap runs are off."""
+
+    available: bool
+    jira_project: str | None
+    grouping: Literal["one", "area"] | None
+    enabled: bool
+    story_key: str | None
+    story_url: str | None
+    posted: int
+    answered: int
+    last_polled_at: datetime | None
+    error_code: str | None = Field(description="The closed code of the last refused post or poll, or null.")
+    poll_seconds: int = Field(description="Answers are read about every this many seconds.")
+
+
 # --- Atlassian connections (docs/jira-sync/oauth.md "Routes") ------------------------------------------------------
 
 

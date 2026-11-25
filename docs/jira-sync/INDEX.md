@@ -22,6 +22,9 @@ as the account of the member who connected the project to Atlassian, with OAuth,
 # oauth.md: per-user Atlassian connections (OAuth 2.0 3LO): modes, settings, connect flow, tokens, acting account, routes
 - [oauth.md](oauth.md)
 
+# gaps.md: the Jira gap channel: open gap questions posted as sub-tasks of one Story, answers read back by polling the comments
+- [gaps.md](gaps.md)
+
 # ui.md: the Jira tab of the Settings screen, its states, copy and ports
 - [ui.md](ui.md)
 

@@ -384,6 +384,7 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 # them equal (db does not import github).
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
 INTEGRATION_APPS: Final = ("atlassian", "github", "slack")
+JIRA_GAP_GROUPINGS: Final = ("one", "area")
 REPOSITORY_CLONE_STATES: Final = ("pending", "cloning", "cloned", "failed")
 REPOSITORY_FAILURE_CODES: Final = (
     "github_not_connected",
@@ -799,3 +800,38 @@ class ProjectIntegration(Base):
     workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
     workspace_name: Mapped[str] = mapped_column(Text, nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class JiraGapTarget(Base):
+    """The Jira gap channel of a project (migration ``0009_jira_gaps``): where its open questions are posted and how
+    they are grouped, the one Story they hang under, and the poll cursor (the newest Jira ``updated`` time read).
+    Holds no credential; the acting account is the member the project's Atlassian is connected by."""
+
+    __tablename__ = "jira_gap_targets"
+    __table_args__ = (CheckConstraint(_one_of("grouping", JIRA_GAP_GROUPINGS), name="grouping"),)
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    jira_project: Mapped[str] = mapped_column(Text, nullable=False)
+    grouping: Mapped[str] = mapped_column(Text, nullable=False)
+    story_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    poll_cursor: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class JiraGapIssue(Base):
+    """A gap posted to Jira: the sub-task that asks it, its ``area`` (the sub-task's group), its number in the sub-task
+    and when it was posted and answered. Holds no Jira text."""
+
+    __tablename__ = "jira_gap_issues"
+    __table_args__ = (PrimaryKeyConstraint("project_id", "gap_id"),)
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    gap_id: Mapped[str] = mapped_column(Text, nullable=False)
+    issue_key: Mapped[str] = mapped_column(Text, nullable=False)
+    area: Mapped[str] = mapped_column(Text, nullable=False)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
