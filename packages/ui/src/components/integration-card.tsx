@@ -140,15 +140,30 @@ export function PickList({
   );
 }
 
+/** One checkbox row. By default the label is set in the mono face (a repository). `text` sets it in the body font instead; `code` is a mono lead
+ * before it (an issue key) and `hint` a quiet, smaller line after it (the folder of a file). `note` sits quiet on the right. */
 export function PickRow({
   label,
+  code,
+  hint,
   note,
+  text = false,
   checked,
   disabled = false,
   onChange,
-}: Readonly<{ label: string; note?: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }>): JSX.Element {
+}: Readonly<{
+  label: string;
+  code?: string;
+  hint?: string;
+  note?: string;
+  text?: boolean;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}>): JSX.Element {
+  const plain = !text && code === undefined && hint === undefined;
   return (
-    <label className="gx-pick__row">
+    <label className={text ? "gx-pick__row gx-pick__row--text" : "gx-pick__row"}>
       <input
         type="checkbox"
         checked={checked}
@@ -157,7 +172,21 @@ export function PickRow({
           onChange(e.target.checked);
         }}
       />
-      <span>{label}</span>
+      {plain ? (
+        <span>{label}</span>
+      ) : (
+        <span className="gx-pick__name">
+          {code === undefined ? null : <code className="gx-pick__code">{code}</code>}
+          {code === undefined ? "" : " "}
+          {label}
+          {hint === undefined ? null : (
+            <>
+              {" "}
+              <span className="gx-pick__hint">{hint}</span>
+            </>
+          )}
+        </span>
+      )}
       {note === undefined ? null : <small>{note}</small>}
     </label>
   );

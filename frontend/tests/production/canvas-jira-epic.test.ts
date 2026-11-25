@@ -6,15 +6,8 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildCanvasModel } from "@/components/v2/canvas/canvas-model";
 import type { NodeView } from "@/components/v2/canvas/canvas-types";
-import {
-  checkAll,
-  checkNone,
-  excludeOf,
-  jiraEpicCheckText,
-  jiraEpicFailureText,
-  selectionText,
-  toggleIssue,
-} from "@/components/v2/canvas/jira-epic-logic";
+import { idOfChild, jiraEpicCheckText, jiraEpicFailureText, selectionText } from "@/components/v2/canvas/jira-epic-logic";
+import { checkAll, checkNone, toggle } from "@/components/v2/canvas/pick-logic";
 import { JiraEpicForm } from "@/components/v2/canvas/JiraEpicForm";
 import { unitText } from "@/components/v2/canvas/nodes-sources";
 import type { FormProps } from "@/components/v2/connector-types";
@@ -80,16 +73,13 @@ test("each closed code of the check and the add has its own words; an unknown on
   assert.equal(failure("something_new"), "Something went wrong. Try again.");
 });
 
-test("a passed check says the key, the summary and the issues; over the cap it says the first 200 are read", () => {
+test("a passed check says the key, the summary and the issues; the cap is said once, in the note of the list", () => {
   assert.equal(
     jiraEpicCheckText({ ...CHECK, key: "NWO-12", summary: "Checkout redesign", issues: 18 }),
     "NWO-12 · Checkout redesign · 18 issues.",
   );
   assert.equal(jiraEpicCheckText({ ...CHECK, key: "NWO-1", summary: "One", issues: 1 }), "NWO-1 · One · 1 issue.");
-  assert.match(
-    jiraEpicCheckText({ ...CHECK, key: "NWO-250", summary: "Everything", issues: 250 }),
-    /250 issues \(the first 200 are read\)/,
-  );
+  assert.equal(jiraEpicCheckText({ ...CHECK, key: "NWO-250", summary: "Everything", issues: 250 }), "NWO-250 · Everything · 250 issues.");
   const wire = {
     key: "NWO-12",
     summary: "S",
@@ -148,21 +138,10 @@ const child = (n: number): JiraEpicChild => ({
 });
 const FOUR = [1, 2, 3, 4].map(child);
 
-test("the selection starts with every issue checked, toggles one, checks all or none, and lists the keys left out in order", () => {
-  const start = checkAll();
-  assert.deepEqual(excludeOf(FOUR, start), []);
-  const one = toggleIssue(start, "NWO-102", false);
-  assert.deepEqual(excludeOf(FOUR, one), ["NWO-102"]);
-  assert.deepEqual(excludeOf(FOUR, toggleIssue(one, "NWO-102", true)), []);
-  assert.deepEqual(excludeOf(FOUR, toggleIssue(toggleIssue(start, "NWO-104", false), "NWO-101", false)), ["NWO-101", "NWO-104"]);
-  assert.deepEqual(excludeOf(FOUR, checkNone(FOUR)), ["NWO-101", "NWO-102", "NWO-103", "NWO-104"]);
-  assert.deepEqual(excludeOf(FOUR, checkAll()), []);
-  assert.equal(start.size, 0, "toggling never changes the set it was given");
-});
-
 test("the status line says what an add takes: N of M issues and the epic, or only the epic", () => {
+  const rows = FOUR.map(idOfChild);
   assert.equal(selectionText(FOUR, checkAll()), "4 of 4 issues, and the epic");
-  assert.equal(selectionText(FOUR, toggleIssue(checkAll(), "NWO-103", false)), "3 of 4 issues, and the epic");
-  assert.equal(selectionText(FOUR, checkNone(FOUR)), "Only the epic");
+  assert.equal(selectionText(FOUR, toggle(checkAll(), "NWO-103", false)), "3 of 4 issues, and the epic");
+  assert.equal(selectionText(FOUR, checkNone(rows)), "Only the epic");
   assert.equal(selectionText([child(1)], checkAll()), "1 of 1 issue, and the epic");
 });

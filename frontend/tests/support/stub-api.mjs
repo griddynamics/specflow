@@ -7,6 +7,7 @@ import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
 import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
 import { checkJiraEpic } from "./stub-jira-epic.mjs";
+import { driveFilesCapped, driveFilesOf } from "./stub-drive-files.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
 import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
@@ -67,6 +68,7 @@ const SAMPLE = {
   },
   "fake-empty-folder": { folder_count: 1, categories: [] },
   "fake-forms-only": { folder_count: 1, categories: [["other_google", "skipped", 2]] },
+  "fake-capped-folder": { folder_count: 2, categories: [["pdf", "processed", 1000]] },
 };
 const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
 
@@ -1048,7 +1050,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     }
     const chunks = [];
     for await (const c of req) chunks.push(c);
-    const link = JSON.parse(Buffer.concat(chunks).toString() || "{}").link;
+    const sent = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    const link = sent.link;
     if (typeof link !== "string") return err(res, 422, "validation_failed");
     const testing = action === "test";
     const fail = (reason) => (testing ? json(res, 200, { result: "failed", reason }) : err(res, REASON_HTTP[reason], reason));
@@ -1067,8 +1070,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
         folder_count: shape.folder_count,
         file_count: shape.categories.reduce((n, c) => n + c[2], 0),
         categories: shape.categories.map(([category, processing_class, count]) => ({ category, processing_class, count })),
+        files: driveFilesOf(id),
+        files_capped: driveFilesCapped(id),
       });
     }
+    // `exclude`: ids of listed files not to import; anything else is a 422.
+    const listed = driveFilesOf(id);
+    const exclude = sent.exclude ?? [];
+    const known = new Set(listed.map((f) => f.id));
+    if (!Array.isArray(exclude) || !exclude.every((x) => typeof x === "string" && known.has(x))) return err(res, 422, "validation_failed");
+    const skipped = new Set(shape.categories.filter((c) => c[1] === "skipped").map((c) => c[0]));
     const source = {
       id: crypto.randomUUID(),
       kind: "gdrive",
@@ -1082,6 +1093,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       last_synced_at: null,
       progress: { listing_finished: false, total: 0, finished: 0 },
     };
+    // The import has not listed anything yet, so `total` stays 0; the files it will take (the listed ones, less the skipped categories and `exclude`) are kept on the row for a test to read (`sources`).
+    Object.defineProperty(source, "_imports", { value: listed.filter((f) => !skipped.has(f.category) && !exclude.includes(f.id)) });
     sourcesOf(pid).push(model.stamp(source));
     return json(res, 201, { source });
   }

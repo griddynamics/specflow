@@ -1,8 +1,9 @@
 // The words and rules of the Jira epic source (docs/sources/importers.md "Jira epic"), free of React: what a failed check or add says (the
 // closed codes of the API), what a passed check says, and what a node says when its import stopped.
 import { isDataError } from "@/lib/domain/errors";
-import { EPIC_ISSUE_CAP, type JiraEpicChild, type JiraEpicCheck } from "@/lib/domain/sources";
+import { type JiraEpicChild, type JiraEpicCheck } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
+import { pickedCount, type Pickable, type Unchecked } from "./pick-logic";
 
 const FAILURE: Record<string, string> = {
   atlassian_not_connected: "Connect Atlassian in Integrations first.",
@@ -25,10 +26,9 @@ export function jiraEpicFailureText(e: unknown): string {
 
 const plural = (n: number): string => `${String(n)} ${n === 1 ? "issue" : "issues"}`;
 
-/** The line under a passed check: "NWO-12 · Checkout redesign · 18 issues", with the cap when the epic has more than an import takes. */
+/** The line under a passed check: "NWO-12 · Checkout redesign · 18 issues". The cap is said once, in the note of the list. */
 export function jiraEpicCheckText(c: JiraEpicCheck): string {
-  const issues = c.issues > EPIC_ISSUE_CAP ? `${plural(c.issues)} (the first ${String(EPIC_ISSUE_CAP)} are read)` : plural(c.issues);
-  return `${c.key} · ${c.summary} · ${issues}.`;
+  return `${c.key} · ${c.summary} · ${plural(c.issues)}.`;
 }
 
 /** What a Jira epic node says when the API reports its import failed (`no_access`, or any other closed reason). */
@@ -39,30 +39,11 @@ export const JIRA_EPIC_WORDS = {
   failed: "The import failed. Add the epic again.",
 } as const;
 
-/** The selection of the issues under a checked epic is the keys left out: empty (everything checked) is the default, so a new check starts with
- * every issue picked and a change of the selection never touches the check. */
-export type Unchecked = ReadonlySet<string>;
-
-/** The key with its issue's own toggled state: a checked issue leaves the set, an unchecked one joins it. */
-export function toggleIssue(unchecked: Unchecked, key: string, checked: boolean): Unchecked {
-  const next = new Set(unchecked);
-  if (checked) next.delete(key);
-  else next.add(key);
-  return next;
-}
-
-/** Select all: nothing left out. */
-export const checkAll = (): Unchecked => new Set<string>();
-
-/** Select none: every issue left out (the epic itself is still imported). */
-export const checkNone = (children: readonly JiraEpicChild[]): Unchecked => new Set(children.map((c) => c.key));
-
-/** The keys to send as `exclude`, in the order of the list. */
-export const excludeOf = (children: readonly JiraEpicChild[], unchecked: Unchecked): string[] =>
-  children.filter((c) => unchecked.has(c.key)).map((c) => c.key);
-
 /** What an Add would take: "12 of 14 issues, and the epic", or "Only the epic" with nothing checked. */
 export function selectionText(children: readonly JiraEpicChild[], unchecked: Unchecked): string {
-  const picked = children.length - excludeOf(children, unchecked).length;
+  const picked = pickedCount(children.map(idOfChild), unchecked);
   return picked === 0 ? "Only the epic" : `${String(picked)} of ${plural(children.length)}, and the epic`;
 }
+
+/** An issue is picked by its key. */
+export const idOfChild = (c: JiraEpicChild): Pickable => ({ id: c.key });

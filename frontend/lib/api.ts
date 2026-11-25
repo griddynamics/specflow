@@ -280,8 +280,10 @@ export const endBatch = (pid: string, sid: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}/end`).then((r) => r.body);
 export const testDriveFolder = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/gdrive/test`, json({ link })).then((r) => r.body);
-export const saveDriveFolder = (pid: string, link: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/sources/gdrive`, json({ link })).then((r) => r.body);
+export const saveDriveFolder = (pid: string, link: string, exclude: readonly string[] = []) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/gdrive`, json(exclude.length === 0 ? { link } : { link, exclude })).then(
+    (r) => r.body,
+  );
 export const checkConfluenceLink = (pid: string, link: string, follow: boolean) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/confluence/check`, json({ link, follow })).then((r) => r.body);
 export const addConfluenceSource = (pid: string, link: string, follow: boolean) =>

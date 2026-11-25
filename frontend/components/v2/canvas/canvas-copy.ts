@@ -1,3 +1,5 @@
+import { EPIC_ISSUE_CAP } from "@/lib/domain/sources";
+
 // The words of the canvas, its plus dialog and its forms. Texts that exist elsewhere (the Drive reasons, the upload formats, the build
 // states) are imported from their modules, not written again.
 export const CANVAS_COPY = {
@@ -32,6 +34,10 @@ export const CANVAS_COPY = {
   driveCopied: "Copied",
   driveAccount: "Drive account email",
   driveSaving: "Saving…",
+  driveFiles: "Files to add",
+  driveSelectAll: "Select all",
+  driveSelectNone: "Select none",
+  driveCapped: "The folder has more files than one import takes. Only the first ones are listed and imported.",
   // MCP
   mcpEyebrow: "Added automatically",
   mcpTitle: "Coding agents over MCP",
@@ -64,7 +70,7 @@ export const CANVAS_COPY = {
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",
   jiraEpicSelectNone: "Select none",
-  jiraEpicCapped: "Only the first 200 issues are listed and imported.",
+  jiraEpicCapped: `Only the first ${String(EPIC_ISSUE_CAP)} issues are listed and imported.`,
   jiraEpicSource: "Epic key or link",
   jiraEpicSourceHint: "The epic and every issue under it are read, with their comments, once when it is added.",
   // Slack channel

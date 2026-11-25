@@ -59,12 +59,12 @@ export function useDriveFlow({ projectId, sources, onSaved }: Readonly<{ project
     else setOutcome(r.value.ok ? { kind: "tested", result: r.value } : { kind: "failed", reason: r.value.reason });
   }
 
-  async function save() {
+  async function save(exclude?: readonly string[]) {
     if (busy || outcome?.kind !== "tested") return;
     const mine = ++run.current;
     setPhase("saving");
     setSaveNote(false);
-    const r = await settle(sources.saveDrive(projectId, link), SAVE_DEADLINE_MS);
+    const r = await settle(sources.saveDrive(projectId, link, exclude), SAVE_DEADLINE_MS);
     if (!alive.current || mine !== run.current) return;
     if (r.kind === "ok" && r.value.ok) {
       onSaved(); // FR-SRC-0024: the modal closes and the screen shows the new card
@@ -89,6 +89,8 @@ export function useDriveFlow({ projectId, sources, onSaved }: Readonly<{ project
     saving: phase === "saving",
     saveNote,
     summary,
+    /** The files of the folder, once it is tested (the V2 form lists them). */
+    tested: outcome?.kind === "tested" ? outcome.result : null,
     canSave,
     blocked,
     failure: outcome?.kind === "failed" ? driveReasonMessage(outcome.reason, email) : null,
@@ -103,7 +105,7 @@ export function useDriveFlow({ projectId, sources, onSaved }: Readonly<{ project
     leave: () => {
       if (link.trim() && !truthy(parseDriveLink(link))) setBadLink(true);
     },
-    /** The primary action: "Save" once the check passed, else "Test connection". */
-    act: () => (canSave ? save() : test()),
+    /** The primary action: "Save" once the check passed (without the files in `exclude`), else "Test connection". */
+    act: (exclude?: readonly string[]) => (canSave ? save(exclude) : test()),
   };
 }

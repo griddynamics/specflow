@@ -16,6 +16,8 @@ import { HowTo } from "../HowTo";
 import { useV2Ports } from "../use-v2-data";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
+import { DriveFileList, useFilePicks } from "./DriveFileList";
+import { excludeOf } from "./pick-logic";
 
 function primaryLabel(check: CheckLabels, canSave: boolean, phase: DrivePhase): string {
   if (canSave) return phase === "saving" ? CANVAS_COPY.driveSaving : check.add;
@@ -35,16 +37,17 @@ export function DriveForm({ projectId, spec, reload, onBack, onClose }: Readonly
   const linkId = useId();
   const account = emailLabel(flow.identity);
   const check = spec.check ?? { test: "", testing: "", add: "" };
-  const { summary } = flow;
+  const { summary, tested } = flow;
+  const { files, unchecked, nothingPicked, pick } = useFilePicks(tested);
   return (
     <ConnectFrame
       onBack={onBack}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!flow.blocked) void flow.act();
+        if (!flow.blocked && !nothingPicked) void flow.act(excludeOf(files, unchecked));
       }}
       action={
-        <Button type="submit" disabled={flow.blocked} aria-busy={flow.busy || undefined}>
+        <Button type="submit" disabled={flow.blocked || nothingPicked} aria-busy={flow.busy || undefined}>
           {primaryLabel(check, flow.canSave, flow.phase)}
         </Button>
       }
@@ -96,6 +99,9 @@ export function DriveForm({ projectId, spec, reload, onBack, onClose }: Readonly
         {flow.failure === null ? null : <Notice role="alert">{flow.failure}</Notice>}
         {flow.saveNote ? <Notice role="alert">{SAVE_TOO_LONG}</Notice> : null}
       </div>
+      {files.length === 0 ? null : (
+        <DriveFileList files={files} unchecked={unchecked} capped={tested?.filesCapped === true} busy={flow.busy} onPick={pick} />
+      )}
     </ConnectFrame>
   );
 }

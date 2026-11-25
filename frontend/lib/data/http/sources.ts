@@ -31,6 +31,7 @@ import {
   type Connection,
   type DriveCategory,
   type DriveCategoryCount,
+  type DriveFile,
   type DriveIdentity,
   type DriveReason,
   type DriveSaveResult,
@@ -96,7 +97,8 @@ export function toConnection(v: unknown): Connection | null {
   };
 }
 
-function toTest(body: unknown): DriveTestResult {
+/** `POST .../sources/gdrive/test` -> `DriveTestResult`; a body of another shape is `unknown_error`. */
+export function toTest(body: unknown): DriveTestResult {
   if (!isRecord(body)) return { ok: false, reason: "unknown_error" };
   if (body.result === "failed") return { ok: false, reason: isDriveReason(body.reason) ? body.reason : "unknown_error" };
   const folder = body.folder;
@@ -107,7 +109,9 @@ function toTest(body: unknown): DriveTestResult {
     !isString(folder.name) ||
     !isCount(body.folder_count) ||
     !isCount(body.file_count) ||
-    !Array.isArray(body.categories)
+    !Array.isArray(body.categories) ||
+    !Array.isArray(body.files) ||
+    typeof body.files_capped !== "boolean"
   ) {
     return { ok: false, reason: "unknown_error" };
   }
@@ -117,7 +121,22 @@ function toTest(body: unknown): DriveTestResult {
       return { ok: false, reason: "unknown_error" };
     categories.push({ category: c.category, processingClass: c.processing_class, count: c.count });
   }
-  return { ok: true, folderId: folder.id, folderName: folder.name, folderCount: body.folder_count, fileCount: body.file_count, categories };
+  const files: DriveFile[] = [];
+  for (const f of body.files) {
+    if (!isRecord(f) || !isString(f.id) || !isString(f.name) || !isString(f.path) || !isCategory(f.category))
+      return { ok: false, reason: "unknown_error" };
+    files.push({ id: f.id, name: f.name, path: f.path, category: f.category });
+  }
+  return {
+    ok: true,
+    folderId: folder.id,
+    folderName: folder.name,
+    folderCount: body.folder_count,
+    fileCount: body.file_count,
+    categories,
+    files,
+    filesCapped: body.files_capped,
+  };
 }
 
 const isOutcome = (v: unknown): v is BatchOutcome => (BATCH_OUTCOMES as readonly string[]).includes(v as string);
@@ -275,9 +294,9 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         return { ok: false, reason: reasonOfError(e) };
       }
     },
-    async saveDrive(projectId, link): Promise<DriveSaveResult> {
+    async saveDrive(projectId, link, exclude): Promise<DriveSaveResult> {
       try {
-        const body = await saveDriveFolder(projectId, link);
+        const body = await saveDriveFolder(projectId, link, exclude);
         const connection = isRecord(body) ? toConnection(body.source) : null;
         opts.changed(projectId); // the source exists on the server even if the answer was odd
         return connection ? { ok: true, connection } : { ok: false, reason: "unknown_error" };

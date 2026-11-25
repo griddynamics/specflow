@@ -46,8 +46,26 @@ export interface DriveCategoryCount {
   processingClass: ProcessingClass;
   count: number;
 }
+/** One file a Drive import would take: `path` is the folders from the shared root (root left out) to its parent, joined with "/"; "" for a file in the root. */
+export interface DriveFile {
+  id: string;
+  name: string;
+  path: string;
+  category: DriveCategory;
+}
 export type DriveTestResult =
-  | { ok: true; folderId: string; folderName: string; folderCount: number; fileCount: number; categories: DriveCategoryCount[] }
+  | {
+      ok: true;
+      folderId: string;
+      folderName: string;
+      folderCount: number;
+      fileCount: number;
+      categories: DriveCategoryCount[];
+      /** The files of the folder, ordered by path then name; at most the import cap. */
+      files: DriveFile[];
+      /** The folder has more files than the list holds: only the first ones are listed and imported. */
+      filesCapped: boolean;
+    }
   | { ok: false; reason: DriveReason };
 export type DriveSaveResult = { ok: true; connection: Connection } | { ok: false; reason: DriveReason };
 /** Import progress of one source or of the project (INT-GDUI-0004). Finished = processed, stored, skipped or error. */
@@ -294,8 +312,8 @@ export interface SourcesPort {
   driveIdentity(): Promise<DriveIdentity>;
   /** Lists the folder, creates nothing (FR-GDUI-0009). Transport failures reject; the modal shows them as `unknown_error`. */
   testDrive(projectId: string, link: string): Promise<DriveTestResult>;
-  /** Adds the folder as a source and starts its import (FR-GDUI-0017). The UI owns the 60 s and 30 s cutoffs. */
-  saveDrive(projectId: string, link: string): Promise<DriveSaveResult>;
+  /** Adds the folder as a source and starts its import (FR-GDUI-0017). `exclude` are the ids of the files not to import. The UI owns the 60 s and 30 s cutoffs. */
+  saveDrive(projectId: string, link: string, exclude?: readonly string[]): Promise<DriveSaveResult>;
   /** Reads a Confluence page or space link of the project's Atlassian site and counts what an import would take; stores nothing. A refusal rejects
    * a `DataError` whose `detail.apiCode` is the closed code (`confluence_not_found`, `atlassian_not_connected`, ...). */
   checkConfluence(projectId: string, input: ConfluenceInput): Promise<ConfluenceCheck>;

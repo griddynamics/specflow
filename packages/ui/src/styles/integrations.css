@@ -166,6 +166,25 @@
   accent-color: var(--gx-ink);
 }
 
+/* A row of text (a file, an issue): the body font; the key is mono, the folder is quiet */
+.gx-pick__row--text {
+  font: 14px var(--gx-font-body);
+}
+
+.gx-pick__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gx-pick__code {
+  font: 13px var(--gx-font-mono);
+}
+
+.gx-pick__hint {
+  color: var(--gx-ink-3);
+  font-size: 12.5px;
+}
+
 .gx-pick__row small {
   margin-left: auto;
   color: var(--gx-ink-3);

@@ -210,6 +210,16 @@ test("PickList: quiet tools above the rows, a scrolling box and live notes are o
   assert.match(view, /<div class="gx-pick__notes" aria-live="polite"><p>2 of 3 issues, and the epic<\/p><\/div>/);
 });
 
+test("PickRow: text rows set the label in the body font, with a mono code and a quiet hint", () => {
+  let view = html(<PickRow text code="NWO-1" label="One" note="Story" checked onChange={noop} />);
+  assert.match(view, /<label class="gx-pick__row gx-pick__row--text">/);
+  assert.match(view, /<span class="gx-pick__name"><code class="gx-pick__code">NWO-1<\/code> One<\/span><small>Story<\/small>/);
+  view = html(<PickRow text label="Specs.pdf" hint="design/archive" checked onChange={noop} />);
+  assert.match(view, /<span class="gx-pick__name">Specs\.pdf <span class="gx-pick__hint">design\/archive<\/span><\/span>/);
+  view = html(<PickRow text label="Specs.pdf" checked onChange={noop} />);
+  assert.match(view, /<span class="gx-pick__name">Specs\.pdf<\/span>/);
+});
+
 test("layout helpers", () => {
   assert.equal(html(<Page>x</Page>), '<main class="gx-page">x</main>');
   assert.equal(html(<Page busy>x</Page>), '<main class="gx-page" aria-busy="true">x</main>');

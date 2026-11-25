@@ -7,16 +7,8 @@ import type { JiraEpicCheck } from "@/lib/domain/sources";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";
 import { CANVAS_COPY } from "./canvas-copy";
-import {
-  checkAll,
-  checkNone,
-  excludeOf,
-  jiraEpicCheckText,
-  jiraEpicFailureText,
-  selectionText,
-  toggleIssue,
-  type Unchecked,
-} from "./jira-epic-logic";
+import { idOfChild, jiraEpicCheckText, jiraEpicFailureText, selectionText } from "./jira-epic-logic";
+import { checkAll, checkNone, excludeOf, toggle, type Unchecked } from "./pick-logic";
 import { ConnectFrame } from "./ConnectFrame";
 import { useCheckAdd } from "./use-check-add";
 
@@ -33,7 +25,7 @@ export function JiraEpicForm({ projectId, spec, reload, onBack, onClose }: Reado
     blank: typed === "",
     labels: spec.check ?? { test: "", testing: "", add: "" },
     check: () => sources.checkJiraEpic(projectId, typed),
-    add: (found) => sources.addJiraEpic(projectId, typed, excludeOf(found.children, unchecked)),
+    add: (found) => sources.addJiraEpic(projectId, typed, excludeOf(found.children.map(idOfChild), unchecked)),
     onAdded: () => {
       reload.current();
       onClose();
@@ -41,6 +33,7 @@ export function JiraEpicForm({ projectId, spec, reload, onBack, onClose }: Reado
     failureText: jiraEpicFailureText,
   });
   const children = flow.result?.children ?? [];
+  const rows = children.map(idOfChild);
   return (
     <ConnectFrame
       onBack={onBack}
@@ -83,7 +76,7 @@ export function JiraEpicForm({ projectId, spec, reload, onBack, onClose }: Reado
               label: CANVAS_COPY.jiraEpicSelectNone,
               disabled: unchecked.size === children.length || flow.busy !== null,
               onClick: () => {
-                setLeft({ signature: typed, keys: checkNone(children) });
+                setLeft({ signature: typed, keys: checkNone(rows) });
               },
             },
           ]}
@@ -91,12 +84,14 @@ export function JiraEpicForm({ projectId, spec, reload, onBack, onClose }: Reado
           {children.map((child) => (
             <PickRow
               key={child.key}
-              label={`${child.key}  ${child.summary}`}
+              text
+              code={child.key}
+              label={child.summary}
               note={`${child.type} · ${child.statusName}`}
               checked={!unchecked.has(child.key)}
               disabled={flow.busy !== null}
               onChange={(on) => {
-                setLeft({ signature: typed, keys: toggleIssue(unchecked, child.key, on) });
+                setLeft({ signature: typed, keys: toggle(unchecked, child.key, on) });
               }}
             />
           ))}

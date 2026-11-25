@@ -79,7 +79,7 @@ before adding, and a changed input is a new check.
 | Kind | Stage | Needs | Form (title) and check | Node |
 |---|---|---|---|---|
 | `upload` | Graph | | Add files; an optional name above the drop zone (placeholder: the default node name) | The name the person gave, else `Upload 10:42` / `Upload 25 Nov` (AC48), file counts, imports |
-| `gdrive` | Graph | | Connect a Google Drive folder; Test connection, Add source | folder name, files done of total |
+| `gdrive` | Graph | | Connect a Google Drive folder; Test connection, then the folder summary and every file as a checked, flat list (name, then the folder path quietly; none for a root file; uncheck to leave one out; quiet Select all / Select none; the status line says "9 of 10 files" or "No files", which turns Add source off; files of a category the import skips are not listed), Add source sends the unchecked file ids as `exclude` | folder name, files done of total |
 | `github` | Graph | GitHub | Add repositories; picks from the account's readable repositories (AC45) | repository, clone state (not read by the build, D19) |
 | `confluence` | Graph | Atlassian | Add a Confluence link; Check link, Add source (AC50) | page or space, "N pages" while it imports |
 | `jira_epic` | Graph | Atlassian | Add a Jira epic; Check epic, then every issue under it as a checked list (uncheck to leave one out; quiet Select all / Select none; the status line says "12 of 14 issues, and the epic" or "Only the epic"), Add source sends the unchecked keys as `exclude` | the epic key, "N issues" (AC51) |

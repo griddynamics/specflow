@@ -2,7 +2,23 @@
 // through the real BFF (docs/mission-control/README.md "The flow" scenes 4-8; DECISIONS D2, D5, D9, D10, D19): the Build and Plan decisions,
 // the Gaps list, the node dialog, and the GitHub repository, Slack channel and Jira plan connections. Every case seeds its own project.
 import type { Page } from "@playwright/test";
-import { ADD, bodiesOf, canvas, dialog, done, hub, MOTION, nodes, parsed, SPECS, STATE, unique, wire, YELLOW } from "./canvas-support";
+import {
+  ADD,
+  bodiesOf,
+  canvas,
+  dialog,
+  done,
+  FOLDER,
+  hub,
+  MOTION,
+  nodes,
+  parsed,
+  SPECS,
+  STATE,
+  unique,
+  wire,
+  YELLOW,
+} from "./canvas-support";
 import { FINISHED_RUN, shopGaps } from "./gaps-fixtures";
 import {
   allowConsoleErrors,
@@ -10,6 +26,7 @@ import {
   buildGraphAndPlan,
   expect,
   loginV2,
+  type RequestLog,
   seedGaps,
   seedGitHub,
   seedGitHubProjects,
@@ -49,6 +66,10 @@ const SET_UP_FIRST = "Set up first";
 const CHECK_LINK = "Check link";
 const CHECK_EPIC = "Check epic";
 const ADD_SELECTED = "Add selected";
+const FILES_TO_ADD = "Files to add";
+const SELECT_NONE = "Select none";
+const SELECT_ALL = "Select all";
+const TEST_CONNECTION = "Test connection";
 const button = (from: Pick<Page, "getByRole">, name: string | RegExp) => from.getByRole("button", { name });
 
 test.beforeEach(async () => {
@@ -400,7 +421,9 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     }
     await key.fill("NWO-250");
     await form.getByRole("button", { name: CHECK_EPIC }).click();
-    await expect(form.getByText(/250 issues \(the first 200 are read\)/)).toBeVisible();
+    await expect(form.getByText("NWO-250 · Everything · 250 issues.")).toBeVisible();
+    await expect(form.getByText(/the first 200 are read/)).toHaveCount(0); // the cap is said once, in the note of the list
+    await expect(form.getByText(/Only the first 200 issues/)).toHaveCount(1);
     await key.fill(`${SITE}/browse/NWO-12`); // a different key is a new check
     await expect(form.getByRole("button", { name: CHECK_EPIC })).toBeVisible();
     await form.getByRole("button", { name: CHECK_EPIC }).click();
@@ -435,15 +458,17 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     for (const box of await boxes.all()) await expect(box).toBeChecked();
     await expect(list.getByText("18 of 18 issues, and the epic")).toBeVisible();
     await expect(list.getByText("Story · To Do").first()).toBeVisible();
-    await expect(list.getByRole("button", { name: "Select all" })).toBeDisabled();
+    await expect(list.getByText("NWO-101", { exact: true })).toHaveCSS("font-family", /Fira Code/); // only the key is mono
+    await expect(list.getByText("Cart totals").first()).toHaveCSS("font-family", /Fira Sans/);
+    await expect(list.getByRole("button", { name: SELECT_ALL })).toBeDisabled();
     await list.getByRole("checkbox", { name: /NWO-102 +Address form/ }).uncheck();
     await expect(list.getByText("17 of 18 issues, and the epic")).toBeVisible();
-    await expect(list.getByRole("button", { name: "Select all" })).toBeEnabled();
-    await list.getByRole("button", { name: "Select none" }).click();
+    await expect(list.getByRole("button", { name: SELECT_ALL })).toBeEnabled();
+    await list.getByRole("button", { name: SELECT_NONE }).click();
     await expect(list.getByText("Only the epic")).toBeVisible();
     await expect(list.getByRole("checkbox", { name: /NWO-101/ })).not.toBeChecked();
-    await expect(list.getByRole("button", { name: "Select none" })).toBeDisabled();
-    await list.getByRole("button", { name: "Select all" }).click();
+    await expect(list.getByRole("button", { name: SELECT_NONE })).toBeDisabled();
+    await list.getByRole("button", { name: SELECT_ALL }).click();
     await expect(list.getByText("18 of 18 issues, and the epic")).toBeVisible();
     await list.getByRole("checkbox", { name: /NWO-102 +Address form/ }).uncheck();
     await form.getByRole("button", { name: "Add source" }).click();
@@ -466,11 +491,97 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     const list = form.getByRole("group", { name: "Issues to add" });
     await expect(list.getByRole("checkbox")).toHaveCount(200);
     await expect(list.getByText("Only the first 200 issues are listed and imported.")).toBeVisible();
-    await list.getByRole("button", { name: "Select none" }).click();
+    await list.getByRole("button", { name: SELECT_NONE }).click();
     await key.fill("NWO-12");
     await form.getByRole("button", { name: CHECK_EPIC }).click();
     await expect(list.getByText("18 of 18 issues, and the epic")).toBeVisible();
     await expect(list.getByText("Only the first 200 issues are listed and imported.")).toBeHidden();
+  });
+
+  const DRIVE = "Connect a Google Drive folder";
+  const drivePage = async (page: Page, name: string): Promise<string> => {
+    const pid = await canvas(page, unique(name));
+    await page.goto(`/projects/${pid}?add=gdrive`);
+    return pid;
+  };
+  const driveTest = async (form: ReturnType<typeof dialog>, link: string) => {
+    await form.getByLabel("Google Drive folder link").fill(link);
+    await form.getByRole("button", { name: TEST_CONNECTION }).click();
+  };
+  const driveAdds = (requests: RequestLog[], pid: string) =>
+    requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/gdrive`);
+
+  test("Drive files: a test lists the files flat and checked, a root file without a path and a nested one with it; unchecking one sends it as exclude", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await drivePage(page, "Drive files");
+    const form = dialog(page, DRIVE);
+    await driveTest(form, FOLDER);
+    await expect(form.getByText(/We found 11 files in 3 folders\./)).toBeVisible(); // the summary is as it was
+    const list = form.getByRole("group", { name: FILES_TO_ADD });
+    const boxes = list.getByRole("checkbox");
+    await expect(boxes).toHaveCount(10); // the shortcut is a skipped category: not offered
+    for (const box of await boxes.all()) await expect(box).toBeChecked();
+    await expect(list.getByText("10 of 10 files")).toBeVisible();
+    await expect(list.getByRole("checkbox", { name: "Contract.pdf", exact: true })).toBeChecked(); // a root file: no path after the name
+    await expect(list.getByRole("checkbox", { name: "Specs.pdf design", exact: true })).toBeChecked();
+    await expect(list.getByRole("checkbox", { name: "Pricing.pdf design/archive", exact: true })).toBeChecked();
+    await expect(list.getByRole("checkbox", { name: /Link to Roadmap/ })).toHaveCount(0);
+    await expect(list.getByText("design/archive", { exact: true })).toHaveCount(3);
+    await expect(list.getByText("design", { exact: true })).toHaveCount(3);
+    await expect(list.getByText("design/archive", { exact: true }).first()).toHaveCSS("font-family", /Fira Sans/);
+    await expect(list.getByText("Specs.pdf").first()).toHaveCSS("font-size", "14px");
+    await expect(list.getByText("design", { exact: true }).first()).toHaveCSS("font-size", "12.5px");
+    await expect(list.getByRole("button", { name: SELECT_ALL })).toBeDisabled();
+    await list.getByRole("checkbox", { name: "Specs.pdf design", exact: true }).uncheck();
+    await expect(list.getByText("9 of 10 files")).toBeVisible();
+    await expect(list.getByRole("button", { name: SELECT_ALL })).toBeEnabled();
+    await form.getByRole("button", { name: ADD.source }).click();
+    await expect(form).toBeHidden();
+    expect(bodiesOf(driveAdds(requests, pid))).toEqual([{ link: FOLDER, exclude: ["fake-synthetic-30-f5"] }]);
+    await expect(nodes(page).filter({ hasText: "Recorded folder" })).toHaveCount(1);
+  });
+
+  test("Drive files: Select none says No files and turns Add off, Select all restores every file, and a different link starts again with all checked", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await drivePage(page, "Drive none");
+    const form = dialog(page, DRIVE);
+    await driveTest(form, FOLDER);
+    const list = form.getByRole("group", { name: FILES_TO_ADD });
+    await list.getByRole("button", { name: SELECT_NONE }).click();
+    await expect(list.getByText("No files")).toBeVisible();
+    await expect(list.getByRole("checkbox", { name: "Contract.pdf", exact: true })).not.toBeChecked();
+    await expect(list.getByRole("button", { name: SELECT_NONE })).toBeDisabled();
+    await expect(form.getByRole("button", { name: ADD.source })).toBeDisabled(); // a folder with no files imports nothing
+    await list.getByRole("checkbox", { name: "Contract.pdf", exact: true }).check();
+    await expect(list.getByText("1 of 10 files")).toBeVisible();
+    await expect(form.getByRole("button", { name: ADD.source })).toBeEnabled();
+    await list.getByRole("button", { name: SELECT_NONE }).click();
+    await list.getByRole("button", { name: SELECT_ALL }).click();
+    await expect(list.getByText("10 of 10 files")).toBeVisible();
+    await expect(form.getByRole("button", { name: ADD.source })).toBeEnabled();
+    await list.getByRole("button", { name: SELECT_NONE }).click();
+    await driveTest(form, "https://drive.google.com/drive/folders/fake-synthetic-23"); // another link: a new test, nothing left out
+    await expect(list.getByText("10 of 10 files")).toBeVisible();
+    await form.getByRole("button", { name: ADD.source }).click();
+    await expect(form).toBeHidden();
+    expect(bodiesOf(driveAdds(requests, pid))).toEqual([{ link: "https://drive.google.com/drive/folders/fake-synthetic-23" }]); // no exclude when all
+  });
+
+  test("Drive files: a folder with more files than an import takes says so once, quietly", async ({ page }) => {
+    await drivePage(page, "Drive capped");
+    const form = dialog(page, DRIVE);
+    await driveTest(form, "https://drive.google.com/drive/folders/fake-capped-folder");
+    const list = form.getByRole("group", { name: FILES_TO_ADD });
+    await expect(list.getByRole("checkbox")).toHaveCount(1000);
+    await expect(list.getByText("1000 of 1000 files")).toBeVisible();
+    await expect(form.getByText(/more files than one import takes/)).toHaveCount(1);
+    await driveTest(form, FOLDER);
+    await expect(list.getByText("10 of 10 files")).toBeVisible();
+    await expect(form.getByText(/more files than one import takes/)).toHaveCount(0);
   });
 
   test("Slack: the form shows the invite and the connect command, waits, and names the channel once it is bound in Slack, then Test connection posts the welcome message (or says why not) and Add channel closes; the channel is a node under Gap", async ({
@@ -488,17 +599,17 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(form.getByText(`/specflow connect ${pid}`, { exact: true })).toBeVisible();
     await expect(form.getByText("Waiting for the channel.")).toBeVisible();
     await expect(form.getByText("Test it: Graphico posts a welcome message in the channel.")).toBeVisible();
-    await expect(form.getByRole("button", { name: "Test connection" })).toBeDisabled(); // nothing to post in before the binding
+    await expect(form.getByRole("button", { name: TEST_CONNECTION })).toBeDisabled(); // nothing to post in before the binding
     await seedSlack({ pid, channel: CHANNEL });
     await expect(form.getByText("#northwind-specs is connected.")).toBeVisible({ timeout: 15_000 });
-    await expect(form.getByRole("button", { name: "Test connection" })).toBeEnabled();
+    await expect(form.getByRole("button", { name: TEST_CONNECTION })).toBeEnabled();
     // The app is not in the channel: the API's word, and Test connection stays to try again.
     await seedSlack({ pid, channel: CHANNEL, test: "slack_not_in_channel" });
-    await form.getByRole("button", { name: "Test connection" }).click();
+    await form.getByRole("button", { name: TEST_CONNECTION }).click();
     await expect(form.getByRole("alert")).toContainText("The app is not in the channel any more");
     await expect(form.getByRole("button", { name: "Add channel" })).toHaveCount(0);
     await seedSlack({ pid, channel: CHANNEL, test: "ok" });
-    await form.getByRole("button", { name: "Test connection" }).click();
+    await form.getByRole("button", { name: TEST_CONNECTION }).click();
     await expect(form.getByText(/^Posted in #northwind-specs: “Welcome to the workspace of project /)).toBeVisible();
     await expect(form.getByText(/If it arrived, add the channel\.$/)).toBeVisible();
     await form.getByRole("button", { name: "Add channel" }).click();
