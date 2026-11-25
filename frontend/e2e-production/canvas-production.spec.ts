@@ -93,6 +93,29 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(nodes(page).last()).toBeInViewport({ ratio: 1 });
   });
 
+  test("every connection card of the plus dialog has one size, in every stage and in the other stages' list", async ({ page }) => {
+    await canvas(page, unique("Card size"));
+    const sizes = new Set<string>();
+    for (const [plus, title] of [
+      [ADD.source, "Add a source"],
+      [ADD.channel, "Add a gap channel"],
+      [ADD.destination, "Add a plan destination"],
+    ] as const) {
+      await page.getByRole("button", { name: plus }).click();
+      const d = dialog(page, title);
+      await d.getByText("Connections for the other stages").click();
+      const boxes = await d
+        .getByRole("button")
+        .filter({ hasText: /(Available|Set up first|For (Graph|Gap|Plan))$/ })
+        .evaluateAll((cards) => cards.map((c) => c.getBoundingClientRect()));
+      expect(boxes).toHaveLength(9); // all nine connections: the stage's own and the other stages'
+      for (const box of boxes) sizes.add(`${String(Math.round(box.width))}x${String(Math.round(box.height))}`);
+      await page.keyboard.press("Escape");
+      await expect(d).toBeHidden();
+    }
+    expect([...sizes]).toHaveLength(1);
+  });
+
   test("the plus dialog lists its stage first, the others dashed; a connection that needs an app says Set up first; MCP is not listed", async ({
     page,
   }) => {
