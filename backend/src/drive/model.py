@@ -34,11 +34,21 @@ class DriveItem:
 
 
 @dataclass(frozen=True)
+class FolderNode:
+    """A visited folder below the root: its name and the folder it sits in (``parent_id``)."""
+
+    id: str
+    name: str
+    parent_id: str
+
+
+@dataclass(frozen=True)
 class Listing:
     root: DriveFolder
     folder_count: int  # includes the root
     items: tuple[DriveItem, ...]
     revisited: int
+    folders: tuple[FolderNode, ...] = ()  # every visited folder except the root
 
 
 @dataclass(frozen=True)
@@ -66,3 +76,16 @@ def ordered(counts: list[CategoryCount]) -> list[CategoryCount]:
             LABELS[r.category],
         ),
     )
+
+
+def folder_path(listing: Listing, item: DriveItem) -> str:
+    """The folder names from the root (excluded) down to the item's parent, joined with ``/``."""
+
+    by_id = {f.id: f for f in listing.folders}
+    names: list[str] = []
+    current = item.parent_id
+    while current != listing.root.id and current in by_id and len(names) < len(by_id):
+        node = by_id[current]
+        names.append(node.name)
+        current = node.parent_id
+    return "/".join(reversed(names))

@@ -16,7 +16,7 @@ from drive.categories import CATEGORY_ORDER, categorize
 from drive.fake import FakeDriveGateway
 from drive.fake_files import sample_bytes
 from drive.gateway import FAKE_DRIVE_EMAIL, DriveError
-from drive.model import summarize
+from drive.model import DriveFolder, DriveItem, FolderNode, Listing, folder_path, summarize
 from drive.reasons import Reason
 from file_parsers.pdf.pdfium_typed import open_document
 from settings import ConfigurationError
@@ -274,3 +274,22 @@ def test_the_sample_files_are_xml_safe_for_any_drive_id():
     assert sample_bytes("text/csv", "a<b&c") == b"name,value\na&lt;b&amp;c,1\n"
     assert sample_bytes("application/zip", "fake-1") is None
     assert sample_bytes("application/pdf", "fake-1") is None  # PDF is served by ``drive.fake``
+
+
+def test_the_fake_listing_names_its_folders_and_paths_follow_them():
+    gw = FakeDriveGateway(app_env="local")
+    listing = gw.list_all("fake-synthetic-30")
+    assert len(listing.folders) == listing.folder_count - 1  # the root is not listed
+    assert {f.name for f in listing.folders} == {f"Folder {n}" for n in range(1, 7)}
+    paths = {folder_path(listing, i) for i in listing.items}
+    assert "" in paths and "Folder 1/Folder 4" in paths and "Folder 3/Folder 6" in paths
+
+
+def test_a_path_stops_at_an_unknown_parent_and_never_loops():
+    root = DriveFolder("r", "Root", in_shared_drive=False)
+    loop = (FolderNode("a", "A", "b"), FolderNode("b", "B", "a"))
+    listing = Listing(root, 3, (), 0, loop)
+    item = DriveItem("i", "x", "text/csv", "a", None, None, None, None)
+    assert len(folder_path(listing, item).split("/")) <= 2
+    orphan = DriveItem("j", "x", "text/csv", "unknown", None, None, None, None)
+    assert folder_path(listing, orphan) == ""

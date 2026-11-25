@@ -1894,6 +1894,35 @@
         "title": "DriveCategoryOut",
         "type": "object"
       },
+      "DriveFileOut": {
+        "description": "One listed file: ``path`` is the folder names below the shared root, joined with ``/`` (``\"\"`` in the root).",
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "path",
+          "category"
+        ],
+        "title": "DriveFileOut",
+        "type": "object"
+      },
       "DriveFolderOut": {
         "properties": {
           "id": {
@@ -1941,6 +1970,31 @@
         "title": "DriveLinkRequest",
         "type": "object"
       },
+      "DriveSaveRequest": {
+        "additionalProperties": false,
+        "description": "The link to add and the files of the folder not to import (the test ignores nothing: it has no such body).",
+        "properties": {
+          "exclude": {
+            "items": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Exclude",
+            "type": "array"
+          },
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "DriveSaveRequest",
+        "type": "object"
+      },
       "DriveTestFailed": {
         "properties": {
           "reason": {
@@ -1973,6 +2027,17 @@
             "title": "File Count",
             "type": "integer"
           },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DriveFileOut"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "files_capped": {
+            "title": "Files Capped",
+            "type": "boolean"
+          },
           "folder": {
             "$ref": "#/components/schemas/DriveFolderOut"
           },
@@ -1991,7 +2056,9 @@
           "folder",
           "folder_count",
           "file_count",
-          "categories"
+          "categories",
+          "files",
+          "files_capped"
         ],
         "title": "DriveTestOk",
         "type": "object"
@@ -18545,7 +18612,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DriveLinkRequest"
+                "$ref": "#/components/schemas/DriveSaveRequest"
               }
             }
           },

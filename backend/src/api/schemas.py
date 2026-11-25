@@ -349,6 +349,9 @@ class PlanPreview(BaseModel):
 
 LINK_MAX = 2048
 ISSUE_KEY_MAX = 64
+DRIVE_FILES_LIST_MAX = (
+    1000  # = temporal.sources.models.DRIVE_EXCLUDE_MAX (asserted in the tests); the import has no cap
+)
 EPIC_EXCLUDE_MAX = 200  # = api.imports.jira_epic.MAX_EPIC_ISSUES (asserted in the tests)
 
 
@@ -364,6 +367,15 @@ class DriveLinkRequest(BaseModel):
     link: str = Field(max_length=LINK_MAX)
 
 
+DriveFileId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+
+
+class DriveSaveRequest(DriveLinkRequest):
+    """The link to add and the files of the folder not to import (the test ignores nothing: it has no such body)."""
+
+    exclude: list[DriveFileId] = Field(default_factory=list, max_length=DRIVE_FILES_LIST_MAX)
+
+
 class DriveFolderOut(BaseModel):
     id: str
     name: str
@@ -375,12 +387,23 @@ class DriveCategoryOut(BaseModel):
     count: int
 
 
+class DriveFileOut(BaseModel):
+    """One listed file: ``path`` is the folder names below the shared root, joined with ``/`` (``""`` in the root)."""
+
+    id: str
+    name: str
+    path: str
+    category: str
+
+
 class DriveTestOk(BaseModel):
     result: Literal["ok"] = "ok"
     folder: DriveFolderOut
     folder_count: int
     file_count: int
     categories: list[DriveCategoryOut]
+    files: list[DriveFileOut]  # by path, then name (case-insensitive), at most DRIVE_FILES_LIST_MAX
+    files_capped: bool  # more files than listed
 
 
 class DriveTestFailed(BaseModel):

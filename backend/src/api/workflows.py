@@ -8,6 +8,7 @@ returns the running handle.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any, Final
 
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -101,14 +102,19 @@ async def start_summarize(
     return str(handle.id)
 
 
-async def start_drive_import(runtime: Runtime, project_id: uuid.UUID, connection_id: uuid.UUID) -> str:
+async def start_drive_import(
+    runtime: Runtime,
+    project_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    exclude: Sequence[str] = (),
+) -> str:
     """Start the Drive import of a saved source; returns the workflow id (INT-GDUI-0003).
 
     ``DriveImportWorkflow`` on the ``parse`` queue, id ``drive-import-{connection_id}``,
     ``USE_EXISTING``, execution timeout 12 h. An ambiguous start (the call raised, but
     the workflow may exist) looks the workflow up by its deterministic id first: when
     it is there the id is returned and the caller must not compensate; only a proven
-    "not started" re-raises.
+    "not started" re-raises. ``exclude`` (Drive file ids) rides in the workflow input, which Temporal's history keeps.
     """
 
     temporal = required(runtime.settings.temporal, "the api role requires temporal settings")
@@ -120,6 +126,7 @@ async def start_drive_import(runtime: Runtime, project_id: uuid.UUID, connection
                 project_id=project_id,
                 connection_id=connection_id,
                 id_prefix=runtime.id_prefix,
+                exclude=list(exclude),
             ),
             id=workflow_id,
             task_queue=queue_name(temporal, "parse", prefix=runtime.id_prefix),

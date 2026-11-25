@@ -135,6 +135,7 @@ class Sources:
     def __init__(self, harness: Any, repo: FakeSources, started: list[tuple]) -> None:
         self.harness, self.repo, self.started = harness, repo, started
         self.pid = ""
+        self.excluded: list[list[str]] = []  # the exclude list of each started import
 
     @property
     def client(self):
@@ -166,12 +167,15 @@ def sources(harness, monkeypatch):
     harness.runtime.drive = FakeDriveGateway(app_env="local", file_delay_s=0)
     started: list[tuple] = []
 
-    async def hook(runtime, project_id, connection_id):
+    context = Sources(harness, fake, started)
+
+    async def hook(runtime, project_id, connection_id, exclude=()):
         started.append((project_id, connection_id))
+        context.excluded.append(list(exclude))
         return f"drive-import-{connection_id}"
 
     monkeypatch.setattr(workflows, "start_drive_import", hook)
-    return Sources(harness, fake, started)
+    return context
 
 
 async def new_project(ctx: Sources, email: str = "alice@example.com") -> str:

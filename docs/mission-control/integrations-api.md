@@ -177,11 +177,16 @@ connected by (R1), runs in the API process and is the source `kind` `jira_epic`.
 | Method, path | Body | Success | Errors |
 |---|---|---|---|
 | `POST /projects/{pid}/sources/jira-epic/check` | `{key_or_link}` | 200 `JiraEpicCheckOut` | 404 `project_not_found`; the codes below |
-| `POST /projects/{pid}/sources/jira-epic` | `{key_or_link}` | 201 `BatchSourceOut` (the card of the new source, `kind` `jira_epic`, `name` `KEY: summary`, `link` `https://<site>/browse/KEY`) | as the check; 404 `source_not_found` (removed at once) |
+| `POST /projects/{pid}/sources/jira-epic` | `{key_or_link, exclude?}` | 201 `BatchSourceOut` (the card of the new source, `kind` `jira_epic`, `name` `KEY: summary`, `link` `https://<site>/browse/KEY`) | as the check; 404 `source_not_found` (removed at once) |
 
 `key_or_link` is at most 2048 characters (the body is closed: other keys are 422 `validation_failed`).
 `JiraEpicCheckOut`: `key` (upper case), `summary` (shown, not stored), `issues` (how many issues the epic has for the
-bound member; an import takes at most 200). Progress and status are the card of `GET /projects/{pid}/sources?batches=1`, as
+bound member; an import takes at most 200), `children` (`[{key, summary, type, status}]`: the issues under the epic in
+key order, at most 200, read with a search of those three fields; names are shown, not stored) and `capped` (the epic has
+more issues than `children` lists). The add takes an optional `exclude`: issue keys such as `ABC-12`, default `[]`, at
+most 200, each matching `^[A-Z][A-Z0-9_]*-\d+$` (else 422 `validation_failed`). The epic is always imported; a child
+whose key is listed is neither declared nor imported, and a key that is not a child is ignored. The log carries the count
+only. Progress and status are the card of `GET /projects/{pid}/sources?batches=1`, as
 for the Confluence source above; one source per add, every add is a new source (D7).
 
 Codes: the shared `atlassian_oauth_unavailable`, `atlassian_not_connected`, `atlassian_reconnect_required`,
@@ -195,6 +200,33 @@ Codes: the shared `atlassian_oauth_unavailable`, `atlassian_not_connected`, `atl
 | `jira_epic_forbidden` | 409 | Jira refused the bound member (403) |
 
 Order of checks: project member, Atlassian bound and usable, key or link, Jira.
+
+## Google Drive source
+
+What the Drive dialog (test, then add) calls. Any member; the import reads the folder with the Drive account of the
+deployment and is the source `kind` `gdrive`.
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/gdrive/test` | `{link}` | 200 `DriveTestOk` or `DriveTestFailed` (`result` `failed` with a `reason`) | 404 `project_not_found` |
+| `POST /projects/{pid}/sources/gdrive` | `{link, exclude?}` | 201 `SourceCreated` | 422 `validation_failed`; the Drive reason codes (`invalid_link`, `no_access`, `already_connected`, ...) |
+
+`DriveTestOk`: `folder` (`{id, name}`), `folder_count` (includes the shared root), `file_count`, `categories`
+(`[{category, processing_class, count}]`) and, to pick files before adding:
+
+- `files`: `[{id, name, path, category}]`, one per listed file, ordered by `path` then `name` (both case-insensitive).
+  `path` is the folder names from the shared root (the root itself is not in it) down to the file's parent, joined with
+  `/`; a file directly in the root has `""`. `category` is the value of `categories[].category`. `id` is the Drive file id.
+- `files_capped`: more files than listed. At most 1000 are listed (`DRIVE_FILES_LIST_MAX`); `file_count` and
+  `categories` always count every file. Names and paths are shown, never logged.
+
+The add takes an optional `exclude`: Drive file ids from `files[].id`, default `[]`, at most 1000, each matching
+`^[A-Za-z0-9_-]{1,128}$` (else 422 `validation_failed`). The test body is unchanged and refuses `exclude`. An id that is
+not in the folder is ignored. Excluded files are neither declared (no `connection_items` row), downloaded nor counted
+in the progress totals. The ids travel as input of the `DriveImportWorkflow` (Temporal keeps the history), which lists
+the folder again in the worker and drops them before storing the listing; so continue-as-new and activity retries keep
+them, and nothing in the database holds them. The log carries the count only. A file added to the folder after the
+check is imported (it was not unchecked). Files beyond the 1000 of a capped check cannot be unchecked and are imported.
 
 ## Plan destinations
 

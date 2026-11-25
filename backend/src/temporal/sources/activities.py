@@ -38,6 +38,7 @@ from collections import Counter
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import Executor
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from typing import Any, Final, TypeVar, cast
 
 from sqlalchemy import func, select
@@ -254,11 +255,15 @@ class DriveImportActivities:
         except DriveError as error:
             await self._fail(data.project_id, data.connection_id, error.reason)
             return ListResult(outcome="failed")
+        excluded = frozenset(data.exclude)
+        kept = tuple(item for item in listing.items if item.id not in excluded)
+        dropped = len(listing.items) - len(kept)
+        listing = replace(listing, items=kept)
         async with self._sessions() as session, session.begin():
             locked = await self._lock(session, data.project_id, data.connection_id)
             if locked is None or locked.state not in ("listing", "importing"):
                 return ListResult(outcome="stop")
-            await sources.upsert_items(session, data.connection_id, data.project_id, listing.items)
+            await sources.upsert_items(session, data.connection_id, data.project_id, kept)
             await sources.set_connection_state(session, data.connection_id, "importing")
         classes: Counter[str] = Counter()
         for row in summarize(listing):
@@ -272,6 +277,7 @@ class DriveImportActivities:
             folder_id=connection.external_id,
             folder_count=listing.folder_count,
             file_count=len(listing.items),
+            excluded=dropped,
             counts=dict(classes),
             duration_ms=round((time.monotonic() - started) * 1000),
         )

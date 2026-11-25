@@ -28,7 +28,7 @@ from drive.categories import GOOGLE
 from drive.fake_files import sample_bytes
 from drive.gateway import CHUNK_SIZE, FAKE_DRIVE_EMAIL, DriveError
 from drive.links import is_drive_id
-from drive.model import DriveFolder, DriveItem, Listing
+from drive.model import DriveFolder, DriveItem, FolderNode, Listing
 from drive.reasons import Reason
 from settings import ConfigurationError
 
@@ -159,25 +159,27 @@ class FakeDriveGateway:
             tree = self._tree_of(IMPORT_FAILS_LOOKS_LIKE)
             if tree is None:
                 raise DriveError(Reason.NO_ACCESS)
-            items, folders = self._walk(tree, IMPORT_FAILS_LOOKS_LIKE)
-            return Listing(root, folders, items, 0)
+            items, folders, nodes = self._walk(tree, IMPORT_FAILS_LOOKS_LIKE)
+            return Listing(root, folders, items, 0, nodes)
         tree = self._tree_of(folder_id)
         if tree is None:  # check_folder found it, so this cannot happen
             raise DriveError(Reason.NO_ACCESS)
-        items, folders = self._walk(tree, folder_id)
-        return Listing(root, folders, items, 0)
+        items, folders, nodes = self._walk(tree, folder_id)
+        return Listing(root, folders, items, 0, nodes)
 
     @staticmethod
-    def _walk(tree: recordings.RecordedTree, start: str) -> tuple[tuple[DriveItem, ...], int]:
+    def _walk(tree: recordings.RecordedTree, start: str) -> tuple[tuple[DriveItem, ...], int, tuple[FolderNode, ...]]:
         found: list[DriveItem] = []
+        nodes: list[FolderNode] = []
         folders = 0
         queue = deque([start])
         while queue:
             current = queue.popleft()
             folders += 1
             found.extend(tree.items[current])
+            nodes.extend(FolderNode(child, tree.folders[child].name, current) for child in tree.children[current])
             queue.extend(tree.children[current])
-        return tuple(found), folders
+        return tuple(found), folders, tuple(nodes)
 
     def iter_download(self, file_id: str, *, chunk_size: int = CHUNK_SIZE) -> Iterator[bytes]:
         item = self._item(file_id)
