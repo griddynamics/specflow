@@ -15,6 +15,8 @@
 //                                            claimsReleased; answers the project; see stub-members.mjs `seed`)
 //                                          POST /seed-jira-gaps ({pid, available?, target?, access?}: the Jira gap channel of a project,
 //                                            `GET /projects/{pid}/jira-gaps`; see stub-jira-gaps.mjs)
+//                                          POST /seed-linear-gaps ({pid, available?, target?, access?}: the Linear gap channel of a project,
+//                                            `GET /projects/{pid}/linear-gaps`; see stub-linear-gaps.mjs)
 //                                          POST /seed-github-projects ({pid?, available?, organization?, target?, access?}: the GitHub Projects
 //                                            plan destination of a project, `GET /projects/{pid}/github-projects`; `organization` null = a user's
 //                                            repository; `target` = {repository_id, repository, project_node_id, project_title, enabled?, sync?} or
@@ -239,7 +241,19 @@ const control = http.createServer(async (req, res) => {
     api.githubProjects.seed(spec);
     return send(200, {});
   }
-  // LINEAR S5: POST /seed-linear-gaps ({pid?, available?, target?, access?}) -> api.linearGaps.seed(spec), like /seed-jira-gaps.
+  // POST /seed-linear-gaps ({pid, available?, target?, access?}) -> api.linearGaps.seed(spec), like /seed-jira-gaps.
+  if (req.method === "POST" && req.url === "/seed-linear-gaps") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.linearGaps.seed(spec);
+    return send(200, {});
+  }
   if (req.method === "POST" && req.url === "/seed-jira-gaps") {
     const chunks = [];
     for await (const c of req) chunks.push(c);

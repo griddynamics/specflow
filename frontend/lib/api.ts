@@ -199,6 +199,19 @@ export const putJiraGaps = (pid: string, jiraProject: string, grouping: string, 
 export const checkJiraGapsAccess = (pid: string, jiraProject: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/jira-gaps/access-check`, json({ jira_project: jiraProject })).then((r) => r.body);
 
+// The Linear gap channel of a project (docs/linear/gaps.md). Bodies stay `unknown`; lib/data/http/linear-gaps.ts checks them.
+export const getLinearGaps = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/linear-gaps`).then((r) => r.body);
+export const putLinearGaps = (pid: string, teamKey: string, linearProject: string | null, grouping: string, enabled: boolean) =>
+  httpPut(
+    `/projects/${encodeURIComponent(pid)}/linear-gaps`,
+    json({ team_key: teamKey, linear_project: linearProject, grouping, enabled }),
+  ).then((r) => r.body);
+export const checkLinearGapsAccess = (pid: string, teamKey: string, linearProject: string | null) =>
+  httpPost(
+    `/projects/${encodeURIComponent(pid)}/linear-gaps/access-check`,
+    json({ team_key: teamKey, linear_project: linearProject }),
+  ).then((r) => r.body);
+
 // The GitHub Projects plan destination of a project (docs/github/projects.md). Bodies stay `unknown`; lib/data/http/github-projects.ts checks them.
 /** The project is named by `nodeId` (an existing one) or `newTitle` (created in the organization at save): the body names exactly one. */
 const projectBody = (pick: { nodeId: string } | { newTitle: string }) =>

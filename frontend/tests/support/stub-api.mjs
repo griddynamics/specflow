@@ -14,7 +14,7 @@ import { createJiraModel } from "./stub-jira.mjs";
 import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
 // LINEAR S3: import the Linear plan destination model (stub-linear-plan.mjs).
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
-// LINEAR S5: import the Linear gap channel model (stub-linear-gaps.mjs).
+import { createLinearGapsModel } from "./stub-linear-gaps.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
@@ -123,7 +123,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   // LINEAR S1: const linear = createLinearModel(...); pass it to createIntegrationsModel below as `linear`.
   /** Project integrations (docs/mission-control/integrations-api.md): who each app is connected by, and the Slack channel of a project. */
   const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, displayName: ME.name });
-  // LINEAR S5: const linearGaps = createLinearGapsModel((pid) => integrations.linearActive(pid));
+  /** The Linear gap channel: any member; acts as the project's Linear binding (the integrations stub, once it knows Linear, says who). */
+  const linearGaps = createLinearGapsModel((pid) => integrations.linearActive?.(pid) ?? true);
   /** The Jira gap channel: any member; acts as the project's Atlassian binding. */
   const jiraGaps = createJiraGapsModel((pid) => integrations.atlassianActive(pid));
   /** GitHub Projects plan destination: any member; acts as the project's GitHub binding; the repository is one of the project's. */
@@ -1203,6 +1204,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/projects/{pid}/linear-gaps` and `/projects/{pid}/linear-gaps/access-check` (docs/linear/gaps.md). */
+  async function linearGapsRoute({ req, res, pid, did }) {
+    people.list(pid); // a non-member is a 404
+    if (!did && req.method === "GET") return json(res, 200, linearGaps.get(pid));
+    if (!did && req.method === "PUT") return json(res, 200, linearGaps.put(pid, await readJson(req)));
+    if (did === "access-check" && req.method === "POST") return json(res, 200, linearGaps.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   /** `/projects/{pid}/jira-gaps` and `/projects/{pid}/jira-gaps/access-check` (docs/jira-sync/gaps.md). */
   async function jiraGapsRoute({ req, res, pid, did }) {
     const m = req.method;
@@ -1412,7 +1423,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!b) return json(res, 200, project);
     if (b === "members" || b === "invites" || b === "leave") return membersRoute({ req, res, pid, b, did });
     if (b === "jira") return jiraRoute({ req, res, pid, did });
-    // LINEAR S5: if (b === "linear-gaps") return linearGapsRoute({ req, res, pid, did });
+    if (b === "linear-gaps") return linearGapsRoute({ req, res, pid, did });
     if (b === "jira-gaps") return jiraGapsRoute({ req, res, pid, did });
     if (b === "github-projects") return githubProjectsRoute({ req, res, url, pid, did });
     // LINEAR S3: if (b === "linear-plan") return linearPlanRoute({ req, res, url, pid, did });
@@ -1498,7 +1509,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     people,
     /** Jira settings: `jira.state` (available, mode, connection, callbackError) and `jira.seed({pid, available, target, access, mode, ...})`. */
     jira,
-    // LINEAR S5: linearGaps (the model above), served as `linearGaps.seed({...})`.
+    /** Linear gap channel: `linearGaps.state` (available) and `linearGaps.seed({pid, available, target, access})`. */
+    linearGaps,
     /** Jira gap channel: `jiraGaps.state` (available) and `jiraGaps.seed({pid, available, target, access})`. */
     jiraGaps,
     /** GitHub Projects destination: `githubProjects.state` (available, organization) and `githubProjects.seed({pid, available, organization, target, access})`. */
