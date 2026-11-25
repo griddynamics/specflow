@@ -250,8 +250,3 @@ async def test_closing_the_runner_cancels_a_waiting_retry(rig: Rig) -> None:
     await rig.runner.aclose()
 
     assert waiting.cancelled() and rig.passes == 1
-
-
-async def test_the_seam_of_the_status_mirror_names_its_stream(rig: Rig) -> None:
-    with pytest.raises(NotImplementedError, match="S3b"):
-        await rig.runner.mirror_task_status(str(PID), "TASK::A::1", "in_progress")

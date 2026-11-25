@@ -4,7 +4,7 @@ or claim token)."""
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any, Final
 
 from api.agent_reads import AgentReads
@@ -18,7 +18,8 @@ from api.errors import (
     story_not_found,
     task_not_found,
 )
-from api.runtime import agent_error
+from api.linear_plan.mirror import TaskChange
+from api.runtime import Runtime, agent_error
 from db.models import User
 from graph.core.errors import ConfigurationError
 from graph.plan.errors import PlanReadError, TaskStateError
@@ -86,6 +87,15 @@ async def written[T](
             outcome=outcome,
             repeat=repeat,
         )
+
+
+def mirror_to_linear(runtime: Runtime, graph_id: str, changes: Iterable[TaskChange]) -> None:
+    """After a task status write committed: let the Linear status mirror follow, in the background. A no-op when the
+    project's Linear is off; never raises and never waits (the write has its answer already)."""
+
+    runner = runtime.linear_plan
+    if runner is not None:
+        runner.mirror_task_status(graph_id, tuple(changes))
 
 
 async def write_refusal(reads: AgentReads, graph_id: str, story_id: str, error: TaskStateError) -> ApiError:

@@ -21,6 +21,7 @@ from agent_contracts.linear_models import LinearSyncItem, LinearSyncProgress, Li
 from api.exports.runner import ExportRunner, ProjectRun, utc_now
 from api.jira.desired import SpecRef
 from api.linear_plan.gateway import GatewayFactory, NotConnectedError
+from api.linear_plan.mirror import MirrorDeps, TaskChange, mirror_changes
 from api.linear_plan.state import items_of, not_configured, status_of
 from api.linear_plan.store import DbStore, PlanStore
 from api.linear_plan.sync import RATE_LIMITED, PushDeps, PushProgress, PushResult, push_once
@@ -72,6 +73,11 @@ class LinearPlanRunner(ExportRunner[LinearTargetView | None, LinearSyncStatus, P
         self._sleep = sleep
         self._store: PlanStore = DbStore(transaction)
         self._retries: dict[str, asyncio.Task[None]] = {}
+        self._mirrors: set[asyncio.Task[None]] = set()
+        self._mirror_lock = asyncio.Lock()
+        self._mirror_deps = MirrorDeps(
+            store=self._store, gateway_for=self._gateway_for, issue_of=self.issue_of, load_plan=self._load_plan
+        )
         self._deps = PushDeps(
             store=self._store,
             gateway_for=self._gateway_for,
@@ -129,9 +135,10 @@ class LinearPlanRunner(ExportRunner[LinearTargetView | None, LinearSyncStatus, P
 
     @override
     async def aclose(self) -> None:
-        """Cancel the queued and running passes and the waiting retries (the next start repeats them)."""
+        """Cancel the queued and running passes, the waiting retries and the status mirrors (the next start repeats
+        the passes)."""
 
-        tasks = [task for task in self._retries.values() if not task.done()]
+        tasks = [task for task in (*self._retries.values(), *self._mirrors) if not task.done()]
         for task in tasks:
             task.cancel()
         await super().aclose()
@@ -245,8 +252,17 @@ class LinearPlanRunner(ExportRunner[LinearTargetView | None, LinearSyncStatus, P
         async with self._transaction() as session:
             return await plan_db.get_item(session, uuid.UUID(project_id), node_id)
 
-    async def mirror_task_status(self, project_id: str, node_id: str, task_status: str) -> None:
-        """S3b: move the one Linear issue of ``node_id`` to the state of the Graphico ``task_status`` (forward only,
-        as the member ``_gateway_for`` returns). NOT IMPLEMENTED: the seam exists so the hook has one place to call."""
+    def mirror_task_status(self, project_id: str, changes: Sequence[TaskChange]) -> None:
+        """Mirror the status ``changes`` of tasks to their Linear issues in the background, one run at a time (a
+        started task never overtakes its completion). Never raises and never waits for Linear; a closed runner does
+        nothing."""
 
-        raise NotImplementedError("the task status mirror is stream S3b")
+        if self._closed or not changes:
+            return
+        task = asyncio.create_task(self._mirror(project_id, tuple(changes)), name=f"linear-mirror-{project_id}")
+        self._mirrors.add(task)
+        task.add_done_callback(self._mirrors.discard)
+
+    async def _mirror(self, project_id: str, changes: tuple[TaskChange, ...]) -> None:
+        async with self._mirror_lock:
+            await mirror_changes(project_id, changes, self._mirror_deps)
