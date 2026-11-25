@@ -102,5 +102,12 @@ counts only.
 
 ## Limits
 
+- A 403 that is not a rate limit is reported as `github_permissions_missing`, so a locked or archived repository reads the same as
+  a missing approval.
+- If saving the destination fails after a new project was created on GitHub, an empty project may remain there (nothing deletes it).
+- On an issue that is not started the label list is owned by the export: labels a person added are replaced with the plan's.
+- A task's `item_id` holds the id of the issue it is linked under (the marker that the sub-issue call was made); a story's holds its
+  item on the project.
+
 The project list shows the 50 most recently updated open projects. The pass has no progress count. Rate limits end a pass
 (`github_unreachable`); the next trigger repeats it from the rows.

@@ -121,6 +121,13 @@ def _project(node: Any) -> ProjectInfo | None:
     return ProjectInfo(node_id, number, title, url, node.get("closed") is True)
 
 
+def _already_linked(response: httpx.Response) -> bool:
+    """Whether a 422 of the sub-issue call says the issue is already one (read, never kept or logged)."""
+
+    text = response.text.lower()
+    return "duplicate" in text or "already" in text
+
+
 def _rest_refusal(response: httpx.Response, missing: GitHubCode) -> GitHubError:
     """The code of a refused REST call: 403 is the permission the installation lacks, 404 is ``missing``, 410 and 422
     are the content GitHub will not take."""
@@ -256,7 +263,7 @@ class ProjectsApi:
     async def add_sub_issue(self, token: SecretStr, repository: str, parent: int, sub_issue_id: int) -> None:
         path = f"/repos/{repository}/issues/{parent}/sub_issues"
         response = await self._client.send(token, "POST", path, {"sub_issue_id": sub_issue_id})
-        if response.status_code == httpx.codes.UNPROCESSABLE_ENTITY:
+        if response.status_code == httpx.codes.UNPROCESSABLE_ENTITY and _already_linked(response):
             return  # already a sub-issue (a repeated pass): nothing to do
         if not response.is_success:
             raise _rest_refusal(response, GitHubCode.ISSUE_GONE)

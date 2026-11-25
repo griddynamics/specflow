@@ -45,7 +45,9 @@ async def test_the_first_pass_makes_issues_for_stories_and_sub_issues_for_tasks(
     assert "specflow" in gateway.issues[one].labels and "area-a" in gateway.issues[one].labels
     assert "- [ ] it works" in first.body and "TASK::A::1" in first.body
     rows = harness.store.items
-    assert rows["STORY::A::ONE"].item_id is not None and rows["TASK::A::1"].item_id is None
+    assert (
+        rows["STORY::A::ONE"].item_id == f"PVTI_I_{one}" and rows["TASK::A::1"].item_id == f"I_{one}"
+    )  # a task marks its link
     in_order = sorted(STORIES, key=lambda story_id: rows[story_id].position or 0)
     assert [rows[story_id].position for story_id in in_order] == [0, 1, 2]
     assert [gateway.item_issue[item] for item in gateway.items] == [gateway.number_of(f"Story {s}") for s in in_order]
@@ -212,6 +214,45 @@ async def test_a_story_that_stopped_before_its_item_is_attached_on_the_next_pass
     assert result.status == SUCCEEDED and result.counts.created == 7
     assert len(harness.gateway.issues) == 8 and len(harness.gateway.items) == 3
     assert len({issue.title for issue in harness.gateway.issues.values()}) == 8
+
+
+async def test_a_task_whose_sub_issue_link_failed_is_linked_on_the_next_pass_without_a_second_issue() -> None:
+    harness = Harness()
+    harness.gateway.fail["add_sub_issue"] = GitHubError(GitHubCode.UNREACHABLE)
+    assert (await harness.push()).status == FAILED
+    harness.gateway.fail.clear()
+
+    result = await harness.push()
+    again = await harness.push()
+
+    gateway = harness.gateway
+    tasks = [issue for issue in gateway.issues.values() if issue.title.startswith("Task ")]
+    assert result.status == SUCCEEDED and len(gateway.issues) == 8 and len(tasks) == 5
+    assert all(issue.parent is not None for issue in tasks)  # every task hangs under its story's issue
+    assert all(harness.store.items[t].item_id is not None for t in harness.store.items)
+    assert again.counts.created == 0 and gateway.writes().count("add_sub_issue") == 6  # 1 failed + 5 made once each
+
+
+async def test_an_issue_that_spoils_the_state_query_is_guarded_per_item_not_the_whole_pass() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    harness.plan = plan_with(title="Renamed task")
+    harness.gateway.fail["issue_states"] = GitHubError(GitHubCode.ISSUE_GONE)
+
+    gone = await harness.push()
+
+    assert (gone.status, gone.error_code) == (SUCCEEDED, None)
+    assert gone.counts.removed == 1 and harness.store.items["TASK::A::3"].error_code == "github_issue_gone"
+
+    other = Harness()
+    await first_pass(other)
+    other.plan = plan_with(title="Renamed task")
+    other.gateway.fail["issue_states"] = GitHubError(GitHubCode.ITEM_INVALID)
+
+    invalid = await other.push()
+
+    assert (invalid.status, invalid.counts.failed) == (PARTIAL, 1)
+    assert other.store.items["TASK::A::3"].error_code == "github_item_invalid"
 
 
 async def test_an_issue_a_person_deleted_is_not_made_again() -> None:

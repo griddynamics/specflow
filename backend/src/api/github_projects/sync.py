@@ -308,7 +308,9 @@ class _Pass:
         await self._attach(node)
 
     async def _attach(self, node: str) -> None:
-        """Link a made issue: a story gets its item on the project, a task becomes a sub-issue of its story's issue."""
+        """Link a made issue: a story gets its item on the project, a task becomes a sub-issue of its story's issue. A
+        task's ``item_id`` holds the GraphQL id of the issue it is linked under, so a link a pass did not finish is
+        made again."""
 
         item, row = self.desired.items.get(node), self.ids[node]
         if row.kind == "story":
@@ -318,15 +320,22 @@ class _Pass:
             parent = self.ids[item.parent]
             if parent.issue_number is not None:
                 await self.gateway.add_sub_issue(self.target.repository_name, parent.issue_number, row.issue_id)
+                await self._store(node, item_id=parent.issue_node_id)
 
     def _missing_items(self) -> list[str]:
-        """Stories with an issue but no item on the project (an earlier pass stopped between the two calls)."""
+        """Issues an earlier pass stopped before linking: a story without its item on the project, a task whose
+        story has an issue but which is not yet its sub-issue."""
 
-        return [
-            node
-            for node, row in self.ids.items()
-            if row.kind == "story" and row.issue_number is not None and row.item_id is None and row.removed_at is None
-        ]
+        return [node for node, row in self.ids.items() if self._unlinked(node, row)]
+
+    def _unlinked(self, node: str, row: GitHubProjectItem) -> bool:
+        if row.issue_number is None or row.item_id is not None or row.removed_at is not None:
+            return False
+        if row.kind == "story":
+            return True
+        item = self.desired.items.get(node)
+        parent = self.ids.get(item.parent or "") if item is not None else None
+        return parent is not None and parent.issue_number is not None
 
     async def _states(self, nodes: Sequence[str]) -> dict[str, Any]:
         wanted = {node: self.ids[node].issue_node_id for node in nodes if self.ids[node].issue_node_id}
@@ -336,11 +345,18 @@ class _Pass:
         return {node: found.get(str(issue)) for node, issue in wanted.items()}
 
     async def _update_all(self, changed: Sequence[str]) -> None:
-        states = await self._states(changed)
+        batch: dict[str, Any] | None
+        try:
+            batch = await self._states(changed)
+        except GitHubError as error:
+            if error.code not in (GitHubCode.ISSUE_GONE, GitHubCode.ITEM_INVALID):
+                raise
+            batch = None  # one issue spoils the batch: ask per item, each one guarded
         for node in changed:
-            await self._guard(node, self._update(node, states.get(node)))
+            await self._guard(node, self._update(node, batch))
 
-    async def _update(self, node: str, state: Any) -> None:
+    async def _update(self, node: str, batch: dict[str, Any] | None) -> None:
+        state = (await self._states([node])).get(node) if batch is None else batch.get(node)
         if state is None:
             await self._gone(node)  # GitHub no longer finds the issue
             return

@@ -142,13 +142,22 @@ async def test_an_issue_is_created_with_its_three_ids_and_the_content_is_sent_as
 
 
 async def test_a_sub_issue_that_is_already_one_and_a_label_that_is_already_gone_are_fine() -> None:
-    again, seen = api_over(status(422))
+    again, seen = api_over(status(422, {"message": "already a sub-issue"}))
     await again.add_sub_issue(TOKEN, "acme/shop", 1, 20)
     assert json.loads(seen[0].content) == {"sub_issue_id": 20} and seen[0].url.path.endswith("/issues/1/sub_issues")
     gone, _ = api_over(status(404))
     await gone.remove_label(TOKEN, "acme/shop", 1, "graphico-removed")
     broken, _ = api_over(status(500))
     assert await code_of(broken.add_sub_issue(TOKEN, "acme/shop", 1, 20)) is GitHubCode.UNREACHABLE
+
+
+async def test_a_422_of_the_sub_issue_call_is_fine_only_when_it_says_the_issue_is_already_one() -> None:
+    duplicate, _ = api_over(status(422, {"message": "Validation Failed", "errors": ["duplicate sub-issues"]}))
+    await duplicate.add_sub_issue(TOKEN, "acme/shop", 1, 20)
+    already, _ = api_over(status(422, {"message": "Issue is already a sub-issue"}))
+    await already.add_sub_issue(TOKEN, "acme/shop", 1, 20)
+    other, _ = api_over(status(422, {"message": "Validation Failed", "errors": ["cannot nest 9 levels"]}))
+    assert await code_of(other.add_sub_issue(TOKEN, "acme/shop", 1, 20)) is GitHubCode.ITEM_INVALID
 
 
 async def test_issue_states_read_the_status_on_the_export_project_only() -> None:
