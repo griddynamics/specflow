@@ -107,7 +107,7 @@ async def _health(runtime: Runtime, pid: uuid.UUID, row: IntegrationView | None)
         found = None if atlassian is None else await atlassian.get(row.user_id)
     elif row.app == GITHUB:
         found = None if runtime.github is None else await runtime.github.get(row.user_id)
-    elif row.app == LINEAR:  # "not connected" until stream S1 sets ``runtime.linear``
+    elif row.app == LINEAR:
         found = None if runtime.linear is None else await runtime.linear.get(row.user_id)
     else:
         threads = None if runtime.slack is None else runtime.slack.threads

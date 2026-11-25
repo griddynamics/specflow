@@ -133,6 +133,11 @@ export const CANVAS_COPY = {
     "Sign in to Atlassian and approve the access Graphico asks for.",
     "When Atlassian asks which site to allow, choose your team's site. Graphico brings you back here.",
   ],
+  howLinear: [
+    "Press Connect Linear.",
+    "Sign in to Linear and approve the access Graphico asks for, in the workspace you work in.",
+    "Graphico brings you back here. What it writes in Linear is written as you.",
+  ],
   // Dialogs
   close: "Cancel",
   remove: "Remove",

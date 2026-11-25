@@ -12,6 +12,7 @@ import { rejectsWith as rejects, serveStub } from "../support/stub-fetch";
 const PORT = 3290;
 const ctx = serveStub(PORT, (api) => {
   api.github.reset();
+  api.linear.reset();
   api.jira.state.mode = "oauth";
   api.jira.state.connection = null;
   api.integrations.seed({ reset: true });
@@ -82,7 +83,7 @@ test("the Slack test answer needs posted true and a channel", () => {
 
 // ---- Layer P ----
 
-test("GET lists the three apps in order; nothing is connected on a fresh project", async () => {
+test("GET lists the four apps in order; nothing is connected on a fresh project", async () => {
   const pid = await ownerProject();
   const rows = await integrations.list(pid);
   assert.deepEqual(
@@ -91,6 +92,7 @@ test("GET lists the three apps in order; nothing is connected on a fresh project
       ["atlassian", null, "none"],
       ["github", null, "none"],
       ["slack", null, "none"],
+      ["linear", null, "none"],
     ],
   );
   assert.deepEqual(last(), { method: "GET", path: `/api/backend/projects/${pid}/integrations`, body: null });
@@ -113,7 +115,7 @@ test("PUT binds the caller's own connection: Atlassian by the cloud site, GitHub
   assert.deepEqual(github.workspace, { id: "octo", name: "octo" });
   assert.deepEqual(
     (await integrations.list(pid)).map((r) => r.health),
-    ["active", "active", "none"],
+    ["active", "active", "none", "none"],
   );
 });
 
@@ -127,10 +129,23 @@ test("PUT needs the caller's own active connection and the app on the server", a
   await rejects(integrations.connect(pid, "github"), "unavailable", "github_unavailable");
   ctx.api.jira.state.mode = "token";
   await rejects(integrations.connect(pid, "atlassian"), "unavailable", "atlassian_oauth_unavailable");
+  await rejects(integrations.connect(pid, "linear"), "conflict", "linear_not_connected");
+  ctx.api.linear.state.available = false;
+  await rejects(integrations.connect(pid, "linear"), "unavailable", "linear_unavailable");
   assert.equal(
     (await integrations.list(pid)).every((r) => !r.available || r.app === "slack"),
     true,
   );
+});
+
+test("PUT binds the caller's own Linear connection by its workspace, and an expired one reads as reconnect_required", async () => {
+  const pid = await ownerProject();
+  ctx.api.linear.seed({ connection: { status: "active" } });
+  const linear = await integrations.connect(pid, "linear");
+  assert.deepEqual(linear.workspace, { id: "org-stub", name: "Acme" });
+  assert.equal(linear.health, "active");
+  ctx.api.linear.seed({ connection: { status: "expired" } });
+  assert.equal((await integrations.list(pid))[3].health, "reconnect_required");
 });
 
 test("an expired connection of the member who connected it shows as reconnect_required", async () => {

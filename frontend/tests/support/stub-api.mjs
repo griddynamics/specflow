@@ -10,7 +10,7 @@ import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
 import { checkJiraEpic } from "./stub-jira-epic.mjs";
 import { driveFilesCapped, driveFilesOf } from "./stub-drive-files.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
-// LINEAR S1: import the Linear connection model (stub-linear.mjs), like createGitHubModel below.
+import { createLinearModel } from "./stub-linear.mjs";
 import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
 // LINEAR S3: import the Linear plan destination model (stub-linear-plan.mjs).
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
@@ -120,9 +120,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const jira = createJiraModel((pid) => people.list(pid).role);
   /** GitHub (docs/github/api.md): the caller's connection, their repositories, a project's repositories. */
   const github = createGitHubModel((pid) => people.list(pid).role, ME.name);
-  // LINEAR S1: const linear = createLinearModel(...); pass it to createIntegrationsModel below as `linear`.
+  /** Linear (plans/LINEAR): the caller's connection. */
+  const linear = createLinearModel(ME.name);
   /** Project integrations (docs/mission-control/integrations-api.md): who each app is connected by, and the Slack channel of a project. */
-  const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, displayName: ME.name });
+  const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, linear, displayName: ME.name });
   // LINEAR S5: const linearGaps = createLinearGapsModel((pid) => integrations.linearActive(pid));
   /** The Jira gap channel: any member; acts as the project's Atlassian binding. */
   const jiraGaps = createJiraGapsModel((pid) => integrations.atlassianActive(pid));
@@ -1289,6 +1290,20 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/integrations/linear[/authorize|/callback]` (plans/LINEAR stream S1): the caller's Linear connection. */
+  async function linearRoute({ req, res, action }) {
+    const m = req.method;
+    if (!action && m === "GET") return json(res, 200, linear.connection());
+    if (!action && m === "DELETE") {
+      linear.disconnect();
+      return noContent(res);
+    }
+    if (action === "authorize" && m === "POST") return json(res, 200, linear.authorize(await readJson(req)));
+    if (action === "callback" && m === "POST") return json(res, 200, linear.callback(await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   /** `/projects/{pid}/repositories[/{rid}[/clone]]` (contract.md#api). */
   async function repositoriesRoute({ req, res, pid, did, action }) {
     const m = req.method;
@@ -1385,6 +1400,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     }
     if (a === "integrations" && pid === "atlassian") return atlassianRoute({ req, res, action: b });
     if (a === "integrations" && pid === "github") return githubRoute({ req, res, action: b });
+    if (a === "integrations" && pid === "linear") return linearRoute({ req, res, action: b });
     if (a !== "projects") return err(res, 404, "not_found");
     if (!pid) {
       if (req.method === "GET")
@@ -1503,7 +1519,9 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     jiraGaps,
     /** GitHub Projects destination: `githubProjects.state` (available, organization) and `githubProjects.seed({pid, available, organization, target, access})`. */
     githubProjects,
-    // LINEAR S1: linear (the connection model above), and S3: linearPlan.
+    /** Linear: `linear.state` (available, connection, callbackError), `linear.seed({available, connection, callbackError})`. */
+    linear,
+    // LINEAR S3: linearPlan.
     /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
     github,
     /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, ...})`. */

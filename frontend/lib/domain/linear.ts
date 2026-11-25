@@ -1,4 +1,4 @@
-// plans/LINEAR/LINEAR-PLAN.md: the caller's Linear connection (per-user OAuth, `actor=user`). FOUNDATION STUB: stream S1 fills the port. Screens
+// plans/LINEAR/LINEAR-PLAN.md: the caller's Linear connection (per-user OAuth, `actor=user`). Screens
 // reach it only through `LinearPort`; which project uses which member's connection is `IntegrationsPort` (`app: "linear"`).
 
 export type LinearConnectionStatus = "none" | "active" | "expired" | "revoked";
