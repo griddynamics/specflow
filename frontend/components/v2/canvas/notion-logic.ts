@@ -17,7 +17,8 @@ const FAILURE: Record<string, string> = {
   notion_reconnect_required: "The Notion connection needs a reconnect in Integrations.",
   notion_unavailable: V2_COPY.notionPlanUnavailable,
   notion_unreachable: "Notion did not answer. Try again in a minute.",
-  notion_auth_failed: "Notion refused the request of this server.",
+  notion_auth_failed: "Notion refused the request of this server. Ask whoever runs Graphico to check its Notion setup.",
+  notion_rate_limited: "Notion is busy right now. Try again in a minute.",
   notion_link_invalid: "This is not a link to a Notion page or database.",
   notion_not_shared: "Notion has no page or database at this link, or you did not share it with Graphico when you connected Notion.",
   source_not_found: "The source was removed. Add the link again.",
@@ -31,10 +32,17 @@ export function notionFailureText(e: unknown): string {
 
 const plural = (n: number, one: string): string => `${String(n)} ${n === 1 ? one : one + "s"}`;
 
-/** The line under a passed check: "Page Engineering Wiki · 4 pages", with the cap when it was hit. */
+/**
+ * The line under a passed check. A page counts itself and its sub-pages (`pages` includes the page): "Page Engineering Wiki · this page and
+ * 3 sub-pages." A database counts its rows: "Database Requirements · 42 rows." When the cap was hit, it says the first ones are read.
+ */
 export function notionCheckText(c: NotionCheck): string {
-  const what = c.kind === "database" ? "Database" : "Page";
-  const count = plural(c.pages, "page");
-  const shown = c.capped ? `${count} (the first ones; more were found)` : count;
-  return `${what} ${c.title} · ${shown}.`;
+  if (c.kind === "database") {
+    const rows = c.capped ? `the first ${plural(c.pages, "row")} (more were found)` : plural(c.pages, "row");
+    return `Database ${c.title} · ${rows}.`;
+  }
+  const subs = Math.max(c.pages - 1, 0);
+  let what = "this page, no sub-pages";
+  if (subs > 0) what = `this page and ${c.capped ? "the first " : ""}${plural(subs, "sub-page")}${c.capped ? " (more were found)" : ""}`;
+  return `Page ${c.title} · ${what}.`;
 }
