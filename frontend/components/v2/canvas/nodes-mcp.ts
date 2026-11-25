@@ -18,6 +18,7 @@ const mcpNode = (zone: keyof typeof MCP_NODE_IDS): NodeView => ({
   progress: null,
   listing: false,
   label: "MCP, added automatically: how to connect a coding agent",
+  detail: { app: "MCP", by: null, text: "Added automatically", remove: null, reconnect: null },
   tag: "Automatic",
   wire: "on",
   addedAt: "",

@@ -255,6 +255,6 @@ test("nodes are one per object, in the order they were added; MCP stays last", (
 test("every node of a source reads the same text as the V1 card and names its app", () => {
   const upload = defined(model(SCENE_3).zones.graph.nodes[1]);
   assert.equal(upload.mark, "upload");
-  assert.match(upload.name, /^Local files /);
-  assert.equal(upload.label.startsWith("Upload Local files"), true);
+  assert.match(upload.name, /^Upload /, "short enough for a node: no long stamp");
+  assert.equal(upload.label.startsWith("Upload "), true);
 });

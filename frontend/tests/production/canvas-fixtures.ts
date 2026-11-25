@@ -2,7 +2,11 @@
 // Shared by the model and the render tests so a scene is described once.
 import { deriveStatus, NO_GRAPH, toStatus, type GraphBuildWire } from "@/lib/data/http/knowledge";
 import type { CanvasInput, GapsSummary } from "@/components/v2/canvas/canvas-types";
+import type { Gap } from "@/lib/domain/gaps";
 import type { PlanState, PlanStory, PlanTask } from "@/lib/domain/plan";
+import type { ProjectRepositories, ProjectRepository } from "@/lib/domain/github";
+import type { Integration } from "@/lib/domain/integrations";
+import type { JiraSettings } from "@/lib/domain/jira";
 import type { ProjectSourcesStatus } from "@/lib/domain/sources";
 
 const COUNTS = { waiting: 0, processing: 0, done: 0, not_read: 0, skipped: 0, failed: 0, already_in_project: 0 };
@@ -90,9 +94,13 @@ export const input = (over: Partial<CanvasInput> = {}): CanvasInput => ({
   now: NOW,
   status: null,
   gaps: null,
+  gapRows: [],
   plan: null,
   planStale: false,
   integrations: null,
+  github: null,
+  jira: null,
+  slack: null,
   ...over,
 });
 
@@ -107,3 +115,79 @@ export const SCENE_3 = input({
 /** The graph is built (first build succeeded). */
 export const BUILT = (over: Partial<CanvasInput> = {}) =>
   input({ status: statusOf([wireSource("s1", "gdrive", { done: 24 }), wireSource("s2", "upload", { done: 6 })], SUCCEEDED, 30), ...over });
+
+/** A repository of the project, cloned unless said otherwise. */
+export const repo = (over: Partial<ProjectRepository> = {}): ProjectRepository => ({
+  id: "r1",
+  githubRepoId: 101,
+  fullName: "northwind/ordering",
+  htmlUrl: "https://github.com/northwind/ordering",
+  private: false,
+  addedByName: "Alex Kim",
+  addedByMe: false,
+  cloneState: "cloned",
+  failureCode: null,
+  defaultBranch: "main",
+  headSha: "3f2a1c9aaaa",
+  fileCount: 18,
+  sizeBytes: null,
+  snapshotBytes: null,
+  checkedAt: null,
+  clonedAt: null,
+  createdAt: "2026-10-26T08:10:00Z",
+  ...over,
+});
+export const repos = (list: ProjectRepository[], canManage = true): ProjectRepositories => ({
+  enabled: true,
+  canManage,
+  repositories: list,
+});
+
+/** An integration of the project: active, connected by Alex Kim, unless said otherwise. */
+export const integration = (app: Integration["app"], over: Partial<Integration> = {}): Integration => ({
+  app,
+  available: true,
+  connectedBy: { userId: "u9", name: "Alex Kim" },
+  workspace: { id: "w1", name: "Northwind" },
+  connectedAt: "2026-10-25T10:00:00Z",
+  health: "active",
+  ...over,
+});
+
+/** The Jira target of the project: NWO, epic NWO-1, on, never synced, acting as Alex Kim with a working connection. */
+export const jiraTarget = (over: Partial<JiraSettings> = {}): JiraSettings => ({
+  available: true,
+  editable: true,
+  siteUrl: "https://northwind.atlassian.net",
+  jiraProject: "NWO",
+  epicKey: "NWO-1",
+  createdEpicKey: null,
+  enabled: true,
+  sync: null,
+  connection: { connectedByName: "Alex Kim", connectedByMe: false, status: "active" },
+  ...over,
+});
+
+/** A gap of the Gaps read: a missing-information question with the given status and severity. */
+export const gapOf = (status: Gap["status"], severity: Gap["severity"], over: Partial<Gap> = {}): Gap => ({
+  id: "g",
+  kind: "missing",
+  severity,
+  status,
+  origin: "analysis",
+  route: "ask",
+  title: "t",
+  question: "q",
+  why: "w",
+  blocking: false,
+  createdAt: "",
+  updatedAt: "",
+  about: [],
+  impacts: [],
+  witness: [],
+  options: [],
+  clarification: null,
+  reach: null,
+  assignedTo: null,
+  ...over,
+});

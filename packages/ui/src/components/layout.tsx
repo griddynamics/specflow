@@ -43,6 +43,23 @@ export function Notice({ role = "status", children }: Readonly<{ role?: "status"
   );
 }
 
+/** A plain list of lines, each with a title and a detail (the open gaps). */
+export function LineList({
+  label,
+  items,
+}: Readonly<{ label: string; items: readonly { key: string; title: string; detail: string }[] }>): JSX.Element {
+  return (
+    <ul className="gx-lines" aria-label={label}>
+      {items.map((item) => (
+        <li key={item.key}>
+          <b>{item.title}</b>
+          <small>{item.detail}</small>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** A native disclosure: a summary that is easy to press, and the content it folds. */
 export function Disclosure({ summary, children }: Readonly<{ summary: string; children: ReactNode }>): JSX.Element {
   return (

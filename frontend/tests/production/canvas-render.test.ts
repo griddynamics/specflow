@@ -96,38 +96,50 @@ test("importing sources show a bar and a spinner badge; MCP nodes are Automatic 
 });
 
 const spec = (kind: string): ConnectorSpec => defined(CONNECTORS.find((c) => c.kind === kind));
-const fake: ConnectorSpec = {
-  ...spec("upload"),
-  name: "Slack channel",
-  app: "slack",
-  line: "Gaps go to a channel",
-  mark: "slack",
-  zone: "gap",
-};
-const addList = (zone: "graph" | "gap" | "plan", connectors: readonly ConnectorSpec[], usable: boolean): string =>
-  html(createElement(AddList, { zone, connectors, usable: () => usable, appName: () => "Slack", onPick: noop, onSetUp: noop }));
+const addList = (
+  zone: "graph" | "gap" | "plan",
+  connectors: readonly ConnectorSpec[],
+  usable: boolean | ((c: ConnectorSpec) => boolean),
+): string =>
+  html(
+    createElement(AddList, {
+      zone,
+      connectors,
+      usable: typeof usable === "boolean" ? () => usable : usable,
+      appName: () => "GitHub",
+      onPick: noop,
+      onSetUp: noop,
+    }),
+  );
 
 test("the plus list shows its own stage first, the others dashed under 'Connections for the other stages'; MCP is not listed", () => {
-  const graph = addList("graph", CONNECTORS, true);
+  const view = {
+    graph: addList("graph", CONNECTORS, true),
+    gap: addList("gap", CONNECTORS, true),
+    none: addList("gap", [spec("upload")], true),
+  };
   assert.deepEqual(
-    [...graph.matchAll(/<b>([^<]+)<\/b>/g)].map((m) => m[1]),
-    ["Upload", "Google Drive"],
+    [...view.graph.matchAll(/<b>([^<]+)<\/b>/g)].map((m) => m[1]),
+    ["Upload", "Google Drive", "GitHub repository", "Slack channel", "Jira"],
+    "its own stage first, then the others",
   );
-  assert.equal(count(graph, "Available"), 2);
-  assert.equal(count(graph, "MCP"), 0);
-  assert.equal(count(graph, "<details"), 0);
-  const stage = { gap: addList("gap", CONNECTORS, true) };
-  assert.match(stage.gap, /Nothing can be added to this stage yet/);
-  assert.match(stage.gap, /Connections for the other stages<\/summary>/);
-  assert.equal(count(stage.gap, 'aria-disabled="true"'), 2);
-  assert.equal(count(stage.gap, "For Graph"), 2);
+  assert.equal(count(view.graph, "Available"), 3);
+  assert.equal(count(view.graph, "MCP"), 0);
+  assert.match(view.gap, /<b>Slack channel<\/b>/);
+  assert.doesNotMatch(view.gap, /Nothing can be added/);
+  assert.match(view.none, /Nothing can be added to this stage yet/);
+  assert.match(view.gap, /Connections for the other stages<\/summary>/);
+  assert.equal(count(view.gap, 'aria-disabled="true"'), 4);
+  assert.equal(count(view.gap, "For Graph"), 3);
+  assert.equal(count(view.gap, "For Plan"), 1);
 });
 
 test("a connection whose app is not connected says 'Set up first' and names the app", () => {
-  const view = addList("gap", [...CONNECTORS, fake], false);
+  const view = addList("graph", CONNECTORS, (c) => c.app === null);
   assert.match(view, /Set up first/);
-  assert.match(view, /Connect Slack in Integrations first\./);
-  assert.equal(count(view, "Gaps go to a channel"), 0);
+  assert.match(view, /Connect GitHub in Integrations first\./);
+  assert.equal(count(view, "Cloned from the project"), 0, "the line gives way to the instruction");
+  assert.equal(count(view, "Available"), 2, "Upload and Drive need no app");
 });
 
 const formProps = (spec: ConnectorSpec, zone: "graph" | "gap" | "plan"): FormProps => ({

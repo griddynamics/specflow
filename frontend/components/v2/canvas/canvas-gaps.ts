@@ -1,12 +1,20 @@
 // What the Gaps hub shows, from the gap run (`gaps.check`) and one page of `gaps.list`: how many were found, how many are answered, how many
 // of the open ones block work. Gaps are not answered in the app (D10): this is only the count. Pure.
 import { GAP_STATUSES, type Gap, type GapCheck, type GapPage, type GapQuery } from "@/lib/domain/gaps";
-import type { GapsSummary } from "./canvas-types";
+import type { GapRow, GapsSummary } from "./canvas-types";
 
 /** Every status, so the page counts answered gaps too; the biggest page the API gives. */
 export const SUMMARY_QUERY: GapQuery = { status: [...GAP_STATUSES], limit: 200 };
 
 const settled = (g: Gap): boolean => g.status !== "open";
+
+/** The open gaps for the read-only list: blockers first, then in the order the API gave them. */
+export function openGapRows(page: GapPage): GapRow[] {
+  const rows = page.gaps
+    .filter((g) => g.status === "open")
+    .map((g): GapRow => ({ id: g.id, title: g.title, kind: g.kind, severity: g.severity }));
+  return rows.toSorted((a, b) => Number(b.severity === "blocker") - Number(a.severity === "blocker"));
+}
 
 export function summarizeGaps(check: GapCheck, page: GapPage): GapsSummary {
   return {

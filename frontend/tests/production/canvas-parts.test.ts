@@ -7,8 +7,9 @@ import { summarizeGaps } from "@/components/v2/canvas/canvas-gaps";
 import { wirePath, type Box } from "@/components/v2/canvas/canvas-geometry";
 import { isPlanStale } from "@/components/v2/canvas/use-canvas-data";
 import { CONNECTORS, NODE_MAPPERS } from "@/components/v2/connectors";
-import type { Gap, GapCheck } from "@/lib/domain/gaps";
+import type { GapCheck } from "@/lib/domain/gaps";
 import { parseCanvasQuery, routesFor } from "@/lib/routes";
+import { gapOf } from "./canvas-fixtures";
 
 const box = (l: number, t: number, size = 80): Box => ({ l, t, r: l + size, b: t + size, cx: l + size / 2, cy: t + size / 2 });
 
@@ -62,27 +63,6 @@ test("the background graph is the same picture every time and lights up from the
   assert.equal(nearest[0]?.lit, true);
 });
 
-const gap = (status: Gap["status"], severity: Gap["severity"]): Gap => ({
-  id: "g",
-  kind: "missing",
-  severity,
-  status,
-  origin: "analysis",
-  route: "ask",
-  title: "t",
-  question: "q",
-  why: "w",
-  blocking: false,
-  createdAt: "",
-  updatedAt: "",
-  about: [],
-  impacts: [],
-  witness: [],
-  options: [],
-  clarification: null,
-  reach: null,
-  assignedTo: null,
-});
 const check = (phase: GapCheck["phase"]): GapCheck => ({
   phase,
   step: null,
@@ -99,7 +79,10 @@ const check = (phase: GapCheck["phase"]): GapCheck => ({
 });
 
 test("the gap summary counts what is found, what is answered and the open blockers; a full page says there are more", () => {
-  const page = { gaps: [gap("open", "blocker"), gap("open", "major"), gap("answered", "blocker"), gap("resolved", "minor")], next: "c2" };
+  const page = {
+    gaps: [gapOf("open", "blocker"), gapOf("open", "major"), gapOf("answered", "blocker"), gapOf("resolved", "minor")],
+    next: "c2",
+  };
   assert.deepEqual(summarizeGaps(check("running"), page), {
     phase: "running",
     stepsDone: 2,
@@ -120,10 +103,10 @@ test("the plan is due for a replan only when a graph build finished after this s
   assert.equal(isPlanStale("t1", "t2", false), false, "no plan");
 });
 
-test("the registry lists Upload, Google Drive and MCP once each; only MCP is automatic and each kind has a mapper", () => {
+test("the registry lists each kind once, in V2's scope; only MCP is automatic, each kind has a mapper and the apps are the ones D20 allows", () => {
   assert.deepEqual(
     CONNECTORS.map((c) => c.kind),
-    ["upload", "gdrive", "mcp"],
+    ["upload", "gdrive", "github", "slack", "jira", "mcp"],
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === null).map((c) => c.kind),
@@ -131,10 +114,20 @@ test("the registry lists Upload, Google Drive and MCP once each; only MCP is aut
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === "graph").map((c) => c.app),
-    [null, null],
+    [null, null, "github"],
   );
-  assert.equal(NODE_MAPPERS.length, 3);
+  assert.deepEqual(
+    CONNECTORS.filter((c) => c.zone === "plan").map((c) => [c.kind, c.app]),
+    [["jira", "atlassian"]],
+  );
+  assert.equal(
+    CONNECTORS.find((c) => c.kind === "slack")?.app,
+    null,
+    "the channel is the Slack integration: it is bound from inside Slack",
+  );
+  assert.equal(NODE_MAPPERS.length, 6);
   assert.equal(CONNECTORS.find((c) => c.kind === "gdrive")?.check?.add, "Add source");
+  assert.equal(CONNECTORS.find((c) => c.kind === "jira")?.check?.test, "Check access");
 });
 
 test("the canvas route carries the form to open after the Integrations round trip", () => {

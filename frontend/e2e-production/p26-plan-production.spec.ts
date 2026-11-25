@@ -9,7 +9,7 @@ import { networkQuiet } from "../e2e/support";
 import {
   allowConsoleErrors,
   allowedGateCalls,
-  bff,
+  buildGraph,
   calls,
   createProjectApi,
   expectGateNetwork,
@@ -72,18 +72,6 @@ test.describe("P26 Plan page on production routes", { tag: "@production" }, () =
     await expect(screen(page)).toHaveAttribute(DATA_STAGE, "idle");
     await expect(screen(page).getByTestId("plan-preview")).toHaveAttribute("data-loaded", ""); // the preview has answered
     return requests.length;
-  }
-
-  /** Builds the project's knowledge graph through the BFF (the stub resolves a build when it is read after `graphMs`). */
-  async function buildGraph(page: Page, pid: string): Promise<void> {
-    expect((await bff(page, "POST", `/projects/${pid}/graph_build`, { reasoning_level: 3 })).status).toBe(202);
-    await expect
-      .poll(
-        async () =>
-          ((await bff(page, "GET", `/projects/${pid}/graph_build`)).json as { status: "idle" | "running" | "succeeded" | "failed" }).status,
-        { timeout: 10_000 },
-      )
-      .toBe("succeeded");
   }
 
   const planReads = (pid: string) => [`GET /api/backend/projects/${pid}/plan`, `GET /api/backend/projects/${pid}/plan/preview`];

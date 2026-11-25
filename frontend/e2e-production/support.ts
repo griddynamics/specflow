@@ -305,6 +305,19 @@ export async function seedIntegrations(spec: SeedIntegrations): Promise<void> {
   await control("POST", "/seed-integrations", spec);
 }
 
+/** The Slack channel of a project in the stub (`POST /seed-slack`): `channel: null` = none bound yet; `available: false` = Slack is off on the server. */
+export interface SeedSlack extends Record<string, unknown> {
+  pid: string;
+  channel: { id: string; name: string; private: boolean } | null;
+  by?: { user_id: string; name: string } | null;
+  available?: boolean;
+  /** "ok", or the API code the next Test connection answers with. */
+  test?: string;
+}
+export async function seedSlack(spec: SeedSlack): Promise<void> {
+  await control("POST", "/seed-slack", spec);
+}
+
 /** Seeds a source with chosen file states in the stub (the case control port; see tests/support/stub-sources.mjs `seed`). Returns its id. */
 export async function seedSource(pid: string, source: Record<string, unknown>): Promise<string> {
   return ((await control("POST", "/seed-source", { pid, source })) as { id: string }).id;
@@ -404,8 +417,8 @@ export async function seedGitHub(spec: SeedGitHub): Promise<void> {
   await control("POST", "/seed-github", spec);
 }
 
-/** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */
-export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> {
+/** Builds the knowledge graph of a Ready project through the BFF and waits for it (the stub runs it without a model). */
+export async function buildGraph(page: Page, pid: string): Promise<void> {
   expect((await bff(page, "POST", `/projects/${pid}/graph_build`, { reasoning_level: 3 })).status).toBe(202);
   await expect
     .poll(
@@ -414,6 +427,11 @@ export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> 
       { timeout: 10_000 },
     )
     .toBe("succeeded");
+}
+
+/** Builds the knowledge graph of a Ready project and then its plan through the BFF, waiting for each (the stub runs both without a model). */
+export async function buildGraphAndPlan(page: Page, pid: string): Promise<void> {
+  await buildGraph(page, pid);
   expect((await bff(page, "POST", `/projects/${pid}/plan`, { replan: false })).status).toBe(202);
   await expect
     .poll(async () => ((await bff(page, "GET", `/projects/${pid}/plan`)).json as { has_plan: boolean }).has_plan, { timeout: 15_000 })

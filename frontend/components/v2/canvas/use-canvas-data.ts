@@ -2,25 +2,31 @@
 // What the canvas reads from the ports: the project's sources and build (the V1 hook, polled), the gap run and its counts, the plan, and the
 // integrations. Each read that fails leaves its part `null`: the canvas shows what it knows and nothing invented. Ports only, through
 // `use-v2-data.ts`.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSourcesStatus } from "@/components/mission-control/sources/use-sources-data";
-import { startPolling } from "@/components/settings/github-logic";
-import type { Integration } from "@/lib/domain/integrations";
+import { isCloning, startPolling } from "@/components/settings/github-logic";
+import { isRunning } from "@/components/settings/jira-logic";
 import type { PlanState } from "@/lib/domain/plan";
 import { useV2Ports } from "../use-v2-data";
-import { summarizeGaps, SUMMARY_QUERY } from "./canvas-gaps";
-import type { CanvasInput, GapsSummary } from "./canvas-types";
+import { openGapRows, summarizeGaps, SUMMARY_QUERY } from "./canvas-gaps";
+import type { CanvasInput, GapRow, GapsSummary } from "./canvas-types";
+import { usePolledRead } from "./use-polled-read";
 
 const GAPS_POLL_MS = 5000;
 const CLOCK_MS = 30_000;
 
-function useGapsSummary(projectId: string, active: boolean): GapsSummary | null {
+interface GapsRead {
+  summary: GapsSummary;
+  rows: readonly GapRow[];
+}
+
+function useGapsRead(projectId: string, active: boolean): GapsRead | null {
   const { gaps } = useV2Ports();
-  const [summary, setSummary] = useState<GapsSummary | null>(null);
+  const [read, setRead] = useState<GapsRead | null>(null);
   const load = useCallback(() => {
     Promise.all([gaps.check(projectId), gaps.list(projectId, SUMMARY_QUERY)]).then(
       ([check, page]) => {
-        setSummary(summarizeGaps(check, page));
+        setRead({ summary: summarizeGaps(check, page), rows: openGapRows(page) });
       },
       () => undefined,
     );
@@ -30,7 +36,7 @@ function useGapsSummary(projectId: string, active: boolean): GapsSummary | null 
     load();
     return startPolling(true, load, GAPS_POLL_MS);
   }, [active, load]);
-  return active ? summary : null;
+  return active ? read : null;
 }
 
 function usePlanState(projectId: string): PlanState | null {
@@ -56,22 +62,12 @@ function usePlanState(projectId: string): PlanState | null {
   return state;
 }
 
-function useIntegrationList(projectId: string): readonly Integration[] | null {
+function useIntegrationList(projectId: string) {
   const { integrations } = useV2Ports();
-  const [rows, setRows] = useState<readonly Integration[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    integrations.list(projectId).then(
-      (list) => {
-        if (alive) setRows(list);
-      },
-      () => undefined,
-    );
-    return () => {
-      alive = false;
-    };
-  }, [integrations, projectId]);
-  return rows;
+  return usePolledRead(
+    useCallback(() => integrations.list(projectId), [integrations, projectId]),
+    () => null,
+  );
 }
 
 /** The plan is due for a replan when a graph build finished after this screen saw the plan (the API reports no plan time; D9). */
@@ -102,17 +98,62 @@ function useNow(running: boolean): Date {
   return now;
 }
 
+const GITHUB_POLL_MS = 3000;
+const JIRA_POLL_MS = 5000;
+const SLACK_POLL_MS = 5000;
+
+/** The project's repositories, Jira target and Slack channel, each read again while it changes (a clone runs, a sync runs, a channel is awaited). */
+function useConnectionReads(projectId: string) {
+  const { github, jira, slack } = useV2Ports();
+  const repos = usePolledRead(
+    useCallback(() => github.list(projectId), [github, projectId]),
+    (v) => (isCloning(v) ? GITHUB_POLL_MS : null),
+  );
+  const target = usePolledRead(
+    useCallback(() => jira.get(projectId), [jira, projectId]),
+    (v) => (isRunning(v) ? JIRA_POLL_MS : null),
+  );
+  const channel = usePolledRead(
+    useCallback(() => slack.get(projectId), [slack, projectId]),
+    (v) => (v?.channel === null || v === null ? SLACK_POLL_MS : null),
+  );
+  return { repos, target, channel };
+}
+
 export function useCanvasData(projectId: string) {
   const { knowledge } = useV2Ports();
-  const { status, reload } = useSourcesStatus(knowledge, projectId);
-  const gaps = useGapsSummary(projectId, status?.ready === true);
+  const { status, reload: reloadStatus } = useSourcesStatus(knowledge, projectId);
+  const gapsRead = useGapsRead(projectId, status?.ready === true);
   const plan = usePlanState(projectId);
   const integrations = useIntegrationList(projectId);
+  const { repos, target, channel } = useConnectionReads(projectId);
   const now = useNow(status?.build != null);
   const planStale = usePlanStale(status?.lastBuild?.finishedAt ?? null, status !== null, plan?.phase === "ready");
   const input = useMemo<CanvasInput>(
-    () => ({ now, status, gaps, plan, planStale, integrations }),
-    [now, status, gaps, plan, planStale, integrations],
+    () => ({
+      now,
+      status,
+      gaps: gapsRead?.summary ?? null,
+      gapRows: gapsRead?.rows ?? [],
+      plan,
+      planStale,
+      integrations: integrations.value,
+      github: repos.value,
+      jira: target.value,
+      slack: channel.value,
+    }),
+    [now, status, gapsRead, plan, planStale, integrations.value, repos.value, target.value, channel.value],
   );
+  // One handle for every form: it reads the sources, repositories, target and channel again.
+  const reload = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    reload.current = () => {
+      reloadStatus.current();
+      integrations.reload();
+      repos.reload();
+      target.reload();
+      channel.reload();
+    };
+  });
   return { input, reload };
 }

@@ -1,8 +1,14 @@
 // The connector registry (06a, D5, D20): every kind of connection the canvas offers, in the order its plus dialog lists them. Only kinds of
-// V2's scope are here: Upload, Google Drive and MCP (06a); the GitHub repository, Slack channel and Jira plan follow in 06b, the Confluence
+// V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b); the Confluence
 // link, Jira epic, Jira for gaps and GitHub Projects in the sessions of those connectors. To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
 import { driveNodes, uploadNodes } from "./canvas/nodes-sources";
+import { githubNodes } from "./canvas/nodes-github";
+import { jiraNodes } from "./canvas/nodes-jira";
+import { slackNodes } from "./canvas/nodes-slack";
+import { GitHubForm } from "./canvas/GitHubForm";
+import { JiraForm } from "./canvas/JiraForm";
+import { SlackForm } from "./canvas/SlackForm";
 import { mcpNodes } from "./canvas/nodes-mcp";
 import { DriveForm } from "./canvas/DriveForm";
 import { McpForm } from "./canvas/McpForm";
@@ -33,6 +39,43 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     check: { test: "Test connection", testing: "Testing…", add: "Add source" },
     Form: DriveForm,
     nodes: driveNodes,
+  },
+  {
+    kind: "github",
+    zone: "graph",
+    name: "GitHub repository",
+    line: "Cloned from the project's GitHub account; the build does not read it yet",
+    mark: "github",
+    app: "github",
+    title: "Add repositories",
+    check: null,
+    Form: GitHubForm,
+    nodes: githubNodes,
+  },
+  // The Slack channel IS the project's Slack integration (it is bound from inside Slack), so the form needs no app first.
+  {
+    kind: "slack",
+    zone: "gap",
+    name: "Slack channel",
+    line: "Gaps go to a channel; answers come back in the thread",
+    mark: "slack",
+    app: null,
+    title: "Connect a Slack channel",
+    check: null,
+    Form: SlackForm,
+    nodes: slackNodes,
+  },
+  {
+    kind: "jira",
+    zone: "plan",
+    name: "Jira",
+    line: "Stories and sub-tasks under an epic, kept up to date",
+    mark: "jira",
+    app: "atlassian",
+    title: "Send the plan to Jira",
+    check: { test: "Check access", testing: "Checking…", add: "Add destination" },
+    Form: JiraForm,
+    nodes: jiraNodes,
   },
   {
     kind: "mcp",

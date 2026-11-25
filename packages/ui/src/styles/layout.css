@@ -97,3 +97,23 @@
   border-radius: 6px;
   font-size: 12.5px;
 }
+
+.gx-lines {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gx-lines li {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--gx-rule);
+}
+
+.gx-lines small {
+  color: var(--gx-ink-3);
+  font-size: 13px;
+}

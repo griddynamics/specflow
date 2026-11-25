@@ -8,13 +8,14 @@ import type { ProjectSourcesStatus } from "@/lib/domain/sources";
 import type { WireMotion } from "@graphico/ui";
 import type { CanvasInput, CanvasModel, Decision, HubView, NodeMapper, NodeView, Stages, WireSpec, ZoneId, ZoneView } from "./canvas-types";
 
-const GAP_RUN_DONE = new Set(["done", "degraded", "failed"]);
+/** A gap run that found its gaps. A failed run found none: the plan waits and nothing says "found". */
+const GAP_RUN_DONE = new Set(["done", "degraded"]);
 const GAP_RUN_WORKING = new Set(["queued", "running"]);
 /** The background graph lights up along this curve while the first build runs: decorative, the API reports no build progress (AC10). */
 const REVEAL_SECONDS = 120;
 const REVEAL_CAP = 0.9;
 const ZONES: readonly ZoneId[] = ["graph", "gap", "plan"];
-const NAMES: Record<ZoneId, string> = { graph: "Graph", gap: "Gaps", plan: "Plan" };
+const NAMES: Record<ZoneId, string> = { graph: "Graph", gap: "Gap", plan: "Plan" };
 const ZONE_TEXT: Record<ZoneId, { label: string; add: string }> = {
   graph: { label: "01 · Graph", add: "Add source" },
   gap: { label: "02 · Gap", add: "Add channel" },
@@ -83,6 +84,7 @@ function gapHub(input: CanvasInput, stages: Stages): HubView {
   const g = input.gaps;
   if (!stages.built) return { ...base, state: "off", tooltip: "Waits for the graph" };
   if (g === null) return { ...base, state: "wait", tooltip: "Reading the gaps" };
+  if (g.phase === "failed") return { ...base, state: "wait", tooltip: "The gap run failed" };
   if (GAP_RUN_WORKING.has(g.phase) || g.phase === "building") {
     const progress = g.stepsTotal > 0 ? g.stepsDone / g.stepsTotal : "unknown";
     return { ...base, state: "busy", tooltip: "Looking for gaps", progress };
@@ -105,6 +107,7 @@ function planHub(input: CanvasInput, stages: Stages, decision: Decision | null):
     if (decision !== null) return { ...base, state: "ready", tooltip: `New information · ${quality}`, decision };
     return { ...base, state: "on", tooltip: quality };
   }
+  if (input.gaps?.phase === "failed") return { ...base, state: "wait", tooltip: "The gap run failed; the plan waits" };
   if (!stages.gapsFound) return { ...base, state: "wait", tooltip: "Waits while the gaps are found" };
   const critical = input.gaps?.critical ?? 0;
   const tooltip = critical > 0 ? `Gaps found · ${String(critical)} critical still open · ready to plan` : "Gaps found · ready to plan";
@@ -141,12 +144,12 @@ function wiresOf(nodes: NodeView[], stages: Stages, input: CanvasInput): WireSpe
   const asking = g !== null && GAP_RUN_WORKING.has(g.phase);
   const toPlan = planMotion(stages);
   const hubWires: WireSpec[] = [
-    { key: "graph-gap", from: "graph", to: "gap", motion: toGaps(stages.built, asking), down: false },
-    { key: "gap-plan", from: "gap", to: "plan", motion: toPlan, down: false },
+    { key: "graph-gap", from: "graph", to: "gap", motion: toGaps(stages.built, asking), zone: null },
+    { key: "gap-plan", from: "gap", to: "plan", motion: toPlan, zone: null },
   ];
   const nodeWires = nodes.map((n): WireSpec => {
     const into = n.zone === "graph";
-    return { key: n.id, from: into ? n.id : n.zone, to: into ? "graph" : n.id, motion: n.wire, down: n.zone === "gap" };
+    return { key: n.id, from: into ? n.id : n.zone, to: into ? "graph" : n.id, motion: n.wire, zone: n.zone };
   });
   return [...nodeWires, ...hubWires];
 }

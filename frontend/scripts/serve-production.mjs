@@ -31,6 +31,11 @@
 //                                            next Test connection answers with; `reset: true` puts the Slack knobs back; the connect (PUT) of an
 //                                            app needs the caller's own connection, set with /seed-jira (mode "oauth", connection) or /seed-github;
 //                                            see stub-integrations.mjs)
+//                                          POST /seed-slack ({pid, channel, by?, available?, test?}: the Slack channel of a project, as
+//                                            `GET /projects/{pid}/slack` answers it: `channel` is null (none bound) or {id, name, private};
+//                                            `by: null` = the member left; `available: false` = Slack is off on the server; `test` = "ok" or the
+//                                            API code the next Test connection answers with; a thin door to /seed-integrations for the canvas
+//                                            specs; see stub-integrations.mjs)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)
 //                                          POST /seed-gaps ({pid, gaps, run, rules, corpus}: the gaps, the latest gap run, the noise rules
 //                                            and the corpus documents of a project; stub-api.mjs `gapRoute`)
@@ -169,6 +174,24 @@ const control = http.createServer(async (req, res) => {
       return send(400, { error: "bad_json" });
     }
     api.integrations.seed(spec);
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/seed-slack") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    const { pid, channel, by, available, test } = spec;
+    api.integrations.seed({
+      pid,
+      slack: channel === null || channel === undefined ? null : { channel, ...(by === undefined ? {} : { by }) },
+      slackAvailable: available,
+      slackTest: test,
+    });
     return send(200, { ok: true });
   }
   if (req.method === "POST" && req.url === "/seed-members") {

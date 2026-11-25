@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { BackdropView, WireView } from "@graphico/ui";
 import { backdropOf } from "./canvas-backdrop";
-import type { WireSpec } from "./canvas-types";
+import type { WireSpec, ZoneId } from "./canvas-types";
 
 export interface Box {
   l: number;
@@ -21,6 +21,8 @@ const GAP = 6;
 const MIN_REACH = 30;
 /** Rooms kept clear around a tile or label. */
 const HOLE_PAD = 16;
+/** The stages whose nodes hang under their hub, so their wires run straight down (the gap channels). */
+const DOWN_ZONES: ReadonlySet<ZoneId> = new Set(["gap"]);
 
 type Point = readonly [number, number];
 
@@ -75,7 +77,7 @@ function measure(root: HTMLElement, specs: readonly WireSpec[]): Measured {
     const from = tile(spec.from);
     const to = tile(spec.to);
     if (from === null || to === null) continue;
-    const { d, ends } = wirePath(boxOf(from, rect), boxOf(to, rect), spec.down);
+    const { d, ends } = wirePath(boxOf(from, rect), boxOf(to, rect), spec.zone !== null && DOWN_ZONES.has(spec.zone));
     wires.push({ key: spec.key, d, motion: spec.motion, ends });
   }
   const holes = [...root.querySelectorAll("[data-hole]")]

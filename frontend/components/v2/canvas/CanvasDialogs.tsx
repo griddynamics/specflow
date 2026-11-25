@@ -1,97 +1,160 @@
 "use client";
-// The one dialog of the canvas: the plus list of a stage, or the form of one connection (its own title). A form opens from the list, from a
-// node (MCP) or from the URL after the Integrations round trip. The forms are the registry's (`connectors.ts`).
+// The one dialog of the canvas. It shows the plus list of a stage, the form of one connection, a node's details, or one of the three hub
+// decisions (build the graph, build the plan, the gaps). A form opens from the list, from a node (MCP) or from the URL after the Integrations
+// round trip. The forms are the registry's (`connectors.ts`).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { Dialog, Notice } from "@graphico/ui";
 import { CONNECTORS } from "../connectors";
 import type { ConnectorSpec, McpAddress } from "../connector-types";
 import { useV2Routes } from "../use-v2-data";
-import type { Integration } from "@/lib/domain/integrations";
 import { V2_COPY } from "../v2-copy";
 import { AddList } from "./AddDialog";
+import { BuildDialog } from "./BuildDialog";
 import { CANVAS_COPY } from "./canvas-copy";
-import type { ConnectorKind, ZoneId } from "./canvas-types";
+import type { CanvasInput, CanvasModel, ConnectorKind, NodeView, ZoneId } from "./canvas-types";
+import { GapsDialog, gapsTitle } from "./GapsDialog";
+import { NodeDialog } from "./NodeDialog";
+import { PlanDialog } from "./PlanDialog";
 
-export type DialogState = { type: "add"; zone: ZoneId } | { type: "form"; kind: ConnectorKind; zone: ZoneId };
+export type DialogState =
+  | { type: "add"; zone: ZoneId }
+  | { type: "form"; kind: ConnectorKind; zone: ZoneId }
+  | { type: "node"; id: string }
+  | { type: "build" }
+  | { type: "plan" }
+  | { type: "gaps" };
 
-const eyebrowOf = (zone: ZoneId, spec: ConnectorSpec | undefined): string => {
-  const stage = `${CANVAS_COPY.zoneNumber[zone]} · ${CANVAS_COPY.zoneName[zone]}`;
-  if (spec === undefined) return stage;
-  return `${stage} · ${spec.zone === null ? CANVAS_COPY.mcpEyebrow : spec.name}`;
-};
+const stageOf = (zone: ZoneId): string => `${CANVAS_COPY.zoneNumber[zone]} · ${CANVAS_COPY.zoneName[zone]}`;
 
 export function CanvasDialogs({
   projectId,
   mcp,
   reload,
-  integrations,
+  input,
+  model,
   state,
   onState,
 }: Readonly<{
   projectId: string;
   mcp: McpAddress;
   reload: RefObject<() => void>;
-  integrations: readonly Integration[] | null;
+  input: CanvasInput;
+  model: CanvasModel;
   state: DialogState | null;
   onState: (next: DialogState | null) => void;
 }>) {
   const routes = useV2Routes();
   const router = useRouter();
-  const spec = state?.type === "form" ? CONNECTORS.find((c) => c.kind === state.kind) : undefined;
-  const usable = (c: ConnectorSpec): boolean => c.app === null || integrations?.find((i) => i.app === c.app)?.health === "active";
   const close = () => {
     onState(null);
   };
-  let body = null;
-  if (state?.type === "add") {
-    const zone = state.zone;
-    body = (
-      <>
-        <AddList
-          zone={zone}
-          connectors={CONNECTORS}
-          usable={usable}
-          appName={(c) => (c.app === null ? "" : V2_COPY.appNames[c.app])}
-          onPick={(c) => {
-            onState({ type: "form", kind: c.kind, zone });
-          }}
-          onSetUp={(c) => {
-            if (c.app === null) return;
-            router.push(routes.integrations(projectId, { setup: c.app, next: routes.canvas(projectId, { add: c.kind }) }));
-          }}
-        />
-        <Notice>
-          {CANVAS_COPY.alwaysOn} <Link href={routes.integrations(projectId)}>{CANVAS_COPY.integrationsLink}</Link>.
-        </Notice>
-      </>
-    );
-  } else if (state !== null && spec !== undefined) {
-    const Form = spec.Form;
-    const zone = state.zone;
-    body = (
-      <Form
-        projectId={projectId}
-        zone={zone}
-        spec={spec}
-        mcp={mcp}
-        reload={reload}
-        onBack={() => {
-          onState({ type: "add", zone });
-        }}
-        onClose={close}
-      />
-    );
-  }
+  const usable = (c: ConnectorSpec): boolean => c.app === null || input.integrations?.find((i) => i.app === c.app)?.health === "active";
+  const frame = (): { title: string; eyebrow: string; body: ReactNode } | null => {
+    if (state === null) return null;
+    if (state.type === "add") {
+      const zone = state.zone;
+      return {
+        title: CANVAS_COPY.addTitle[zone],
+        eyebrow: stageOf(zone),
+        body: (
+          <>
+            <AddList
+              zone={zone}
+              connectors={CONNECTORS}
+              usable={usable}
+              appName={(c) => (c.app === null ? "" : V2_COPY.appNames[c.app])}
+              onPick={(c) => {
+                onState({ type: "form", kind: c.kind, zone });
+              }}
+              onSetUp={(c) => {
+                if (c.app === null) return;
+                router.push(routes.integrations(projectId, { setup: c.app, next: routes.canvas(projectId, { add: c.kind }) }));
+              }}
+            />
+            <Notice>
+              {CANVAS_COPY.alwaysOn} <Link href={routes.integrations(projectId)}>{CANVAS_COPY.integrationsLink}</Link>.
+            </Notice>
+          </>
+        ),
+      };
+    }
+    if (state.type === "form") {
+      const spec = CONNECTORS.find((c) => c.kind === state.kind);
+      if (spec === undefined) return null;
+      const Form = spec.Form;
+      const zone = state.zone;
+      return {
+        title: spec.title,
+        eyebrow: `${stageOf(zone)} · ${spec.zone === null ? CANVAS_COPY.mcpEyebrow : spec.name}`,
+        body: (
+          <Form
+            projectId={projectId}
+            zone={zone}
+            spec={spec}
+            mcp={mcp}
+            reload={reload}
+            onBack={() => {
+              onState({ type: "add", zone });
+            }}
+            onClose={close}
+          />
+        ),
+      };
+    }
+    return decisionFrame(state);
+  };
+
+  const decisionFrame = (s: Exclude<DialogState, { type: "add" | "form" }>) => {
+    if (s.type === "node") {
+      const node: NodeView | undefined = Object.values(model.zones)
+        .flatMap((z) => z.nodes)
+        .find((n) => n.id === s.id);
+      if (node === undefined) return null;
+      return {
+        title: node.name,
+        eyebrow: `${stageOf(node.zone)} · ${node.detail.app}`,
+        body: (
+          <NodeDialog
+            node={node}
+            projectId={projectId}
+            routes={routes}
+            onChanged={() => {
+              reload.current();
+            }}
+            onClose={close}
+          />
+        ),
+      };
+    }
+    if (s.type === "build" && input.status !== null) {
+      const update = model.hubs.graph.decision?.label === "Update graph";
+      return {
+        title: update ? CANVAS_COPY.updateTitle : CANVAS_COPY.buildTitle,
+        eyebrow: stageOf("graph"),
+        body: <BuildDialog projectId={projectId} status={input.status} update={update} onClose={close} />,
+      };
+    }
+    if (s.type === "plan") {
+      const replan = model.hubs.plan.decision?.label === "Replan";
+      const destination = model.zones.plan.nodes.find((n) => n.kind === "jira")?.name ?? null;
+      return {
+        title: replan ? CANVAS_COPY.replanTitle : CANVAS_COPY.planTitle,
+        eyebrow: stageOf("plan"),
+        body: <PlanDialog projectId={projectId} replan={replan} gaps={input.gaps} destination={destination} onClose={close} />,
+      };
+    }
+    if (s.type === "gaps") {
+      return { title: gapsTitle(input.gaps), eyebrow: stageOf("gap"), body: <GapsDialog rows={input.gapRows} onClose={close} /> };
+    }
+    return null;
+  };
+
+  const shown = frame();
   return (
-    <Dialog
-      open={state !== null}
-      onClose={close}
-      title={state?.type === "add" ? CANVAS_COPY.addTitle[state.zone] : (spec?.title ?? "")}
-      eyebrow={state === null ? undefined : eyebrowOf(state.zone, spec)}
-    >
-      {body}
+    <Dialog open={shown !== null} onClose={close} title={shown?.title ?? ""} eyebrow={shown?.eyebrow}>
+      {shown?.body}
     </Dialog>
   );
 }

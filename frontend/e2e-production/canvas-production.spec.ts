@@ -1,55 +1,9 @@
 // Mission Control V2, the canvas of a project on the PRODUCTION routes in a real browser, against the stub API through the real BFF
 // (docs/mission-control/README.md "The canvas", "The flow" scenes 1-3, plus the plus dialog, Upload, Google Drive and MCP; DECISIONS D5, D10).
 // Scene 1 nothing connected, scene 2 importing, scene 3 ready to build. Every case seeds its own project through the control port.
-import { randomBytes } from "node:crypto";
-import type { Page } from "@playwright/test";
+import { ADD, canvas, dialog, done, FOLDER, hub, MOTION, nodes, parsed, SPECS, STATE, unique, wire, YELLOW } from "./canvas-support";
 import { FINISHED_RUN, shopGaps } from "./gaps-fixtures";
-import {
-  bff,
-  buildGraphAndPlan,
-  expect,
-  loginV2,
-  seedDocument,
-  seedGaps,
-  seedMembers,
-  seedSource,
-  syntheticPdf,
-  test,
-  v2Header,
-} from "./support";
-
-const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
-const STATE = "data-state";
-const YELLOW = "data-yellow";
-const MOTION = "data-motion";
-const SPECS = "Specs folder";
-const ADD = { source: "Add source", channel: "Add channel", destination: "Add destination" } as const;
-const FOLDER = "https://drive.google.com/drive/folders/fake-synthetic-30";
-const done = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `doc-${String(i + 1)}.pdf`, state: "done" }));
-
-const hub = (page: Page, id: "graph" | "gap" | "plan") => page.getByTestId(`hub-${id}`);
-const wire = (page: Page, key: string) => page.getByTestId(`wire-${key}`);
-const nodes = (page: Page) => page.getByTestId("canvas-node");
-const dialog = (page: Page, name: string) => page.getByRole("dialog", { name });
-
-/** The project has one parsed document, which is what lets the graph be built (the sources API counts documents, not the seeded files). */
-async function parsed(page: Page, pid: string): Promise<void> {
-  await seedDocument(page, pid, "spec.pdf");
-  await expect
-    .poll(
-      async () =>
-        ((await bff(page, "GET", `/projects/${pid}/sources?batches=1`)).json as { processed_documents: number }).processed_documents,
-    )
-    .toBeGreaterThan(0);
-}
-
-async function canvas(page: Page, name: string): Promise<string> {
-  await loginV2(page);
-  const { id } = await seedMembers({ name });
-  await page.goto(`/projects/${id}`);
-  await expect(page.getByRole("main", { name: "Mission Control canvas" })).toBeVisible();
-  return id;
-}
+import { buildGraphAndPlan, expect, seedGaps, seedSource, syntheticPdf, test, v2Header } from "./support";
 
 test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
   test("scene 1, nothing connected: three zones on one line, three node-sized plus tiles, grey hubs, dashed wires, no yellow, no heading", async ({
@@ -91,7 +45,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     const specs = nodes(page).filter({ hasText: SPECS });
     await expect(specs).toHaveAttribute(STATE, "busy");
     await expect(specs).toContainText("6 of 24 files");
-    await expect(nodes(page).filter({ hasText: "Local files" })).toContainText("4 of 6 files");
+    await expect(nodes(page).filter({ hasText: /Upload \d/ })).toContainText("4 of 6 files");
     await expect(hub(page, "graph")).toHaveAttribute(STATE, "wait");
     await expect(hub(page, "graph")).toHaveAttribute(YELLOW, "false");
     for (const sid of [drive, upload]) {
@@ -126,7 +80,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(v2Header(page).getByRole("link", { name: "Mission Control" })).toHaveAttribute("aria-current", "page");
   });
 
-  test("the plus dialog lists its stage first, the others dashed; a stage with nothing registered says so; MCP is not listed", async ({
+  test("the plus dialog lists its stage first, the others dashed; a connection that needs an app says Set up first; MCP is not listed", async ({
     page,
   }) => {
     await canvas(page, unique("Plus"));
@@ -134,16 +88,18 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     const plus = dialog(page, "Add a source");
     await expect(plus.getByRole("button", { name: /^Upload/ })).toBeEnabled();
     await expect(plus.getByRole("button", { name: /^Google Drive/ })).toBeEnabled();
+    await expect(plus.getByRole("button", { name: /^GitHub repository/ })).toContainText("Set up first"); // GitHub is not connected to this project
     await expect(plus.getByRole("button", { name: /MCP/ })).toHaveCount(0);
     await expect(plus.getByRole("link", { name: "Integrations" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(plus).toBeHidden();
     await page.getByRole("button", { name: ADD.channel }).click();
     const gap = dialog(page, "Add a gap channel");
-    await expect(gap.getByText("Nothing can be added to this stage yet.")).toBeVisible();
+    await expect(gap.getByRole("button", { name: /^Slack channel/ })).toBeEnabled();
     await gap.getByText("Connections for the other stages").click();
     await expect(gap.getByRole("button", { name: /^Upload/ })).toHaveAttribute("aria-disabled", "true");
-    await expect(gap.getByText("For Graph")).toHaveCount(2);
+    await expect(gap.getByText("For Graph")).toHaveCount(3);
+    await expect(gap.getByText("For Plan")).toHaveCount(1);
   });
 
   test("Upload: pick a file in the form, the dialog closes, the batch is a node that finishes importing", async ({ page, requests }) => {
@@ -156,7 +112,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(form.getByText("Drop files here")).toBeVisible();
     await form.getByLabel("Choose files").setInputFiles({ name: "spec.pdf", mimeType: "application/pdf", buffer: syntheticPdf() });
     await expect(form).toBeHidden();
-    const node = nodes(page).filter({ hasText: "Local files" });
+    const node = nodes(page).filter({ hasText: /Upload \d/ });
     await expect(node).toHaveCount(1);
     await expect(node).toHaveAttribute(STATE, "on", { timeout: 30_000 });
     await expect(hub(page, "graph")).toHaveAttribute(YELLOW, "true");
