@@ -67,17 +67,6 @@ def test_each_implementation_has_the_protocol_methods_with_the_same_parameters(i
         assert inspect.iscoroutinefunction(getattr(implementation, name)), name
 
 
-async def test_the_http_gateway_is_a_stub_until_stream_s2() -> None:
-    async def token() -> str:
-        return "token-canary"
-
-    gateway = HttpLinearGateway(token)
-
-    with pytest.raises(NotImplementedError, match="S2"):
-        await gateway.viewer()
-    assert "token-canary" not in repr(gateway)
-
-
 async def test_the_oauth_client_is_a_stub_until_stream_s1() -> None:
     client = LinearOAuthClient("id", SecretStr("secret-canary"), "http://localhost/cb")
 
