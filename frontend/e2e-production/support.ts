@@ -102,10 +102,9 @@ export async function setTheme(page: Page, theme: "light" | "dark"): Promise<voi
 /** The V2 header's navigation (every V2 screen has it; the V1 shell does not). */
 export const v2Header = (page: Page): Locator => page.getByRole("navigation", { name: "App" });
 
-/** FE-BP-03.AC5: the OIDC sign-in button on /login; the stub issuer signs the default user in and `/` (the V2 screens) follows. */
+/** FE-BP-03.AC5: /login starts the OIDC sign-in by itself; the stub issuer signs the default user in and `/` (the V2 screens) follows. */
 export async function loginV2(page: Page): Promise<void> {
   await page.goto("/login");
-  await page.getByTestId("login-oidc").click();
   await expect(v2Header(page)).toBeVisible();
 }
 

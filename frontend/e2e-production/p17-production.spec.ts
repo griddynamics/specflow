@@ -26,6 +26,7 @@ import {
   seedDocument,
   seedSource,
   settled,
+  setEndSession,
   setTheme,
   STUB_TIMING,
   stubLog,
@@ -33,6 +34,7 @@ import {
   test,
   topbarProjectName,
   defined,
+  v2Header,
 } from "./support";
 
 type ButtonState = "running" | "failed" | "ready" | "off";
@@ -44,10 +46,24 @@ const expectState = (page: Page, state: ButtonState) => expect(kbBuild(page)).to
 const PROJECTS_PATH = "/api/backend/projects";
 
 test.describe("P17 screens on production routes", { tag: "@production" }, () => {
+  // A plain /login signs in again at once and the stub issuer has no session of its own, so the sign-out cases below use an issuer
+  // without an end-session endpoint (the Google case): the page says "You are signed out." and waits. The identity provider's own
+  // logout and its return to `/login?signedout=idp` are in logout-production.spec.ts.
+  test.beforeEach(async () => {
+    await setEndSession(false);
+  });
+
+  const signedOut = async (page: Page) => {
+    const res = await page.request.get("/api/auth/session");
+    const body = (await res.json()) as { user?: unknown } | null;
+    return body?.user === undefined || body.user === null;
+  };
+
   const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
   const backendCalls = (requests: { path: string }[]) => requests.filter((r) => r.path.startsWith("/api/backend/"));
 
   test.afterEach(async () => {
+    await setEndSession(true);
     await stubTiming(STUB_TIMING); // a case that changed the stub timing never leaks it into the next one
   });
 
@@ -503,11 +519,9 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await networkQuiet(page); // no BFF response in flight that could write the session cookie again (GAPS G-P17-4)
     await menu.getByRole("menuitem", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login\?signedout=1$/);
-    await expect(page.getByTestId("login-signed-out")).toHaveCount(0); // D21: no signed-out note
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Specflow");
+    await expect(page.getByTestId("login-signed-out")).toHaveText("You are signed out.");
     await expect(page.getByTestId("login-oidc")).toBeVisible();
-    await page.goto(`/projects/${pid}/mission-control`);
-    await expect(page).toHaveURL(/\/login$/); // FE-BP-03.AC6: the session is gone
+    expect(await signedOut(page), "FE-BP-03.AC6: the session is gone").toBe(true);
   });
 
   test("K5, FR-GDUI-0021: a project with a file still being parsed shows the Local files card collecting, Build knowledge locked, and sends no parse or summarize", async ({
@@ -582,12 +596,6 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await expect(page).toHaveURL(new RegExp(`/projects/${newest}/mission-control$`));
   });
 
-  const signedOut = async (page: Page) => {
-    const res = await page.request.get("/api/auth/session");
-    const body = (await res.json()) as { user?: unknown } | null;
-    return body?.user === undefined || body.user === null;
-  };
-
   test("FE-BP-02, TECH-SPECS §1.7, review M1: concurrent 401s from the BFF sign the user out once and land on /login without a loop", async ({
     page,
     requests,
@@ -622,8 +630,6 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     expect(loginLoads, "one landing on /login, no loop").toHaveLength(1);
     await page.unroute("**/api/backend/**");
     expect(await signedOut(page), "the session is gone").toBe(true);
-    await page.goto("/");
-    await expect(page).toHaveURL(/\/login$/); // signed out, not only redirected
   });
 
   test("review M1, GAPS G-P17-4: a poll answer that lands AFTER the sign-out request does not bring the session back", async ({
@@ -670,8 +676,6 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     ).toBeGreaterThan(0);
     test.info().annotations.push({ type: "sign-out attempts", description: String(signouts) }); // 2 = the late answer restored the session once and the routine ended it again
     expect(await signedOut(page), "the late answer did not restore the session").toBe(true);
-    await page.goto(`/projects/${pid}/mission-control`);
-    await expect(page).toHaveURL(/\/login$/);
   });
 
   test("review m3: /login shows one fixed message for a failed sign-in and never echoes the error parameter", async ({ page }) => {
@@ -684,7 +688,28 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await page.goto("/login?error=CredentialsSignin");
     await expect(page.getByTestId("login-error")).toBeVisible();
     await page.goto("/login");
+    await expect(v2Header(page), "a plain /login signs in at once").toBeVisible();
     await expect(page.getByTestId("login-error")).toHaveCount(0);
+  });
+
+  test("a failed sign-in shows the card and does not start another sign-in (no loop)", async ({ page, requests }) => {
+    await page.goto("/login?error=x");
+    await expect(page.getByTestId("login-error")).toBeVisible();
+    await networkQuiet(page, 1_500);
+    await expect(page).toHaveURL(/\/login\?error=x$/);
+    expect(requests.filter((r) => r.path.startsWith("/api/auth/signin") || r.origin !== new URL(page.url()).origin)).toHaveLength(0);
+  });
+
+  test("a plain /login goes straight through the issuer to the canvas, with no click", async ({ page }) => {
+    await page.goto("/login");
+    await expect(v2Header(page)).toBeVisible();
+    await expect(page).not.toHaveURL(/\/login/);
+  });
+
+  test("/login?signedout=idp without a session signs in automatically", async ({ page }) => {
+    await page.goto("/login?signedout=idp");
+    await expect(v2Header(page)).toBeVisible();
+    await expect(page).not.toHaveURL(/\/login/);
   });
 
   test("review M1: /login?signedout=1 with a session that is still valid shows a note instead of bouncing back to `/`", async ({
@@ -694,6 +719,9 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await page.goto("/login?signedout=1");
     await expect(page).toHaveURL(/\/login\?signedout=1$/);
     await expect(page.getByTestId("login-still-signed-in")).toContainText("You are still signed in");
+    await page.goto("/login?signedout=idp");
+    await expect(page).toHaveURL(/\/login\?signedout=idp$/);
+    await expect(page.getByTestId("login-still-signed-in")).toBeVisible(); // the same guard for the provider's return: no loop
     await page.goto("/login");
     await expect(page).not.toHaveURL(/\/login/); // without the flag a signed-in user still goes to `/`
   });
@@ -705,7 +733,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
       page,
     }) => {
       const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-      await page.goto("/login");
+      await page.goto("/login?error=x"); // a plain /login would sign in at once
       await expect(page.getByRole("document")).toHaveAttribute("data-theme", "light");
       const loginGround = await ground();
       await login(page);

@@ -74,9 +74,7 @@ test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: OIDC sign-in button, the first-run
   const { context, page, errors } = await newPage({ loggedIn: false });
   try {
     await page.goto(fe.base + "/");
-    await page.waitForURL("**/login");
-    await page.getByTestId("login-oidc").click();
-    await page.waitForURL(fe.base + "/");
+    await page.waitForURL(fe.base + "/"); // signed out: the proxy sends it to /login, which signs in at once (stub issuer)
     // No project yet (first test on a fresh stub): the first-run window offers "Create project" (O12, D12).
     const first = page.getByRole("dialog", { name: "Create your first project" });
     await first.waitFor();
@@ -92,13 +90,12 @@ test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: OIDC sign-in button, the first-run
     await page.waitForLoadState("networkidle");
     await page.getByRole("button", { name: "Account" }).click();
     assert.equal(await page.getByRole("menuitem", { name: "Reset demo" }).count(), 0);
+    const logout = page.waitForRequest((r) => r.url().includes("/protocol/openid-connect/logout"), { timeout: 15_000 });
     await page.getByRole("menuitem", { name: "Sign out" }).click();
-    await page.waitForURL(/\/login\?signedout=1$/, { timeout: 15_000 });
-    await page.getByTestId("login-page").waitFor();
-    assert.equal(await page.getByTestId("login-signed-out").count(), 0, "D21: no signed-out note");
-    assert.equal(await page.getByTestId("login-still-signed-in").count(), 0, "the session is gone, so no still-signed-in alert");
-    await page.goto(fe.base + "/");
-    await page.waitForURL("**/login"); // the session is gone
+    const back = new URL(new URL((await logout).url()).searchParams.get("post_logout_redirect_uri") ?? "");
+    assert.equal(back.pathname + back.search, "/login?signedout=idp", "the provider returns to /login, which signs in again at once");
+    // The stub issuer keeps no session of its own, so that sign-in lands on `/` and the newest canvas again; the app session was replaced.
+    await page.getByRole("button", { name: "Account" }).waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await context.close();

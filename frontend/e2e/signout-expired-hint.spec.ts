@@ -1,7 +1,7 @@
 // SPECS §12 item 2 (live): Keycloak accepts an EXPIRED `id_token_hint` at the end-session endpoint without a confirmation page.
 // Sign in, stay idle and offline past the id_token lifetime (the realm's accessTokenLifespan, 300 s), then sign out. The logout request the
 // browser sends carries the hint; its `exp` (read from the payload, never printed) must be in the past, and the browser must still land
-// on /login?signedout=1 with the Keycloak session ended (the next "Sign in" shows the form). A confirmation page would stop at Keycloak.
+// on /login?signedout=idp, which signs in at once and shows the Keycloak form (the Keycloak session ended). A confirmation page would stop at Keycloak.
 import { evidence, expect, keycloakUsername, login, test } from "./support";
 
 const IDLE_MS = 5 * 60_000 + 15_000; // accessTokenLifespan 300 s + margin; the realm lifetime is not raised for tests
@@ -30,10 +30,11 @@ test("sign-out with an expired id_token_hint needs no Keycloak confirmation page
   await context.setOffline(false);
   await page.getByRole("button", { name: /^Account:/ }).click();
   await page.getByRole("menu", { name: "Account" }).getByRole("menuitem", { name: "Sign out" }).click();
-  await expect(page, "no Keycloak confirmation page: the browser comes straight back").toHaveURL(/\/login\?signedout=1$/);
+  await expect(
+    keycloakUsername(page),
+    "no Keycloak confirmation page: the browser comes straight back and the session ended",
+  ).toBeVisible();
   const expiredSeconds = Math.floor(Date.now() / 1000) - hintExpiry(logout.url ?? "");
   expect(expiredSeconds, "the id_token_hint was already expired when it was sent").toBeGreaterThan(0);
-  await page.getByTestId("login-oidc").click();
-  await expect(keycloakUsername(page), "the Keycloak session ended").toBeVisible();
   evidence({ event: "signout.expired_hint", logout_status: logout.status, hint_expired_seconds_ago: expiredSeconds });
 });

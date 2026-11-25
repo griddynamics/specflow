@@ -1,7 +1,7 @@
 "use client";
-// D11, D16: the shell of the V2 screens, inside `<DataProvider>` (app/(v2)/layout.tsx). The header, the toasts, the sign-out routine a 401
+// D11, D16: the shell of the V2 screens, inside `<DataProvider>` (app/(v2)/(session)/layout.tsx). The header, the toasts, the sign-out routine a 401
 // starts (shared with the V1 shell) and the two dialogs the header opens (Create new project, Members). The project of the path comes from
-// the route; the server has already answered 404 for one that is not the caller's (the project gate of app/(v2)/projects/[projectId]).
+// the route; the server has already answered 404 for one that is not the caller's (the project gate of app/(v2)/(session)/projects/[projectId]).
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { Suspense, useState, type ReactNode } from "react";
 import { AppFrame, GraphicoRoot, Notice } from "@graphico/ui";

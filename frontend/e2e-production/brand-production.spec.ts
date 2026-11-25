@@ -1,11 +1,10 @@
 // D21 brand polish on the PRODUCTION routes (FE-BP-03.AC5, FE-DS-08.AC1/AC2, FE-PLAN-01.AC2), against the stub API through the real BFF.
-// No paid model call (R11). P1 /login title, heading and the logo pair per theme; P2 /login?signedout=1 without a session shows no note;
-// P3 the cubes are on the right of the sign-in scene (the same probe as brand.spec.ts E5); P4 signed in: the tab title is Graphico.
+// No paid model call (R11). P1 the /login card: title and Graphico wordmark per theme, no Grid Dynamics logo; P2 /login?signedout=1
+// without a session says "You are signed out." and stays; P4 signed in: the tab title is Graphico.
 // D22 P5 signed out: the apple-touch link on /login and the three icon files answer 200 without a redirect (AC2, AC3).
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { createProjectApi, expect, login, setTheme, test, defined, v2Header } from "./support";
-import { expectCubesRight } from "./placement";
 
 /**
  * The document head's `<link>` elements with this exact `rel`, as their href, sizes and type. Head metadata is not rendered and has
@@ -20,76 +19,39 @@ const headLinks = (page: Page, rel: string) =>
     rel,
   );
 
-/** ThemeLogo renders the light-theme file first, then the dark-theme one: the position of the logo each theme shows and hides. */
-const LOGO_INDEX = { light: { shown: 0, hidden: 1 }, dark: { shown: 1, hidden: 0 } } as const;
-
 test.describe("D21 brand polish on production routes", { tag: "@production" }, () => {
-  const BLACK_H = "/ds/Logos/full-color-black-horizontal.svg";
-  const WHITE_H = "/ds/Logos/full-color-white-horizontal.svg";
   const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
 
   for (const theme of ["light", "dark"] as const) {
-    test(`AC4, AC8, AC10 (P1): /login in the ${theme} theme has the tab title Graphico, the heading Specflow and the ${theme === "light" ? "black" : "white"}-wordmark logo`, async ({
+    test(`AC4, AC8, AC10 (P1): the /login card in the ${theme} theme has the tab title Graphico and the Graphico wordmark, no Grid Dynamics logo`, async ({
       page,
     }) => {
       await setTheme(page, theme);
-      const status: Record<string, number> = {};
-      page.on("response", (r) => {
-        if (r.url().includes("/ds/Logos/")) status[new URL(r.url()).pathname] = r.status();
-      });
-      await page.goto("/login");
+      await page.goto("/login?error=x");
       await expect(page).toHaveTitle("Graphico");
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Specflow");
-      const wrapper = page.getByTestId("login-logo");
-      const logos = wrapper.getByRole("img", { name: "Grid Dynamics", includeHidden: true });
-      await expect(logos).toHaveCount(2);
-      const shown = logos.nth(LOGO_INDEX[theme].shown);
-      const hidden = logos.nth(LOGO_INDEX[theme].hidden);
-      await expect(shown).toHaveClass(new RegExp(`(^| )gdg-logo-${theme}( |$)`));
-      await expect(hidden).toHaveClass(new RegExp(`(^| )gdg-logo-${theme === "light" ? "dark" : "light"}( |$)`));
-      await expect(shown).toBeVisible();
-      await expect(shown).toHaveAttribute("src", theme === "light" ? BLACK_H : WHITE_H);
-      await expect(hidden).toHaveAttribute("src", theme === "light" ? WHITE_H : BLACK_H);
-      expect(await hidden.evaluate((i) => getComputedStyle(i).display)).toBe("none");
-      await expect(page.getByRole("img", { name: "Grid Dynamics" }), "one logo in the accessibility tree").toHaveCount(1);
-      expect(
-        await shown.evaluate((i: HTMLImageElement) => ({
-          h: Math.round(i.getBoundingClientRect().height),
-          f: getComputedStyle(i).filter,
-          nw: i.naturalWidth,
-        })),
-      ).toEqual({ h: 36, f: "none", nw: 2192 });
-      await expect.poll(() => status[theme === "light" ? BLACK_H : WHITE_H]).toBe(200);
-      // the sign-in text that stays
+      const card = page.getByTestId("login-page");
+      await expect(card.getByText("Graphico", { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(0);
+      await expect(page.getByRole("img", { name: "Grid Dynamics" })).toHaveCount(0);
+      await expect(page.getByText("Specflow")).toHaveCount(0);
+      await expect(page.getByRole("document")).toHaveAttribute("data-theme", theme);
       await expect(page.getByTestId("login-oidc")).toBeVisible();
     });
   }
 
-  test("AC10 (P2): /login?signedout=1 without a session shows no note and no alert", async ({ page }) => {
+  test("AC10 (P2): /login?signedout=1 without a session says so, waits, and shows no alert", async ({ page }) => {
     await page.goto("/login?signedout=1");
     await expect(page).toHaveTitle("Graphico");
-    await expect(page.getByTestId("login-page")).toBeVisible();
+    await expect(page.getByTestId("login-signed-out")).toHaveText("You are signed out.");
     await expect(page.getByTestId("login-oidc")).toBeVisible();
-    await expect(page.getByTestId("login-signed-out")).toHaveCount(0);
     await expect(page.getByTestId("login-still-signed-in")).toHaveCount(0);
     await expect(page.getByTestId("login-error")).toHaveCount(0);
     await expect(
       page.getByTestId("login-page").getByRole("alert"),
       "no alert in the page (the Next route announcer sits outside it)",
     ).toHaveCount(0);
-    await expect(page.getByText("You are signed out")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/login\?signedout=1$/); // no automatic sign-in after a local-only sign-out
   });
-
-  for (const theme of ["light", "dark"] as const) {
-    test(`AC12, AC13 (P3): /login in the ${theme} theme: the cubes are on the right of the card`, async ({ page }) => {
-      await setTheme(page, theme);
-      await page.goto("/login");
-      const scene = page.getByTestId("login-page");
-      await expect(scene).toHaveClass(/\bgdg-scene\b/);
-      const r = await expectCubesRight(page, scene);
-      test.info().annotations.push({ type: "cubes /login", description: `left ${String(r.left)} right ${String(r.right)}` });
-    });
-  }
 
   test("AC8 (P4): signed in, / and a project's Mission Control have the tab title Graphico", async ({ page }) => {
     await login(page);
@@ -107,7 +69,7 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
     page,
     request,
   }) => {
-    await page.goto("/login");
+    await page.goto("/login?signedout=1"); // a plain /login would sign in at once; this one stays
     await expect
       .poll(() => headLinks(page, "apple-touch-icon"), "one apple-touch link: /apple-icon.png, 180x180, image/png")
       .toEqual([{ href: expect.stringMatching(/^\/apple-icon\.png/), sizes: "180x180", type: "image/png" }]);

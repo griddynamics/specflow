@@ -9,8 +9,8 @@
 // The routine therefore (1) unmounts the screens first (the caller renders nothing while `signingOut`: polling stops, nothing new
 // starts), (2) signs out without a redirect, (3) waits for late responses and re-checks the session, signing out again while one is
 // still present (at most SIGN_OUT_ATTEMPTS), then (4) replaces the page with the sign-out destination. That is the identity provider's
-// logout page (RP-initiated logout, B-08) when the issuer advertises one, which returns to `/login?signedout=1`; otherwise
-// `/login?signedout=1` itself (B-09). The destination is asked from the server BEFORE the first sign-out: it needs the id_token in the
+// logout page (RP-initiated logout, B-08) when the issuer advertises one, which returns to `/login?signedout=idp` (the page signs in again at once); otherwise
+// `/login?signedout=1` itself (B-09: the page says so and waits). The destination is asked from the server BEFORE the first sign-out: it needs the id_token in the
 // session cookie. The flag tells /login not to bounce a still-valid session back to `/` (that would loop through another 401); it is
 // never shown to the user as data.
 import { getSession, signOut } from "next-auth/react";

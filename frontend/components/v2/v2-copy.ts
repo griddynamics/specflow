@@ -11,6 +11,12 @@ export const V2_COPY = {
   createProject: "+ Create new project",
   signOut: "Sign out",
   signingOut: "Signing out",
+  // Sign-in card (/login)
+  signIn: "Sign in",
+  takingToSignIn: "Taking you to sign-in…",
+  signInFailed: "Sign-in did not work. Try again.",
+  signedOut: "You are signed out.",
+  stillSignedIn: "You are still signed in: the session could not be ended. Close the browser window to end it, or sign in again.",
   toDark: "Switch to dark mode",
   toLight: "Switch to light mode",
   // Create project

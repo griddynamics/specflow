@@ -11,6 +11,7 @@ import {
   createProjectApi,
   expect,
   loginV2,
+  setEndSession,
   seedGitHub,
   seedIntegrations,
   seedJira,
@@ -42,6 +43,10 @@ test.afterEach(async () => {
 });
 
 test.describe("Mission Control V2: header, Members, Integrations", { tag: "@production" }, () => {
+  test.afterEach(async () => {
+    await setEndSession(true); // one case switches the issuer's end-session endpoint off
+  });
+
   test("login, first run, create a project, Members, Integrations: the whole way through", async ({ page, requests }) => {
     await loginV2(page);
     // The stub is shared by the run, so "no project yet" is the list endpoint answering an empty page for this one load.
@@ -176,6 +181,7 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
   });
 
   test("the theme switch sets the theme on the page and in the cookie; Sign out ends the session", async ({ page, context }) => {
+    await setEndSession(false); // the Google case: the card says "You are signed out." and waits (the provider's logout: logout-production)
     await loginV2(page);
     await page.goto("/");
     const theme = () => page.evaluate(() => document.documentElement.dataset.theme);
@@ -191,6 +197,7 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await v2Header(page).getByRole("button", { name: "Account" }).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login\?signedout=1$/, { timeout: 15_000 });
+    await expect(page.getByTestId("login-signed-out")).toBeVisible();
   });
 
   test("an unknown project is a 404 page inside the shell; a collaborator sees Members read-only and can leave", async ({ page }) => {

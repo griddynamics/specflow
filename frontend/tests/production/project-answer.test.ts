@@ -1,4 +1,4 @@
-// The V2 project gate (app/(v2)/projects/[projectId]/layout.tsx): which answers of `GET /projects/{id}` mean "not yours" (404) or
+// The V2 project gate (app/(v2)/(session)/projects/[projectId]/layout.tsx): which answers of `GET /projects/{id}` mean "not yours" (404) or
 // "not an id" (422, a malformed id on the real API), and that any other failure still lets the page render.
 import assert from "node:assert/strict";
 import { test } from "node:test";

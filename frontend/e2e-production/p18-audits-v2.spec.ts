@@ -31,6 +31,15 @@ async function withNodes(page: Page): Promise<string> {
 
 const SCREENS: Screen[] = [
   {
+    // The failed sign-in card; a plain /login would sign in at once.
+    id: "v2-login",
+    minStops: 1,
+    setup: async (page) => {
+      await page.goto("/login?error=x");
+      await expect(page.getByTestId("login-oidc")).toBeVisible();
+    },
+  },
+  {
     id: "v2-canvas-empty",
     minStops: 4,
     setup: async (page) => {
@@ -80,6 +89,14 @@ test.afterEach(async () => {
 });
 
 test.describe("P18 audits on the V2 routes", { tag: "@production" }, () => {
+  test("FE-DOD-05.AC1 [v2-login]: the page's only Tab stop is the OIDC sign-in button", async ({ page }) => {
+    await setTheme(page, "light");
+    await page.goto("/login?error=x");
+    await expect(page.getByTestId("login-oidc")).toBeVisible();
+    expect((await tabWalkProblems(page, RING)).stops, "the Tab stops of /login").toBe(1);
+    await expect(page.getByTestId("login-oidc")).toHaveAttribute("data-kb", "1");
+  });
+
   for (const sc of SCREENS) {
     test(`[${sc.id}]: every visible text and form control is set in Fira Sans (Fira Code only where the style sets it)`, async ({
       page,

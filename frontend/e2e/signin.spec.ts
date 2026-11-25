@@ -8,15 +8,8 @@ test("alice signs in through Keycloak; sign-out ends the Keycloak session", { ta
     await expect(page.getByRole("button", { name: /^Account: Alice/ }), "the signed-in user is alice").toBeVisible();
   });
 
-  await test.step("sign out lands on /login?signedout=1 and the app session is gone", async () => {
+  await test.step("sign out returns to /login?signedout=idp, which signs in at once: Keycloak asks for credentials again", async () => {
     await signOut(page);
-    await expect(page.getByTestId("login-oidc")).toBeVisible();
-    await page.goto("/");
-    await expect(page).toHaveURL(/\/login$/);
-  });
-
-  await test.step("the Keycloak session ended: signing in again shows the form", async () => {
-    await page.getByTestId("login-oidc").click();
     await expect(keycloakUsername(page), "Keycloak asks for credentials again (no silent re-auth)").toBeVisible();
     await expect(page.getByTestId("app-shell")).toHaveCount(0);
     evidence({ event: "signout.keycloak_session_ended", keycloak_form_shown: true });
