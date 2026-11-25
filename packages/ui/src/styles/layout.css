@@ -74,3 +74,26 @@
 .gx-frame {
   min-height: 100dvh;
 }
+
+.gx-disclosure__summary {
+  display: list-item;
+  line-height: 44px;
+  min-height: 44px;
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--gx-ink-2);
+  cursor: pointer;
+}
+
+.gx-disclosure__body {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
+.gx-code--inline {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}

@@ -1,0 +1,109 @@
+// The inputs of the canvas tests: a sources status as the http adapter derives it, the gap summary, the plan state, one `CanvasInput`.
+// Shared by the model and the render tests so a scene is described once.
+import { deriveStatus, NO_GRAPH, toStatus, type GraphBuildWire } from "@/lib/data/http/knowledge";
+import type { CanvasInput, GapsSummary } from "@/components/v2/canvas/canvas-types";
+import type { PlanState, PlanStory, PlanTask } from "@/lib/domain/plan";
+import type { ProjectSourcesStatus } from "@/lib/domain/sources";
+
+const COUNTS = { waiting: 0, processing: 0, done: 0, not_read: 0, skipped: 0, failed: 0, already_in_project: 0 };
+
+export const NOW = new Date("2026-10-26T09:05:00Z");
+export const STARTED = "2026-10-26T09:00:00Z";
+export const FINISHED = "2026-10-26T09:12:00Z";
+
+/** One source of the sources API (`GET /sources?batches=1`): `kind` upload or gdrive, files by state. */
+export const wireSource = (id: string, kind: "upload" | "gdrive", counts: Partial<typeof COUNTS>, over: Record<string, unknown> = {}) => {
+  const c = { ...COUNTS, ...counts };
+  return {
+    id,
+    kind,
+    name: kind === "gdrive" ? "Specs folder" : "Local files",
+    name_suffix: 1,
+    added_by: { id: "u1", display_name: "dev" },
+    created_at: `2026-10-26T08:0${id.slice(-1)}:00Z`,
+    listing_finished: true,
+    open: false,
+    total: Object.values(c).reduce((n, x) => n + x, 0),
+    counts: c,
+    failure_reason: null,
+    folder_id: kind === "gdrive" ? "f1" : null,
+    link: null,
+    ...over,
+  };
+};
+
+export const graphWire = (over: Partial<GraphBuildWire> = {}): GraphBuildWire => ({ ...NO_GRAPH.graph, ...over });
+export const RUNNING = graphWire({ status: "running", buildId: "b1", mode: "first", startedAt: STARTED });
+export const SUCCEEDED = graphWire({ status: "succeeded", buildId: "b1", mode: "first", startedAt: STARTED, finishedAt: FINISHED });
+
+export function statusOf(
+  sources: ReturnType<typeof wireSource>[],
+  graph: GraphBuildWire = NO_GRAPH.graph,
+  processed = 4,
+): ProjectSourcesStatus {
+  const total = sources.reduce((n, s) => n + s.total, 0);
+  const open = sources.reduce((n, s) => n + s.counts.waiting + s.counts.processing, 0);
+  const body = {
+    progress: { listing_finished: sources.every((s) => s.listing_finished), total, finished: total - open },
+    processed_documents: processed,
+    removed_files: 0,
+    sources,
+  };
+  return deriveStatus(toStatus(body), { ...NO_GRAPH, graph });
+}
+
+export const GAPS: GapsSummary = { phase: "done", stepsDone: 4, stepsTotal: 4, total: 14, answered: 2, critical: 3, more: false };
+const story = (storyId: string): PlanStory => ({
+  storyId,
+  areaId: "a1",
+  kind: "feature",
+  title: storyId,
+  summary: null,
+  progress: "pending",
+});
+const task = (taskId: string): PlanTask => ({
+  taskId,
+  areaId: "a1",
+  storyId: "s1",
+  title: taskId,
+  description: "",
+  phase: "logic",
+  complexity: "low",
+  status: "pending",
+  doneWhen: [],
+  waitsFor: [],
+  implements: [],
+  commit: null,
+  blockReason: null,
+  ready: true,
+  plannedBy: "model",
+  body: "",
+  version: 1,
+});
+/** A plan with two stories and one task. */
+export const READY_PLAN: PlanState = {
+  phase: "ready",
+  plan: { planId: "p1", areas: [], stories: [story("s1"), story("s2")], tasks: [task("t1")], quality: null, review: [] },
+};
+
+export const input = (over: Partial<CanvasInput> = {}): CanvasInput => ({
+  now: NOW,
+  status: null,
+  gaps: null,
+  plan: null,
+  planStale: false,
+  integrations: null,
+  ...over,
+});
+
+/** Scene 1 to 3 of docs/mission-control/README.md "The flow". */
+export const SCENE_1 = input({ status: statusOf([], NO_GRAPH.graph, 0) });
+export const SCENE_2 = input({
+  status: statusOf([wireSource("s1", "gdrive", { done: 6, processing: 18 }), wireSource("s2", "upload", { done: 4, waiting: 2 })]),
+});
+export const SCENE_3 = input({
+  status: statusOf([wireSource("s1", "gdrive", { done: 24 }), wireSource("s2", "upload", { done: 6 })], NO_GRAPH.graph, 30),
+});
+/** The graph is built (first build succeeded). */
+export const BUILT = (over: Partial<CanvasInput> = {}) =>
+  input({ status: statusOf([wireSource("s1", "gdrive", { done: 24 }), wireSource("s2", "upload", { done: 6 })], SUCCEEDED, 30), ...over });

@@ -21,6 +21,8 @@
   --gx-font-mono: "Fira Code", ui-monospace, sfmono-regular, menlo, consolas, monospace;
   --gx-maxw: 1200px;
   --gx-header-h: 64px;
+  --gx-tile: 84px;
+  --gx-hub: 124px;
 }
 
 .gx[data-theme="light"],

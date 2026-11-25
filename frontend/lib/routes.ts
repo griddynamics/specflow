@@ -31,7 +31,7 @@ export const TREE_PREFIX: Record<AppMode, ""> = { production: "" };
 
 export interface RouteBuilder {
   home(): string;
-  canvas(projectId: string): string; // V2: the project's canvas
+  canvas(projectId: string, opts?: { add?: string }): string; // V2: the project's canvas; `add` = the connection form to open (back from Integrations)
   integrations(projectId: string, opts?: { setup?: IntegrationApp; next?: string }): string; // V2: `setup` opens that app; `next` = a same-site path to return to after a connect
   missionControl(projectId: string, opts?: { view?: MissionControlView }): string;
   file(projectId: string, ref: { path: string; anchor?: string }): string; // view=files&file=...&section=...
@@ -65,7 +65,7 @@ export function routesFor(mode: AppMode): RouteBuilder {
   const at = (key: RouteKey, params: Record<string, string> = {}) => prefix + fill(ROUTES[key].template, params);
   return {
     home: () => "/",
-    canvas: (projectId) => at("canvas", { projectId }),
+    canvas: (projectId, opts) => withQuery(at("canvas", { projectId }), { add: opts?.add }),
     integrations: (projectId, opts) => withQuery(at("integrations", { projectId }), { setup: opts?.setup, next: opts?.next }),
     missionControl: (projectId, opts) => withQuery(at("missionControl", { projectId }), { view: opts?.view }),
     file: (projectId, ref) => withQuery(at("missionControl", { projectId }), { view: "files", file: ref.path, section: ref.anchor }),
@@ -128,4 +128,9 @@ export function parseIntegrationsQuery(q: URLSearchParams): {
   const next = q.get("next");
   const setup = INTEGRATION_APPS.find((a) => a === q.get("setup")) ?? null;
   return { github: q.get("github"), atlassian: q.get("atlassian"), setup, next: isSameSitePath(next) ? next : null };
+}
+
+/** `add` of the canvas route: the connection whose form opens after the Integrations round trip; the canvas checks it against its registry. */
+export function parseCanvasQuery(q: URLSearchParams): { add: string | null } {
+  return { add: q.get("add") };
 }

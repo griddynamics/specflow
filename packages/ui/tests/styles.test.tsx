@@ -7,8 +7,9 @@ import { fileURLToPath } from "node:url";
 
 const styles = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/styles");
 const read = (name: string): string => readFileSync(path.join(styles, name), "utf8");
-const SHEETS = ["tokens.css", "base.css", "components.css", "layout.css", "header.css", "people.css", "integrations.css"];
-const strip = (css: string): string => css.replaceAll(/\/\*[^*]*(?:\*(?!\/)[^*]*)*\*\//g, "");
+const SHEETS = ["tokens.css", "base.css", "components.css", "layout.css", "header.css", "people.css", "integrations.css", "canvas.css"];
+const strip = (css: string): string =>
+  css.replaceAll(/\/\*[^*]*(?:\*(?!\/)[^*]*)*\*\//g, "").replaceAll(/@keyframes[^{]+\{(?:[^{}]*\{[^{}]*\})*\s*\}/g, "");
 
 test("every rule of every stylesheet is scoped under .gx or a gx- class", () => {
   for (const file of SHEETS) {

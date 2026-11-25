@@ -5,6 +5,7 @@ import {
   CATEGORY_LABEL,
   CLASS_ORDER,
   type DriveCategoryCount,
+  type DriveIdentity,
   type DriveReason,
   type DriveTestResult,
   type ImportProgress,
@@ -54,6 +55,13 @@ export function driveReasonMessage(reason: DriveReason, email: string | null): s
     case "unknown_error":
       return "Something went wrong. Try again.";
   }
+}
+
+/** FR-GDUI-0002: the Drive account email as the dialog shows it; an unreadable one shows its reason: the setup message for setup_error, the generic text otherwise. */
+export function emailLabel(identity: DriveIdentity | null): string {
+  if (identity === null) return EMAIL_LOADING;
+  if (identity.ok) return identity.email;
+  return identity.reason === "setup_error" ? driveReasonMessage("setup_error", null) : EMAIL_UNAVAILABLE;
 }
 
 const FLAG: Record<ProcessingClass, string> = { processed: "", stored_only: " (stored, not read yet)", skipped: " (skipped)" };

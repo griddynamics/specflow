@@ -43,9 +43,19 @@ export function Notice({ role = "status", children }: Readonly<{ role?: "status"
   );
 }
 
+/** A native disclosure: a summary that is easy to press, and the content it folds. */
+export function Disclosure({ summary, children }: Readonly<{ summary: string; children: ReactNode }>): JSX.Element {
+  return (
+    <details className="gx-disclosure">
+      <summary className="gx-disclosure__summary">{summary}</summary>
+      <div className="gx-disclosure__body">{children}</div>
+    </details>
+  );
+}
+
 /** A command or an id to copy, in the mono face. */
-export function CodeLine({ children }: Readonly<{ children: string }>): JSX.Element {
-  return <code className="gx-code">{children}</code>;
+export function CodeLine({ children, inline = false }: Readonly<{ children: string; inline?: boolean }>): JSX.Element {
+  return <code className={inline ? "gx-code gx-code--inline" : "gx-code"}>{children}</code>;
 }
 
 /** Children one under the other with the dialog's gap. With `onSubmit` it is a form (Enter submits). */
