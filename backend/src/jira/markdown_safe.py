@@ -33,12 +33,13 @@ def safe_href(href: str) -> str | None:
 
 
 def link(text: str, href: str) -> str:
-    """``[text](href)`` when the address is safe, else the text alone; ``]`` and ``[`` in the text are escaped."""
+    """``[text](href)`` when the address is safe, else the text alone; ``]``, ``[`` and backslashes are escaped."""
 
     safe = safe_href(href)
     if safe is None or not text:
         return text
-    return f"[{text.replace('[', chr(92) + '[').replace(']', chr(92) + ']')}]({safe})"
+    escaped = text.replace(chr(92), chr(92) * 2).replace("[", chr(92) + "[").replace("]", chr(92) + "]")
+    return f"[{escaped}]({safe})"
 
 
 def fence(code: str, language: str) -> str:

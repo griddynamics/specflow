@@ -36,6 +36,7 @@ def test_only_web_and_mail_addresses_are_kept_and_they_are_encoded(href: str, sa
 
 def test_link_text_is_escaped_and_an_unsafe_address_leaves_the_text_alone() -> None:
     assert link("a]b[c", "https://example.com") == "[a\\]b\\[c](https://example.com)"
+    assert link("a\\", "https://example.com") == "[a\\\\](https://example.com)"
     assert link("click", "javascript:alert(1)") == "click"
     assert link("", "https://example.com") == ""
 

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from jira.adf_reader import adf_to_markdown
+from jira.markdown_safe import MarkupTooDeepError
 
 Node = dict[str, Any]
 
@@ -134,27 +135,38 @@ def hint_doc(account_id: str) -> Node:
 
 
 def mentions(doc: Any) -> set[str]:
-    """The account ids an ADF document mentions."""
+    """The account ids an ADF document mentions (walked with a stack: a deep document cannot overflow it)."""
 
     found: set[str] = set()
-    if isinstance(doc, Mapping):
-        if doc.get("type") == "mention":
-            attrs = doc.get("attrs")
-            if isinstance(attrs, Mapping) and isinstance(attrs.get("id"), str):
-                found.add(attrs["id"])
-        for child in doc.get("content") or []:
-            found |= mentions(child)
+    pending = [doc]
+    while pending:
+        node = pending.pop()
+        if not isinstance(node, Mapping):
+            continue
+        attrs = node.get("attrs")
+        if node.get("type") == "mention" and isinstance(attrs, Mapping) and isinstance(attrs.get("id"), str):
+            found.add(attrs["id"])
+        pending.extend(node.get("content") or [])
     return found
 
 
 def is_hint_for(doc: Any, account_id: str) -> bool:
-    return account_id in mentions(doc) and HINT_LEAD in adf_to_markdown(doc)
+    if account_id not in mentions(doc):
+        return False
+    try:
+        return HINT_LEAD in adf_to_markdown(doc)
+    except MarkupTooDeepError:  # nested too deep to read: not a hint
+        return False
 
 
 def comment_text(doc: Any) -> str:
-    """The comment as plain Markdown, for reading an answer; never stored."""
+    """The comment as plain Markdown, for reading an answer; never stored. A comment nested too deep to read is no
+    answer: empty."""
 
-    return adf_to_markdown(doc).strip()
+    try:
+        return adf_to_markdown(doc).strip()
+    except MarkupTooDeepError:
+        return ""
 
 
 def numbered_answers(text: str) -> dict[int, str]:

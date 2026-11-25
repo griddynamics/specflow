@@ -93,7 +93,9 @@ For each comment, oldest first:
 Every effect is idempotent, so the cursor only bounds the search and a restart repeats nothing: an answered question has
 `answered_at` (its comments are skipped), the hint is found again by its mention, and a refusal is not repeated once a
 comment of the acting account follows the refused comment. The comment text is read only to find the answer: never logged,
-stored (except in the gap answer itself) or quoted back.
+stored (except in the gap answer itself) or quoted back. A comment nested too deep to read is no answer (and no hint), and
+the poll goes on without it. If the process stops after an answer is recorded and before the question is marked answered,
+the next poll finds the question closed in Graphico and says so in a refusal comment; the answer itself stays recorded.
 
 ## Shared with Slack
 

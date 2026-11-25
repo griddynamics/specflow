@@ -98,6 +98,26 @@ async def test_own_words_are_the_answer_and_a_letter_with_a_full_stop_is_still_a
     assert "recorded your own answer" in confirmations(rig, keys[0])[0]
 
 
+async def test_a_deeply_nested_comment_is_no_answer_and_does_not_stop_the_poll(rig: Rig) -> None:
+    # A comment nested deeper than the reader can walk is skipped: the others of the target are still read and the
+    # cursor moves, so one person cannot stop the target.
+    keys = await posted(rig, "one", gap("G-1"), gap("G-2"))
+    deep: dict[str, object] = {"type": "paragraph", "content": [{"type": "text", "text": "A"}]}
+    for _ in range(2000):
+        deep = {"type": "blockquote", "content": [deep]}
+    rig.jira._add(keys[0], ANA_ACCOUNT, {"type": "doc", "version": 1, "content": [deep]})
+    rig.jira.say(keys[1], BO_ACCOUNT, "A")
+
+    assert await rig.poller().poll_once(PID) == 1
+
+    assert [a.gap_id for a in rig.service.answers] == ["G-2"]
+    assert (await rows(rig))["G-1"].answered_at is None
+    target = await rig.db.get_target(None, PROJECT)
+    assert target is not None and target.poll_cursor is not None and target.last_polled_at is not None
+    assert text.comment_text({"type": "doc", "version": 1, "content": [deep]}) == ""
+    assert not text.is_hint_for({"type": "doc", "version": 1, "content": [deep]}, ANA_ACCOUNT)
+
+
 async def test_an_assigned_gap_keeps_its_assignee(rig: Rig) -> None:
     [key] = await posted(rig)
     rig.service.gaps["G-1"].assigned_to = str(BO)
