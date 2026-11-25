@@ -8,6 +8,7 @@ import { createSourcesModel, StubError } from "./stub-sources.mjs";
 import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
 import { checkJiraEpic } from "./stub-jira-epic.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
+import { createGitHubProjectsModel } from "./stub-github-projects.mjs";
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
@@ -113,6 +114,11 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const integrations = createIntegrationsModel({ roleOf: (pid) => people.list(pid).role, jira, github, displayName: ME.name });
   /** The Jira gap channel: any member; acts as the project's Atlassian binding. */
   const jiraGaps = createJiraGapsModel((pid) => integrations.atlassianActive(pid));
+  /** GitHub Projects plan destination: any member; acts as the project's GitHub binding; the repository is one of the project's. */
+  const githubProjects = createGitHubProjectsModel(
+    (pid) => integrations.githubActive(pid),
+    (pid, id) => github.list(pid).repositories.find((r) => r.id === id),
+  );
   const readJson = async (req) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -1113,6 +1119,18 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/projects/{pid}/github-projects[/projects|/access-check]` (docs/github/projects.md): the destination, its projects, the check. */
+  async function githubProjectsRoute({ req, res, url, pid, did }) {
+    const m = req.method;
+    people.list(pid); // a non-member is a 404
+    if (!did && m === "GET") return json(res, 200, githubProjects.get(pid));
+    if (!did && m === "PUT") return json(res, 200, githubProjects.put(pid, await readJson(req)));
+    if (did === "projects" && m === "GET") return json(res, 200, githubProjects.projects(pid, url.searchParams.get("repository_id") ?? ""));
+    if (did === "access-check" && m === "POST") return json(res, 200, githubProjects.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   /** `/integrations/atlassian[/authorize|/callback]` (docs/jira-sync/oauth.md#routes): the caller's Atlassian connection. */
   async function atlassianRoute({ req, res, action }) {
     const m = req.method;
@@ -1300,6 +1318,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (b === "members" || b === "invites" || b === "leave") return membersRoute({ req, res, pid, b, did });
     if (b === "jira") return jiraRoute({ req, res, pid, did });
     if (b === "jira-gaps") return jiraGapsRoute({ req, res, pid, did });
+    if (b === "github-projects") return githubProjectsRoute({ req, res, url, pid, did });
     if (b === "integrations") return integrationsRoute({ req, res, pid, did });
     if (b === "slack") return slackRoute({ req, res, pid, did });
     if (b === "repositories") return repositoriesRoute({ req, res, pid, did, action });
@@ -1383,6 +1402,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     jira,
     /** Jira gap channel: `jiraGaps.state` (available) and `jiraGaps.seed({pid, available, target, access})`. */
     jiraGaps,
+    /** GitHub Projects destination: `githubProjects.state` (available, organization) and `githubProjects.seed({pid, available, organization, target, access})`. */
+    githubProjects,
     /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
     github,
     /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, ...})`. */

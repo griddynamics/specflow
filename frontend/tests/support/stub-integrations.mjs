@@ -144,5 +144,11 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
     return row !== null && healthOf("atlassian", row) === "active";
   };
 
-  return { state, atlassianActive, list, connect, disconnect, slackGet, slackUnbind, slackTest, seed };
+  /** Whether the project's GitHub binding can act now (a member is bound and their connection is active). */
+  const githubActive = (pid) => {
+    const row = mine(pid).github;
+    return row !== null && healthOf("github", row) === "active";
+  };
+
+  return { state, atlassianActive, githubActive, list, connect, disconnect, slackGet, slackUnbind, slackTest, seed };
 }

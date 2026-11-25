@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.errors import ApiError, database_unavailable, graph_unavailable, required
 from api.gap.notice import GapNotice
 from api.gap.runner import GapRunner
+from api.github_projects.runner import GitHubProjectsRunner
 from api.graph_build.runner import GraphBuildRunner
 from api.imports import ImportRunner
 from api.jira.connections import AtlassianConnections
@@ -106,6 +107,8 @@ class Runtime:
     plan_destinations: Any = None
     # api.jira_gaps.JiraGaps: the Jira gap channel; None without Atlassian OAuth or gap runs
     jira_gaps: Any = None
+    # api.github_projects.runner.GitHubProjectsRunner: the GitHub Projects plan destination; None when GitHub is off
+    github_projects: Any = None
     # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics)
     imports: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
@@ -318,6 +321,13 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
     destinations = PlanDestinations()
     if runtime.jira is not None:
         destinations.register(runtime.jira)
+    if runtime.github is not None:
+        runtime.github_projects = GitHubProjectsRunner(
+            runtime.github, transaction=runtime.transaction, graph_store=runtime.graph_store
+        )
+        stack.push_async_callback(runtime.github_projects.aclose)
+        runtime.github_projects.start_recovery()
+        destinations.register(runtime.github_projects)
     runtime.plan_destinations = destinations  # the plan runner's one hook: a destination is added here
     runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps, jira=destinations)
     # Pushed last, so they run first: plan runs, builds and then gap runs stop before the store and engine close.

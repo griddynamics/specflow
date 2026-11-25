@@ -64,6 +64,8 @@ APP_TABLES = [
     "gap_suppression",
     "gap_verdict",
     "github_connections",
+    "github_project_items",
+    "github_project_targets",
     "jira_gap_issues",
     "jira_gap_targets",
     "jira_issues",
@@ -83,7 +85,8 @@ HEAD_0005 = "0005_jira_sync"
 HEAD_0006 = "0006_atlassian_connections"
 HEAD_0007 = "0007_github"
 HEAD_0008 = "0008_project_integrations"
-HEAD = "0009_jira_gaps"
+HEAD_0009 = "0009_jira_gaps"
+HEAD = "0010_github_projects"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
@@ -384,8 +387,8 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(
         "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
         "AND relnamespace = 'public'::regnamespace",
     ) == [
-        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 6
-    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's to 0008's, 0009's two
+        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 8
+    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's to 0008's, 0009's and 0010's two each
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
@@ -1062,9 +1065,9 @@ def test_l31_0009_adds_the_gap_tables_scoped_to_the_agent_role_and_its_downgrade
     ana = insert_user(scratch_database, "ana@example.com")
     project = insert_project(scratch_database, ana, role="owner")
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_0009)
 
-    assert stamped_versions(scratch_database) == [HEAD]
+    assert stamped_versions(scratch_database) == [HEAD_0009]
     for table in ("jira_gap_targets", "jira_gap_issues"):
         assert run_app(
             scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
@@ -1099,4 +1102,70 @@ def test_l31_0009_adds_the_gap_tables_scoped_to_the_agent_role_and_its_downgrade
     command.downgrade(cfg, "-1")
 
     assert stamped_versions(scratch_database) == [HEAD_0008]
+    assert fingerprint(scratch_database) == before
+
+
+# The GitHub Projects destination, added by revision 0010 on top of 0009 ------------------------------------
+
+
+def test_l32_0010_adds_the_projects_tables_scoped_to_the_agent_role_and_its_downgrade_returns_to_0009(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0009)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+
+    command.upgrade(cfg, "head")
+
+    assert stamped_versions(scratch_database) == [HEAD]
+    for table in ("github_project_targets", "github_project_items"):
+        assert run_app(
+            scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
+        ) == ["true"]
+        assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = :table", table=table) == [
+            1
+        ]
+        assert run_app(
+            scratch_database,
+            "SELECT has_table_privilege(:role, :table, 'SELECT,INSERT,UPDATE,DELETE')::text",
+            role=SESSION_AGENT_ROLE,
+            table=table,
+        ) == ["false"]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    run_app(
+        scratch_database,
+        "INSERT INTO project_repositories (id, project_id, github_repo_id, full_name, html_url, private) "
+        "VALUES (:r, :p, 7, 'acme/shop', 'https://github.com/acme/shop', true)",
+        r=project,
+        p=project,
+    )
+    target = (
+        "INSERT INTO github_project_targets "
+        "(project_id, repository_id, project_node_id, project_title, project_url, enabled, updated_at, last_trigger) "
+        "VALUES (:p, :r, 'PVT_1', 'Plan', 'https://x', true, now(), :trigger)"
+    )
+    with pytest.raises(IntegrityError):  # a closed set of triggers
+        run_app(scratch_database, target, p=project, r=project, trigger="mcp")
+    run_app(scratch_database, target, p=project, r=project, trigger="settings")
+    with pytest.raises(IntegrityError):  # one target per project
+        run_app(scratch_database, target, p=project, r=project, trigger="plan_run")
+    item = (
+        "INSERT INTO github_project_items (project_id, node_id, kind, issue_number, requested_at) "
+        "VALUES (:p, :node, :kind, :number, now())"
+    )
+    with pytest.raises(IntegrityError):  # a closed set of kinds
+        run_app(scratch_database, item, p=project, node="X", kind="epic", number=1)
+    run_app(scratch_database, item, p=project, node="STORY::A", kind="story", number=1)
+    with pytest.raises(IntegrityError):  # one row per node
+        run_app(scratch_database, item, p=project, node="STORY::A", kind="story", number=2)
+    with pytest.raises(IntegrityError):  # one node per issue number
+        run_app(scratch_database, item, p=project, node="STORY::B", kind="story", number=1)
+    run_app(scratch_database, item, p=project, node="STORY::C", kind="story", number=None)
+    run_app(scratch_database, item, p=project, node="STORY::D", kind="story", number=None)  # pending rows repeat
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0009]
     assert fingerprint(scratch_database) == before

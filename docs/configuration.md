@@ -666,9 +666,14 @@ Settings > Developer settings > GitHub Apps > New GitHub App (or the same page o
 | Enable Device Flow | off |
 | Setup URL | `{PUBLIC_URL}/api/integrations/github/setup`, with **Redirect on update** on |
 | Webhook | not active |
-| Repository permissions | Contents: Read-only. Metadata: Read-only (GitHub sets it). Nothing else. |
-| Organization and account permissions | none |
+| Repository permissions | Contents: Read-only. Metadata: Read-only (GitHub sets it). Issues: Read and write (the [GitHub Projects plan destination](github/projects.md)). Nothing else. |
+| Organization permissions | Projects: Read and write (the same destination). Nothing else. |
+| Account permissions | none |
 | Where can this GitHub App be installed? | Any account (each user installs it on their own account; an organization owner can install it on the organization) |
+
+The Issues and Projects permissions are only used by the GitHub Projects plan destination. An App registered before it needs
+them added, and **every installation must approve the new permissions again** (GitHub asks the account or organization owner);
+until it does, the destination answers `github_permissions_missing`. The clone check and the sign-in are not affected.
 
 After you create it: copy the **Client ID** to `GITHUB_APP_CLIENT_ID`, generate a client secret for
 `GITHUB_APP_CLIENT_SECRET`, and copy the slug from the app's public page to `GITHUB_APP_SLUG`. Do not generate a

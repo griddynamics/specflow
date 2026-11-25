@@ -385,6 +385,8 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
 INTEGRATION_APPS: Final = ("atlassian", "github", "slack")
 JIRA_GAP_GROUPINGS: Final = ("one", "area")
+GITHUB_PROJECT_TRIGGERS: Final = ("plan_run", "settings", "recovery")
+GITHUB_PROJECT_ITEM_KINDS: Final = ("story", "subtask")
 REPOSITORY_CLONE_STATES: Final = ("pending", "cloning", "cloned", "failed")
 REPOSITORY_FAILURE_CODES: Final = (
     "github_not_connected",
@@ -835,3 +837,61 @@ class JiraGapIssue(Base):
     number: Mapped[int] = mapped_column(Integer, nullable=False)
     posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GitHubProjectTarget(Base):
+    """The GitHub Projects destination of a project and its last export pass (migration ``0010_github_projects``,
+    docs/github/projects.md): the repository the issues are created in, the organization project they are added to, and
+    the member whose GitHub connection the export acts as. Holds no credential."""
+
+    __tablename__ = "github_project_targets"
+    __table_args__ = (
+        CheckConstraint(_one_of("last_status", JIRA_RUN_STATUSES), name="last_status"),
+        CheckConstraint(_one_of("last_trigger", GITHUB_PROJECT_TRIGGERS), name="last_trigger"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_repositories.id", ondelete="CASCADE"), nullable=False
+    )
+    project_node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    project_title: Mapped[str] = mapped_column(Text, nullable=False)
+    project_url: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_status: Mapped[str | None] = mapped_column(Text)
+    last_trigger: Mapped[str | None] = mapped_column(Text)
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(Text)
+    last_counts: Mapped[Any] = _json(nullable=True)
+    connected_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class GitHubProjectItem(Base):
+    """The issue of a plan node: a pending row (no number) before the create, the applied content after. A story is an
+    issue with an item on the project; a task is a sub-issue of its story's issue."""
+
+    __tablename__ = "github_project_items"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "node_id"),
+        UniqueConstraint("project_id", "issue_number"),
+        CheckConstraint(_one_of("kind", GITHUB_PROJECT_ITEM_KINDS), name="kind"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    issue_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    issue_node_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content: Mapped[Any] = _json(nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -19,6 +19,12 @@ _ERRORS: Final[dict[GitHubCode, tuple[int, str]]] = {
     GitHubCode.AUTH_FAILED: (502, "GitHub refused the request of this server."),
     GitHubCode.REPO_NOT_ACCESSIBLE: (404, "Your GitHub account cannot read this repository through the app."),
     GitHubCode.REPO_TOO_LARGE: (422, "The repository is larger than 1 GiB."),
+    GitHubCode.PERMISSIONS_MISSING: (
+        409,
+        "The GitHub App has not been approved for issues and organization projects in this organization yet.",
+    ),
+    GitHubCode.PROJECT_NOT_FOUND: (404, "The organization project does not exist or your account cannot see it."),
+    GitHubCode.NOT_AN_ORGANIZATION: (422, "The repository belongs to a user, not to an organization."),
 }
 
 
@@ -40,6 +46,10 @@ def github_error(error: GitHubError) -> ApiError:
     code = error.code if error.code in _ERRORS else GitHubCode.AUTH_FAILED
     status, message = _ERRORS[code]
     return ApiError(status, code.value, message)
+
+
+def repository_read_only() -> ApiError:
+    return ApiError(422, "github_repo_read_only", "Your GitHub account cannot create issues in this repository.")
 
 
 def github_connections(runtime: Runtime) -> GitHubConnections:

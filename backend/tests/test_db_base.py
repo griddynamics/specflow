@@ -71,6 +71,8 @@ def test_the_base_metadata_holds_exactly_the_app_tables() -> None:
         "project_integrations",
         "jira_gap_targets",
         "jira_gap_issues",
+        "github_project_targets",
+        "github_project_items",
     }
 
 

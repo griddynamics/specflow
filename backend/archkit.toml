@@ -85,6 +85,10 @@ codes = [
     { code = "github_auth_failed", http = 502 },
     { code = "github_repo_not_accessible", http = 404 },
     { code = "github_repo_too_large", http = 422 },
+    { code = "github_permissions_missing", http = 409 },
+    { code = "github_project_not_found", http = 404 },
+    { code = "github_not_an_organization", http = 422 },
+    { code = "github_repo_read_only", http = 422 },
     { code = "repository_exists", http = 409 },
     { code = "repository_not_found", http = 404 },
     { code = "atlassian_not_connected", http = 409 },
@@ -192,6 +196,10 @@ probes = [
     { name = "probe-75", class = "api.errors:ApiError", args = [422, "jira_epic_not_an_epic", "The issue is not an epic."] },
     { name = "probe-76", class = "api.errors:ApiError", args = [409, "jira_epic_not_found", "The epic does not exist or is not visible to the member."] },
     { name = "probe-77", class = "api.errors:ApiError", args = [409, "jira_epic_forbidden", "The member who connected Atlassian cannot read this epic."] },
+    { name = "probe-78", class = "api.errors:ApiError", args = [409, "github_permissions_missing", "The GitHub App has not been approved for issues and organization projects in this organization yet."] },
+    { name = "probe-79", class = "api.errors:ApiError", args = [404, "github_project_not_found", "The organization project does not exist or your account cannot see it."] },
+    { name = "probe-80", class = "api.errors:ApiError", args = [422, "github_not_an_organization", "The repository belongs to a user, not to an organization."] },
+    { name = "probe-81", class = "api.errors:ApiError", args = [422, "github_repo_read_only", "Your GitHub account cannot create issues in this repository."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

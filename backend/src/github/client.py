@@ -228,6 +228,22 @@ class GitHubClient:
             raise GitHubError(GitHubCode.AUTH_FAILED)  # the caller refreshes once and asks again
         return response
 
+    async def send(
+        self, token: SecretStr, method: str, path: str, body: Mapping[str, Any] | None = None
+    ) -> httpx.Response:
+        """One REST call of the Projects export as the user (``path`` below ``api.github.com``); a ``401`` is
+        ``AUTH_FAILED`` (the caller refreshes once), a rate limit or a server error ``UNREACHABLE``."""
+
+        response = await self._call(method, f"{API_URL}{path}", json=body, headers=self._api_headers(token))
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            raise GitHubError(GitHubCode.AUTH_FAILED)
+        return response
+
+    async def graphql(self, token: SecretStr, query: str, variables: Mapping[str, Any]) -> httpx.Response:
+        """One GraphQL call as the user; the caller reads ``data`` and ``errors``."""
+
+        return await self.send(token, "POST", "/graphql", {"query": query, "variables": dict(variables)})
+
     async def user(self, token: SecretStr) -> GitHubUser:
         response = await self._get(token, "/user")
         answer = _body(response)

@@ -137,6 +137,12 @@ class GitHubConnections:
         # row with this before it hands out a cached token.
         self._grants: dict[uuid.UUID, tuple[int, datetime]] = {}
 
+    @property
+    def client(self) -> GitHubClient:
+        """The GitHub client, for calls the Projects export makes through ``call``."""
+
+        return self._client
+
     # The connect flow ----------------------------------------------------------------------------------------------
 
     def authorize_url(self, user_id: uuid.UUID, return_to: str) -> str:

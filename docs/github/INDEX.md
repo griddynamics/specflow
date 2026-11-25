@@ -18,3 +18,6 @@ tools); this one stops at "the repository is clonable".
 
 # clone.md: the clone check on the agents worker, the snapshot and its object keys
 - [clone.md](clone.md)
+
+# projects.md: the GitHub Projects plan destination: target, mapping, rules of a pass, permissions, codes
+- [projects.md](projects.md)

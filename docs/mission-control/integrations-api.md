@@ -1,7 +1,7 @@
 ---
 type: API
 title: "Project integrations API"
-description: "The project integration routes (who each app is connected by, connect, remove), member roles on integrations, the importer seam, plan destinations and the Jira answer channel: shapes, codes and rules"
+description: "The project integration routes (who each app is connected by, connect, remove), member roles on integrations, the importer seam, plan destinations, the Jira answer channel and the GitHub Projects destination: shapes, codes and rules"
 status: draft
 tags: [mission-control, integrations, api]
 ---
@@ -194,7 +194,7 @@ Order of checks: project member, Atlassian bound and usable, key or link, Jira.
 
 `GraphPlanRunner` has one post-plan hook and is unchanged. `Runtime.plan_destinations` (`api.plan_destinations.
 PlanDestinations`) is that hook: its `after_plan(project_id)` calls each registered destination in order (Jira first,
-when it is configured), and a destination that raises is logged by class (`api.plan.destination_failed`) and never
+when it is configured, then GitHub Projects), and a destination that raises is logged by class (`api.plan.destination_failed`) and never
 reaches the plan run or the next destination. A destination only enqueues its work. A new destination registers itself
 where the runtime is built (`api.runtime._add_runners`).
 
@@ -226,6 +226,38 @@ project's Atlassian is connected by (R1); it needs Atlassian OAuth and gap runs.
 - `PUT` never waits for Jira: turning the channel on (or another Jira project) posts the open questions in the background;
   read `GET` for `story_key` and the counts.
 
+## GitHub Projects
+
+What the canvas form (repository, project picked or created, Check access, Add destination) and the destination node call. Any member
+(D6). Design, mapping, rules of a pass, permissions and limits: [../github/projects.md](../github/projects.md). The export acts as the
+member the project's GitHub is connected by (R1); it needs the GitHub integration and an installation that approved Issues and
+Organization projects (until then: `github_permissions_missing`).
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `GET /projects/{pid}/github-projects` | | 200 `GitHubProjectsOut` | 404 `project_not_found` |
+| `GET /projects/{pid}/github-projects/projects?repository_id=` | | 200 `GitHubProjectsListOut` (`organization`, `projects[{node_id, number, title, url}]`) | 404 `repository_not_found`; 409 `github_not_connected`, `github_reconnect_required`, `github_permissions_missing`; 502 `github_unreachable`, `github_auth_failed`; 503 `github_unavailable` |
+| `PUT /projects/{pid}/github-projects` | `{repository_id, project_node_id` or `new_project_title, enabled}` | 200 `GitHubProjectsOut` | 404 `repository_not_found`, `github_project_not_found`; 409 `github_not_connected`, `github_reconnect_required`, `github_permissions_missing`; 422 `validation_failed`, `github_not_an_organization`, `github_repo_read_only`; 502; 503 `github_unavailable` |
+| `POST /projects/{pid}/github-projects/access-check` | `{repository_id, project_node_id` or `new_project_title}` | 200 `GitHubProjectsAccessResult` (`ok` with `organization`, `project_title` or null; or `failed` with `reason` and `field`) | 404 `repository_not_found`; 409 `github_not_connected`; 503 `github_unavailable` |
+
+- `repository_id` is the id of a repository of the project (`GET /projects/{pid}/repositories`). Name exactly one of `project_node_id`
+  (a project picked from the list) and `new_project_title` (1 to 100 characters, trimmed; the project is created in the repository's
+  organization when the form is saved); the body is closed.
+- `GitHubProjectsOut`: `available` (false when GitHub is off on this server: the other fields are empty), `repository_id`,
+  `repository` (`owner/name`), `project_node_id`, `project_title`, `project_url`, `enabled`, `connected_by_name` (the GitHub login the
+  export acts as) and `connected_by_me`, `sync` (`project_id, enabled, status` `idle|running|succeeded|partial|failed|skipped`, `queued`,
+  `trigger`, `started_at`, `finished_at`, `error_code`, `counts{created, updated, commented, removed, ranked, unchanged, failed}`,
+  `repository`, `project_title`; null without a target).
+- The access check failed reasons: `github_not_connected`, `github_reconnect_required`, `github_unreachable`, `github_auth_failed`,
+  `github_repo_not_accessible` (field `repository`), `github_not_an_organization` (field `repository`), `github_repo_read_only` (field
+  `repository`), `github_permissions_missing`, `github_project_not_found` (field `project`). The check reads the repository, its
+  owner and write access, then the project (or lists the organization's projects); it cannot try an issue, so a missing Issues
+  approval shows on the first pass (`sync.error_code`).
+- `PUT` never waits for a pass: turning the destination on (or another repository or project) starts one in the background; read
+  `GET` for `sync`. The plan fan-out also starts one after every plan run.
+- Sync `error_code` values: `github_projects_not_configured`, `no_plan`, `plan_applying`, `target_changed` (skipped), and the closed
+  GitHub codes above plus `github_refused`, `github_item_invalid`, `github_issue_gone`.
+
 ## Codes
 
 | Code | HTTP | When |
@@ -239,6 +271,9 @@ project's Atlassian is connected by (R1); it needs Atlassian OAuth and gap runs.
 | `slack_link_invalid` | 400 | `POST /integrations/slack/link`: the nonce expired or was used |
 | `jira_not_connected` | 409 | `PUT /projects/{pid}/jira` and `PUT /projects/{pid}/jira-gaps` in `oauth` mode: the project has no Atlassian connection bound to a member |
 | `gap_unavailable` | 503 | `PUT` and the check of `jira-gaps`: gap runs are off on this server |
+| `github_permissions_missing` | 409 | `github-projects`: the installation has not approved Issues or Organization projects |
+| `github_project_not_found` | 404 | `PUT github-projects`: no such project in the repository's organization, or the account cannot see it |
+| `github_not_an_organization`, `github_repo_read_only` | 422 | `PUT github-projects`: the repository belongs to a user, or the account cannot push to it |
 
 ## Data
 

@@ -4779,6 +4779,484 @@
         "title": "GitHubConnectionOut",
         "type": "object"
       },
+      "GitHubProjectChoice": {
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "number",
+          "title",
+          "url"
+        ],
+        "title": "GitHubProjectChoice",
+        "type": "object"
+      },
+      "GitHubProjectsAccessFailed": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "enum": [
+                  "repository",
+                  "project"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "reason": {
+            "enum": [
+              "github_not_connected",
+              "github_reconnect_required",
+              "github_unreachable",
+              "github_auth_failed",
+              "github_repo_not_accessible",
+              "github_not_an_organization",
+              "github_permissions_missing",
+              "github_project_not_found",
+              "github_repo_read_only"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "result": {
+            "const": "failed",
+            "default": "failed",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "field"
+        ],
+        "title": "GitHubProjectsAccessFailed",
+        "type": "object"
+      },
+      "GitHubProjectsAccessIn": {
+        "additionalProperties": false,
+        "description": "The typed destination before it is saved: the repository of the project and an organization project, or the\ntitle of a new one (the check then only proves the account may list and create projects).",
+        "properties": {
+          "new_project_title": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Project Title"
+          },
+          "project_node_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Node Id"
+          },
+          "repository_id": {
+            "format": "uuid",
+            "title": "Repository Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository_id"
+        ],
+        "title": "GitHubProjectsAccessIn",
+        "type": "object"
+      },
+      "GitHubProjectsAccessOk": {
+        "properties": {
+          "organization": {
+            "title": "Organization",
+            "type": "string"
+          },
+          "project_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Title"
+          },
+          "result": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "organization",
+          "project_title"
+        ],
+        "title": "GitHubProjectsAccessOk",
+        "type": "object"
+      },
+      "GitHubProjectsCounts": {
+        "properties": {
+          "commented": {
+            "default": 0,
+            "title": "Commented",
+            "type": "integer"
+          },
+          "created": {
+            "default": 0,
+            "title": "Created",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "ranked": {
+            "default": 0,
+            "title": "Ranked",
+            "type": "integer"
+          },
+          "removed": {
+            "default": 0,
+            "title": "Removed",
+            "type": "integer"
+          },
+          "unchanged": {
+            "default": 0,
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "default": 0,
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "title": "GitHubProjectsCounts",
+        "type": "object"
+      },
+      "GitHubProjectsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "new_project_title": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Project Title"
+          },
+          "project_node_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Node Id"
+          },
+          "repository_id": {
+            "format": "uuid",
+            "title": "Repository Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository_id",
+          "enabled"
+        ],
+        "title": "GitHubProjectsIn",
+        "type": "object"
+      },
+      "GitHubProjectsListOut": {
+        "description": "The open organization projects a project's repository can use (``organization`` null when a user owns it).",
+        "properties": {
+          "organization": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubProjectChoice"
+            },
+            "title": "Projects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "organization",
+          "projects"
+        ],
+        "title": "GitHubProjectsListOut",
+        "type": "object"
+      },
+      "GitHubProjectsOut": {
+        "description": "The GitHub Projects destination of a project: null fields while there is none. ``available`` is false when the\nGitHub integration is off on this server.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "connected_by_me": {
+            "title": "Connected By Me",
+            "type": "boolean"
+          },
+          "connected_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The login of the account the export acts as, or null.",
+            "title": "Connected By Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "project_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Node Id"
+          },
+          "project_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Title"
+          },
+          "project_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Url"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
+          },
+          "repository_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Id"
+          },
+          "sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitHubProjectsStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "repository_id",
+          "repository",
+          "project_node_id",
+          "project_title",
+          "project_url",
+          "enabled",
+          "sync",
+          "connected_by_name",
+          "connected_by_me"
+        ],
+        "title": "GitHubProjectsOut",
+        "type": "object"
+      },
+      "GitHubProjectsStatus": {
+        "description": "The last export pass of the destination (``error_code`` is one closed code, never GitHub text).",
+        "properties": {
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitHubProjectsCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_title": {
+            "title": "Project Title",
+            "type": "string"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "repository": {
+            "title": "Repository",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "running",
+              "succeeded",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "project_id",
+          "enabled",
+          "status",
+          "queued",
+          "trigger",
+          "started_at",
+          "finished_at",
+          "error_code",
+          "counts",
+          "repository",
+          "project_title"
+        ],
+        "title": "GitHubProjectsStatus",
+        "type": "object"
+      },
       "GitHubRepositoriesOut": {
         "properties": {
           "repositories": {
@@ -16181,6 +16659,218 @@
         "summary": "Preview Edits",
         "tags": [
           "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/github-projects": {
+      "get": {
+        "operationId": "get_github_projects_api_v1_projects__pid__github_projects_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubProjectsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Github Projects",
+        "tags": [
+          "github-projects"
+        ]
+      },
+      "put": {
+        "operationId": "put_github_projects_api_v1_projects__pid__github_projects_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubProjectsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubProjectsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Github Projects",
+        "tags": [
+          "github-projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/github-projects/access-check": {
+      "post": {
+        "operationId": "check_github_projects_access_api_v1_projects__pid__github_projects_access_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubProjectsAccessIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "failed": "#/components/schemas/GitHubProjectsAccessFailed",
+                      "ok": "#/components/schemas/GitHubProjectsAccessOk"
+                    },
+                    "propertyName": "result"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/GitHubProjectsAccessOk"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GitHubProjectsAccessFailed"
+                    }
+                  ],
+                  "title": "Response Check Github Projects Access Api V1 Projects  Pid  Github Projects Access Check Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Github Projects Access",
+        "tags": [
+          "github-projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/github-projects/projects": {
+      "get": {
+        "description": "The open projects of the organization that owns the project's repository (empty for a user's repository).",
+        "operationId": "list_github_projects_api_v1_projects__pid__github_projects_projects_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repository_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Repository Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubProjectsListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Github Projects",
+        "tags": [
+          "github-projects"
         ]
       }
     },

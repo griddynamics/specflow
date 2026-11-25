@@ -19,6 +19,14 @@ class GitHubCode(StrEnum):
     CLONE_FAILED = "github_clone_failed"
     CLONE_TIMEOUT = "github_clone_timeout"
     STORAGE_FAILED = "storage_failed"
+    # GitHub Projects export (docs/github/projects.md): what the app or the account lacks, never GitHub text.
+    PERMISSIONS_MISSING = (
+        "github_permissions_missing"  # the installation has not approved Issues / Organization projects
+    )
+    PROJECT_NOT_FOUND = "github_project_not_found"  # no such organization project, or the account cannot see it
+    NOT_AN_ORGANIZATION = "github_not_an_organization"  # the repository belongs to a user, not an organization
+    ISSUE_GONE = "github_issue_gone"  # a person deleted or transferred an issue the export made
+    ITEM_INVALID = "github_item_invalid"  # GitHub refused the content of one issue (422)
     # Inside only: a dead refresh token (``bad_refresh_token``, a rotated key) becomes RECONNECT_REQUIRED; any other
     # refusal of the token endpoint becomes CODE_INVALID (sign-in) or AUTH_FAILED (refresh).
     GRANT_INVALID = "github_grant_invalid"

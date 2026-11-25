@@ -6,7 +6,16 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from agent_contracts import JiraSyncStatus
 from integrations.return_to import RETURN_TO_MAX, is_same_site_path
@@ -26,6 +35,10 @@ class InvalidSuggestionTextError(ValueError):
 
 class JiraEpicPrefixError(ValueError):
     """The Epic key does not start with the Jira project key."""
+
+
+class ProjectChoiceError(ValueError):
+    """A GitHub Projects target names both or neither of an existing project and a new project's title."""
 
 
 class ReturnToError(ValueError):
@@ -709,6 +722,128 @@ class JiraGapsOut(BaseModel):
     last_polled_at: datetime | None
     error_code: str | None = Field(description="The closed code of the last refused post or poll, or null.")
     poll_seconds: int = Field(description="Answers are read about every this many seconds.")
+
+
+# --- GitHub Projects (docs/github/projects.md "Routes") ------------------------------------------------------------
+
+GitHubProjectsState = Literal["idle", "running", "succeeded", "partial", "failed", "skipped"]
+PROJECT_NODE_ID_MAX = 100
+PROJECT_TITLE_MAX = 100
+
+
+class GitHubProjectsCounts(BaseModel):
+    created: int = 0
+    updated: int = 0
+    commented: int = 0
+    removed: int = 0
+    ranked: int = 0
+    unchanged: int = 0
+    failed: int = 0
+
+
+class GitHubProjectsStatus(BaseModel):
+    """The last export pass of the destination (``error_code`` is one closed code, never GitHub text)."""
+
+    project_id: str
+    enabled: bool
+    status: GitHubProjectsState
+    queued: bool
+    trigger: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_code: str | None
+    counts: GitHubProjectsCounts | None
+    repository: str
+    project_title: str
+
+
+class GitHubProjectsAccessIn(BaseModel):
+    """The typed destination before it is saved: the repository of the project and an organization project, or the
+    title of a new one (the check then only proves the account may list and create projects)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    repository_id: uuid.UUID
+    project_node_id: str | None = Field(default=None, min_length=1, max_length=PROJECT_NODE_ID_MAX)
+    new_project_title: str | None = Field(default=None, max_length=PROJECT_TITLE_MAX)
+
+    @field_validator("new_project_title", mode="before")
+    @classmethod
+    def _trim_title(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def _one_project(self) -> GitHubProjectsAccessIn:
+        if (self.project_node_id is None) == (self.new_project_title is None):
+            raise ProjectChoiceError("name an existing project or the title of a new one, not both and not neither")
+        return self
+
+
+class GitHubProjectsIn(GitHubProjectsAccessIn):
+    enabled: StrictBool
+
+
+class GitHubProjectChoice(BaseModel):
+    node_id: str
+    number: int
+    title: str
+    url: str
+
+
+class GitHubProjectsListOut(BaseModel):
+    """The open organization projects a project's repository can use (``organization`` null when a user owns it)."""
+
+    organization: str | None
+    projects: list[GitHubProjectChoice]
+
+
+class GitHubProjectsOut(BaseModel):
+    """The GitHub Projects destination of a project: null fields while there is none. ``available`` is false when the
+    GitHub integration is off on this server."""
+
+    available: bool
+    repository_id: uuid.UUID | None
+    repository: str | None
+    project_node_id: str | None
+    project_title: str | None
+    project_url: str | None
+    enabled: bool
+    sync: GitHubProjectsStatus | None
+    connected_by_name: str | None = Field(description="The login of the account the export acts as, or null.")
+    connected_by_me: bool
+
+
+GitHubProjectsAccessReason = Literal[
+    "github_not_connected",
+    "github_reconnect_required",
+    "github_unreachable",
+    "github_auth_failed",
+    "github_repo_not_accessible",
+    "github_not_an_organization",
+    "github_permissions_missing",
+    "github_project_not_found",
+    "github_repo_read_only",
+]
+GitHubProjectsAccessField = Literal["repository", "project"]
+
+
+class GitHubProjectsAccessOk(BaseModel):
+    result: Literal["ok"] = "ok"
+    organization: str
+    project_title: str | None
+
+
+class GitHubProjectsAccessFailed(BaseModel):
+    result: Literal["failed"] = "failed"
+    reason: GitHubProjectsAccessReason
+    field: GitHubProjectsAccessField | None
+
+
+GitHubProjectsAccessResult = Annotated[
+    GitHubProjectsAccessOk | GitHubProjectsAccessFailed, Field(discriminator="result")
+]
 
 
 # --- Atlassian connections (docs/jira-sync/oauth.md "Routes") ------------------------------------------------------
