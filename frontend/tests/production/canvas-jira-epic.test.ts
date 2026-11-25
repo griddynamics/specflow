@@ -6,7 +6,15 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildCanvasModel } from "@/components/v2/canvas/canvas-model";
 import type { NodeView } from "@/components/v2/canvas/canvas-types";
-import { jiraEpicCheckText, jiraEpicFailureText } from "@/components/v2/canvas/jira-epic-logic";
+import {
+  checkAll,
+  checkNone,
+  excludeOf,
+  jiraEpicCheckText,
+  jiraEpicFailureText,
+  selectionText,
+  toggleIssue,
+} from "@/components/v2/canvas/jira-epic-logic";
 import { JiraEpicForm } from "@/components/v2/canvas/JiraEpicForm";
 import { unitText } from "@/components/v2/canvas/nodes-sources";
 import type { FormProps } from "@/components/v2/connector-types";
@@ -16,6 +24,7 @@ import type { DataPorts } from "@/lib/data/ports";
 import { toJiraEpicCheck } from "@/lib/data/http/sources";
 import { createUiHandoff, createUiStore } from "@/lib/data/ui-store";
 import { DataError, isDataError } from "@/lib/domain/errors";
+import type { JiraEpicChild, JiraEpicCheck } from "@/lib/domain/sources";
 import { routesFor } from "@/lib/routes";
 import { defined } from "../support/defined";
 import { input, statusOf, wireSource } from "./canvas-fixtures";
@@ -57,6 +66,7 @@ test("the unit follows the kind: issues for an epic, pages for Confluence, files
   assert.equal(unitText("upload", "1 file"), "1 file");
 });
 
+const CHECK: JiraEpicCheck = { key: "", summary: "", issues: 0, children: [], capped: false };
 const failure = (apiCode: string) => jiraEpicFailureText(new DataError("validation", false, { apiCode }));
 
 test("each closed code of the check and the add has its own words; an unknown one is the general failure", () => {
@@ -71,12 +81,33 @@ test("each closed code of the check and the add has its own words; an unknown on
 });
 
 test("a passed check says the key, the summary and the issues; over the cap it says the first 200 are read", () => {
-  assert.equal(jiraEpicCheckText({ key: "NWO-12", summary: "Checkout redesign", issues: 18 }), "NWO-12 · Checkout redesign · 18 issues.");
-  assert.equal(jiraEpicCheckText({ key: "NWO-1", summary: "One", issues: 1 }), "NWO-1 · One · 1 issue.");
-  assert.match(jiraEpicCheckText({ key: "NWO-250", summary: "Everything", issues: 250 }), /250 issues \(the first 200 are read\)/);
-  assert.deepEqual(toJiraEpicCheck({ key: "NWO-12", summary: "S", issues: 3 }), { key: "NWO-12", summary: "S", issues: 3 });
+  assert.equal(
+    jiraEpicCheckText({ ...CHECK, key: "NWO-12", summary: "Checkout redesign", issues: 18 }),
+    "NWO-12 · Checkout redesign · 18 issues.",
+  );
+  assert.equal(jiraEpicCheckText({ ...CHECK, key: "NWO-1", summary: "One", issues: 1 }), "NWO-1 · One · 1 issue.");
+  assert.match(
+    jiraEpicCheckText({ ...CHECK, key: "NWO-250", summary: "Everything", issues: 250 }),
+    /250 issues \(the first 200 are read\)/,
+  );
+  const wire = {
+    key: "NWO-12",
+    summary: "S",
+    issues: 1,
+    capped: false,
+    children: [{ key: "NWO-101", summary: "A", type: "Story", status: "Done" }],
+  };
+  assert.deepEqual(toJiraEpicCheck(wire), { ...wire, children: [{ key: "NWO-101", summary: "A", type: "Story", statusName: "Done" }] });
   assert.throws(
-    () => toJiraEpicCheck({ key: "", summary: "S", issues: 3 }),
+    () => toJiraEpicCheck({ ...wire, key: "" }),
+    (e) => isDataError(e) && e.code === "invalid_response",
+  );
+  assert.throws(
+    () => toJiraEpicCheck({ ...wire, children: [{ key: "NWO-101" }] }),
+    (e) => isDataError(e) && e.code === "invalid_response",
+  );
+  assert.throws(
+    () => toJiraEpicCheck({ key: "NWO-12", summary: "S", issues: 1 }),
     (e) => isDataError(e) && e.code === "invalid_response",
   );
 });
@@ -107,4 +138,31 @@ test("the Jira epic form asks for a key or link, says it reads the epic and its 
   assert.match(view, />Epic key or link<\/label>/);
   assert.match(view, /with their comments, once when it is added/);
   assert.match(view, /disabled=""[^>]*>Check epic<\/button>/);
+});
+
+const child = (n: number): JiraEpicChild => ({
+  key: `NWO-${String(100 + n)}`,
+  summary: `Issue ${String(n)}`,
+  type: "Story",
+  statusName: "To Do",
+});
+const FOUR = [1, 2, 3, 4].map(child);
+
+test("the selection starts with every issue checked, toggles one, checks all or none, and lists the keys left out in order", () => {
+  const start = checkAll();
+  assert.deepEqual(excludeOf(FOUR, start), []);
+  const one = toggleIssue(start, "NWO-102", false);
+  assert.deepEqual(excludeOf(FOUR, one), ["NWO-102"]);
+  assert.deepEqual(excludeOf(FOUR, toggleIssue(one, "NWO-102", true)), []);
+  assert.deepEqual(excludeOf(FOUR, toggleIssue(toggleIssue(start, "NWO-104", false), "NWO-101", false)), ["NWO-101", "NWO-104"]);
+  assert.deepEqual(excludeOf(FOUR, checkNone(FOUR)), ["NWO-101", "NWO-102", "NWO-103", "NWO-104"]);
+  assert.deepEqual(excludeOf(FOUR, checkAll()), []);
+  assert.equal(start.size, 0, "toggling never changes the set it was given");
+});
+
+test("the status line says what an add takes: N of M issues and the epic, or only the epic", () => {
+  assert.equal(selectionText(FOUR, checkAll()), "4 of 4 issues, and the epic");
+  assert.equal(selectionText(FOUR, toggleIssue(checkAll(), "NWO-103", false)), "3 of 4 issues, and the epic");
+  assert.equal(selectionText(FOUR, checkNone(FOUR)), "Only the epic");
+  assert.equal(selectionText([child(1)], checkAll()), "1 of 1 issue, and the epic");
 });

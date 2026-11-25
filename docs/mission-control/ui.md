@@ -82,7 +82,7 @@ before adding, and a changed input is a new check.
 | `gdrive` | Graph | | Connect a Google Drive folder; Test connection, Add source | folder name, files done of total |
 | `github` | Graph | GitHub | Add repositories; picks from the account's readable repositories (AC45) | repository, clone state (not read by the build, D19) |
 | `confluence` | Graph | Atlassian | Add a Confluence link; Check link, Add source (AC50) | page or space, "N pages" while it imports |
-| `jira_epic` | Graph | Atlassian | Add a Jira epic; Check epic, Add source | the epic key, "N issues" (AC51) |
+| `jira_epic` | Graph | Atlassian | Add a Jira epic; Check epic, then every issue under it as a checked list (uncheck to leave one out; quiet Select all / Select none; the status line says "12 of 14 issues, and the epic" or "Only the epic"), Add source sends the unchecked keys as `exclude` | the epic key, "N issues" (AC51) |
 | `slack` | Gap | none (AC44) | Connect a Slack channel; invite, connect command, Test connection, Add channel (AC49) | `#channel`, "N found · M answered" |
 | `jira_gap` | Gap | Atlassian | Send gaps to Jira; space key, grouping, Check access, Add channel | `Jira · <space> gaps`, "N posted · M answered" (AC52, AC53) |
 | `jira` | Plan | Atlassian | Send the plan to Jira; space and epic keys, Check access, Add destination | `Jira · <epic>`, syncing, synced |

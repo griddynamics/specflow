@@ -254,6 +254,17 @@ export interface JiraEpicCheck {
   key: string;
   summary: string;
   issues: number;
+  /** The issues an import would take, in key order (at most `EPIC_ISSUE_CAP`); each can be left out. */
+  children: JiraEpicChild[];
+  /** There are more issues under the epic than the cap: only the first `EPIC_ISSUE_CAP` are listed and imported. */
+  capped: boolean;
+}
+export interface JiraEpicChild {
+  key: string;
+  summary: string;
+  type: string;
+  /** The name of its Jira status ("In Progress"); free text, not a closed set. */
+  statusName: string;
 }
 /** The most issues one epic import reads (the backend's `MAX_EPIC_ISSUES`). */
 export const EPIC_ISSUE_CAP = 200;
@@ -292,8 +303,9 @@ export interface SourcesPort {
   addConfluence(projectId: string, input: ConfluenceInput): Promise<void>;
   /** Reads a Jira epic (a key such as `ABC-12`, or its link) of the project's Atlassian site and counts its issues; stores nothing. Rejects like the Confluence check. */
   checkJiraEpic(projectId: string, keyOrLink: string): Promise<JiraEpicCheck>;
-  /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). */
-  addJiraEpic(projectId: string, keyOrLink: string): Promise<void>;
+  /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). `exclude` are the keys of the children not to import (the epic
+   * itself is always imported); a key that is not a child rejects `validation`. */
+  addJiraEpic(projectId: string, keyOrLink: string, exclude?: readonly string[]): Promise<void>;
 }
 
 /** The source-aware Mission Control port (D9, D11): project status and knowledge builds. */

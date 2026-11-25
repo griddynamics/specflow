@@ -419,6 +419,60 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(detail.getByRole("button", { name: "Remove" })).toBeVisible();
   });
 
+  test("Jira epic issues: a check lists every issue checked, Select none and Select all move them together, and Add sends the unchecked keys as exclude", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await canvas(page, unique("Jira epic issues"));
+    await seedIntegrations({ pid, atlassian: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=jira_epic`);
+    const form = dialog(page, "Add a Jira epic");
+    await form.getByLabel("Epic key or link").fill("NWO-12");
+    await form.getByRole("button", { name: CHECK_EPIC }).click();
+    const list = form.getByRole("group", { name: "Issues to add" });
+    const boxes = list.getByRole("checkbox");
+    await expect(boxes).toHaveCount(18);
+    for (const box of await boxes.all()) await expect(box).toBeChecked();
+    await expect(list.getByText("18 of 18 issues, and the epic")).toBeVisible();
+    await expect(list.getByText("Story · To Do").first()).toBeVisible();
+    await expect(list.getByRole("button", { name: "Select all" })).toBeDisabled();
+    await list.getByRole("checkbox", { name: /NWO-102 +Address form/ }).uncheck();
+    await expect(list.getByText("17 of 18 issues, and the epic")).toBeVisible();
+    await expect(list.getByRole("button", { name: "Select all" })).toBeEnabled();
+    await list.getByRole("button", { name: "Select none" }).click();
+    await expect(list.getByText("Only the epic")).toBeVisible();
+    await expect(list.getByRole("checkbox", { name: /NWO-101/ })).not.toBeChecked();
+    await expect(list.getByRole("button", { name: "Select none" })).toBeDisabled();
+    await list.getByRole("button", { name: "Select all" }).click();
+    await expect(list.getByText("18 of 18 issues, and the epic")).toBeVisible();
+    await list.getByRole("checkbox", { name: /NWO-102 +Address form/ }).uncheck();
+    await form.getByRole("button", { name: "Add source" }).click();
+    await expect(form).toBeHidden();
+    const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/jira-epic`);
+    expect(bodiesOf(adds)).toEqual([{ key_or_link: "NWO-12", exclude: ["NWO-102"] }]);
+    await expect(nodes(page).filter({ hasText: "NWO-12" })).toContainText("17 issues · Jira", { timeout: 15_000 });
+  });
+
+  test("Jira epic issues: a different key starts again with every issue checked, and an epic over the cap says only the first 200 are listed", async ({
+    page,
+  }) => {
+    const pid = await canvas(page, unique("Jira epic cap"));
+    await seedIntegrations({ pid, atlassian: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=jira_epic`);
+    const form = dialog(page, "Add a Jira epic");
+    const key = form.getByLabel("Epic key or link");
+    await key.fill("NWO-250");
+    await form.getByRole("button", { name: CHECK_EPIC }).click();
+    const list = form.getByRole("group", { name: "Issues to add" });
+    await expect(list.getByRole("checkbox")).toHaveCount(200);
+    await expect(list.getByText("Only the first 200 issues are listed and imported.")).toBeVisible();
+    await list.getByRole("button", { name: "Select none" }).click();
+    await key.fill("NWO-12");
+    await form.getByRole("button", { name: CHECK_EPIC }).click();
+    await expect(list.getByText("18 of 18 issues, and the epic")).toBeVisible();
+    await expect(list.getByText("Only the first 200 issues are listed and imported.")).toBeHidden();
+  });
+
   test("Slack: the form shows the invite and the connect command, waits, and names the channel once it is bound in Slack, then Test connection posts the welcome message (or says why not) and Add channel closes; the channel is a node under Gap", async ({
     page,
     requests,

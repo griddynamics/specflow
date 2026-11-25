@@ -37,6 +37,7 @@ import {
   type DriveTestResult,
   type ConfluenceCheck,
   type JiraEpicCheck,
+  type JiraEpicChild,
   type ProcessingClass,
   type SourcesPort,
   type UploadReport,
@@ -297,15 +298,20 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
     async checkJiraEpic(projectId, keyOrLink) {
       return toJiraEpicCheck(await guard(() => checkJiraEpicLink(projectId, keyOrLink)));
     },
-    async addJiraEpic(projectId, keyOrLink) {
+    async addJiraEpic(projectId, keyOrLink, exclude) {
       try {
-        await guard(() => addJiraEpicSource(projectId, keyOrLink));
+        await guard(() => addJiraEpicSource(projectId, keyOrLink, exclude));
       } finally {
         opts.changed(projectId);
       }
     },
   };
 }
+
+const toEpicChild = (c: unknown): JiraEpicChild => {
+  expectShape(isRecord(c) && isString(c.key) && isString(c.summary) && isString(c.type) && isString(c.status));
+  return { key: c.key, summary: c.summary, type: c.type, statusName: c.status };
+};
 
 /** `POST .../sources/jira-epic/check` -> `JiraEpicCheck`; any other shape is `invalid_response`. */
 export function toJiraEpicCheck(body: unknown): JiraEpicCheck {
@@ -316,9 +322,17 @@ export function toJiraEpicCheck(body: unknown): JiraEpicCheck {
       isString(body.summary) &&
       typeof body.issues === "number" &&
       Number.isInteger(body.issues) &&
-      body.issues >= 0,
+      body.issues >= 0 &&
+      typeof body.capped === "boolean" &&
+      Array.isArray(body.children),
   );
-  return { key: body.key, summary: body.summary, issues: body.issues };
+  return {
+    key: body.key,
+    summary: body.summary,
+    issues: body.issues,
+    capped: body.capped,
+    children: (body.children as unknown[]).map(toEpicChild),
+  };
 }
 
 /** `POST .../sources/confluence/check` -> `ConfluenceCheck`; any other shape is `invalid_response`. */

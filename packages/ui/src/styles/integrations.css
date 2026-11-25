@@ -171,6 +171,51 @@
   color: var(--gx-ink-3);
 }
 
+/* Select all / Select none: small text buttons, not actions */
+.gx-pick__tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 6px 2px;
+}
+
+.gx-pick__tool {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--gx-ink-3);
+  font: 12.5px var(--gx-font-mono);
+  cursor: pointer;
+}
+
+.gx-pick__tool:hover:not(:disabled) {
+  color: var(--gx-ink);
+  text-decoration: underline;
+}
+
+.gx-pick__tool:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.gx-pick__notes {
+  padding: 6px 10px 4px;
+  color: var(--gx-ink-3);
+  font-size: 13.5px;
+}
+
+.gx-pick__notes p {
+  margin: 0;
+}
+
+/* A long list scrolls in its own box */
+.gx-pick__rows {
+  display: grid;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
 @media (max-width: 1100px) {
   .gx-iggrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

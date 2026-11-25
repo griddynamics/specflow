@@ -61,6 +61,10 @@ export const CANVAS_COPY = {
     "The page and its sub-pages, or every page of the space, are read once when it is added. Add the link again to read a newer version.",
   confluenceAdding: "Adding…",
   // Jira epic
+  jiraEpicIssues: "Issues to add",
+  jiraEpicSelectAll: "Select all",
+  jiraEpicSelectNone: "Select none",
+  jiraEpicCapped: "Only the first 200 issues are listed and imported.",
   jiraEpicSource: "Epic key or link",
   jiraEpicSourceHint: "The epic and every issue under it are read, with their comments, once when it is added.",
   // Slack channel

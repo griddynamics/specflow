@@ -993,10 +993,19 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           typeof body?.key_or_link === "string" ? checkJiraEpic(body.key_or_link) : { status: 422, code: "validation_failed" };
         if (!("body" in checked)) return err(res, checked.status, checked.code);
         if (action === "check") return json(res, 200, checked.body);
-        const { key, summary, issues } = checked.body;
+        const { key, summary, issues, children } = checked.body;
+        const exclude = body.exclude ?? [];
+        const known = new Set(children.map((c) => c.key));
+        if (!Array.isArray(exclude) || !exclude.every((k) => typeof k === "string" && known.has(k)))
+          return err(res, 422, "validation_failed");
         const link = `https://${SITE_HOST}/browse/${key}`;
         return json(res, 201, {
-          source: importedSource(pid, { kind: "jira_epic", name: `${key}: ${summary}`, link, pages: Math.min(issues, 200) }),
+          source: importedSource(pid, {
+            kind: "jira_epic",
+            name: `${key}: ${summary}`,
+            link,
+            pages: Math.min(issues, 200) - new Set(exclude).size,
+          }),
         });
       }
       if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic") {

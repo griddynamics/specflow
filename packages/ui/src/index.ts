@@ -14,6 +14,7 @@ export type { FieldProps } from "./components/field";
 export { AppHeader, NavButton, NavLink, ThemeToggle } from "./components/header";
 export type { AppHeaderProps, NavButtonProps, NavLinkProps, ThemeToggleProps } from "./components/header";
 export { BuiltInList, IntegrationCard, IntegrationGrid, PickList, PickRow } from "./components/integration-card";
+export type { PickTool } from "./components/integration-card";
 export type { BuiltInItem, IntegrationCardProps, IntegrationState } from "./components/integration-card";
 export {
   AppFrame,

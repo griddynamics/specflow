@@ -24,7 +24,8 @@ export function useCheckAdd<R>(opts: {
   blank: boolean;
   labels: CheckLabels;
   check: () => Promise<R>;
-  add: () => Promise<void>;
+  /** Gets the check that passed, so an add can use what it found (the issues picked). */
+  add: (checked: R) => Promise<void>;
   onAdded: () => void;
   failureText: (e: unknown) => string;
 }): CheckAdd<R> {
@@ -42,7 +43,7 @@ export function useCheckAdd<R>(opts: {
     setRefused(null);
     if (result !== null) {
       setBusy("add");
-      opts.add().then(opts.onAdded, fail);
+      opts.add(result).then(opts.onAdded, fail);
       return;
     }
     setBusy("check");

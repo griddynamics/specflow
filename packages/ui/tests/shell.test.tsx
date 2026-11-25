@@ -190,6 +190,26 @@ test("PickList and PickRow: a fieldset of checkboxes", () => {
   assert.match(view, /type="checkbox" disabled=""\/><span>acme\/web<\/span>/);
 });
 
+test("PickList: quiet tools above the rows, a scrolling box and live notes are opt-in", () => {
+  const view = html(
+    <PickList
+      legend="Issues"
+      scroll
+      notes={["2 of 3 issues, and the epic"]}
+      tools={[
+        { label: "Select all", onClick: noop },
+        { label: "Select none", disabled: true, onClick: noop },
+      ]}
+    >
+      <PickRow label="NWO-1  One" checked onChange={noop} />
+    </PickList>,
+  );
+  assert.match(view, /<div class="gx-pick__tools"><button type="button" class="gx-pick__tool">Select all<\/button>/);
+  assert.match(view, /<button type="button" class="gx-pick__tool" disabled="">Select none<\/button>/);
+  assert.match(view, /<div class="gx-pick__rows"><label class="gx-pick__row">/);
+  assert.match(view, /<div class="gx-pick__notes" aria-live="polite"><p>2 of 3 issues, and the epic<\/p><\/div>/);
+});
+
 test("layout helpers", () => {
   assert.equal(html(<Page>x</Page>), '<main class="gx-page">x</main>');
   assert.equal(html(<Page busy>x</Page>), '<main class="gx-page" aria-busy="true">x</main>');

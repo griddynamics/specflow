@@ -94,12 +94,48 @@ export function BuiltInList({ heading, items }: Readonly<{ heading: string; item
   );
 }
 
-/** A group of checkboxes with a legend (the repositories of a project). */
-export function PickList({ legend, children }: Readonly<{ legend: string; children: ReactNode }>): JSX.Element {
+export interface PickTool {
+  label: string;
+  /** Inert when there is nothing to change (everything is already checked, say). */
+  disabled?: boolean;
+  onClick: () => void;
+}
+
+/** A group of checkboxes with a legend (the repositories of a project). `tools` are quiet text buttons above the rows on the right (Select all,
+ * Select none); `notes` are quiet lines under the rows, announced when they change; `scroll` keeps a long list inside its own box so the dialog's foot stays in view. */
+export function PickList({
+  legend,
+  tools,
+  scroll = false,
+  notes,
+  children,
+}: Readonly<{
+  legend: string;
+  tools?: readonly PickTool[];
+  scroll?: boolean;
+  notes?: readonly string[];
+  children: ReactNode;
+}>): JSX.Element {
   return (
     <fieldset className="gx-pick">
       <legend className="gx-eyebrow">{legend}</legend>
-      {children}
+      {tools === undefined ? null : (
+        <div className="gx-pick__tools">
+          {tools.map((tool) => (
+            <button key={tool.label} type="button" className="gx-pick__tool" disabled={tool.disabled} onClick={tool.onClick}>
+              {tool.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {scroll ? <div className="gx-pick__rows">{children}</div> : children}
+      {notes === undefined ? null : (
+        <div className="gx-pick__notes" aria-live="polite">
+          {notes.map((note) => (
+            <p key={note}>{note}</p>
+          ))}
+        </div>
+      )}
     </fieldset>
   );
 }

@@ -288,8 +288,11 @@ export const addConfluenceSource = (pid: string, link: string, follow: boolean) 
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/confluence`, json({ link, follow })).then((r) => r.body);
 export const checkJiraEpicLink = (pid: string, keyOrLink: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/jira-epic/check`, json({ key_or_link: keyOrLink })).then((r) => r.body);
-export const addJiraEpicSource = (pid: string, keyOrLink: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/sources/jira-epic`, json({ key_or_link: keyOrLink })).then((r) => r.body);
+export const addJiraEpicSource = (pid: string, keyOrLink: string, exclude: readonly string[] = []) =>
+  httpPost(
+    `/projects/${encodeURIComponent(pid)}/sources/jira-epic`,
+    json(exclude.length === 0 ? { key_or_link: keyOrLink } : { key_or_link: keyOrLink, exclude }),
+  ).then((r) => r.body);
 // Knowledge build (`/graph_build`): the GET is the build state, the POST starts a build. Bodies stay `unknown`; the knowledge port
 // (lib/data/http/knowledge.ts) checks their shape. The reasoning level is an integer 1..5 (the backend only logs it).
 export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);
