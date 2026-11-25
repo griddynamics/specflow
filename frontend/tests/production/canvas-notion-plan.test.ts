@@ -75,6 +75,8 @@ test("it stops for a lost Notion connection with Reconnect Notion, and for the c
   }
   const bound = nodeOf({}, { integrations: [integration("notion", { health: "reconnect_required" })] });
   assert.deepEqual([bound.state, bound.detail.reconnect, bound.detail.by], ["stopped", "notion", "Connected by Alex Kim"]);
+  const permissions = nodeOf(sync({ status: "failed", errorCode: "notion_permissions_missing" }));
+  assert.deepEqual([permissions.state, permissions.detail.reconnect], ["stopped", "notion"]);
   const gone = nodeOf(sync({ status: "failed", errorCode: "notion_database_gone" }));
   assert.deepEqual([gone.state, gone.meta, gone.detail.reconnect], ["stopped", "Stopped", null]);
   assert.match(gone.detail.text, /plan database was deleted/);
@@ -92,7 +94,7 @@ test("a skipped pass is a wait with the words of its code, not a stop", () => {
     const n = nodeOf(sync({ status: "skipped", errorCode: code, counts: null }));
     assert.deepEqual([n.state, n.badge, n.wire, n.meta], ["wait", null, "off", words]);
   }
-  assert.match(notionPassText("notion_page_gone"), /not made again/);
+  assert.match(notionPassText("notion_page_gone"), /not made again$/);
   assert.match(notionPassText("notion_item_invalid"), /did not accept a row/);
 });
 
@@ -126,6 +128,10 @@ test("a failed access answer becomes the refusal of its code; a passed one names
   const found = notionAccessOutcome({ result: "ok", parentPageTitle: "Plans" });
   assert.equal(notionPlanCheckText(found), "Page “Plans”. The plan database is created under it.");
   assert.equal(notionCountsText({ ...COUNTS, created: 2 }), "2 rows created");
+  assert.equal(notionCountsText({ ...COUNTS, failed: 2, deferred: 60 }), "2 rows failed · 60 more to follow");
+  assert.equal(notionCountsText({ ...COUNTS, removed: 3 }), "3 rows removed");
+  assert.equal(notionCountsText({ ...COUNTS, commented: 1, unchanged: 9 }), "1 row commented");
+  assert.equal(notionCountsText({ ...COUNTS, unchanged: 9 }), "In sync");
 });
 
 test("the registry has Notion under Plan, needing Notion, with the add label Add destination", () => {

@@ -27,15 +27,15 @@ const FAILURE: Record<string, string> = {
 
 /** Codes a pass ends on that are not a failure of the connection: the pass waits for the plan or was overtaken, or one row or page is lost. */
 const PASS_TEXT: Record<string, string> = {
-  notion_page_gone: "A row was deleted on Notion. It is not made again.",
-  notion_database_gone: "The plan database was deleted on Notion. Set the destination up again.",
-  notion_item_invalid: "Notion did not accept a row of the plan.",
-  notion_plan_not_configured: "The destination is not set up.",
-  no_plan: "Waits for the plan",
+  notion_page_gone: "A row was deleted on Notion; it is not made again",
+  notion_database_gone: "The plan database was deleted on Notion; set the destination up again",
+  notion_item_invalid: "Notion did not accept a row of the plan",
+  notion_plan_not_configured: "The destination is not set up",
+  no_plan: V2_COPY.waitsForPlan,
   plan_applying: "The plan is being applied",
   target_changed: "The destination changed; the next pass uses the new one",
-  interrupted: "The last pass was interrupted. The next one continues.",
-  unexpected_error: "The last pass failed for a reason Graphico does not know. The next pass tries again.",
+  interrupted: "The last pass was interrupted; the next one continues",
+  unexpected_error: "The last pass failed for a reason Graphico does not know; the next pass tries again",
 };
 
 const text = (map: Record<string, string>, code: string): string | undefined => (Object.hasOwn(map, code) ? map[code] : undefined);
@@ -52,7 +52,7 @@ export function notionPassText(code: string): string {
 }
 
 /** The codes that need the connection of the member who connected Notion, not a retry: the node offers Reconnect Notion. */
-export const NOTION_RECONNECT = new Set(["notion_not_connected", "notion_reconnect_required"]);
+export const NOTION_RECONNECT = new Set(["notion_not_connected", "notion_reconnect_required", "notion_permissions_missing"]);
 
 /** A failed access check as the refusal `useCheckAdd` shows: the reason is the API code the words are found by. */
 export function notionAccessOutcome(access: NotionPlanAccess): { parentPageTitle: string } {
@@ -66,13 +66,18 @@ export const notionPlanCheckText = (found: { parentPageTitle: string }): string 
 
 const rows = (n: number, verb: string): string => `${String(n)} ${n === 1 ? "row" : "rows"} ${verb}`;
 
-/** What a finished pass did, for the node's second line: rows made and rows updated; "In sync" when it changed nothing. */
+/** What a finished pass did, for the node's second line: the non-zero counts; "In sync" only when nothing changed, failed or was left. */
 export function notionCountsText(counts: NotionPlanCounts): string {
-  const { created, updated } = counts;
-  if (created > 0 && updated > 0) return `${rows(created, "created")} · ${String(updated)} updated`;
-  if (created > 0) return rows(created, "created");
-  if (updated > 0) return rows(updated, "updated");
-  return V2_COPY.notionPlanSynced;
+  const done: [number, string][] = [
+    [counts.created, "created"],
+    [counts.updated, "updated"],
+    [counts.commented, "commented"],
+    [counts.removed, "removed"],
+    [counts.failed, "failed"],
+  ];
+  const parts = done.filter(([n]) => n > 0).map(([n, verb], i) => (i === 0 ? rows(n, verb) : `${String(n)} ${verb}`));
+  if (counts.deferred > 0) parts.push(`${String(counts.deferred)} more to follow`);
+  return parts.length === 0 ? V2_COPY.notionPlanSynced : parts.join(" · ");
 }
 
 /** The sentence of a finished pass in the node's dialog: what could not be done, and that the rest follows. */
