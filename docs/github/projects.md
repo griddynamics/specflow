@@ -106,6 +106,7 @@ counts only.
   a missing approval.
 - If saving the destination fails after a new project was created on GitHub, an empty project may remain there (nothing deletes it).
 - On an issue that is not started the label list is owned by the export: labels a person added are replaced with the plan's.
+- A task that moves to another story is not re-linked: its `item_id` keeps the old parent (the plan does not move tasks between stories).
 - A task's `item_id` holds the id of the issue it is linked under (the marker that the sub-issue call was made); a story's holds its
   item on the project.
 

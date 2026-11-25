@@ -125,7 +125,9 @@ def _already_linked(response: httpx.Response) -> bool:
     """Whether a 422 of the sub-issue call says the issue is already one (read, never kept or logged)."""
 
     text = response.text.lower()
-    return "duplicate" in text or "already" in text
+    if "parent" in text:  # "already has a parent": it hangs under another issue, which is not our link
+        return False
+    return "duplicate" in text or "already a sub-issue" in text or "already a sub issue" in text
 
 
 def _rest_refusal(response: httpx.Response, missing: GitHubCode) -> GitHubError:

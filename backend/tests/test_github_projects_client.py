@@ -158,6 +158,9 @@ async def test_a_422_of_the_sub_issue_call_is_fine_only_when_it_says_the_issue_i
     await already.add_sub_issue(TOKEN, "acme/shop", 1, 20)
     other, _ = api_over(status(422, {"message": "Validation Failed", "errors": ["cannot nest 9 levels"]}))
     assert await code_of(other.add_sub_issue(TOKEN, "acme/shop", 1, 20)) is GitHubCode.ITEM_INVALID
+    for message in ("Issue already has a parent", "Sub-issue has a parent", "already has a parent issue"):
+        elsewhere, _ = api_over(status(422, {"message": message}))
+        assert await code_of(elsewhere.add_sub_issue(TOKEN, "acme/shop", 1, 20)) is GitHubCode.ITEM_INVALID
 
 
 async def test_issue_states_read_the_status_on_the_export_project_only() -> None:
