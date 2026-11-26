@@ -28,6 +28,7 @@ from api.imports.writer import ImportWriter
 from logger.logger import WARNING, get_logger, log_event
 from notion import convert
 from notion.convert import ConvertedPage, MarkupTooDeepError
+from notion.convert.scrub import scrub_text
 from notion.gateway import NotionGateway
 from notion.links import NotionLink, dashed, parse_link
 from notion.model import NotionPage
@@ -44,6 +45,12 @@ CONVERT_STEP: Final = "convert"
 UNTITLED: Final = "Untitled"
 # What a member not seeing an item means: that item is skipped. Everything else a read raises stops the source.
 _SKIPPABLE: Final = frozenset({NotionCode.NOT_SHARED, NotionCode.PAGE_GONE, NotionCode.DATABASE_GONE})
+# What a sub-page or row read may raise and the item reason it is skipped with (the root page failing fails the source).
+_ITEM_SKIPS: Final = dict.fromkeys(_SKIPPABLE, "no_access") | {
+    NotionCode.PERMISSIONS_MISSING: "no_access",
+    NotionCode.ITEM_INVALID: "unknown_error",
+}
+INCOMPLETE_NOTE: Final = "> Note: Notion left out part of this page; the import is incomplete.\n"
 _NO_ACCESS_CODES: Final = _SKIPPABLE | {
     NotionCode.NOT_CONNECTED,
     NotionCode.RECONNECT_REQUIRED,
@@ -118,6 +125,7 @@ class _Doc:
     page: dict[str, Any]  # id, url, title, last_edited_time: all that is ever stored of the object
     nfm: str
     markdown: str
+    incomplete: bool = False  # ``truncated`` or ``unknown_block_ids`` left after the gateway followed them
 
 
 @dataclass(frozen=True)
@@ -170,7 +178,12 @@ def _page_record(page: NotionPage | _Page) -> dict[str, Any]:
     more request per page and the import runs once (D7)."""
 
     edited = getattr(page, "last_edited_time", None)
-    return {"id": page.id, "url": page.url, "title": page.title, "last_edited_time": edited and edited.isoformat()}
+    return {
+        "id": page.id,
+        "url": page.url,
+        "title": scrub_text(page.title),
+        "last_edited_time": edited and edited.isoformat(),
+    }
 
 
 class _Walk:
@@ -206,7 +219,7 @@ class _Walk:
             self._root = _key(page.id)
             self._seen.add(self._root)
             self._queue.append(page)
-            return "page", page.title
+            return "page", scrub_text(page.title)
         database = await self._gateway.database(link.id)
         if database.in_trash:
             raise NotionError(NotionCode.NOT_SHARED)
@@ -215,7 +228,7 @@ class _Walk:
             if _key(source.id) not in self._sources:
                 self._sources.add(_key(source.id))
                 self._queue.append(_Rows(source.id, database.title, root=True))
-        return "database", database.title
+        return "database", scrub_text(database.title)
 
     async def events(self) -> AsyncIterator[_Event]:
         while self._queue:
@@ -249,7 +262,7 @@ class _Walk:
                 found = await self._gateway.query_data_source(source.data_source_id, start_cursor=cursor)
                 for row in found.rows:
                     if self._take(row.id):
-                        yield _Found(f"page:{row.id}", row.title or UNTITLED)
+                        yield _Found(f"page:{row.id}", scrub_text(row.title) or UNTITLED)
                         self._queue.append(_Row(row))
                 cursor = found.next_cursor
                 if cursor is None or self.capped:
@@ -257,7 +270,9 @@ class _Walk:
         except NotionError as error:
             if source.root or error.code not in _SKIPPABLE:
                 raise
-            yield _Skipped(f"database:{source.data_source_id}", source.title or UNTITLED, NO_ACCESS, READ_STEP)
+            yield _Skipped(
+                f"database:{source.data_source_id}", scrub_text(source.title) or UNTITLED, NO_ACCESS, READ_STEP
+            )
 
     async def _database(self, ref: _DatabaseRef) -> AsyncIterator[_Event]:
         """The data sources of a database the Markdown names without one: queued as rows to read."""
@@ -267,10 +282,10 @@ class _Walk:
         except NotionError as error:
             if error.code not in _SKIPPABLE | {NotionCode.LINK_INVALID}:
                 raise
-            yield _Skipped(f"database:{_key(ref.url)}", ref.title or UNTITLED, NO_ACCESS, READ_STEP)
+            yield _Skipped(f"database:{_key(ref.url)}", scrub_text(ref.title) or UNTITLED, NO_ACCESS, READ_STEP)
             return
         if database.in_trash:
-            yield _Skipped(f"database:{database.id}", ref.title or UNTITLED, NO_ACCESS, READ_STEP)
+            yield _Skipped(f"database:{database.id}", scrub_text(ref.title) or UNTITLED, NO_ACCESS, READ_STEP)
             return
         for source in database.data_sources:
             if _key(source.id) not in self._sources:
@@ -280,15 +295,17 @@ class _Walk:
     async def _read(self, item: _Page | _Row | NotionPage) -> AsyncIterator[_Event]:
         row = item.page if isinstance(item, _Row) else None
         page = item.page if isinstance(item, _Row) else item
-        title = page.title or UNTITLED
+        title = scrub_text(page.title) or UNTITLED
         external_id = f"page:{page.id}"
         try:
-            nfm = (await self._gateway.page_markdown(page.id)).markdown
+            read = await self._gateway.page_markdown(page.id)
         except NotionError as error:
-            if error.code not in _SKIPPABLE or _key(page.id) == self._root:
+            if error.code not in _ITEM_SKIPS or _key(page.id) == self._root:
                 raise
-            yield _Skipped(external_id, title, NO_ACCESS, READ_STEP)
+            yield _Skipped(external_id, title, _ITEM_SKIPS[error.code], READ_STEP)
             return
+        nfm = read.markdown
+        incomplete = read.truncated or bool(read.unknown_block_ids)
         try:
             converted = self._converter.to_markdown(nfm)
             markdown = (
@@ -299,10 +316,12 @@ class _Walk:
         except MarkupTooDeepError:  # one page nested too deep to convert: its item is an error, the walk goes on
             yield _Skipped(external_id, title, CONVERT_FAILED, CONVERT_STEP)
             return
-        yield _Doc(external_id, title, _page_record(page), nfm, markdown)
+        if incomplete:
+            markdown = markdown.rstrip("\n") + "\n\n" + INCOMPLETE_NOTE
+        yield _Doc(external_id, title, _page_record(page), nfm, markdown, incomplete)
         for ref in converted.sub_pages:
             if self._take(ref.id):
-                yield _Found(f"page:{ref.id}", ref.title or UNTITLED)
+                yield _Found(f"page:{ref.id}", scrub_text(ref.title) or UNTITLED)
                 self._queue.append(_Page(ref.id, ref.title, ref.url))
         for database in converted.databases:
             if database.data_source_id is None:
@@ -376,6 +395,8 @@ class NotionImporter:
         elif isinstance(event, _Skipped):
             await writer.fail(event.external_id, event.name, reason=event.reason, step=event.step)
         else:
+            if event.incomplete:
+                log_event(logger, WARNING, "api.imports.page_incomplete", external_id=event.external_id)
             try:
                 scrubbed = self._converter.scrub_original(event.nfm)
             except MarkupTooDeepError:

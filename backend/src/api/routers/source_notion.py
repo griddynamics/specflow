@@ -15,10 +15,10 @@ from fastapi import APIRouter
 from api.deps import MemberDep, RuntimeDep, UserDep
 from api.imports.notion import NotionImport, NotionImporter, inspect, open_link
 from api.notion import notion_connections, notion_error
-from api.project_integrations import acting_member
 from api.runtime import Runtime
 from api.schemas import BatchSourceOut, NotionCheckOut, NotionLinkIn
 from api.source_imports import StartedImport, start_import
+from db import integrations as integrations_db
 from db.integrations import NOTION
 from logger.logger import INFO, get_logger, log_event
 from notion.connections import NotionConnections
@@ -40,9 +40,15 @@ async def _reader(
     connections = notion_connections(runtime)
     try:
         source = NotionImport(parse_link(link))
-        member = await acting_member(runtime, project_id, NOTION)
-        if member is not None:
-            return connections, member, source, await connections.gateway(member)
+        async with runtime.transaction() as session:
+            bound = await integrations_db.get_integration(session, project_id, NOTION)
+        if bound is not None and bound.user_id is not None:
+            member = bound.user_id
+            mine = await connections.get(member)
+            if mine is None or mine.workspace_id == bound.workspace_id:
+                return connections, member, source, await connections.gateway(member)
+            # the member reconnected into another Notion workspace: the binding's pages are not theirs any more
+            raise notion_error(NotionError(NotionCode.RECONNECT_REQUIRED))
     except NotionError as error:
         raise notion_error(error) from None
     raise notion_error(NotionError(NotionCode.NOT_CONNECTED))
@@ -66,7 +72,7 @@ async def add_notion_source(
     body: NotionLinkIn, runtime: RuntimeDep, user: UserDep, access: MemberDep
 ) -> BatchSourceOut:
     """Check the link as above, create the source for the caller and start the import (``start_import`` of
-    ``api.source_imports`` with ``NotionImporter``, reading as ``acting_member(runtime, pid, NOTION)``)."""
+    ``api.source_imports`` with ``NotionImporter``, reading as the member the project is bound to)."""
 
     pid = access.project.id
     connections, member, source, gateway = await _reader(runtime, pid, body.link)

@@ -16,6 +16,7 @@ import logging
 import re
 import uuid
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -517,3 +518,95 @@ async def test_the_real_converter_over_the_sandbox_fixtures_leaves_no_nfm_tag_em
         assert not EMAIL.search(markdown) and "user://" not in markdown
         # the original keeps the NFM as read, minus e-mails and user ids (the bare "user://" scheme stays, N5)
         assert not EMAIL.search(text) and not USER_ID.search(text)
+
+
+# Findings of the review: titles, unknown blocks, items that cannot be read -------------------------------------------
+
+
+def fail_markdown_of(fake: FakeNotionGateway, page_id: str, code: NotionCode) -> None:
+    """``page_markdown`` of one page raises ``code`` (the others read as before)."""
+
+    inner = fake.page_markdown
+
+    async def read(requested: str) -> PageMarkdown:
+        if normal(requested) == normal(page_id):
+            raise NotionError(code)
+        return await inner(requested)
+
+    fake.page_markdown = read  # type: ignore[method-assign]
+
+
+async def test_a_title_with_an_e_mail_address_is_scrubbed_in_the_heading_the_names_and_the_stored_original() -> None:
+    fake = FakeNotionConnections()
+    secret = "ann@corp.com"  # noqa: S105 - a test address, not a credential
+    fake.fake.pages[WIKI_PAGE_ID] = replace(fake.fake.pages[WIKI_PAGE_ID], title=f"Notes of {secret}")
+    fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(page_line(ONBOARDING, f"Sub of {secret}"))
+    fake.fake.pages[ONBOARDING] = replace(fake.fake.pages[ONBOARDING], title=f"Sub of {secret}")
+
+    writer = await run(WIKI_PAGE_ID, fake)
+    link = NotionLink(WIKI_PAGE_ID)
+    kind, title = await notion_module.open_link(fake.fake, NotionImport(link))
+
+    assert (kind, title) == ("page", "Notes of (e-mail hidden)")
+    assert all(secret not in name for _id, name in writer.declared)
+    assert all(
+        secret not in name and secret not in markdown.split("\n")[0] for name, markdown, _o in writer.added.values()
+    )
+    assert all(secret not in json.loads(o)["page"]["title"] for _n, _m, o in writer.added.values())
+    name, markdown, original = writer.added[f"page:{WIKI_PAGE_ID}"]
+    assert name == "Notes of (e-mail hidden)" and markdown.startswith("# Notes of (e-mail hidden)\n")
+    assert json.loads(original)["page"]["title"] == "Notes of (e-mail hidden)"
+    assert writer.declared[0] == (f"page:{ONBOARDING}", "Sub of (e-mail hidden)")
+
+
+async def test_a_page_still_incomplete_after_the_gateway_followed_unknown_blocks_is_noted_and_logged(caplog) -> None:
+    fake = FakeNotionConnections()
+    fake.fake.markdown[PRD_PAGE_ID] = PageMarkdown(f"Body {CANARY}", truncated=True, unknown_block_ids=("b-1", "b-2"))
+
+    with caplog.at_level(logging.WARNING):
+        writer = await run(PRD_PAGE_ID, fake)
+
+    _name, markdown, _original = writer.added[f"page:{PRD_PAGE_ID}"]
+    assert CANARY in markdown and notion_module.INCOMPLETE_NOTE.strip() in markdown
+    assert "api.imports.page_incomplete" in caplog.text and CANARY not in caplog.text
+
+
+async def test_a_complete_page_has_no_incomplete_note() -> None:
+    writer = await run(PRD_PAGE_ID)
+
+    assert notion_module.INCOMPLETE_NOTE.strip() not in writer.added[f"page:{PRD_PAGE_ID}"][1]
+
+
+@pytest.mark.parametrize(
+    ("code", "reason"),
+    [(NotionCode.ITEM_INVALID, "unknown_error"), (NotionCode.PERMISSIONS_MISSING, "no_access")],
+)
+async def test_a_sub_page_that_is_refused_is_a_skipped_item_and_the_others_are_stored(code, reason) -> None:
+    fake = FakeNotionConnections()
+    fail_markdown_of(fake.fake, ONBOARDING, code)
+
+    writer = await run(WIKI_PAGE_ID, fake)
+
+    assert writer.failed == [(f"page:{ONBOARDING}", reason, "read")]
+    assert list(writer.added) == [f"page:{WIKI_PAGE_ID}", f"page:{RUNBOOKS}", f"page:{RUNBOOK}"]
+
+
+@pytest.mark.parametrize("code", [NotionCode.ITEM_INVALID, NotionCode.PERMISSIONS_MISSING])
+async def test_the_root_page_refused_still_fails_the_source(code) -> None:
+    fake = FakeNotionConnections()
+    fail_markdown_of(fake.fake, PRD_PAGE_ID, code)
+
+    with pytest.raises(ImportFailedError) as caught:
+        await run(PRD_PAGE_ID, fake)
+
+    assert caught.value.reason == "unknown_error"
+
+
+async def test_a_row_that_is_refused_is_a_skipped_item() -> None:
+    fake = FakeNotionConnections()
+    first = (await fake.fake.query_data_source(REQUIREMENTS_DATA_SOURCE_ID)).rows[0].id
+    fail_markdown_of(fake.fake, first, NotionCode.ITEM_INVALID)
+
+    writer = await run(REQUIREMENTS_DATABASE_ID, fake)
+
+    assert writer.failed == [(f"page:{first}", "unknown_error", "read")] and len(writer.added) == 2

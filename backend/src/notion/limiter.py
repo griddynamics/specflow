@@ -1,4 +1,4 @@
-"""The request budget of Notion (docs/notion/oauth.md "Limits").
+"""The request budget of Notion (docs/notion/oauth.md "Request budget").
 
 Notion limits each connection (one ``bot_id``) to 180 requests a minute on a Free or Plus workspace. One
 ``RateLimiter`` per bot id lives in the api process and import and export share it, so one job cannot spend the budget

@@ -100,8 +100,8 @@ class _Parser:
         closers: list[str] = []
         while end > pos and text[end - 1] == ">" and (at := text.rfind("</", pos, end)) >= 0:
             m = _TAG.fullmatch(text, at, end)
-            if m is None or not m.group("slash"):
-                break
+            if m is None or not m.group("slash") or (at > pos and text[at - 1] == "\\"):
+                break  # not a closer, or an escaped literal (``\\</callout>``): text, not the end of the block
             closers.append(m.group("name"))
             end = at
             found = True

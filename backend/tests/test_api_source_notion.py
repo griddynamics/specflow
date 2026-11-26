@@ -229,3 +229,14 @@ async def test_the_request_body_is_closed_and_no_title_or_link_reaches_a_log(rig
     haystack = log_haystack(caplog)
     assert "PRD - Checkout Loyalty Points" not in haystack and PRD_PAGE_ID.replace("-", "") not in haystack
     assert ROOT_PAGE_ID not in haystack
+
+
+async def test_a_member_who_reconnected_into_another_workspace_is_asked_to_reconnect_and_nothing_is_read(rig) -> None:
+    rig.connections.workspace_id = "ws-other"  # the binding still names the first workspace
+
+    for tail in ("/check", ""):
+        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, {"link": PRD_LINK})) == (
+            409,
+            "notion_reconnect_required",
+        )
+    assert rig.fake.calls == [] and rig.imports.added == []

@@ -1209,6 +1209,11 @@ def test_l33_0011_adds_the_notion_tables_and_widens_the_app_and_kind_checks_and_
     assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = 'notion_connections'") == [
         0
     ]  # not project-scoped: no policy, no grant
+    assert run_app(  # the access token of a grant with no refresh token: nullable ciphertext
+        scratch_database,
+        "SELECT format_type(atttypid, atttypmod) || ':' || attnotnull::text FROM pg_attribute "
+        "WHERE attrelid = 'notion_connections'::regclass AND attname = 'access_token'",
+    ) == ["bytea:false"]
     for table in ("notion_plan_targets", "notion_plan_items"):
         assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = :table", table=table) == [
             1

@@ -1,7 +1,8 @@
 """Notion: the users' Notion connections, the plan destination's target and map, the new app and source kind.
 
 Adds, on top of revision 0010_github_projects, the tables notion_connections (one row per Specflow user: the Notion
-workspace, the connection's bot and the Fernet refresh token), notion_plan_targets (one row per project: the parent
+workspace, the connection's bot, the Fernet refresh token and, for a grant with no refresh token only, the Fernet access
+token), notion_plan_targets (one row per project: the parent
 page the plan database is created under, the database and its data source once the first pass made them, the run
 columns) and notion_plan_items (one row per plan node: the row's page, the applied content and its hash), as in
 docs/notion/oauth.md, docs/notion/plan.md. It widens ck_project_integrations_app to ``atlassian, github, slack, notion``
@@ -116,6 +117,7 @@ def upgrade() -> None:
         *_lifecycle_columns(),
         sa.Column("refresh_expires_at", TIMESTAMPTZ, nullable=True),
         sa.Column("refresh_token", sa.LargeBinary(), nullable=False),
+        sa.Column("access_token", sa.LargeBinary(), nullable=True),
         sa.CheckConstraint(_one_of("status", STATUSES), name=op.f(f"ck_{CONNECTIONS}_status")),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], name=f"fk_{CONNECTIONS}_user_id_users", ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("user_id", name=f"pk_{CONNECTIONS}"),

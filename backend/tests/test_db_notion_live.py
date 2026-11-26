@@ -122,6 +122,27 @@ async def test_a_connection_of_one_user_never_changes_another(factory) -> None:
     assert other is not None and (other.refresh_token, other.status) == (b"two", "active")
 
 
+async def test_the_store_keeps_the_access_token_of_a_grant_with_no_refresh_token_and_a_reconnect_clears_it(
+    factory,
+) -> None:
+    user = await new_user(factory)
+    store = connection_store(transaction_of(factory))
+
+    async with store() as rows:
+        await rows.save(user, grant(), refresh_token=b"", refresh_expires_at=None, now=NOW, access_token=b"access-c")
+    async with store() as rows:
+        row = await rows.get(user)
+        await rows.rotate(user, refresh_token=b"", refresh_expires_at=None, now=LATER)
+    assert row is not None and row.access_token == b"access-c"
+    async with store() as rows:
+        kept = await rows.get(user)
+        await rows.save(user, grant(), refresh_token=b"cipher", refresh_expires_at=None, now=LATER)  # reconnect
+    async with store() as rows:
+        again = await rows.get(user)
+    assert kept is not None and kept.access_token == b"access-c"  # a rotation leaves it alone
+    assert again is not None and again.access_token is None
+
+
 async def test_deleting_the_user_deletes_the_connection_and_a_bad_status_is_refused(factory) -> None:
     user = await new_user(factory)
     store = connection_store(transaction_of(factory))

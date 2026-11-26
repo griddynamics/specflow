@@ -3,7 +3,8 @@
 
 One ``NotionConnections`` per process (the api holds it on ``Runtime.notion``). It signs and checks ``state``,
 connects a user (code exchange at ``POST /v1/oauth/token``, which also answers the workspace and the bot), keeps each
-user's access token in memory, and refreshes under a per-user lock and the row's ``FOR UPDATE`` lock: the rotated
+user's access token in memory (a grant with no refresh token also stores it, Fernet-encrypted), and refreshes under a
+per-user lock and the row's ``FOR UPDATE`` lock: the rotated
 refresh token is committed before the new access token is used. ``invalid_grant`` or a refresh token that no longer
 decrypts marks the connection ``expired``. The rows come and go through the ``ConnectionStore`` port (``db.notion``
 implements it). ``gateway`` hands out the ``NotionGateway`` that acts as one member, on the rate limiter of the
@@ -70,7 +71,9 @@ class TokenGrant:
 
 @dataclass(frozen=True)
 class StoredConnection:
-    """A ``notion_connections`` row as the port hands it over; the refresh token is Fernet ciphertext."""
+    """A ``notion_connections`` row as the port hands it over; the refresh token and the access token are Fernet
+    ciphertext. ``access_token`` is stored only for a grant with no refresh token (the one way to get it back after a
+    restart); a refreshable grant has none (``None``)."""
 
     user_id: uuid.UUID
     workspace_id: str
@@ -80,6 +83,7 @@ class StoredConnection:
     status: str
     connected_at: datetime
     last_used_at: datetime
+    access_token: bytes | None = None
 
 
 class ConnectionStore(Protocol):
@@ -98,6 +102,7 @@ class ConnectionStore(Protocol):
         refresh_token: bytes,
         refresh_expires_at: datetime | None,
         now: datetime,
+        access_token: bytes | None = None,
     ) -> None:
         """Create or replace the user's connection, ``active``."""
 
@@ -408,6 +413,7 @@ class NotionConnections:
         except StateInvalidError:
             raise NotionError(NotionCode.STATE_INVALID) from None
         grant = await self._oauth.exchange(code)  # Notion is called with no transaction open
+        refreshable = bool(grant.refresh_token.get_secret_value())
         now = self._now()
         async with self._tokens.lock(user_id), self._store() as store:
             await store.save(
@@ -416,6 +422,7 @@ class NotionConnections:
                 refresh_token=self._cipher.encrypt(grant.refresh_token),
                 refresh_expires_at=None,
                 now=now,
+                access_token=None if refreshable else self._cipher.encrypt(grant.access_token),
             )
         self._grants[user_id] = (grant.bot_id, now)
         self._tokens.remember(user_id, grant)
@@ -423,24 +430,52 @@ class NotionConnections:
         return ConnectionView("active", grant.workspace_id, grant.workspace_name, now, now), return_to
 
     async def disconnect(self, user_id: uuid.UUID) -> None:
-        """Delete the connection, drop its access token and revoke the grant on Notion (best effort): the revoke needs
-        an access token that is cached and still good; without one it is skipped and the row is deleted all the same."""
+        """Delete the connection, drop its access token and revoke the grant on Notion (best effort, a failure never
+        blocks the delete). The tokens to revoke are the cached access token of the current grant (never a refresh just
+        to revoke), else the stored one, and the stored refresh token; an expired connection is not revoked."""
 
-        token = await self._cached_token(user_id)  # never refreshes just to revoke
+        tokens = await self._revocable(user_id)
         async with self._tokens.lock(user_id):
             async with self._store() as store:
                 deleted = await store.delete(user_id)
             self._forget(user_id)
-        revoked = token is not None and await self._oauth.revoke(SecretStr(token))
+        revoked = False
+        for token in tokens:
+            revoked = await self._oauth.revoke(SecretStr(token))
+            if revoked:
+                break
         log_event(logger, INFO, "notion.disconnected", user_id=str(user_id), deleted=deleted, revoked=revoked)
 
-    async def _cached_token(self, user_id: uuid.UUID) -> str | None:
-        """The cached access token of the user's current grant while it is good; never a refresh."""
+    def _stored_tokens(self, row: StoredConnection) -> list[str]:
+        """The access token (if stored) and the refresh token (if any) of a row; one that no longer decrypts is left
+        out."""
 
-        try:
-            row = await self._active(user_id)
-        except NotionError:
-            return None
+        found: list[str] = []
+        for cipher_text in (row.access_token, row.refresh_token):
+            if not cipher_text:
+                continue
+            try:
+                value = self._cipher.decrypt(cipher_text).get_secret_value()
+            except CipherError:
+                continue
+            if value:
+                found.append(value)
+        return found
+
+    async def _revocable(self, user_id: uuid.UUID) -> list[str]:
+        """What to revoke on disconnect, best first; empty for no row or an expired one."""
+
+        async with self._store() as store:
+            row = await store.get(user_id)
+        if row is None or row.status != ACTIVE:
+            return []
+        tokens = self._stored_tokens(row)
+        cached = await self._cached_token(user_id, row)
+        return [cached, *(t for t in tokens if t != cached)] if cached is not None else tokens
+
+    async def _cached_token(self, user_id: uuid.UUID, row: StoredConnection) -> str | None:
+        """The cached access token of the row's grant while it is good; never a refresh."""
+
         if self._grants.get(user_id) != (row.bot_id, row.connected_at):
             return None
 
@@ -481,12 +516,12 @@ class NotionConnections:
         row = await self._active(user_id)
         if self._grants.get(user_id) != (row.bot_id, row.connected_at):
             self._forget(user_id)  # the cached token, if any, belongs to an older grant: refresh from this row
-        return await self._tokens.access_token(user_id, lambda: self._rotate(user_id))
+        return await self._tokens.access_token(user_id, lambda: self._rotate(user_id, used=None))
 
     async def refresh(self, user_id: uuid.UUID, *, used: str | None) -> str:
         """A new access token; ``used`` is a token Notion refused, never handed out again."""
 
-        return await self._tokens.refresh(user_id, lambda: self._rotate(user_id), used=used)
+        return await self._tokens.refresh(user_id, lambda: self._rotate(user_id, used=used), used=used)
 
     async def gateway(self, user_id: uuid.UUID) -> NotionGateway:
         """The ``NotionGateway`` that acts as ``user_id``. It is ``HttpNotionGateway`` (stream A, which never retries a
@@ -516,23 +551,34 @@ class NotionConnections:
         self._tokens.forget(user_id)
         self._grants.pop(user_id, None)
 
-    async def _refresh_row(self, row: StoredConnection) -> TokenGrant:
-        """One refresh of the row's grant. A grant with no refresh token (Notion gave none), or one that no longer
-        decrypts (a rotated ``NOTION_TOKEN_KEY``), cannot be refreshed: ``notion_reconnect_required`` without calling
-        Notion."""
+    async def _refresh_row(self, row: StoredConnection, used: str | None) -> TokenGrant:
+        """One new token for the row's grant. A grant with a refresh token is refreshed at Notion. A grant with none
+        (Notion gave none) is served its stored access token: ``used`` (a token Notion refused with a ``401``) equal to
+        it means the grant is dead; a cache miss (``used`` is ``None`` or another token) is not a failure. A refresh
+        token that no longer decrypts (a rotated ``NOTION_TOKEN_KEY``), or a grant with no usable token at all, is
+        ``notion_reconnect_required`` without calling Notion."""
 
         try:
             refresh_token = self._cipher.decrypt(row.refresh_token).get_secret_value()
         except CipherError:
             raise NotionError(NotionCode.RECONNECT_REQUIRED) from None
         if not refresh_token:
-            raise NotionError(NotionCode.RECONNECT_REQUIRED)
+            return self._stored_grant(row, used)
         try:
             return await self._oauth.refresh(refresh_token)
         except NotionError as error:
             raise NotionError(_after_refusal(error.code)) from None
 
-    async def _rotate(self, user_id: uuid.UUID) -> TokenGrant:
+    def _stored_grant(self, row: StoredConnection, used: str | None) -> TokenGrant:
+        try:
+            access = self._cipher.decrypt(row.access_token).get_secret_value() if row.access_token else ""
+        except CipherError:
+            access = ""
+        if not access or access == used:
+            raise NotionError(NotionCode.RECONNECT_REQUIRED)
+        return TokenGrant(SecretStr(access), SecretStr(""), NO_EXPIRY_SECONDS, row.bot_id, row.workspace_id, "")
+
+    async def _rotate(self, user_id: uuid.UUID, *, used: str | None) -> TokenGrant:
         """One refresh with the row locked ``FOR UPDATE``; the transaction commits the rotated refresh token (or the
         ``expired`` status) before this returns."""
 
@@ -547,17 +593,18 @@ class NotionConnections:
                 refused = NotionCode.RECONNECT_REQUIRED
             else:
                 try:
-                    grant = await self._refresh_row(row)
+                    grant = await self._refresh_row(row, used)
                 except NotionError as error:
                     refused = error.code
                 if grant is not None:
                     self._grants[user_id] = (row.bot_id, row.connected_at)
-                    await store.rotate(
-                        user_id,
-                        refresh_token=self._cipher.encrypt(grant.refresh_token),
-                        refresh_expires_at=None,
-                        now=self._now(),
-                    )
+                    if grant.refresh_token.get_secret_value():  # an answer without one keeps the stored ciphertext
+                        await store.rotate(
+                            user_id,
+                            refresh_token=self._cipher.encrypt(grant.refresh_token),
+                            refresh_expires_at=None,
+                            now=self._now(),
+                        )
                 elif refused is NotionCode.RECONNECT_REQUIRED:
                     await store.expire(user_id, now=self._now())
                     expired = True

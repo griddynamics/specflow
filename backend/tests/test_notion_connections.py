@@ -203,9 +203,10 @@ class MemoryStore:
         refresh_token: bytes,
         refresh_expires_at: datetime | None,
         now: datetime,
+        access_token: bytes | None = None,
     ) -> None:
         workspace = (grant.workspace_id, grant.workspace_name, grant.bot_id)
-        self.rows[user_id] = StoredConnection(user_id, *workspace, refresh_token, "active", now, now)
+        self.rows[user_id] = StoredConnection(user_id, *workspace, refresh_token, "active", now, now, access_token)
         self.refresh_expires[user_id] = refresh_expires_at
         self._note("save", user_id)
 
@@ -518,6 +519,55 @@ async def test_a_grant_with_an_access_token_alone_connects_and_cannot_be_refresh
     assert "notion.expired" in caplog.text
 
 
+async def test_a_grant_with_no_refresh_token_survives_a_restart_and_a_second_replica(caplog) -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    notion.with_refresh = False
+    first = await connected(notion, store)
+    stored = store.rows[USER].access_token
+    assert stored is not None and b"access-1" not in stored  # Fernet ciphertext
+    assert first._cipher.decrypt(stored).get_secret_value() == "access-1"
+    calls = len(notion.requests)
+
+    with caplog.at_level(logging.DEBUG):
+        for restarted in (make(notion, store), make(notion, store)):  # cache miss: a restart, another replica
+            assert await restarted.access_token(USER) == "access-1"
+            assert await restarted.access_token(USER) == "access-1"  # now cached
+            assert "access-1" not in repr(restarted) and "access-1" not in repr(restarted._tokens)
+
+    assert store.rows[USER].status == "active" and ("expire", USER) not in store.events
+    assert len(notion.requests) == calls  # Notion was never called
+    assert "access-1" not in caplog.text
+
+
+async def test_a_401_on_the_stored_token_after_a_restart_expires_the_connection_and_another_token_does_not() -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    notion.with_refresh = False
+    await connected(notion, store)
+    restarted = make(notion, store)
+    assert await restarted.access_token(USER) == "access-1"
+
+    assert await restarted.refresh(USER, used="some-older-token") == "access-1"  # not the token in use: no expiry
+    assert store.rows[USER].status == "active"
+    with pytest.raises(NotionError) as raised:
+        await restarted.refresh(USER, used="access-1")
+
+    assert raised.value.code is NotionCode.RECONNECT_REQUIRED and store.rows[USER].status == "expired"
+
+
+async def test_a_refresh_answer_without_a_refresh_token_keeps_the_stored_one() -> None:
+    notion, store, clock = FakeNotion(), MemoryStore(), Clock()
+    connections = await connected(notion, store, clock)
+    before = store.rows[USER].refresh_token
+    notion.with_refresh = False
+    clock.now += 3600
+
+    assert await connections.access_token(USER) == "access-2"
+
+    assert store.rows[USER].refresh_token == before
+    assert connections._cipher.decrypt(before).get_secret_value() == "refresh-1"
+    assert "rotate" not in [event for event, _ in store.events]
+
+
 async def test_a_401_through_the_gateway_of_a_non_refreshable_connection_asks_to_reconnect(inner) -> None:
     notion, store = FakeNotion(), MemoryStore()
     notion.with_refresh = False
@@ -666,25 +716,46 @@ async def test_disconnecting_an_expired_connection_deletes_it_without_a_revoke()
     assert store.rows == {} and notion.revoked == [] and notion.refreshes == 0
 
 
-async def test_disconnect_never_refreshes_just_to_revoke() -> None:
+async def test_disconnect_never_refreshes_just_to_revoke_and_revokes_the_stored_refresh_token() -> None:
     notion, store, clock = FakeNotion(), MemoryStore(), Clock()
     await connected(notion, store, clock)
     clock.now += 3600  # the cached token is no longer good
-    other_process = make(notion, store, clock)  # nothing cached at all
+    other_process = make(notion, store, clock)  # nothing cached at all (a restart, another replica)
 
     await other_process.disconnect(USER)
 
-    assert store.rows == {} and notion.revoked == [] and notion.refreshes == 0
+    assert store.rows == {} and notion.revoked == ["refresh-1"] and notion.refreshes == 0
 
 
-async def test_a_stale_cached_token_is_not_revoked_either() -> None:
+async def test_a_stale_cached_token_is_not_revoked_but_the_stored_refresh_token_is() -> None:
     notion, store, clock = FakeNotion(), MemoryStore(), Clock()
     connections = await connected(notion, store, clock)
     clock.now += 3600
 
     await connections.disconnect(USER)
 
-    assert store.rows == {} and notion.revoked == [] and notion.refreshes == 0
+    assert store.rows == {} and notion.revoked == ["refresh-1"] and notion.refreshes == 0
+
+
+async def test_disconnect_after_a_restart_revokes_the_stored_access_token_of_a_grant_with_no_refresh_token() -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    notion.with_refresh = False
+    await connected(notion, store)
+
+    await make(notion, store).disconnect(USER)
+
+    assert store.rows == {} and notion.revoked == ["access-1"]
+
+
+async def test_a_revoke_that_cannot_decrypt_or_fails_never_blocks_the_delete(caplog) -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    await connected(notion, store)
+    store.rows[USER] = replace(store.rows[USER], refresh_token=b"not-a-fernet-token")  # a rotated token key
+    with caplog.at_level(logging.INFO):
+        await make(notion, store).disconnect(USER)
+
+    assert store.rows == {} and notion.revoked == []
+    assert "notion.disconnected" in caplog.text and "not-a-fernet-token" not in caplog.text
 
 
 async def test_a_failed_revoke_still_deletes_the_connection() -> None:

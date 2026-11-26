@@ -812,8 +812,9 @@ class ProjectIntegration(Base):
 
 class NotionConnection(Base):
     """One user's Notion connection (migration ``0011_notion``, docs/notion/oauth.md): the workspace and the bot of the
-    public connection's authorisation, the refresh token as Fernet ciphertext; the access token is never stored. Not
-    project-scoped: row-level security is on with no policy and no grant, so the agent role reads nothing of it."""
+    public connection's authorisation, the refresh token as Fernet ciphertext; the access token as Fernet ciphertext
+    only for a grant with no refresh token (null otherwise). Not project-scoped: row-level security is on with no
+    policy and no grant, so the agent role reads nothing of it."""
 
     __tablename__ = "notion_connections"
     __table_args__ = (CheckConstraint(_one_of("status", NOTION_CONNECTION_STATUSES), name="status"),)
@@ -830,6 +831,7 @@ class NotionConnection(Base):
     expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    access_token: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
 
 class NotionPlanTarget(Base):

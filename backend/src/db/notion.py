@@ -1,9 +1,8 @@
 """Application-role data access for the Notion connections (docs/notion/oauth.md "Data"). Stream C1 owns this file; the
-``ConnectionRows`` below are final and complete.
-
-Same rules as ``db.github``: every function runs inside the caller's session and transaction, flushes and never commits;
-every statement filters on the user it is given. The refresh token arrives and leaves as Fernet ciphertext; nothing
-here logs. ``ConnectionRows`` is the ``notion.connections.ConnectionStore`` of one session; ``connection_store`` turns a
+``ConnectionRows`` below are final and complete. Same rules as ``db.github``: every function runs inside the caller's
+session and transaction, flushes and never commits; every statement filters on the user it is given. The refresh token
+and the access token (kept only for a grant with no refresh token) arrive and leave as Fernet ciphertext; nothing here
+logs. ``ConnectionRows`` is the ``notion.connections.ConnectionStore`` of one session; ``connection_store`` turns a
 session transaction (the api's ``Runtime.transaction``) into the store transaction ``NotionConnections`` takes.
 """
 
@@ -35,6 +34,7 @@ def _stored(row: NotionConnection | None) -> StoredConnection | None:
         status=row.status,
         connected_at=row.connected_at,
         last_used_at=row.last_used_at,
+        access_token=None if row.access_token is None else bytes(row.access_token),
     )
 
 
@@ -65,12 +65,14 @@ class ConnectionRows:
         refresh_token: bytes,
         refresh_expires_at: datetime | None,
         now: datetime,
+        access_token: bytes | None = None,
     ) -> None:
         values: dict[str, Any] = {
             "workspace_id": grant.workspace_id,
             "workspace_name": grant.workspace_name,
             "bot_id": grant.bot_id,
             "refresh_token": refresh_token,
+            "access_token": access_token,
             "refresh_expires_at": refresh_expires_at,
             "status": ACTIVE,
             "connected_at": now,

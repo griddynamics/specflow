@@ -365,11 +365,35 @@ def test_scrub_original_emails(text: str, expected: str) -> None:
 
 def test_to_markdown_hides_emails_in_every_place() -> None:
     md = to_markdown(
-        'Contact boss@corp.com.\n\n```\ncode@corp.com\n```\n\n[l](mailto:x@corp.com)\n\n<mention url="user://i/m@corp.com">m@corp.com</mention>\n\n'
+        'Contact boss@corp.com.\n\n[l](mailto:x@corp.com)\n\n<mention url="user://i/m@corp.com">m@corp.com</mention>\n\n'
         "<table><tr><td>t@corp.com</td></tr></table>"
     ).markdown
     assert "@" not in md
-    assert md.count("(e-mail hidden)") == 5
+    assert md.count("(e-mail hidden)") == 4
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("run `npm i foo@1.2.3` now", "run `npm i foo@1.2.3` now"),
+        ("clone `git@github.com:org/repo` or ann@corp.com", "clone `git@github.com:org/repo` or (e-mail hidden)"),
+        ("``a@b.com`` and c@d.com", "``a@b.com`` and (e-mail hidden)"),
+        ("```\ngit@github.com:org/repo\n```\nann@corp.com\n", "```\ngit@github.com:org/repo\n```\n(e-mail hidden)\n"),
+        ("~~~sh\nnpm i foo@1.2.3\n~~~\n", "~~~sh\nnpm i foo@1.2.3\n~~~\n"),
+        ("foo@1.2.3 and foo@bar.c0m and a@b.io", "foo@1.2.3 and foo@bar.c0m and (e-mail hidden)"),
+        ("an `unclosed span a@b.io", "an `unclosed span (e-mail hidden)"),
+    ],
+)
+def test_scrub_leaves_code_and_versions_alone_and_removes_prose_addresses(text: str, expected: str) -> None:
+    assert scrub_original(text) == expected
+    assert to_markdown(text).markdown.strip() == expected.strip()
+
+
+def test_an_escaped_closing_tag_at_line_end_does_not_close_the_block() -> None:
+    assert (
+        clean("<callout>\nwrite \\</callout>\nstill inside\n</callout>\nafter")
+        == "> write &lt;/callout>\n> still inside\n\nafter\n"
+    )
 
 
 def test_user_id_in_mentions_does_not_reach_the_markdown(markdown: dict[str, str]) -> None:

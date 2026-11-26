@@ -44,6 +44,7 @@ class FakeNotionConnections:
         self.fake = gateway or FakeNotionGateway()
         self.users: dict[uuid.UUID, str] = {ACTING: "active"}  # user id -> status
         self.workspace = "Sample Workspace"
+        self.workspace_id = "ws-1"  # the workspace the binding of the rig names
         self.gateways_asked: list[uuid.UUID] = []
 
     def expire(self, user_id: uuid.UUID) -> None:
@@ -53,7 +54,9 @@ class FakeNotionConnections:
         status = self.users.get(user_id)
         if status is None:
             return None
-        return ConnectionView("expired" if status == "expired" else "active", "ws-1", self.workspace, NOW, NOW)
+        return ConnectionView(
+            "expired" if status == "expired" else "active", self.workspace_id, self.workspace, NOW, NOW
+        )
 
     async def gateway(self, user_id: uuid.UUID) -> FakeNotionGateway:
         self.gateways_asked.append(user_id)
@@ -80,7 +83,7 @@ async def wire_notion_rig(served: Any, monkeypatch: pytest.MonkeyPatch, *, alpha
     runtime = served.runtime
     connections, integrations, imports = FakeNotionConnections(), FakeIntegrationsDb(), FakeImports()
     integrations.install(monkeypatch)
-    integrations.put(alpha, "notion", ACTING)
+    integrations.put(alpha, "notion", ACTING, workspace_id=connections.workspace_id)
     runtime.notion = connections
     runtime.imports = imports
 

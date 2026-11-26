@@ -990,6 +990,7 @@ def test_0011_creates_the_notion_tables_with_their_keys_and_scopes_the_plan_tabl
     created = re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql)
     assert created == [NOTION_CONNECTIONS, *NOTION_PLAN_TABLES]
     assert "CONSTRAINT pk_notion_connections PRIMARY KEY (user_id)" in sql
+    assert re.search(r"refresh_token BYTEA NOT NULL,\s+access_token BYTEA,", sql)  # nullable, no refresh token only
     assert "CONSTRAINT pk_notion_plan_targets PRIMARY KEY (project_id)" in sql
     assert "CONSTRAINT pk_notion_plan_items PRIMARY KEY (project_id, node_id)" in sql
     assert "CONSTRAINT uq_notion_plan_items_project_id UNIQUE (project_id, page_id)" in sql
