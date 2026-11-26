@@ -2,7 +2,8 @@
 
 Routes by media type (``file_parsers.formats``) to an engine behind the ``DocumentEngine`` port: PDF through
 ``PDFParser``, DOCX/PPTX/XLSX/HTML/Markdown/CSV through ``office.guard`` (limits), the engine and
-``OfficeStructure``. Any other type raises ``UnsupportedFormatError``. The default engine is Docling
+``OfficeStructure``. The three draw.io types skip the engine: ``file_parsers.diagrams`` (stdlib only) decodes them
+(parser id ``drawio-convert``). Any other type raises ``UnsupportedFormatError``. The default engine is Docling
 (``file_parsers.engines.default``); the import is eager. Only worker-parse code
 (``temporal.documents.activities``) imports this module: the api and worker-agents processes never do
 (lazy queue registration).
@@ -14,9 +15,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from file_parsers.diagrams import MAX_INPUT_BYTES, DiagramDecodeError, decode, file_markdown
 from file_parsers.engines.default import default_engine
 from file_parsers.engines.port import DocumentEngine, ProgressCallback, UnsupportedFormatError
-from file_parsers.formats import DocumentFormat, format_for_media_type
+from file_parsers.formats import DocumentFormat, FormatSpec, format_for_media_type
 from file_parsers.limits import DocumentParseFailedError, DocumentTooLargeError, check_markdown_size
 from file_parsers.office.guard import inspect_file
 from file_parsers.office.structure import OfficeStructure
@@ -25,6 +27,10 @@ from file_parsers.pdf.parser import PDFParser
 
 class PdfParseError(Exception):
     """The file is not a parseable PDF."""
+
+
+DRAWIO_PARSER_ID = "drawio-convert"
+_DRAWIO_FORMATS = frozenset({DocumentFormat.DRAWIO, DocumentFormat.DRAWIO_SVG, DocumentFormat.DRAWIO_PNG})
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,10 +64,26 @@ def file_to_markdown(
     spec = format_for_media_type(media_type)
     if spec is None:
         raise UnsupportedFormatError(media_type)
+    if spec.format in _DRAWIO_FORMATS:  # before default_engine(): Docling is never loaded for a diagram
+        return _drawio_to_markdown(Path(path), spec)
     engine = engine if engine is not None else default_engine()
     if spec.format is DocumentFormat.PDF:
         return _pdf_to_markdown(Path(path), engine, on_progress)
     return _office_to_markdown(Path(path), spec.format, spec.media_type, engine, on_progress)
+
+
+def _drawio_to_markdown(path: Path, spec: FormatSpec) -> ParsedMarkdown:
+    size = path.stat().st_size
+    if size > MAX_INPUT_BYTES:
+        raise DocumentTooLargeError("diagram file", size, MAX_INPUT_BYTES)
+    try:
+        markdown = file_markdown(decode(path.read_bytes(), hint=spec.media_type))
+    except DiagramDecodeError as exc:
+        if exc.code == "too_large":
+            raise DocumentTooLargeError("diagram", size, MAX_INPUT_BYTES) from exc
+        raise DocumentParseFailedError(f"cannot parse {spec.format.value}") from exc
+    check_markdown_size(markdown)
+    return ParsedMarkdown(markdown=markdown, parser=DRAWIO_PARSER_ID)
 
 
 def _office_to_markdown(

@@ -1,0 +1,53 @@
+<mxfile host="test">
+  <diagram id="d1" name="Flow">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="start" value="Start" style="rounded=1;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="0" width="80" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="gate" value="Approved?&lt;br&gt;&quot;Yes, I reviewed&quot; &amp;amp; signed" style="rhombus;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="80" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="db" value="Archive" style="shape=cylinder3;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="60" height="80" as="geometry"/>
+        </mxCell>
+        <UserObject label="SPEC.md" link="https://example.com/spec?a=1&amp;b=[2]" owner="ops" id="doc" placeholders="1">
+          <mxCell style="shape=document;html=1;" vertex="1" parent="1">
+            <mxGeometry x="200" y="200" width="60" height="80" as="geometry"/>
+          </mxCell>
+        </UserObject>
+        <object label="Reviewer" team="" id="who">
+          <mxCell style="shape=umlActor;html=1;" vertex="1" parent="1">
+            <mxGeometry x="200" y="0" width="30" height="60" as="geometry"/>
+          </mxCell>
+        </object>
+        <mxCell id="note" value="&lt;div&gt;# Legend&lt;/div&gt;&lt;div&gt;[click](http://x) *bold* _it_&lt;/div&gt;" style="text;html=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="0" width="100" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="blank" value="" style="rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="100" width="40" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="start" target="gate">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" value="yes" style="html=1;" edge="1" parent="1" source="gate" target="db">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" value="to nowhere" edge="1" parent="1" source="db">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" value="" edge="1" parent="1" source="blank" target="doc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" value="" edge="1" parent="1" source="doc" target="gone">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="el" value="late" style="edgeLabel;html=1;" vertex="1" connectable="0" parent="e2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

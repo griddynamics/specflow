@@ -9,17 +9,19 @@ from pathlib import Path
 
 import pytest
 
-from file_parsers.convert import PdfParseError, default_engine, file_to_markdown
+from file_parsers.convert import DocumentParseFailedError, PdfParseError, default_engine, file_to_markdown
 from file_parsers.engines.docling import DoclingEngine
 from file_parsers.engines.port import DocumentEngine, PageRange, ProgressCallback, UnsupportedFormatError
-from file_parsers.formats import FORMATS, PDF_MEDIA_TYPE
+from file_parsers.formats import FORMATS, PDF_MEDIA_TYPE, DocumentFormat
 from file_parsers.office.model import OfficeContent
 from file_parsers.pdf.parser import PDFParser
 from file_parsers.pdf.schema import PDFDocument, PDFPageContent
 from office_support import DOCX, PPTX, XLSX, build_docx, build_pptx, build_xlsx
 
+DRAWIO_FORMATS = {DocumentFormat.DRAWIO, DocumentFormat.DRAWIO_SVG, DocumentFormat.DRAWIO_PNG}
 FIXTURE = Path(__file__).parent / "data" / "specs" / "extraction.pdf"
-NON_PDF_TYPES = [spec.media_type for spec in FORMATS if spec.media_type != PDF_MEDIA_TYPE]
+NON_PDF_TYPES = sorted(DoclingEngine.formats - {PDF_MEDIA_TYPE})  # the engine formats; draw.io has its own path
+DRAWIO_TYPES = [spec.media_type for spec in FORMATS if spec.format in DRAWIO_FORMATS]
 
 
 class FakeEngine:
@@ -90,6 +92,16 @@ def test_a_non_pdf_format_never_reaches_the_pdf_extract_and_a_pdf_only_engine_re
     with pytest.raises(UnsupportedFormatError) as error:
         file_to_markdown(path, media_type, engine=engine)
     assert error.value.media_type == media_type
+    assert engine.calls == []
+
+
+@pytest.mark.parametrize("media_type", DRAWIO_TYPES)
+def test_a_drawio_type_is_routed_to_drawio_convert_and_never_to_the_engine(media_type, tmp_path):
+    path = tmp_path / "x"
+    path.write_bytes(b"not a diagram")
+    engine = FakeEngine()
+    with pytest.raises(DocumentParseFailedError):  # the diagram decoder ran (not UnsupportedFormatError)
+        file_to_markdown(path, media_type, engine=engine)
     assert engine.calls == []
 
 

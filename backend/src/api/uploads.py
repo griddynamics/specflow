@@ -30,6 +30,7 @@ from storage.base import CHUNK_SIZE, MiB, ObjectStore, ObjectWriter, StoredObjec
 
 PDF_MAGIC: Final = b"%PDF-"
 ZIP_MAGIC: Final = b"PK\x03\x04"
+PNG_MAGIC: Final = b"\x89PNG\r\n\x1a\n"
 TEXT_HEAD_BYTES: Final = 4096  # the part of a text body that is checked for UTF-8
 
 #: N2 byte caps per format. The Office and text caps equal the parser's own (``file_parsers.limits``,
@@ -43,6 +44,9 @@ MAX_BYTES: Final[dict[DocumentFormat, int]] = {
     DocumentFormat.HTML: 10 * MiB,
     DocumentFormat.MARKDOWN: 10 * MiB,
     DocumentFormat.CSV: 10 * MiB,
+    DocumentFormat.DRAWIO: 10 * MiB,
+    DocumentFormat.DRAWIO_SVG: 10 * MiB,
+    DocumentFormat.DRAWIO_PNG: 10 * MiB,
 }
 
 _MAGIC: Final[dict[DocumentFormat, bytes]] = {
@@ -50,6 +54,7 @@ _MAGIC: Final[dict[DocumentFormat, bytes]] = {
     DocumentFormat.DOCX: ZIP_MAGIC,
     DocumentFormat.PPTX: ZIP_MAGIC,
     DocumentFormat.XLSX: ZIP_MAGIC,
+    DocumentFormat.DRAWIO_PNG: PNG_MAGIC,
 }
 
 
@@ -122,7 +127,7 @@ class _Stream:
             if not head.startswith(self._magic):
                 raise _unsupported("The file content does not match its type.")
             return
-        if head.startswith((PDF_MAGIC, ZIP_MAGIC)) or b"\x00" in head:
+        if head.startswith((PDF_MAGIC, ZIP_MAGIC, PNG_MAGIC)) or b"\x00" in head:
             raise _unsupported("The file content is not text.")
         try:  # a multi-byte character cut at the end of the head is fine unless the body ended
             codecs.getincrementaldecoder("utf-8")().decode(head, final=complete)

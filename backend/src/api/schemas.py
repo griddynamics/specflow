@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from agent_contracts import JiraSyncStatus
+from file_parsers.diagrams import MAX_LINK_BYTES
 from integrations.return_to import RETURN_TO_MAX, is_same_site_path
 
 NAME_MAX = 200
@@ -463,7 +464,7 @@ FileStateName = Literal[
     "failed",
     "already_in_project",
 ]
-SourceKindName = Literal["gdrive", "upload", "confluence", "jira_epic", "linear_project"]
+SourceKindName = Literal["gdrive", "upload", "confluence", "jira_epic", "linear_project", "drawio"]
 BatchOutcomeName = Literal["added", "already_in_project", "read_again", "duplicate"]
 MAX_EXPECTED_FILES = 10_000
 
@@ -1116,3 +1117,29 @@ class JiraEpicCheckOut(BaseModel):
     issues: int
     children: list[JiraEpicChildOut]  # in key order, at most the issue cap
     capped: bool  # more issues than the cap
+
+
+class DrawioIn(BaseModel):
+    """A diagrams.net link. ``file_parsers.diagrams.MAX_LINK_BYTES`` is the length of a link (a ``#R`` link holds the
+    diagram): a longer link is refused by the route as ``drawio_too_large``; a body over twice that is refused by
+    validation (``validation_failed``) before anything reads it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    link: str = Field(max_length=2 * MAX_LINK_BYTES)
+
+
+class DrawioPageOut(BaseModel):
+    """One page of the diagram: its name and how many shapes and arrows an import would take."""
+
+    name: str
+    shapes: int
+    arrows: int
+
+
+class DrawioCheckOut(BaseModel):
+    """The diagram an import would take: its name, its pages (in order) and whether a cap dropped pages or cells."""
+
+    name: str
+    pages: list[DrawioPageOut]
+    capped: bool

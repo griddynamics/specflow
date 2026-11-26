@@ -160,5 +160,19 @@
     "processed",
     "stored_only",
     "skipped"
-  ]
+  ],
+  "drawio_names": {
+    "suffixes": [
+      ".drawio",
+      ".drawio.svg",
+      ".drawio.png"
+    ],
+    "mime_types": [
+      "application/vnd.jgraph.mxfile",
+      "application/vnd.jgraph.mxfile.realtime",
+      "application/vnd.jgraph.mxfile.rtlegacy"
+    ],
+    "category": "other_files",
+    "processing_class": "processed"
+  }
 }

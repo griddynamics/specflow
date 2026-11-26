@@ -20,12 +20,13 @@ const NAMES = {
   upload: "Local files",
   confluence: "Ordering space",
   jira_epic: "NWO-12: Checkout redesign",
+  drawio: "Release flow",
 } as const;
 
 /** One source of the sources API (`GET /sources?batches=1`): `kind` upload or gdrive, files by state. */
 export const wireSource = (
   id: string,
-  kind: "upload" | "gdrive" | "confluence" | "jira_epic",
+  kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "drawio",
   counts: Partial<typeof COUNTS>,
   over: Record<string, unknown> = {},
 ) => {

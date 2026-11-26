@@ -129,6 +129,11 @@ codes = [
     { code = "linear_not_configured", http = 409 },
     { code = "linear_webhook_signature_invalid", http = 401 },
     { code = "linear_webhook_unavailable", http = 503 },
+    { code = "drawio_link_invalid", http = 422 },
+    { code = "drawio_link_unsupported", http = 422 },
+    { code = "drawio_fetch_failed", http = 409 },
+    { code = "drawio_not_a_diagram", http = 422 },
+    { code = "drawio_too_large", http = 413 },
     { code = "internal_error", http = 500 },
     { code = "http_error", http = 400 },
 ]
@@ -238,6 +243,11 @@ probes = [
     { name = "probe-97", class = "api.errors:ApiError", args = [409, "linear_not_configured", "The project has no enabled Linear target."] },
     { name = "probe-98", class = "api.errors:ApiError", args = [401, "linear_webhook_signature_invalid", "The webhook signature is missing, wrong or too old."] },
     { name = "probe-99", class = "api.errors:ApiError", args = [503, "linear_webhook_unavailable", "The Linear webhook is not configured on this server."] },
+    { name = "probe-100", class = "api.errors:ApiError", args = [422, "drawio_link_invalid", "Paste a link to a diagram on diagrams.net."] },
+    { name = "probe-101", class = "api.errors:ApiError", args = [422, "drawio_link_unsupported", "The diagram is stored in a place SpecFlow cannot read from a link. Download it as .drawio and add it with Upload."] },
+    { name = "probe-102", class = "api.errors:ApiError", args = [409, "drawio_fetch_failed", "The diagram could not be fetched from the link."] },
+    { name = "probe-103", class = "api.errors:ApiError", args = [422, "drawio_not_a_diagram", "The link does not hold a diagrams.net diagram."] },
+    { name = "probe-104", class = "api.errors:ApiError", args = [413, "drawio_too_large", "The diagram is too large to import."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

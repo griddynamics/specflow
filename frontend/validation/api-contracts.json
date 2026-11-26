@@ -219,6 +219,16 @@
       "path": "/projects/{pid}/sources/jira-epic/check"
     },
     {
+      "id": "add_drawio_source_api_v1_projects__pid__sources_drawio_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/drawio"
+    },
+    {
+      "id": "check_drawio_api_v1_projects__pid__sources_drawio_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/drawio/check"
+    },
+    {
       "id": "check_confluence_link_api_v1_projects__pid__sources_confluence_check_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/confluence/check"

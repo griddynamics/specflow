@@ -7,6 +7,7 @@ import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
 import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
 import { checkLinearSource } from "./stub-linear-source.mjs";
+import { checkDrawio } from "./stub-drawio.mjs";
 import { checkJiraEpic } from "./stub-jira-epic.mjs";
 import { driveFilesCapped, driveFilesOf } from "./stub-drive-files.mjs";
 import { createJiraModel } from "./stub-jira.mjs";
@@ -42,10 +43,16 @@ export const UPLOAD_TABLE = {
   ".html": { type: "text/html", cap: 10 * MB, magic: null },
   ".md": { type: "text/markdown", cap: 10 * MB, magic: null },
   ".csv": { type: "text/csv", cap: 10 * MB, magic: null },
+  ".drawio": { type: "application/vnd.jgraph.mxfile", cap: 10 * MB, magic: null },
+  ".drawio.svg": { type: "application/vnd.graphico.drawio-svg", cap: 10 * MB, magic: null },
+  ".drawio.png": { type: "application/vnd.graphico.drawio-png", cap: 10 * MB, magic: null },
 };
 const extensionOf = (name) => {
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(dot).toLowerCase() : "";
+  const lower = name.toLowerCase();
+  const compound = [".drawio.svg", ".drawio.png"].find((e) => lower.endsWith(e) && lower.length > e.length);
+  if (compound) return compound;
+  const dot = lower.lastIndexOf(".");
+  return dot > 0 ? lower.slice(dot) : "";
 };
 
 // ---- Drive sources (GDRIVE plan 04, architecture-notes B4): a close-enough double of the sources endpoints ----
@@ -1023,6 +1030,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           }),
         });
       }
+      if (did === "drawio" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const checked = typeof body?.link === "string" ? checkDrawio(body.link) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        const { name, pages } = checked.body;
+        return json(res, 201, {
+          source: importedSource(pid, { kind: "drawio", name, link: body.link.split("#")[0], pages: pages.length }),
+        });
+      }
       if (did === "linear" && req.method === "POST" && (action === undefined || action === "check")) {
         const body = await readJson();
         const checked = typeof body?.link === "string" ? checkLinearSource(body.link) : { status: 422, code: "validation_failed" };
@@ -1043,7 +1060,15 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           }),
         });
       }
-      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic" && did !== "linear") {
+      if (
+        did &&
+        did !== "gdrive" &&
+        did !== "uploads" &&
+        did !== "confluence" &&
+        did !== "jira-epic" &&
+        did !== "linear" &&
+        did !== "drawio"
+      ) {
         if (!action && req.method === "DELETE") {
           await drain();
           model.remove(pid, did);

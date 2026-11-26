@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "linear_project";
+export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "linear_project" | "drawio";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;
@@ -287,6 +287,19 @@ export interface JiraEpicChild {
 /** The most issues one epic import reads (the backend's `MAX_EPIC_ISSUES`). */
 export const EPIC_ISSUE_CAP = 200;
 
+/** What the check of a diagrams.net link found, nothing stored: the diagram's name and one entry per page with the shapes and arrows an import
+ * would take; `capped` = a cap dropped pages or cells. */
+export interface DrawioCheck {
+  name: string;
+  pages: DrawioPage[];
+  capped: boolean;
+}
+export interface DrawioPage {
+  name: string;
+  shapes: number;
+  arrows: number;
+}
+
 /** Collect side (D1, D6, D7): sources, sync, access, uploads and removal. The status read carries the counts per source; `files` the
  * file list of one source (sources-ux). */
 export interface SourcesPort {
@@ -324,6 +337,11 @@ export interface SourcesPort {
   /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). `exclude` are the keys of the children not to import (the epic
    * itself is always imported); a key that is not a child rejects `validation`. */
   addJiraEpic(projectId: string, keyOrLink: string, exclude?: readonly string[]): Promise<void>;
+  /** Reads a diagrams.net link (`#R` diagram in the link, `#U` public HTTPS file) and counts what an import would take; stores nothing. A refusal rejects
+   * a `DataError` whose `detail.apiCode` is the closed code (`drawio_link_invalid`, `drawio_link_unsupported`, `drawio_fetch_failed`, `drawio_not_a_diagram`, `drawio_too_large`). */
+  checkDrawio(projectId: string, link: string): Promise<DrawioCheck>;
+  /** Adds the link as a source and starts its import, once (D7): one document per page. Rejects like the check. */
+  addDrawio(projectId: string, link: string): Promise<void>;
 }
 
 /** The source-aware Mission Control port (D9, D11): project status and knowledge builds. */

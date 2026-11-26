@@ -1,7 +1,9 @@
 """File categories and processing classes (DATA-GDUI-0001).
 
-A category is chosen by the Drive ``mimeType`` only, never by the file name
-(DATA-GDUI-0001.AC5). Folders belong to no category.
+A category is chosen by the Drive ``mimeType``, never by the file name (DATA-GDUI-0001.AC5), with one
+exception: the draw.io names ``.drawio``, ``.drawio.svg`` and ``.drawio.png`` (case-insensitive) win over the MIME
+type, because Drive reports them as ``image/png``, ``text/xml`` or ``application/octet-stream``. They are
+``other_files`` and ``processed``. Folders belong to no category.
 
 The processing class follows the MIME type too (design N1, no new category): a file whose
 type is in the parser table (``file_parsers.formats``: PDF, OOXML Word/PowerPoint/Excel, HTML,
@@ -16,7 +18,7 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Final
 
-from file_parsers.formats import format_for_media_type
+from file_parsers.formats import FORMATS, DocumentFormat, FormatSpec, format_for_media_type
 
 GOOGLE: Final = "application/vnd.google-apps."
 FOLDER_MIME: Final = GOOGLE + "folder"
@@ -93,6 +95,12 @@ _BY_MIME: Final[Mapping[str, Category]] = {
     SHORTCUT_MIME: Category.SHORTCUTS,
 }
 
+_DRAWIO_FORMATS: Final = frozenset({DocumentFormat.DRAWIO, DocumentFormat.DRAWIO_SVG, DocumentFormat.DRAWIO_PNG})
+#: The legacy draw.io Drive types: the content is the same mxfile XML.
+_LEGACY_DRAWIO_MIMES: Final = frozenset(
+    {"application/vnd.jgraph.mxfile.realtime", "application/vnd.jgraph.mxfile.rtlegacy"}
+)
+
 
 #: Categories whose class depends on the MIME type (the parser table decides).
 _BY_PARSER_TABLE: Final = frozenset({Category.WORD, Category.POWERPOINT, Category.EXCEL, Category.OTHER_FILES})
@@ -104,18 +112,36 @@ def processing_class(category: Category) -> ProcessingClass:
     return _CLASS_OF[category]
 
 
-def _class_of(category: Category, mime_type: str) -> ProcessingClass:
-    if category in _BY_PARSER_TABLE and format_for_media_type(mime_type) is not None:
+def drive_format(mime_type: str, name: str | None = None) -> FormatSpec | None:
+    """The parser format of a Drive file: a draw.io name wins over the MIME type, else the MIME type decides."""
+
+    if name and not mime_type.startswith(GOOGLE):
+        lowered = name.lower()
+        for spec in FORMATS:
+            if (
+                spec.format in _DRAWIO_FORMATS
+                and lowered.endswith(spec.extension)
+                and len(lowered) > len(spec.extension)
+            ):
+                return spec
+    if mime_type in _LEGACY_DRAWIO_MIMES:
+        return format_for_media_type("application/vnd.jgraph.mxfile")
+    return format_for_media_type(mime_type)
+
+
+def _class_of(category: Category, mime_type: str, name: str | None) -> ProcessingClass:
+    if category in _BY_PARSER_TABLE and drive_format(mime_type, name) is not None:
         return ProcessingClass.PROCESSED
     return _CLASS_OF[category]
 
 
-def categorize(mime_type: str) -> tuple[Category, ProcessingClass]:
-    """Category and processing class of one non-folder item, by mimeType only."""
+def categorize(mime_type: str, name: str | None = None) -> tuple[Category, ProcessingClass]:
+    """Category and processing class of one non-folder item, by mimeType (a draw.io ``name`` wins)."""
 
     if mime_type == FOLDER_MIME:
         raise ValueError("a folder has no file category")
-    category = _BY_MIME.get(mime_type)
+    spec = drive_format(mime_type, name)
+    category = Category.OTHER_FILES if spec and spec.format in _DRAWIO_FORMATS else _BY_MIME.get(mime_type)
     if category is None:
         if mime_type.startswith("image/"):
             category = Category.IMAGES
@@ -125,4 +151,4 @@ def categorize(mime_type: str) -> tuple[Category, ProcessingClass]:
             category = Category.OTHER_GOOGLE
         else:
             category = Category.OTHER_FILES
-    return category, _class_of(category, mime_type)
+    return category, _class_of(category, mime_type, name)

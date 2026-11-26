@@ -55,8 +55,9 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # The Drive-related values mirror
 # drive.categories / reasons; a test keeps them equal. They are
 # written out here so the models do not import the Drive package.
-# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations).
-CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project")
+# ``confluence``, ``jira_epic``, ``linear_project`` and ``drawio`` are imported by the API in-process
+# (migrations 0008, 0011, 0012).
+CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "drawio")
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",

@@ -152,7 +152,14 @@ export const CANVAS_COPY = {
   app: "App",
   removeFailed: "It could not be removed. Try again.",
   // The files inside a source, and renaming an upload
-  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues", linear_project: "Issues" },
+  filesTitle: {
+    upload: "Files",
+    gdrive: "Files",
+    confluence: "Pages",
+    jira_epic: "Issues",
+    linear_project: "Issues",
+    drawio: "Pages",
+  },
   filesLabel: "Files in this source",
   filesNone: "Nothing in this source yet.",
   filesFailed: "The files could not be read.",

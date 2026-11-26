@@ -23,6 +23,7 @@ export type ConnectorKind =
   | "github"
   | "confluence"
   | "jira_epic"
+  | "drawio"
   | "slack"
   | "jira_gap"
   | "jira"

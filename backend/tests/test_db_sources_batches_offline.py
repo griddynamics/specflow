@@ -261,7 +261,14 @@ async def test_adopt_unheld_without_a_project_runs_the_unscoped_statements() -> 
 
 
 def test_the_vocabularies_know_the_new_kind_and_states() -> None:
-    assert models.CONNECTION_KINDS == ("gdrive", "upload", "confluence", "jira_epic", "linear_project")
+    assert models.CONNECTION_KINDS == (
+        "gdrive",
+        "upload",
+        "confluence",
+        "jira_epic",
+        "linear_project",
+        "drawio",
+    )
     assert {"processing", "duplicate"} <= set(models.ITEM_STATES)
     assert {
         "processed",
@@ -374,7 +381,7 @@ def test_the_legacy_progress_statement_reads_drive_and_imported_sources_and_coun
     sql = str(sources._sources_progress_statement(ID).compile(dialect=postgresql.asyncpg.dialect()))
 
     assert "connections.kind IN (" in sql  # Drive and the importers of the API process, never an upload batch
-    assert sources.PROGRESS_KINDS == ("gdrive", "confluence", "jira_epic")
+    assert sources.PROGRESS_KINDS == ("gdrive", "confluence", "jira_epic", "drawio")
     assert "connection_items.state IN (" in sql  # finished = the final set
     assert "connection_items.state != $" not in sql
     assert "documents.origin" in sql  # the uploads aggregate stays for old tabs

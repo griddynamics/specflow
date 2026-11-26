@@ -108,11 +108,12 @@ def test_the_engine_id_names_the_docling_version_and_the_post_processing_version
     assert DoclingEngine(threads=1).engine_id == engine_id()
 
 
-def test_the_engine_satisfies_the_port_and_accepts_all_seven_formats():
+def test_the_engine_satisfies_the_port_and_accepts_the_seven_docling_formats_but_no_diagram():
     engine = DoclingEngine(threads=1)
     assert isinstance(engine, DocumentEngine)
-    assert engine.formats == frozenset(canonical_media_types())
+    assert engine.formats == frozenset(canonical_media_types()[:7])
     assert PDF in engine.formats and len(engine.formats) == 7
+    assert not any("drawio" in media_type or "jgraph" in media_type for media_type in engine.formats)
 
 
 def test_the_default_engine_is_one_docling_engine_per_process():

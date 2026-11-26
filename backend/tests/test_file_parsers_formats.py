@@ -31,13 +31,16 @@ ROWS = [
     (DocumentFormat.HTML, ".html", "text/html"),
     (DocumentFormat.MARKDOWN, ".md", "text/markdown"),
     (DocumentFormat.CSV, ".csv", "text/csv"),
+    (DocumentFormat.DRAWIO, ".drawio", "application/vnd.jgraph.mxfile"),
+    (DocumentFormat.DRAWIO_SVG, ".drawio.svg", "application/vnd.graphico.drawio-svg"),
+    (DocumentFormat.DRAWIO_PNG, ".drawio.png", "application/vnd.graphico.drawio-png"),
 ]
 
 
-def test_the_table_has_exactly_the_seven_formats():
+def test_the_table_has_exactly_the_ten_formats():
     assert [(s.format, s.extension, s.media_type) for s in FORMATS] == ROWS
     assert canonical_media_types() == tuple(row[2] for row in ROWS)
-    assert len({s.media_type for s in FORMATS}) == 7
+    assert len({s.media_type for s in FORMATS}) == 10
 
 
 @pytest.mark.parametrize(("fmt", "extension", "media_type"), ROWS)
@@ -153,3 +156,27 @@ def test_the_module_imports_nothing_heavy():
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=30)
     assert formats.__doc__
+
+
+@pytest.mark.parametrize(
+    ("header", "filename", "expected"),
+    [
+        ("image/svg+xml", "flow.drawio.svg", DocumentFormat.DRAWIO_SVG),
+        ("image/png", "FLOW.DRAWIO.PNG", DocumentFormat.DRAWIO_PNG),
+        ("text/xml", "flow.drawio", DocumentFormat.DRAWIO),
+        ("", "dir/flow.drawio", DocumentFormat.DRAWIO),
+        ("application/octet-stream", "a.b.drawio.svg", DocumentFormat.DRAWIO_SVG),
+        ("image/svg+xml", "logo.svg", None),
+        ("image/png", "photo.png", None),
+        ("image/png", "flow.drawio.svg", None),
+        ("image/svg+xml", ".drawio.svg", None),
+    ],
+)
+def test_drawio_files_are_chosen_by_the_longest_extension(header, filename, expected):
+    spec = format_for_upload(header, filename)
+    assert (spec.format if spec else None) is expected
+
+
+def test_the_browser_headers_of_drawio_files_are_not_trusted_types():
+    for header in ("image/svg+xml", "image/png", "text/xml", "application/xml", "application/octet-stream", ""):
+        assert format_for_media_type(header) is None

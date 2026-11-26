@@ -48,12 +48,11 @@ from temporalio.exceptions import ApplicationError
 
 from db import repositories, sources
 from db.models import Connection, ConnectionItem, Document
-from drive.categories import Category, ProcessingClass
+from drive.categories import Category, ProcessingClass, drive_format
 from drive.convert import to_markdown
 from drive.gateway import DriveError, DriveGateway
 from drive.model import summarize
 from drive.reasons import FileErrorReason, Reason
-from file_parsers.formats import format_for_media_type
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from storage import ObjectAlreadyExistsError, ObjectStore, ObjectStoreError
 from storage.keys import (
@@ -329,7 +328,7 @@ class DriveImportActivities:
             return "pdf"
         if row.category in {c.value for c in GOOGLE_SOURCE_TYPES}:
             return "google"
-        if format_for_media_type(row.mime_type) is not None:  # Office, HTML, Markdown, CSV
+        if drive_format(row.mime_type, row.name) is not None:  # Office, HTML, Markdown, CSV, draw.io
             return "document"
         return None
 
@@ -399,7 +398,7 @@ class DriveImportActivities:
         type is trusted here, as for the category); the parse workflow runs the content checks.
         """
 
-        spec = format_for_media_type(item.mime_type)
+        spec = drive_format(item.mime_type, item.name)
         if spec is None:  # ``_kind`` never sends such a file; a fixed code, not the type
             raise _ItemError(FileErrorReason.UNKNOWN_ERROR, "download")
         media_type = spec.media_type

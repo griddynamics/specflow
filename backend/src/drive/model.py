@@ -61,7 +61,7 @@ class CategoryCount:
 def summarize(listing: Listing) -> list[CategoryCount]:
     """Count items per category (unordered; see ``ordered`` for the UI order)."""
 
-    counts = collections.Counter(categorize(i.mime_type) for i in listing.items)
+    counts = collections.Counter(categorize(i.mime_type, i.name) for i in listing.items)
     return [CategoryCount(c, k, n) for (c, k), n in counts.items()]
 
 

@@ -1,9 +1,9 @@
 ---
 type: Design
-title: "Importers: Confluence links and Jira epics"
-description: "The sources the API reads itself from Atlassian: what a Confluence link or a Jira epic imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
+title: "Importers: Confluence links, Jira epics and diagrams.net links"
+description: "The sources the API reads itself: what a Confluence link, a Jira epic or a diagrams.net link imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
 status: draft
-tags: [sources, confluence, jira, import]
+tags: [sources, confluence, jira, drawio, import]
 ---
 # importers.md: sources the API imports itself
 
@@ -14,7 +14,7 @@ importer seam of [../mission-control/integrations-api.md](../mission-control/int
 
 Rules shared by every importer:
 
-- **Acting account.** The import reads as the member the project's Atlassian is connected by (`project_integrations`, R1),
+- **Acting account.** (Confluence and Jira; the diagrams.net link needs no Atlassian account, see its section.) The import reads as the member the project's Atlassian is connected by (`project_integrations`, R1),
   never as the caller. The caller is only `connections.connected_by` (who added the source). No new Atlassian scope is
   used: `read:page`, `read:hierarchical-content`, `read:space` (Confluence) and `read:jira-work` (Jira) were granted already
   ([../jira-sync/oauth.md](../jira-sync/oauth.md)). The site is the deployment's one site (`ATLASSIAN_SITE_URL`); a link
@@ -110,3 +110,42 @@ italic, code, strikethrough, links, line breaks, bullet, ordered and task lists,
 (as quotes), expands (title in bold), rules, mentions as names, emoji, dates, statuses, cards as links and media as
 `[attachment]`. A node it does not know renders the text of its children. The Confluence "follow links" import of a linked
 issue uses the same reader and document.
+
+## diagrams.net link
+
+`POST /projects/{pid}/sources/drawio/check` and `POST /projects/{pid}/sources/drawio`, both `{link}`, any member. Source
+`kind` `drawio`. There is no integration, no acting account and no key: the request itself reads the link, so the
+caller is only `connections.connected_by`. Shapes and codes: [integrations-api.md](../mission-control/integrations-api.md) "diagrams.net source".
+
+**In the canvas** (the plus of the Graph stage, "diagrams.net"): one field for the link and a "Show me how" with three steps (File → Publish → Link in diagrams.net, copy the link, paste it here), **Check link** (says `name · N pages · N shapes`, and over the cap that only the first 50 pages are read), then **Add source**. Changing the link asks for a new check. A refused check or add says its closed code in words; a diagram stored in Google Drive, GitHub and the like says where and to download it as `.drawio` and add it with Upload. Remove deletes the source and its documents.
+
+| Link | Imports |
+|---|---|
+| `https://app.diagrams.net/#R<payload>` (also `viewer.diagrams.net`, `embed.diagrams.net`, `www.draw.io`, `app.draw.io`) | the diagram held in the link; nothing is fetched |
+| `...#P{json}` with a `data` member | the diagram XML in `data`; nothing is fetched |
+| `...#U<url>`, or the older `?url=<url>` | the file at that public `https` URL, fetched |
+| a bare `https` URL whose path ends `.drawio` (any host, no fragment) | the file at that URL, fetched |
+| a storage hash (`#G` Google Drive, `#H` GitHub, `#D` Dropbox (retired by diagrams.net, still named), `#W` OneDrive, `#A` GitLab, `#L` browser storage, `#T` Trello, any other letter) | refused: `drawio_link_unsupported` (names the storage when known) |
+| not `https`, credentials in the link, a port other than 443, another host, an empty or malformed fragment | refused: `drawio_link_invalid` |
+| a link over 256 KiB | refused: `drawio_too_large` |
+| a link over 512 KiB (twice that) | refused by validation (422 `validation_failed`) before anything reads it |
+| a `#P` fragment nested too deep to parse | refused: `drawio_link_invalid` |
+
+**What is fetched, and how safely** (`integrations/safe_fetch.py`, only for `#U`, `?url=` and `.drawio` URLs): `https` on port 443 only, no credentials. The host is resolved and the fetch is refused (`blocked_address`) when any resolved address is loopback, private, link-local, reserved, multicast, carrier-grade NAT (`100.64.0.0/10`) or a cloud metadata address, IPv4 forms embedded in IPv6 included. The connection goes to the checked IP with the `Host` header and the host's SNI. At most 3 redirects, each resolved and checked again. No proxy variables, no cookies, no auth, a client per hop. A `Content-Type` other than XML, text, octet-stream, SVG, PNG or `application/vnd.jgraph.mxfile` (or none) is refused. The request sends `Accept-Encoding: identity` and a response with any other `Content-Encoding` is refused (`bad_encoding`, so `drawio_fetch_failed`): no body is inflated on the way in. The body is streamed raw and cut at 10 MiB of wire bytes; the whole fetch has 15 seconds. At most 4 public fetches run at once in a process, the others wait inside their 15 seconds. Every failure is a closed code with no URL in its message; the request maps them: a bad URL to `drawio_link_invalid`, over the cap to `drawio_too_large`, all others to `drawio_fetch_failed`. The kind of the bytes is read from the content (PNG, SVG, else XML), not from the URL.
+
+**Caps** (constants in `file_parsers/diagrams/model.py`, not settings): 10 MiB for the file, the fetched body or the decoded link payload; 20 MiB for the XML after inflating; `MAX_PAGES = 50` pages and `MAX_CELLS_PER_PAGE = 5000` cells per page (document order; an `<object>` or `<UserObject>` wrapper counts once, with its `mxCell`, and a wrapper over the cap is dropped whole). Pages or cells over the cap are dropped and the check says `capped: true`; over the byte caps is `drawio_too_large`. The Markdown of a page is capped at `MAX_MARKDOWN_BYTES = 2 MiB` and that of an uploaded file at `MAX_MARKDOWN_FILE_BYTES = 10 MiB`; over it is `too_large` (a link import ends `unknown_error`, an upload is refused as too large). Input with a DTD or entity declaration (only the outer `<svg>` of a `.drawio.svg` may carry one DOCTYPE without an internal subset, found by a bounded scan; a second DOCTYPE or any ENTITY is refused), bad base64 or deflate, malformed XML, or no `mxfile` or `mxGraphModel` is `drawio_not_a_diagram`.
+
+**One document per page.** Item `page:<page id>` (a repeated id gets `#<position>`), named `<diagram name> · <page name>`; the diagram name is the `title` parameter of the link (URL-decoded, a `.drawio`, `.xml`, `.svg` or `.png` suffix removed), else the file name of the fetched URL (same suffix rule), else `diagrams.net diagram`; one helper gives it to the source, the check answer and the item names. An uploaded or Drive file has no name in the converter, so its Markdown starts `# Diagram`. The source `link` is the viewer link without its fragment for `#R` and `#P`, and only `scheme://host/path` of the fetched URL for `#U`, `?url=` and a bare `.drawio` URL (no query, no fragment: either may carry a token). The original is `original.drawio` (`application/vnd.jgraph.mxfile`): a single-page mxfile of that page, so every page has its own content hash. `parser = drawio-convert`.
+
+**Markdown mapping** (`file_parsers/diagrams/markdown.py`; the same text for a link page and an uploaded file, apart from the heading):
+
+- `# <diagram name> · <page name>`, then `Source: diagrams.net · page <n> of <m>`.
+- `## Shapes`: one `- **<label>** (<role>)` per labelled shape, in order of `y`, then `x`; text after ` · ` (a line break in the label) follows as `: <text>`; custom properties of the shape are nested `- key: value` lines. Roles: `decision` (rhombus, `mxgraph.flowchart.decision`), `store` (cylinder, data store, `mxgraph.flowchart.database`, `mxgraph.flowchart.stored_data`), `document` (document, note, `mxgraph.flowchart.document`, `mxgraph.flowchart.multi-document`), `actor`, `group` (swimlane, container or a parent of another shape), else `step`. A vertex without a label is not a shape.
+- A group is a `### Group: <title>` section holding its members; the title names the group and its nearest two ancestors, `… › A › B › C` (the `…` when the path is longer). Every label, property and title is cut at 300 characters (`…`).
+- A page with several layers has `### Layer: <name>` sections.
+- `## Arrows`: `- <source> → <target>` with `: <label>` when it has one; an end that is missing or unlabelled reads `(unlabelled shape)`. An end whose label is not unique on the page is told apart by its nearest group, `Review (in Design)`, and when that is still not unique (or it has no group) by its place in the page order, `Review #2`.
+- `## Notes`: text shapes. Empty sections are left out. Labels are HTML-stripped and escaped, so nothing in a label becomes a heading, list, link or code; a `link` property stays text.
+
+**Privacy.** The fragment of a `#R` or `#P` link holds the diagram, so it is not stored (`connections.link` keeps the link without it) and no link, label or host is logged: events carry ids, the form and counts. **Import once** (D7): the diagram is read once at the add; a changed diagram is added again as a new source (see the shared rules). The import gets the pages decoded by the request, so a failure after the add can only end the source as `unknown_error`; every other refusal happens in the request, before any source exists.
+
+Uploads of `.drawio`, `.drawio.svg` and `.drawio.png` files and Drive files with those names use the same conversion (one document per file): [../file-parsers/formats.md](../file-parsers/formats.md).

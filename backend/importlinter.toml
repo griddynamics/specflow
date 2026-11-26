@@ -229,7 +229,7 @@ ignore_imports = [
 # httpx (the ArcadeDB admin API, the MCP API client, the Slack gap notice) and pyTigerGraph (the `tigergraph` extra)
 # belong to named adapters only.
 [[tool.importlinter.contracts]]
-name = "httpx is used by the ArcadeDB graph store, the Jira gateway, reader and OAuth client, the GitHub client and Projects calls, the Linear gateway and OAuth client, the MCP API client and the Slack gap notice only"
+name = "httpx is used by the ArcadeDB graph store, the Jira gateway, reader and OAuth client, the GitHub client and Projects calls, the Linear gateway and OAuth client, the MCP API client, the Slack gap notice and the public diagram fetch only"
 id = "httpx-confined"
 type = "forbidden"
 allow_indirect_imports = true
@@ -251,6 +251,7 @@ ignore_imports = [
     "github.projects -> httpx",
     "linear.http -> httpx",
     "linear.oauth -> httpx",
+    "integrations.safe_fetch -> httpx",
 ]
 
 [[tool.importlinter.contracts]]
@@ -340,3 +341,21 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["api.exports"]
 forbidden_modules = ["api.jira", "jira", "github", "linear", "db", "graph", "agent_contracts"]
+
+# The API sees the document formats table and the diagram package, never the heavy parser stack (the api image has no
+# docling, torch or PDFium); the diagram package is stdlib plus its own modules.
+[[tool.importlinter.contracts]]
+name = "The API does not import the parser stack"
+id = "api-no-parser-stack"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["api"]
+forbidden_modules = ["file_parsers.convert", "file_parsers.engines", "file_parsers.pdf", "file_parsers.office"]
+
+[[tool.importlinter.contracts]]
+name = "The diagram package imports no parser engine or limit"
+id = "diagrams-standalone"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["file_parsers.diagrams"]
+forbidden_modules = ["file_parsers.limits", "file_parsers.engines", "file_parsers.convert", "file_parsers.pdf", "file_parsers.office"]

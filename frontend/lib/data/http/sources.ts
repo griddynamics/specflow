@@ -10,8 +10,10 @@
 import {
   addBatchFile,
   addConfluenceSource,
+  addDrawioSource,
   addJiraEpicSource,
   checkConfluenceLink,
+  checkDrawioLink,
   checkJiraEpicLink,
   endBatch,
   getDriveIdentity,
@@ -43,6 +45,7 @@ import {
   type SourcesPort,
   type UploadReport,
 } from "@/lib/domain/sources";
+import { toDrawioCheck } from "./drawio-wire";
 import { expectShape, guard, isRecord, isString } from "./errors";
 import { BATCH_OUTCOMES, toFilePage, toProgress, toSource, type BatchOutcome } from "./sources-wire";
 
@@ -320,6 +323,16 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
     async addJiraEpic(projectId, keyOrLink, exclude) {
       try {
         await guard(() => addJiraEpicSource(projectId, keyOrLink, exclude));
+      } finally {
+        opts.changed(projectId);
+      }
+    },
+    async checkDrawio(projectId, link) {
+      return toDrawioCheck(await guard(() => checkDrawioLink(projectId, link)));
+    },
+    async addDrawio(projectId, link) {
+      try {
+        await guard(() => addDrawioSource(projectId, link));
       } finally {
         opts.changed(projectId);
       }

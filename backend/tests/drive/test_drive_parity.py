@@ -12,6 +12,8 @@ from drive.categories import (
     CATEGORY_ORDER,
     CLASS_ORDER,
     LABELS,
+    Category,
+    ProcessingClass,
     categorize,
     processing_class,
 )
@@ -68,6 +70,18 @@ def test_contract_categories_in_order():
         for c in CATEGORY_ORDER
     ]
     assert CONTRACT["class_order"] == [k.value for k in CLASS_ORDER]
+
+
+def test_contract_drawio_names():
+    rules = CONTRACT["drawio_names"]
+    for suffix in rules["suffixes"]:
+        assert categorize("application/octet-stream", "x" + suffix.upper()) == (
+            Category.OTHER_FILES,
+            ProcessingClass.PROCESSED,
+        )
+    for mime in rules["mime_types"]:
+        assert categorize(mime)[0].value == rules["category"]
+        assert categorize(mime)[1].value == rules["processing_class"]
 
 
 def test_summary_bullets_match_explore():

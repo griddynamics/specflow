@@ -12,10 +12,11 @@ export const LOGO_PATHS = {
   mcp: siModelcontextprotocol.path,
 } as const;
 
-/** Signs the prototype draws itself (stroke, 24 x 24): Slack is not in simple-icons, so it is a channel sign. */
+/** Signs the prototype draws itself (stroke, 24 x 24): Slack is not in simple-icons, so it is a channel sign; the diagram sign is two boxes and a connector. */
 export const GLYPH_PATHS = {
   slack: "M9.5 3.5 7.5 20.5M16.5 3.5l-2 17M4.5 9h16M3.5 15h16",
   upload: "M12 15V4M7.5 8.5 12 4l4.5 4.5M4 14v5h16v-5",
+  drawio: "M3.5 4.5h7v5h-7zM13.5 14.5h7v5h-7zM10.5 7h3a2.5 2.5 0 0 1 2.5 2.5V14.5",
 } as const;
 
 export type LogoKind = keyof typeof LOGO_PATHS;
@@ -33,7 +34,7 @@ function isLogo(kind: VendorKind): kind is LogoKind {
   return kind in LOGO_PATHS;
 }
 
-/** A vendor mark in the text colour: GitHub, Jira, Linear, Confluence, Google Drive and MCP from simple-icons; Slack and upload as drawn signs. */
+/** A vendor mark in the text colour: GitHub, Jira, Linear, Confluence, Google Drive and MCP from simple-icons; Slack, upload and diagrams as drawn signs. */
 export function VendorMark({ kind, title, className }: VendorMarkProps): JSX.Element {
   const a11y = title === undefined ? { "aria-hidden": true as const } : { role: "img" as const, "aria-label": title };
   return isLogo(kind) ? (

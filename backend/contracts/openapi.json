@@ -1871,6 +1871,73 @@
         "title": "DoneWhen",
         "type": "object"
       },
+      "DrawioCheckOut": {
+        "description": "The diagram an import would take: its name, its pages (in order) and whether a cap dropped pages or cells.",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/DrawioPageOut"
+            },
+            "title": "Pages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "pages",
+          "capped"
+        ],
+        "title": "DrawioCheckOut",
+        "type": "object"
+      },
+      "DrawioIn": {
+        "additionalProperties": false,
+        "description": "A diagrams.net link. ``file_parsers.diagrams.MAX_LINK_BYTES`` is the length of a link (a ``#R`` link holds the\ndiagram): a longer link is refused by the route as ``drawio_too_large``; a body over twice that is refused by\nvalidation (``validation_failed``) before anything reads it.",
+        "properties": {
+          "link": {
+            "maxLength": 524288,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "DrawioIn",
+        "type": "object"
+      },
+      "DrawioPageOut": {
+        "description": "One page of the diagram: its name and how many shapes and arrows an import would take.",
+        "properties": {
+          "arrows": {
+            "title": "Arrows",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "shapes": {
+            "title": "Shapes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "shapes",
+          "arrows"
+        ],
+        "title": "DrawioPageOut",
+        "type": "object"
+      },
       "DriveCategoryOut": {
         "properties": {
           "category": {
@@ -5669,7 +5736,8 @@
               "upload",
               "confluence",
               "jira_epic",
-              "linear_project"
+              "linear_project",
+              "drawio"
             ],
             "title": "Kind",
             "type": "string"
@@ -11312,7 +11380,8 @@
               "upload",
               "confluence",
               "jira_epic",
-              "linear_project"
+              "linear_project",
+              "drawio"
             ],
             "title": "Kind",
             "type": "string"
@@ -20534,6 +20603,110 @@
           }
         },
         "summary": "Check Confluence Link",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/drawio": {
+      "post": {
+        "operationId": "add_drawio_source_api_v1_projects__pid__sources_drawio_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawioIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Drawio Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/drawio/check": {
+      "post": {
+        "operationId": "check_drawio_api_v1_projects__pid__sources_drawio_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawioIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawioCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Drawio",
         "tags": [
           "sources"
         ]

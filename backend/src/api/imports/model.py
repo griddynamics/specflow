@@ -10,7 +10,7 @@ from typing import Final
 from db.models import CONNECTION_FAILURE_REASONS
 
 # the ``connections.kind`` values the API imports itself
-IMPORT_KINDS: Final = ("confluence", "jira_epic", "linear_project")
+IMPORT_KINDS: Final = ("confluence", "jira_epic", "linear_project", "drawio")
 
 
 class InvalidFailureReasonError(Exception):

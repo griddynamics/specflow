@@ -115,7 +115,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
             return { box: c.getBoundingClientRect(), text: c.textContent, cut: cut(name) || cut(line) };
           }),
         );
-      expect(boxes).toHaveLength(12); // all twelve connections: the stage's own and the other stages'
+      expect(boxes).toHaveLength(13); // all thirteen connections: the stage's own and the other stages'
       expect(boxes.filter((b) => b.cut).map((b) => b.text)).toEqual([]); // the text is written to the card, never cut by it
       for (const { box } of boxes) sizes.add(`${String(Math.round(box.width))}x${String(Math.round(box.height))}`);
       await page.keyboard.press("Escape");
@@ -133,6 +133,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(plus.getByRole("button", { name: /^Upload/ })).toBeEnabled();
     await expect(plus.getByRole("button", { name: /^Google Drive/ })).toBeEnabled();
     await expect(plus.getByRole("button", { name: /^GitHub repository/ })).toContainText("Set up first"); // GitHub is not connected to this project
+    await expect(plus.getByRole("button", { name: /^diagrams\.net link/ })).toBeEnabled(); // needs no app setup
     await expect(plus.getByRole("button", { name: /MCP/ })).toHaveCount(0);
     await expect(plus.getByRole("link", { name: "Integrations" })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -142,7 +143,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(gap.getByRole("button", { name: /^Slack channel/ })).toBeEnabled();
     await gap.getByText("Connections for the other stages").click();
     await expect(gap.getByRole("button", { name: /^Upload/ })).toHaveAttribute("aria-disabled", "true");
-    await expect(gap.getByText("For Graph")).toHaveCount(6);
+    await expect(gap.getByText("For Graph")).toHaveCount(7);
     await expect(gap.getByText("For Plan")).toHaveCount(3);
   });
 

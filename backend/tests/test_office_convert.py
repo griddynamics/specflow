@@ -19,7 +19,13 @@ from file_parsers import limits
 from file_parsers.convert import file_to_markdown
 from file_parsers.engines.docling import DoclingEngine, engine_id
 from file_parsers.engines.port import UnsupportedFormatError
-from file_parsers.formats import FORMATS, DocumentFormat
+from file_parsers.formats import (
+    DRAWIO_MEDIA_TYPE,
+    DRAWIO_PNG_MEDIA_TYPE,
+    DRAWIO_SVG_MEDIA_TYPE,
+    FORMATS,
+    DocumentFormat,
+)
 from file_parsers.limits import DocumentParseFailedError, DocumentTooLargeError
 from file_parsers.office.model import OfficeContent, OfficeSection
 from office_support import (
@@ -34,6 +40,8 @@ from office_support import (
     rewrite_member,
     with_dtd,
 )
+
+DRAWIO_TYPES = frozenset({DRAWIO_MEDIA_TYPE, DRAWIO_SVG_MEDIA_TYPE, DRAWIO_PNG_MEDIA_TYPE})
 
 
 def content(document_format: DocumentFormat, markdown: str = "text") -> OfficeContent:
@@ -53,7 +61,7 @@ def test_an_office_type_goes_to_the_engine_and_the_parser_is_the_engine_id(tmp_p
 
 def test_every_accepted_non_pdf_type_is_routed_to_the_office_path(tmp_path: Path):
     for spec in FORMATS:
-        if spec.format is DocumentFormat.PDF:
+        if spec.format is DocumentFormat.PDF or spec.media_type in DRAWIO_TYPES:  # draw.io has its own path
             continue
         engine = OfficeStubEngine(content(spec.format))
         path = tmp_path / f"f{spec.extension}"
@@ -158,7 +166,7 @@ def test_a_501_slide_deck_is_refused_before_conversion(tmp_path: Path):
 
 def test_the_real_engine_accepts_all_seven_types_and_refuses_others(tmp_path: Path):
     engine = DoclingEngine(threads=1)
-    assert engine.formats == {spec.media_type for spec in FORMATS}
+    assert engine.formats == {spec.media_type for spec in FORMATS[:7]}  # the diagram formats are not Docling's
     with pytest.raises(UnsupportedFormatError):
         engine.extract_office(tmp_path / "a.pdf", "application/pdf")
     with pytest.raises(UnsupportedFormatError):
