@@ -316,7 +316,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     removed.set(pid, (removed.get(pid) ?? 0) + n);
   }
 
-  /** spec: {kind:"gdrive"|"upload", name? (an upload batch's own name too), listing?, failure_reason?, open?, expected?, files:[{name,state,reason?,category?,holder?}]}. Returns the id. */
+  /** spec: {kind:"gdrive"|"upload"|"box"|"confluence"|"jira_epic", link? (not an upload), name? (an upload batch's own name too), listing?, failure_reason?, open?, expected?, files:[{name,state,reason?,category?,holder?}]}. Returns the id. */
   function seed(pid, spec) {
     const files = (spec.files ?? []).map((f) => ({
       id: crypto.randomUUID(),
@@ -348,11 +348,12 @@ export function createSourcesModel({ docs, sourcesOf }) {
       return b.id;
     }
     const finished = files.filter((f) => f.state !== "waiting" && f.state !== "processing").length;
+    const kind = spec.kind === "box" || spec.kind === "confluence" || spec.kind === "jira_epic" ? spec.kind : "gdrive";
     const row = stamp({
       id: crypto.randomUUID(),
-      kind: "gdrive",
-      folder_id: `seed-${crypto.randomUUID().slice(0, 8)}`,
-      link: "https://drive.google.com/drive/folders/seeded-folder",
+      kind,
+      folder_id: kind === "gdrive" ? `seed-${crypto.randomUUID().slice(0, 8)}` : null,
+      link: spec.link ?? "https://drive.google.com/drive/folders/seeded-folder",
       name: spec.name ?? "Seeded folder",
       state: spec.failure_reason ? "failed" : spec.listing ? "listing" : finished < files.length ? "importing" : "done",
       failure_reason: spec.failure_reason ?? null,

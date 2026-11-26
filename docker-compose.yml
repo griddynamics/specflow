@@ -465,6 +465,10 @@ services:
       GITHUB_APP_CLIENT_SECRET: "${GITHUB_APP_CLIENT_SECRET:-}"
       GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-}"
       GITHUB_TOKEN_KEY: "${GITHUB_TOKEN_KEY:-}"
+      # Box integration: the client ID turns it on (docs/configuration.md "Box integration").
+      BOX_OAUTH_CLIENT_ID: "${BOX_OAUTH_CLIENT_ID:-}"
+      BOX_OAUTH_CLIENT_SECRET: "${BOX_OAUTH_CLIENT_SECRET:-}"
+      BOX_TOKEN_KEY: "${BOX_TOKEN_KEY:-}"
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     volumes:

@@ -55,8 +55,9 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # The Drive-related values mirror
 # drive.categories / reasons; a test keeps them equal. They are
 # written out here so the models do not import the Drive package.
-# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations).
-CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic")
+# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations); ``box``
+# is too (migration 0011_box).
+CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "box")
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",
@@ -383,7 +384,8 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 # GitHub tables (docs/github/data-model.md). The failure codes mirror github.codes.CLONE_FAILURE_CODES; a test keeps
 # them equal (db does not import github).
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
-INTEGRATION_APPS: Final = ("atlassian", "github", "slack")
+BOX_CONNECTION_STATUSES: Final = ("active", "expired")
+INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "box")
 JIRA_GAP_GROUPINGS: Final = ("one", "area")
 GITHUB_PROJECT_TRIGGERS: Final = ("plan_run", "settings", "recovery")
 GITHUB_PROJECT_ITEM_KINDS: Final = ("story", "subtask")
@@ -739,6 +741,30 @@ class GitHubConnection(Base):
     )
     github_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     login: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BoxConnection(Base):
+    """One user's Box connection (migration ``0011_box``, docs/box/oauth.md "Tokens"): the refresh token is Fernet
+    ciphertext; the access token is never stored. ``name`` is the Box display name (the ``login`` e-mail is not
+    stored); ``enterprise_id`` and ``enterprise_name`` are null for a personal account. Not project-scoped:
+    row-level security is on with no policy and no grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "box_connections"
+    __table_args__ = (CheckConstraint(_one_of("status", BOX_CONNECTION_STATUSES), name="status"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    box_user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    enterprise_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enterprise_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)

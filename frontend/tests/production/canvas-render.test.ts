@@ -127,6 +127,7 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
       "GitHub repository",
       "Confluence link",
       "Jira epic",
+      "Box link",
       "Slack channel",
       "Jira sub-tasks",
       "Jira",
@@ -134,14 +135,14 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
     ],
     "its own stage first, then the others",
   );
-  assert.equal(count(view.graph, "Available"), 5);
+  assert.equal(count(view.graph, "Available"), 6);
   assert.equal(count(view.graph, "MCP"), 0);
   assert.match(view.gap, /<b>Slack channel<\/b>/);
   assert.doesNotMatch(view.gap, /Nothing can be added/);
   assert.match(view.none, /Nothing can be added to this stage yet/);
   assert.match(view.gap, /Connections for the other stages<\/summary>/);
-  assert.equal(count(view.gap, 'aria-disabled="true"'), 7);
-  assert.equal(count(view.gap, "For Graph"), 5);
+  assert.equal(count(view.gap, 'aria-disabled="true"'), 8);
+  assert.equal(count(view.gap, "For Graph"), 6);
   assert.equal(count(view.gap, "For Plan"), 2);
 });
 

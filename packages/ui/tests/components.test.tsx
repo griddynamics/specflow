@@ -235,7 +235,7 @@ test("VendorMark: simple-icons paths unchanged, signs drawn, decorative unless t
   assert.match(html(<VendorMark kind="github" title="GitHub" />), /role="img" aria-label="GitHub"/);
   assert.doesNotMatch(html(<VendorMark kind="github" title="GitHub" />), /aria-hidden/);
   assert.match(html(<VendorMark kind="slack" />), /class="gx-mark gx-mark--glyph".*d="M9\.5 3\.5 7\.5 20\.5/);
-  const kinds: VendorKind[] = ["github", "jira", "confluence", "gdrive", "mcp", "slack", "upload"];
+  const kinds: VendorKind[] = ["github", "jira", "confluence", "gdrive", "mcp", "box", "slack", "upload"];
   for (const kind of kinds) assert.match(html(<VendorMark kind={kind} />), /<path d="[^"]+"><\/path>/, kind);
   assert.deepEqual(Object.keys(GLYPH_PATHS), ["slack", "upload"]);
 });

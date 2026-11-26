@@ -66,6 +66,11 @@ export const CANVAS_COPY = {
   confluenceNote:
     "The page and its sub-pages, or every page of the space, are read once when it is added. Add the link again to read a newer version.",
   confluenceAdding: "Adding…",
+  // Box link
+  boxLink: "Box link",
+  boxLinkHint: "A folder, a file or a shared link from Box",
+  boxNote: "The folder with all its sub-folders, or the file, is read once when it is added. Add the link again to read a newer version.",
+  openBox: "Open in Box",
   // Jira epic
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",
@@ -133,6 +138,11 @@ export const CANVAS_COPY = {
     "Sign in to Atlassian and approve the access Graphico asks for.",
     "When Atlassian asks which site to allow, choose your team's site. Graphico brings you back here.",
   ],
+  howBox: [
+    "Press Connect your Box account.",
+    "Sign in to Box and allow Graphico.",
+    "If Box says the app is disabled, ask your Box admin to enable it. Graphico brings you back here.",
+  ],
   // Dialogs
   close: "Cancel",
   remove: "Remove",
@@ -147,7 +157,7 @@ export const CANVAS_COPY = {
   app: "App",
   removeFailed: "It could not be removed. Try again.",
   // The files inside a source, and renaming an upload
-  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues" },
+  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues", box: "Files" },
   filesLabel: "Files in this source",
   filesNone: "Nothing in this source yet.",
   filesFailed: "The files could not be read.",

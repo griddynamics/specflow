@@ -16,7 +16,7 @@ export type ZoneId = CanvasZoneId;
 /** The kinds of connection the canvas knows. A session that registers one adds its name here, its spec to `connectors.ts` and its node
  * mapper to the list `CONNECTORS` gives the model. */
 export type ConnectorKind =
-  "upload" | "gdrive" | "github" | "confluence" | "jira_epic" | "slack" | "jira_gap" | "jira" | "github_plan" | "mcp";
+  "upload" | "gdrive" | "github" | "confluence" | "jira_epic" | "box" | "slack" | "jira_gap" | "jira" | "github_plan" | "mcp";
 
 /** What the open gaps say, from `gaps.check` and the first page of `gaps.list` (`more`: the page was full, so the counts are "at least"). */
 export interface GapsSummary {
@@ -84,6 +84,8 @@ export interface NodeDetail {
   remove: "source" | "repository" | null;
   /** A stopped node offers to reconnect this app on the Integrations page. */
   reconnect: IntegrationApp | null;
+  /** Where the node's source can be opened in its app (an https address); absent when the app has no page for it. */
+  open?: { href: string; label: string };
 }
 
 export interface NodeView {

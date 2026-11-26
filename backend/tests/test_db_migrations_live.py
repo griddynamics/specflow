@@ -48,6 +48,7 @@ pytestmark = requires_live("POSTGRES")
 
 APP_TABLES = [
     "atlassian_connections",
+    "box_connections",
     "connection_items",
     "connections",
     "corpus_amendment",
@@ -86,7 +87,8 @@ HEAD_0006 = "0006_atlassian_connections"
 HEAD_0007 = "0007_github"
 HEAD_0008 = "0008_project_integrations"
 HEAD_0009 = "0009_jira_gaps"
-HEAD = "0010_github_projects"
+HEAD_0010 = "0010_github_projects"
+HEAD = "0011_box"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
@@ -386,9 +388,7 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(
         migrated_database,
         "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
         "AND relnamespace = 'public'::regnamespace",
-    ) == [
-        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 8
-    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's to 0008's, 0009's and 0010's two each
+    ) == [7 + len(GAP_TABLES) + len(JIRA_TABLES) + 9]  # 0001-0010 as before; 0011 adds one (box_connections)
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
@@ -1117,9 +1117,9 @@ def test_l32_0010_adds_the_projects_tables_scoped_to_the_agent_role_and_its_down
     ana = insert_user(scratch_database, "ana@example.com")
     project = insert_project(scratch_database, ana, role="owner")
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_0010)
 
-    assert stamped_versions(scratch_database) == [HEAD]
+    assert stamped_versions(scratch_database) == [HEAD_0010]
     for table in ("github_project_targets", "github_project_items"):
         assert run_app(
             scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
@@ -1168,4 +1168,51 @@ def test_l32_0010_adds_the_projects_tables_scoped_to_the_agent_role_and_its_down
     command.downgrade(cfg, "-1")
 
     assert stamped_versions(scratch_database) == [HEAD_0009]
+    assert fingerprint(scratch_database) == before
+
+
+# Box, added by revision 0011 on top of 0010 ----------------------------------------------------------------
+
+
+def test_l33_0011_adds_box_connections_the_box_app_and_kind_and_its_downgrade_returns_to_0010(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0010)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+
+    command.upgrade(cfg, "head")
+
+    assert stamped_versions(scratch_database) == [HEAD]
+    assert run_app(scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = 'box_connections'") == [
+        "true"
+    ]
+    assert run_app(
+        scratch_database,
+        "SELECT has_table_privilege(:role, 'box_connections', 'SELECT,INSERT,UPDATE,DELETE')::text",
+        role=SESSION_AGENT_ROLE,
+    ) == ["false"]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    connection = (
+        "INSERT INTO box_connections (user_id, box_user_id, name, refresh_token, status, connected_at, last_used_at) "
+        "VALUES (:u, '42', 'Ana', 'x', :status, now(), now())"
+    )
+    with pytest.raises(IntegrityError):  # a closed set of statuses
+        run_app(scratch_database, connection, u=ana, status="revoked")
+    run_app(scratch_database, connection, u=ana, status="active")
+    with pytest.raises(IntegrityError):  # one connection per user
+        run_app(scratch_database, connection, u=ana, status="active")
+    run_app(
+        scratch_database,
+        "INSERT INTO project_integrations (project_id, app, user_id, workspace_id, workspace_name, connected_at) "
+        "VALUES (:p, 'box', :u, '7', 'Acme', now())",
+        p=project,
+        u=ana,
+    )
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0010]
     assert fingerprint(scratch_database) == before

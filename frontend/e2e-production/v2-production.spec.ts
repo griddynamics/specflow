@@ -109,8 +109,8 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     // Integrations: a card per app, none connected, the built-in ones under them.
     await v2Header(page).getByRole("link", { name: "Integrations" }).click();
     await expect(page).toHaveURL(INTEGRATIONS(pid));
-    await expect(page.getByRole("list", { name: "Integrations" }).getByRole("listitem")).toHaveCount(4); // the three apps and MCP
-    for (const app of [ATLASSIAN, "GitHub", "Slack"]) {
+    await expect(page.getByRole("list", { name: "Integrations" }).getByRole("listitem")).toHaveCount(5); // the four apps (Atlassian, GitHub, Slack, Box) and MCP
+    for (const app of [ATLASSIAN, "GitHub", "Slack", "Box"]) {
       await expect(card(page, app)).toHaveAttribute(STATE, "off");
       await expect(card(page, app).getByRole("button", { name: "Set up" })).toBeVisible();
     }

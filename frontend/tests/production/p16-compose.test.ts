@@ -59,6 +59,8 @@ const http: HttpPorts = {
     addConfluence: never,
     checkJiraEpic: never,
     addJiraEpic: never,
+    checkBox: never,
+    addBox: never,
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
@@ -86,6 +88,7 @@ const http: HttpPorts = {
   jiraGaps: { get: never, save: never, checkAccess: never },
   slack: { get: never, unbind: never, test: never },
   integrations: { list: never, connect: never, disconnect: never },
+  box: { connection: never, authorize: never, disconnect: never },
   github: {
     connection: never,
     authorize: never,
@@ -102,7 +105,7 @@ const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github, integrations", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github, box, integrations", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
@@ -117,6 +120,7 @@ test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects
   assert.equal(ports.jiraGaps, http.jiraGaps);
   assert.equal(ports.slack, http.slack);
   assert.equal(ports.github, http.github);
+  assert.equal(ports.box, http.box);
   assert.equal(ports.integrations, http.integrations);
   assert.equal((await ports.createProject.create({ name: "X", collaboratorEmails: [] })).id, UUID);
   assert.deepEqual(Object.keys(ports.createProject), ["create"]);
@@ -182,6 +186,7 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
     Object.keys(ports).toSorted((a, b) => a.localeCompare(b)),
     [
       "assistant",
+      "box",
       "comments",
       "connectors",
       "createProject",

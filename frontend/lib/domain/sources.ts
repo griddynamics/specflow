@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic";
+export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "box";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;
@@ -215,6 +215,8 @@ export interface Source extends SourceRef {
   /** Why the source failed as a whole (DATA-SRC-0001 table 2); null = it did not. */
   failure: DriveReason | null;
   github: GithubDetail | null;
+  /** The address the source was added from, as the API keeps it (Box: the canonical folder or file link); null when it has none. */
+  link: string | null;
 }
 export interface SourceFile {
   id: string;
@@ -264,6 +266,17 @@ export interface ConfluenceCheck {
   pages: number;
   capped: boolean;
   linkedIssues: number;
+}
+
+/** What the check of a Box link found, nothing stored (docs/box/source.md): a folder (its whole tree) or one file; `files` an import would take (at most
+ * the cap), `skipped` the items of other types (declared, never downloaded), `folders` walked, `capped` = a cap stopped the walk. */
+export interface BoxCheck {
+  kind: "folder" | "file";
+  name: string;
+  files: number;
+  skipped: number;
+  folders: number;
+  capped: boolean;
 }
 
 /** What the check of a Jira epic found, nothing stored: its key and summary and the issues under it that the bound member can see (an import
@@ -319,6 +332,11 @@ export interface SourcesPort {
   checkConfluence(projectId: string, input: ConfluenceInput): Promise<ConfluenceCheck>;
   /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
   addConfluence(projectId: string, input: ConfluenceInput): Promise<void>;
+  /** Reads a Box folder, file or shared link as the member the project's Box is connected by and counts what an import would take; stores nothing. A
+   * refusal rejects a `DataError` whose `detail.apiCode` is the closed code (`box_link_invalid`, `box_no_access`, `box_not_connected`, ...). */
+  checkBox(projectId: string, link: string): Promise<BoxCheck>;
+  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
+  addBox(projectId: string, link: string): Promise<void>;
   /** Reads a Jira epic (a key such as `ABC-12`, or its link) of the project's Atlassian site and counts its issues; stores nothing. Rejects like the Confluence check. */
   checkJiraEpic(projectId: string, keyOrLink: string): Promise<JiraEpicCheck>;
   /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). `exclude` are the keys of the children not to import (the epic

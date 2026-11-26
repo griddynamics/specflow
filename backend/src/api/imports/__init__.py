@@ -11,10 +11,11 @@ from api.imports.model import (
     ImportRunnerClosedError,
     InvalidFailureReasonError,
     NotImportedKindError,
+    OriginalTooLargeError,
     SourceGoneError,
 )
 from api.imports.runner import Importer, ImportRunner
-from api.imports.writer import ImportWriter
+from api.imports.writer import ImportWriter, ParseStarter
 
 __all__ = [
     "IMPORT_KINDS",
@@ -26,5 +27,7 @@ __all__ = [
     "Importer",
     "InvalidFailureReasonError",
     "NotImportedKindError",
+    "OriginalTooLargeError",
+    "ParseStarter",
     "SourceGoneError",
 ]

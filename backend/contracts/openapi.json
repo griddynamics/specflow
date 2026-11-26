@@ -726,6 +726,220 @@
         "title": "BatchStartIn",
         "type": "object"
       },
+      "BoxCallbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "state"
+        ],
+        "title": "BoxCallbackIn",
+        "type": "object"
+      },
+      "BoxCallbackOut": {
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/BoxConnectionOut"
+          },
+          "return_to": {
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "return_to"
+        ],
+        "title": "BoxCallbackOut",
+        "type": "object"
+      },
+      "BoxCheckOut": {
+        "description": "What the link would import: ``files`` the import takes (at most the file cap), ``skipped`` the items of\nanother type that it declares and skips, ``folders`` the folders it walks, ``capped`` when a cap stopped the walk.\n``name`` is the name of the folder or file in Box (shown, not stored by the check).",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "folders": {
+            "title": "Folders",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "folder",
+              "file"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "files",
+          "skipped",
+          "folders",
+          "capped"
+        ],
+        "title": "BoxCheckOut",
+        "type": "object"
+      },
+      "BoxConnectionOut": {
+        "description": "The caller's Box connection; ``enabled`` is whether the server has the Box app configured. ``name`` is the\nBox display name; ``enterprise_name`` is null for a personal account.",
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "enterprise_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enterprise Name"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "expired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "enabled",
+          "connected",
+          "status",
+          "name",
+          "enterprise_name",
+          "connected_at",
+          "last_used_at"
+        ],
+        "title": "BoxConnectionOut",
+        "type": "object"
+      },
+      "BoxLinkIn": {
+        "additionalProperties": false,
+        "description": "One Box link: a folder, a file or a shared link (docs/box/source.md \"Links\").",
+        "properties": {
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "BoxLinkIn",
+        "type": "object"
+      },
+      "BoxReturnToIn": {
+        "additionalProperties": false,
+        "description": "Where the browser returns after Box: a path of this site (the GitHub rule).",
+        "properties": {
+          "return_to": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "return_to"
+        ],
+        "title": "BoxReturnToIn",
+        "type": "object"
+      },
+      "BoxUrlOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "BoxUrlOut",
+        "type": "object"
+      },
       "BriefContract": {
         "additionalProperties": false,
         "description": "A completed direct prerequisite: what the task builds on.",
@@ -5668,7 +5882,8 @@
               "gdrive",
               "upload",
               "confluence",
-              "jira_epic"
+              "jira_epic",
+              "box"
             ],
             "title": "Kind",
             "type": "string"
@@ -8887,7 +9102,8 @@
             "enum": [
               "atlassian",
               "github",
-              "slack"
+              "slack",
+              "box"
             ],
             "title": "App",
             "type": "string"
@@ -10047,7 +10263,8 @@
               "gdrive",
               "upload",
               "confluence",
-              "jira_epic"
+              "jira_epic",
+              "box"
             ],
             "title": "Kind",
             "type": "string"
@@ -14701,6 +14918,124 @@
         ]
       }
     },
+    "/api/v1/integrations/box": {
+      "delete": {
+        "description": "Delete the caller's connection and revoke the app's grant at Box (best effort).",
+        "operationId": "disconnect_box_api_v1_integrations_box_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Disconnect Box",
+        "tags": [
+          "box"
+        ]
+      },
+      "get": {
+        "operationId": "get_box_connection_api_v1_integrations_box_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoxConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Box Connection",
+        "tags": [
+          "box"
+        ]
+      }
+    },
+    "/api/v1/integrations/box/authorize": {
+      "post": {
+        "description": "Box's sign-in page of the app; its ``state`` holds the user, ``return_to`` and a 10-minute expiry.",
+        "operationId": "authorize_box_api_v1_integrations_box_authorize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoxReturnToIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoxUrlOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Authorize Box",
+        "tags": [
+          "box"
+        ]
+      }
+    },
+    "/api/v1/integrations/box/callback": {
+      "post": {
+        "description": "Check ``state``, exchange ``code``, read the account and keep the connection.",
+        "operationId": "box_callback_api_v1_integrations_box_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoxCallbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoxCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Box Callback",
+        "tags": [
+          "box"
+        ]
+      }
+    },
     "/api/v1/integrations/github": {
       "delete": {
         "description": "Delete the caller's connection and remove the app's grant on GitHub (best effort).",
@@ -17174,7 +17509,8 @@
               "enum": [
                 "atlassian",
                 "github",
-                "slack"
+                "slack",
+                "box"
               ],
               "title": "App",
               "type": "string"
@@ -17221,7 +17557,8 @@
             "schema": {
               "enum": [
                 "atlassian",
-                "github"
+                "github",
+                "box"
               ],
               "title": "App",
               "type": "string"
@@ -18483,6 +18820,112 @@
           }
         },
         "summary": "Sources Status",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/box": {
+      "post": {
+        "description": "Create the source for the caller and start its import as the member the project's Box is connected by.",
+        "operationId": "add_box_source_api_v1_projects__pid__sources_box_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoxLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Box Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/box/check": {
+      "post": {
+        "description": "What the link would import: the folder or file, how many files, how many items are skipped, whether a cap hit.",
+        "operationId": "check_box_link_api_v1_projects__pid__sources_box_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoxLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoxCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Box Link",
         "tags": [
           "sources"
         ]

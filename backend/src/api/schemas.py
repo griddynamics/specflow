@@ -463,7 +463,7 @@ FileStateName = Literal[
     "failed",
     "already_in_project",
 ]
-SourceKindName = Literal["gdrive", "upload", "confluence", "jira_epic"]
+SourceKindName = Literal["gdrive", "upload", "confluence", "jira_epic", "box"]
 BatchOutcomeName = Literal["added", "already_in_project", "read_again", "duplicate"]
 MAX_EXPECTED_FILES = 10_000
 
@@ -1083,6 +1083,72 @@ class ConfluenceCheckOut(BaseModel):
     pages: int
     capped: bool
     linked_issues: int
+
+
+# --- Box integration (docs/box/oauth.md, docs/box/source.md) --------------------------------------------------------
+
+
+class BoxConnectionOut(BaseModel):
+    """The caller's Box connection; ``enabled`` is whether the server has the Box app configured. ``name`` is the
+    Box display name; ``enterprise_name`` is null for a personal account."""
+
+    enabled: bool
+    connected: bool
+    status: Literal["active", "expired"] | None
+    name: str | None
+    enterprise_name: str | None
+    connected_at: datetime | None
+    last_used_at: datetime | None
+
+
+class BoxReturnToIn(BaseModel):
+    """Where the browser returns after Box: a path of this site (the GitHub rule)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    return_to: str = Field(min_length=1, max_length=RETURN_TO_MAX)
+
+    @field_validator("return_to")
+    @classmethod
+    def _same_origin_path(cls, value: str) -> str:
+        return same_site_path(value)
+
+
+class BoxUrlOut(BaseModel):
+    url: str
+
+
+class BoxCallbackIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=4096)
+    state: str = Field(min_length=1, max_length=4096)
+
+
+class BoxCallbackOut(BaseModel):
+    connection: BoxConnectionOut
+    return_to: str
+
+
+class BoxLinkIn(BaseModel):
+    """One Box link: a folder, a file or a shared link (docs/box/source.md "Links")."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    link: str = Field(max_length=LINK_MAX)
+
+
+class BoxCheckOut(BaseModel):
+    """What the link would import: ``files`` the import takes (at most the file cap), ``skipped`` the items of
+    another type that it declares and skips, ``folders`` the folders it walks, ``capped`` when a cap stopped the walk.
+    ``name`` is the name of the folder or file in Box (shown, not stored by the check)."""
+
+    kind: Literal["folder", "file"]
+    name: str
+    files: int
+    skipped: int
+    folders: int
+    capped: bool
 
 
 IssueKey = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]*-\d+$", max_length=ISSUE_KEY_MAX)]

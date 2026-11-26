@@ -2,6 +2,7 @@
 // endpoints can serve (`GET /me`, projects, uploads, the sources API of GDRIVE plan 04, the plan, the gaps); every other port stays mock
 // (`lib/data/compose.ts`). All calls go through `lib/api.ts` (browser -> `/api/backend/*` -> API `/api/v1/*`), except `GET /me`
 // (`client.ts`, G01-10). No fixture is imported here (R7).
+import type { BoxPort } from "@/lib/domain/box";
 import type { GapsPort } from "@/lib/domain/gaps";
 import type { GitHubPort } from "@/lib/domain/github";
 import type { IntegrationsPort } from "@/lib/domain/integrations";
@@ -17,6 +18,7 @@ import type { JiraGapsPort } from "@/lib/domain/jira-gaps";
 import type { SlackPort } from "@/lib/domain/slack";
 import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
+import { createHttpBox } from "./box";
 import { createHttpGaps } from "./gaps";
 import { createHttpGitHub } from "./github";
 import { createHttpIntegrations } from "./integrations";
@@ -49,6 +51,7 @@ export interface HttpPorts {
   jiraGaps: JiraGapsPort;
   slack: SlackPort;
   github: GitHubPort;
+  box: BoxPort;
   integrations: IntegrationsPort;
 }
 
@@ -76,6 +79,7 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     jiraGaps: createHttpJiraGaps(),
     slack: createHttpSlack(),
     github: createHttpGitHub(),
+    box: createHttpBox(),
     integrations: createHttpIntegrations(),
   };
 }

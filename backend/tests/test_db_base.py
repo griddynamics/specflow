@@ -67,6 +67,7 @@ def test_the_base_metadata_holds_exactly_the_app_tables() -> None:
         "jira_issues",
         "atlassian_connections",
         "github_connections",
+        "box_connections",
         "project_repositories",
         "project_integrations",
         "jira_gap_targets",

@@ -1,9 +1,9 @@
 ---
 type: Design
-title: "Importers: Confluence links and Jira epics"
-description: "The sources the API reads itself from Atlassian: what a Confluence link or a Jira epic imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
+title: "Importers: Confluence links, Jira epics and Box links"
+description: "The sources the API reads itself from Atlassian and Box: what a Confluence link, a Jira epic or a Box link imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
 status: draft
-tags: [sources, confluence, jira, import]
+tags: [sources, confluence, jira, box, import]
 ---
 # importers.md: sources the API imports itself
 
@@ -19,7 +19,8 @@ Rules shared by every importer:
   used: `read:page`, `read:hierarchical-content`, `read:space` (Confluence) and `read:jira-work` (Jira) were granted already
   ([../jira-sync/oauth.md](../jira-sync/oauth.md)). The site is the deployment's one site (`ATLASSIAN_SITE_URL`); a link
   on another host is `atlassian_site_mismatch`.
-- **One source per link.** `kind` is `confluence` or `jira_epic`; `external_id` is a fresh uuid, `link` the link as pasted.
+- **One source per link.** `kind` is `confluence`, `jira_epic` or `box` (the Box link follows the same rules with Box's account and
+  its own parts, see "Box link" below); `external_id` is a fresh uuid, `link` the link as pasted.
 - **Originals and Markdown.** Each item is stored twice: the API's answer as JSON (`original.json` in object storage) and
   a Markdown document (`origin = connection`, `status = parsed`, `parser = <kind>-convert`). The document starts with the
   title as its heading; the graph reads it like any other (`doc:<document id>` lineage, path `<source name>/<item name>`).
@@ -110,3 +111,23 @@ italic, code, strikethrough, links, line breaks, bullet, ordered and task lists,
 (as quotes), expands (title in bold), rules, mentions as names, emoji, dates, statuses, cards as links and media as
 `[attachment]`. A node it does not know renders the text of its children. The Confluence "follow links" import of a linked
 issue uses the same reader and document.
+
+## Box link
+
+`POST /projects/{pid}/sources/box/check` and `POST /projects/{pid}/sources/box`, both `{link}`, any member. The import reads as the
+member the project's Box is connected by (R1), with that member's own Box access (scope `root_readwrite`, which Box needs to
+download; Graphico only reads). One link per source: a folder (the whole tree below it), a file, or a shared link
+(`app.box.com/folder/<id>`, `/file/<id>`, `/s/<token>`, `/v/<vanity>`; also `<name>.app.box.com`). The check answers `kind`
+(`folder` or `file`), `name`, `files` (importable, at most 1000), `skipped` (other types), `folders` and `capped`.
+
+Two things differ from the Atlassian importers. The files are binary: PDF, DOCX, PPTX, XLSX, HTML, MD, CSV and TXT are
+downloaded and stored as originals (`ImportWriter.add_file`) and then parsed by `worker-parse` like an upload, so a Box file
+is `processing` until the parser finishes. A Box Note (`.boxnote`) is read as plain text through its `[extracted_text]`
+representation and stored `parsed` (parser `box-convert`). Everything else is declared and ends `skipped`. And a **shared link
+is never stored**: `connections.link` is the canonical `https://app.box.com/folder/<id>` or `/file/<id>` of the resolved item.
+
+Caps: `MAX_FILES = 1000` importable files, `MAX_ENTRIES = 5000` walked entries (`api/imports/box.py`), cap events
+`api.imports.box_cap_reached`; a file over its upload cap (PDF 100 MiB, OOXML 50 MiB, text 10 MiB) is `skipped`. Item names are
+`file:<id>`, named by the path inside the source. Failure reasons are the closed set above (no new reason). Link shapes, lanes,
+failure mapping, link back and follow-ups: [../box/source.md](../box/source.md); codes: [../box/codes.md](../box/codes.md); the
+connection: [../box/oauth.md](../box/oauth.md).

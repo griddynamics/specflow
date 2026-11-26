@@ -21,8 +21,8 @@ The screens that call these routes: [ui.md](ui.md). The connector docs: [../sour
 | Method, path | Who | Success | Errors |
 |---|---|---|---|
 | `GET /projects/{pid}/integrations` | member | 200 `ProjectIntegrationsOut` | 404 `project_not_found` |
-| `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian` or `github`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
-| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
+| `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `box`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected` / `box_not_connected`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable` / `box_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
+| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github`, `box` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
 
 **Slack in the UI:** `DELETE /projects/{pid}/slack` (the route of the Settings tab) and `/specflow disconnect` follow the same rule as
 `DELETE /projects/{pid}/integrations/slack`: the member who connected the channel, or the owner (`403 integration_forbidden` for any
@@ -32,32 +32,33 @@ left, lost the connection or removed the integration).
 
 Slack is bound by its own command in the channel (`/specflow connect <project id>`, [../slack/gap-answering.md](../slack/gap-answering.md)),
 which records the caller as the project's Slack member; there is no `PUT` for it. The caller connects Atlassian and
-GitHub to their own account first, with the per-user routes that exist today (`/integrations/atlassian/*`,
-`/integrations/github/*`); `PUT` then binds that connection to the project.
+GitHub or Box to their own account first, with the per-user routes (`/integrations/atlassian/*`,
+`/integrations/github/*`, `/integrations/box/*`, [../box/oauth.md](../box/oauth.md#routes)); `PUT` then binds that connection to the project.
 
 ### Shapes
 
-`ProjectIntegrationsOut` is `{integrations: ProjectIntegrationOut[]}`: always three entries, in the order `atlassian`,
-`github`, `slack`.
+`ProjectIntegrationsOut` is `{integrations: ProjectIntegrationOut[]}`: always four entries, in the order `atlassian`,
+`github`, `slack`, `box`.
 
 | Model | Fields |
 |---|---|
-| `ProjectIntegrationOut` | `app`, `available` (the server runs the app: Atlassian `oauth` mode, GitHub on, Slack on), `connected_by` (`{user_id, name}` or null), `workspace` (`{id, name}` or null), `connected_at` (or null), `health` |
-| `health` | `active`: the bound member's connection works (Slack: the channel is bound); `reconnect_required`: their Atlassian or GitHub connection expired; `none`: nothing acts (no row, the member left, or their connection is gone) |
+| `ProjectIntegrationOut` | `app`, `available` (the server runs the app: Atlassian `oauth` mode, GitHub on, Slack on, Box on), `connected_by` (`{user_id, name}` or null), `workspace` (`{id, name}` or null), `connected_at` (or null), `health` |
+| `health` | `active`: the bound member's connection works (Slack: the channel is bound); `reconnect_required`: their Atlassian, GitHub or Box connection expired; `none`: nothing acts (no row, the member left, or their connection is gone) |
 
 `connected_by.name` is the member's display name (their email when they have no name). `connected_by` is null and
 `workspace` stays when the member left: another member connects it again (D2). The Atlassian workspace name is the host
-of the configured site; the GitHub one is the account login; the Slack one the workspace name.
+of the configured site; the GitHub one is the account login; the Slack one the workspace name; the Box one is the enterprise name (id = the enterprise id), or the user's name (id `user:<box user id>`) for a personal account.
 
 ### Rules
 
 - **Connect** (`PUT`): the caller's own connection must be `active` (else `409 <app>_not_connected`). The project has
-  one workspace per app (D3): the Atlassian site, the GitHub account (login) or the Slack workspace of that connection.
+  one workspace per app (D3): the Atlassian site, the GitHub account (login), the Box enterprise (or the personal account) or the Slack workspace of that connection.
   A different workspace is `409 integration_workspace_mismatch` (for GitHub the workspace is the login of the connecting
   account, so a second member who connected GitHub under another login gets it until the binding is removed), unless
   nobody acts on the earlier one (its member left), which any member then replaces. The same workspace is taken over by the caller: the row names them, and
   `jira_targets.connected_user_id` (Atlassian) or every `project_repositories.added_by` (GitHub) is set to them in the
-  same transaction, so the runners that read those columns are unchanged.
+  same transaction, so the runners that read those columns are unchanged. Box has no such column: the Box importer reads
+  the member of the `box` row (`acting_member`).
 - **Acting account** (D1): `PUT /projects/{pid}/jira` sets `connected_user_id` from the project's `atlassian` row
   (`409 jira_not_connected` when there is none), not from whoever saves. `POST /projects/{pid}/repositories` reads the
   `github` row's member's repository list and stores that member as `added_by` (`409 github_not_connected` when there
@@ -105,10 +106,10 @@ Unchanged (members could already): sources, uploads, Drive, source removal, grap
 
 ## Importer seam
 
-For sources the API reads itself (Confluence pages, Jira epics; each source session adds its importer). Nothing in
+For sources the API reads itself (Confluence pages, Jira epics, Box links; each source session adds its importer). Nothing in
 the graph build changes: an importer writes `parsed` documents the build already reads.
 
-- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence` or `jira_epic` (`SourceKindName` too).
+- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence`, `jira_epic` or `box` (`SourceKindName` too).
   `external_id` of an imported source is `str(uuid)`, as a Local files batch has; `connected_by` is the importing member.
 - `api.imports.ImportRunner` (`Runtime.imports`) holds the imports of the process: one asyncio task per source, at most
   two at once (`MAX_CONCURRENT_IMPORTS`). `add_source` creates the source (`listing`); `start(job, importer)` runs it:
@@ -119,12 +120,16 @@ the graph build changes: an importer writes `parsed` documents the build already
   `projects/{pid}/documents/{did}/original.json` (or the extension of another media type), inserts the `documents` row
   (`origin=connection`, `status=parsed`, `parser=<kind>-convert`, held by the source) and finishes the item
   `processed` (a duplicate of content the project holds is `duplicate`, linking the first document); `fail(...)` ends
-  one item `error`. A removed source stops the importer at its next write (`SourceGoneError`).
+  one item `error`. `add_file(external_id, name=, chunks=, media_type=, max_bytes=)` (Box, B12) is the binary path: it streams the
+  original to object storage while hashing it (SHA-256), inserts the document `processing` with no parser and no Markdown, finishes
+  the item `processed` (a duplicate is `duplicate`, the object dropped) and starts the parse (`worker-parse` gets bytes only, through
+  `ImportRunner.use_parse_starter`, set by the app's lifespan); bytes over `max_bytes` raise `OriginalTooLargeError` and store nothing.
+  A removed source stops the importer at its next write (`SourceGoneError`).
 - A restart ends the tasks: at startup every source of those kinds still `listing` or `importing` and not touched since
   before this process started is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). The start instant is read once from the database clock (`SELECT now()`) and compared with `connections.updated_at`, so no process clock is involved; a source added after it is never ended. If the clock read fails (the database is still coming up) it is tried again after 0.5, 1 and 2 seconds; after the last failure a warning (`api.imports.recovery_failed`, the error class only) is logged and no source is ended. One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
-- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source" and "Jira epic source" below.
+- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source", "Jira epic source" and "Box source" below.
 
 ## Confluence source
 
@@ -167,6 +172,26 @@ Codes (any 4xx here carries only a fixed sentence, never Confluence's text):
 | `atlassian_unreachable` | 502 | Atlassian could not be reached, or answered something unusable |
 
 Order of checks: project member, Atlassian bound and usable, link, Confluence.
+
+## Box source
+
+What the canvas form (check, then add) calls. Any member (D6); the import reads as the member the project's Box is connected by
+(R1), runs in the API process and is the source `kind` `box`. Links, lanes, caps and failure mapping:
+[../box/source.md](../box/source.md); codes: [../box/codes.md](../box/codes.md).
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/box/check` | `{link}` | 200 `BoxCheckOut` | 404 `project_not_found`; the codes below |
+| `POST /projects/{pid}/sources/box` | `{link}` | 201 `BatchSourceOut` (`kind` `box`, `listing_finished` false) | as the check; 404 `source_not_found` (removed at once) |
+
+`link` is at most 2048 characters (the body is closed: other keys are 422 `validation_failed`). `BoxCheckOut`: `kind` (`folder` or
+`file`), `name` (shown, not stored), `files` (importable files, at most 1000), `skipped` (items of other types: declared, never
+downloaded), `folders` (walked), `capped` (a cap stopped the walk). The check reads Box (the tree walk, no download); nothing is
+stored. A shared link in `link` is never stored: `connections.link` is the canonical folder or file address.
+
+Codes (a fixed sentence only, never Box's text): `box_unavailable` 503; `box_not_connected` 409 (the project has no Box connection
+bound to a member); `box_reconnect_required` 409; `box_link_invalid` 422; `box_link_password` 422; `box_no_access` 409;
+`box_unreachable` 502; `box_auth_failed` 502. Order of checks: project member, Box bound and usable, link, Box.
 
 ## Jira epic source
 
@@ -306,7 +331,8 @@ Organization projects (until then: `github_permissions_missing`).
 | `integration_workspace_mismatch` | 409 | `PUT`: the project is connected to another Atlassian site, GitHub account or Slack workspace |
 | `integration_not_found` | 404 | `DELETE`: the project has no connection to that app |
 | `integration_forbidden` | 403 | `DELETE`: the caller neither connected the app nor owns the project |
-| `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable` | 503 | the app is not configured on this server |
+| `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable`, `box_unavailable` | 503 | the app is not configured on this server |
+| `box_not_connected` | 409 | `PUT` Box: the caller has no active Box connection; the Box source routes: the project has none bound to a member |
 | `slack_link_invalid` | 400 | `POST /integrations/slack/link`: the nonce expired or was used |
 | `jira_not_connected` | 409 | `PUT /projects/{pid}/jira` and `PUT /projects/{pid}/jira-gaps` in `oauth` mode: the project has no Atlassian connection bound to a member |
 | `gap_unavailable` | 503 | `PUT` and the check of `jira-gaps`: gap runs are off on this server |
@@ -317,7 +343,7 @@ Organization projects (until then: `github_permissions_missing`).
 ## Data
 
 `project_integrations` (migration `0008_project_integrations`): primary key (`project_id`, `app`), `app` one of
-`atlassian`, `github`, `slack` (a later integration widens the check), `user_id` (null once the member left; foreign
+`atlassian`, `github`, `slack`, `box` (a later integration widens the check; `box` by migration `0011_box`), `user_id` (null once the member left; foreign
 key `users.id` on delete set null), `workspace_id`, `workspace_name`, `connected_at`. Row-level security on, policy
 `agent_project_scope`, no grant. The migration fills an `atlassian` row from every Jira target whose acting account
 has a connection, and a `github` row from the first adder of every project's repositories whose adder has a GitHub

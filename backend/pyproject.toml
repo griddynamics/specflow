@@ -139,7 +139,7 @@ dev = [
 # Colocated test modules use the validation environment, not runtime imports.
 [tool.deptry]
 known_first_party = [
-    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "github", "graph", "integrations", "jira", "llm",
+    "agent_contracts", "agent_runtime", "api", "auth", "box", "db", "drive", "file_parsers", "github", "graph", "integrations", "jira", "llm",
     "logger", "mcp_server", "postgres", "storage",
     "temporal", "cli", "cloud_profile", "health", "settings",
     "example_lib", "gap_detect_bench", "graph_build", "mcp_qa_lib",  # examples/

@@ -12,6 +12,7 @@ import { rejectsWith as rejects, serveStub } from "../support/stub-fetch";
 const PORT = 3290;
 const ctx = serveStub(PORT, (api) => {
   api.github.reset();
+  api.box.seed({ reset: true });
   api.jira.state.mode = "oauth";
   api.jira.state.connection = null;
   api.integrations.seed({ reset: true });
@@ -82,7 +83,7 @@ test("the Slack test answer needs posted true and a channel", () => {
 
 // ---- Layer P ----
 
-test("GET lists the three apps in order; nothing is connected on a fresh project", async () => {
+test("GET lists the four apps in order; nothing is connected on a fresh project", async () => {
   const pid = await ownerProject();
   const rows = await integrations.list(pid);
   assert.deepEqual(
@@ -91,6 +92,7 @@ test("GET lists the three apps in order; nothing is connected on a fresh project
       ["atlassian", null, "none"],
       ["github", null, "none"],
       ["slack", null, "none"],
+      ["box", null, "none"],
     ],
   );
   assert.deepEqual(last(), { method: "GET", path: `/api/backend/projects/${pid}/integrations`, body: null });
@@ -113,8 +115,20 @@ test("PUT binds the caller's own connection: Atlassian by the cloud site, GitHub
   assert.deepEqual(github.workspace, { id: "octo", name: "octo" });
   assert.deepEqual(
     (await integrations.list(pid)).map((r) => r.health),
-    ["active", "active", "none"],
+    ["active", "active", "none", "none"],
   );
+});
+
+test("PUT binds the caller's own Box connection by the enterprise (a personal account by its name)", async () => {
+  const pid = await ownerProject();
+  await rejects(integrations.connect(pid, "box"), "conflict", "box_not_connected");
+  ctx.api.box.state.connection = { status: "active", name: "Dana Example", enterprise_name: "Acme Corp" };
+  const bound = await integrations.connect(pid, "box");
+  assert.deepEqual(last(), { method: "PUT", path: `/api/backend/projects/${pid}/integrations/box`, body: null });
+  assert.deepEqual(bound.workspace, { id: "enterprise-stub", name: "Acme Corp" });
+  assert.equal(bound.health, "active");
+  ctx.api.box.state.enabled = false;
+  await rejects(integrations.connect(pid, "box"), "unavailable", "box_unavailable");
 });
 
 test("PUT needs the caller's own active connection and the app on the server", async () => {
@@ -126,6 +140,7 @@ test("PUT needs the caller's own active connection and the app on the server", a
   ctx.api.github.state.enabled = false;
   await rejects(integrations.connect(pid, "github"), "unavailable", "github_unavailable");
   ctx.api.jira.state.mode = "token";
+  ctx.api.box.state.enabled = false;
   await rejects(integrations.connect(pid, "atlassian"), "unavailable", "atlassian_oauth_unavailable");
   assert.equal(
     (await integrations.list(pid)).every((r) => !r.available || r.app === "slack"),

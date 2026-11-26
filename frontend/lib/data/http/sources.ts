@@ -9,8 +9,10 @@
 //  - Links are never logged or rebuilt: `SourceOut.link` is used as it comes.
 import {
   addBatchFile,
+  addBoxSource,
   addConfluenceSource,
   addJiraEpicSource,
+  checkBoxLink,
   checkConfluenceLink,
   checkJiraEpicLink,
   endBatch,
@@ -36,6 +38,7 @@ import {
   type DriveReason,
   type DriveSaveResult,
   type DriveTestResult,
+  type BoxCheck,
   type ConfluenceCheck,
   type JiraEpicCheck,
   type JiraEpicChild,
@@ -314,6 +317,16 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
       }
     },
+    async checkBox(projectId, link) {
+      return toBoxCheck(await guard(() => checkBoxLink(projectId, link)));
+    },
+    async addBox(projectId, link) {
+      try {
+        await guard(() => addBoxSource(projectId, link));
+      } finally {
+        opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
+      }
+    },
     async checkJiraEpic(projectId, keyOrLink) {
       return toJiraEpicCheck(await guard(() => checkJiraEpicLink(projectId, keyOrLink)));
     },
@@ -352,6 +365,21 @@ export function toJiraEpicCheck(body: unknown): JiraEpicCheck {
     capped: body.capped,
     children: (body.children as unknown[]).map(toEpicChild),
   };
+}
+
+/** `POST .../sources/box/check` -> `BoxCheck`; any other shape is `invalid_response`. */
+export function toBoxCheck(body: unknown): BoxCheck {
+  const count = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+  expectShape(
+    isRecord(body) &&
+      (body.kind === "folder" || body.kind === "file") &&
+      isString(body.name) &&
+      count(body.files) &&
+      count(body.skipped) &&
+      count(body.folders) &&
+      typeof body.capped === "boolean",
+  );
+  return { kind: body.kind, name: body.name, files: body.files, skipped: body.skipped, folders: body.folders, capped: body.capped };
 }
 
 /** `POST .../sources/confluence/check` -> `ConfluenceCheck`; any other shape is `invalid_response`. */

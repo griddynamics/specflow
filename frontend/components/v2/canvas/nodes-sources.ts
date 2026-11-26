@@ -7,8 +7,10 @@ import { cardView, failedCardLine } from "@/components/mission-control/sources/s
 import { fullSourceName, progressOf, sourceState } from "@/lib/domain/source-state";
 import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
+import { BOX_WORDS, boxOpen } from "./box-logic";
 import { CONFLUENCE_WORDS } from "./confluence-logic";
 import { JIRA_EPIC_WORDS } from "./jira-epic-logic";
+import type { IntegrationApp } from "@/lib/domain/integrations";
 import type { NodeMapper, NodeView, Stages } from "./canvas-types";
 
 const APP_NAME: Partial<Record<SourceKind, string>> = {
@@ -16,9 +18,10 @@ const APP_NAME: Partial<Record<SourceKind, string>> = {
   gdrive: "Google Drive",
   confluence: "Confluence",
   jira_epic: "Jira",
+  box: "Box",
 };
 
-const MARK = { upload: "upload", gdrive: "gdrive", confluence: "confluence", jira_epic: "jira" } as const;
+const MARK = { upload: "upload", gdrive: "gdrive", confluence: "confluence", jira_epic: "jira", box: "box" } as const;
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 
@@ -49,7 +52,11 @@ export const unitText = (kind: SourceKind, text: string): string => {
 const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess: string; failedMeta: string; failed: string }>> = {
   confluence: CONFLUENCE_WORDS,
   jira_epic: JIRA_EPIC_WORDS,
+  box: BOX_WORDS,
 };
+
+/** The app a stopped imported source offers to reconnect (`no_access`: the bound member's account lost its access). */
+const RECONNECT: Partial<Record<SourceKind, IntegrationApp>> = { confluence: "atlassian", jira_epic: "atlassian", box: "box" };
 
 /** A node of a Jira epic is named by its key ("NWO-12: Checkout redesign" is its full name, in the label and the dialog). */
 const nodeName = (s: Source, kind: SourceKind, now: Date): string => {
@@ -73,7 +80,8 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
   const app = APP_NAME[kind] ?? kind;
   const name = nodeName(s, kind, now);
   const named = kind === "upload" ? name : `${app} ${fullSourceName(s)}`;
-  const detail = { app, by: `${V2_COPY.addedBy} ${s.addedBy.name}`, remove: "source", reconnect: null } as const;
+  const open = kind === "box" ? boxOpen(s.link) : undefined;
+  const detail = { app, by: `${V2_COPY.addedBy} ${s.addedBy.name}`, remove: "source", reconnect: null, ...(open && { open }) } as const;
   const base = { id: s.id, kind, zone: "graph", mark: MARK[kind], name, tag: undefined, addedAt: s.addedAt } as const;
   if (state === "processing") {
     const meta = unitText(kind, card.countLine);
@@ -101,7 +109,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
       listing: false,
       label: `${named}: ${meta}`,
       wire: "off",
-      detail: { ...detail, text, reconnect: IMPORT_WORDS[kind] !== undefined && s.failure === "no_access" ? "atlassian" : null },
+      detail: { ...detail, text, reconnect: s.failure === "no_access" ? (RECONNECT[kind] ?? null) : null },
     };
   }
   const count = unitText(kind, card.countLine);
@@ -120,7 +128,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive" | "confluence" | "jira_epic"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "box"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
@@ -128,3 +136,4 @@ export const uploadNodes: NodeMapper = sourcesOf("upload");
 export const driveNodes: NodeMapper = sourcesOf("gdrive");
 export const confluenceNodes: NodeMapper = sourcesOf("confluence");
 export const jiraEpicNodes: NodeMapper = sourcesOf("jira_epic");
+export const boxNodes: NodeMapper = sourcesOf("box");

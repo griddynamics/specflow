@@ -60,7 +60,8 @@ HEAD_0006 = "0006_atlassian_connections"
 HEAD_0007 = "0007_github"
 HEAD_0008 = "0008_project_integrations"
 HEAD_0009 = "0009_jira_gaps"
-HEAD = "0010_github_projects"
+HEAD_0010 = "0010_github_projects"
+HEAD = "0011_box"
 # SHA-256 of versions/0001_initial.py as 2.0.0 shipped it; a mismatch means a frozen revision was edited.
 FROZEN_0001_SHA256 = "ebc6d2e0f6ca8eef9bcbc5acde990ed151fe17fbc1945c75e5d6289a455948dc"
 INITIAL_TABLES = (
@@ -94,6 +95,8 @@ CONNECTIONS = "atlassian_connections"
 # The users' GitHub connections (no policy) and the project repositories (project-scoped), added by 0007.
 GITHUB_CONNECTIONS = "github_connections"
 REPOSITORIES = "project_repositories"
+# The users' Box connections (no policy: not project-scoped), added by 0011.
+BOX_CONNECTIONS = "box_connections"
 # The member and workspace of each project's apps (project-scoped), added by 0008.
 INTEGRATIONS = "project_integrations"
 # The Jira gap channel's target and gap-to-sub-task map (project-scoped), added by 0009.
@@ -112,6 +115,7 @@ APP_TABLES = (
     INTEGRATIONS,
     *JIRA_GAP_TABLES,
     *GITHUB_PROJECT_TABLES,
+    BOX_CONNECTIONS,
 )
 SCOPED_TABLES = (
     ("projects", "id"),
@@ -159,6 +163,7 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_bases() == [FIRST]
     assert [revision.revision for revision in script.walk_revisions()] == [
         HEAD,
+        HEAD_0010,
         HEAD_0009,
         HEAD_0008,
         HEAD_0007,
@@ -178,7 +183,8 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_revision(HEAD_0007).down_revision == HEAD_0006
     assert script.get_revision(HEAD_0008).down_revision == HEAD_0007
     assert script.get_revision(HEAD_0009).down_revision == HEAD_0008
-    assert script.get_revision(HEAD).down_revision == HEAD_0009
+    assert script.get_revision(HEAD_0010).down_revision == HEAD_0009
+    assert script.get_revision(HEAD).down_revision == HEAD_0010
 
 
 # T9 ------------------------------------------------------------------------
@@ -333,7 +339,7 @@ def test_offline_upgrade_enables_rls_and_creates_the_policy_on_each_scoped_table
             f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
         )
     assert sql.count("CREATE POLICY agent_project_scope") == len(SCOPED_TABLES) + 1
-    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 3  # + invites, 2 connection tables
+    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 4  # + invites, 3 connection tables
     assert "users ENABLE ROW LEVEL SECURITY" not in sql  # users is not project-scoped
 
 
@@ -925,7 +931,7 @@ def github_projects_sql() -> str:
     """The SQL of revision 0010 alone."""
 
     cfg, buffer = offline_config()
-    command.upgrade(cfg, f"{HEAD_0009}:{HEAD}", sql=True)
+    command.upgrade(cfg, f"{HEAD_0009}:{HEAD_0010}", sql=True)
     return buffer.getvalue()
 
 
@@ -954,10 +960,52 @@ def test_0010_creates_the_two_projects_tables_with_their_keys_and_scopes_them_to
 def test_the_downgrade_of_0010_drops_both_tables_and_says_what_is_lost() -> None:
     cfg, buffer = offline_config()
 
-    command.downgrade(cfg, f"{HEAD}:{HEAD_0009}", sql=True)
+    command.downgrade(cfg, f"{HEAD_0010}:{HEAD_0009}", sql=True)
 
     sql = buffer.getvalue()
     assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == ["github_project_items", "github_project_targets"]
     assert "UPDATE alembic_version SET version_num='0009_jira_gaps'" in sql
     doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0010_github_projects.py").read_text("utf-8")
     assert "Every GitHub Projects target and the whole plan-to-issue map is lost" in doc
+
+
+# Box, added by revision 0011 on top of 0010 ----------------------------------------------------
+
+
+def box_sql() -> str:
+    """The SQL of revision 0011 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{HEAD_0010}:{HEAD}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0011_creates_the_box_connections_table_without_a_policy_and_widens_the_two_checks() -> None:
+    sql = box_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == [BOX_CONNECTIONS]
+    assert "CONSTRAINT pk_box_connections PRIMARY KEY (user_id)" in sql
+    assert "CONSTRAINT ck_box_connections_status CHECK (status IN ('active', 'expired'))" in sql
+    assert "REFERENCES users (id) ON DELETE CASCADE" in sql
+    assert f"ALTER TABLE {BOX_CONNECTIONS} ENABLE ROW LEVEL SECURITY" in sql
+    assert "CREATE POLICY" not in sql
+    assert "GRANT" not in sql.upper()
+    assert "CHECK (app IN ('atlassian', 'github', 'slack', 'box'))" in sql
+    assert "CHECK (kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'box'))" in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index(f"CREATE TABLE {BOX_CONNECTIONS}")
+    assert "UPDATE alembic_version SET version_num='0011_box'" in sql
+
+
+def test_the_downgrade_of_0011_removes_box_rows_restores_the_checks_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD}:{HEAD_0010}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == [BOX_CONNECTIONS]
+    assert "DELETE FROM project_integrations WHERE project_integrations.app = 'box'" in sql
+    assert "CHECK (app IN ('atlassian', 'github', 'slack'))" in sql
+    assert "CHECK (kind IN ('gdrive', 'upload', 'confluence', 'jira_epic'))" in sql
+    assert "UPDATE alembic_version SET version_num='0010_github_projects'" in sql
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0011_box.py").read_text("utf-8")
+    assert "every Box connection is lost" in doc

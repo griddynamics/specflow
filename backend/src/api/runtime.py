@@ -27,7 +27,9 @@ from api.jira_gaps.poller import JiraGapPoller
 from api.jira_gaps.poster import JiraGapPoster
 from api.plan.runner import GraphPlanRunner
 from api.plan_destinations import PlanDestinations
+from box.connections import BoxConnections
 from db import session as db_session
+from db.box import connection_store as box_connection_store
 from db.github import connection_store
 from db.models import Project
 from db.session import is_database_unreachable
@@ -103,13 +105,15 @@ class Runtime:
     slack: Any = None
     # github.connections.GitHubConnections; None = the GitHub integration is off (503); GITHUB_APP_CLIENT_ID sets it.
     github: Any = None
+    # box.connections.BoxConnections; None = the Box integration is off (503); BOX_OAUTH_CLIENT_ID sets it.
+    box: Any = None
     # api.plan_destinations.PlanDestinations: the plan runner's one post-plan hook; Jira is the first destination.
     plan_destinations: Any = None
     # api.jira_gaps.JiraGaps: the Jira gap channel; None without Atlassian OAuth or gap runs
     jira_gaps: Any = None
     # api.github_projects.runner.GitHubProjectsRunner: the GitHub Projects plan destination; None when GitHub is off
     github_projects: Any = None
-    # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics)
+    # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics, Box links)
     imports: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
@@ -252,6 +256,10 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             log_event(logger, INFO, "api.github.mode", mode="on")
             runtime.github = GitHubConnections(settings.github, store=connection_store(runtime.transaction))
             stack.push_async_callback(runtime.github.aclose)
+        if settings.box is not None:
+            log_event(logger, INFO, "api.box.mode", mode="on")
+            runtime.box = BoxConnections(settings.box, store=box_connection_store(runtime.transaction))
+            stack.push_async_callback(runtime.box.aclose)
         runtime.imports = ImportRunner(transaction=runtime.transaction, store=store)
         stack.push_async_callback(runtime.imports.aclose)
         await runtime.imports.start_recovery()

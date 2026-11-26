@@ -31,8 +31,11 @@
 //                                            `available` (the caller's repositories), `truncated`, `availableError`, `cloneMs` (null = a
 //                                            clone check keeps running), `cloneOutcome` ("cloned" or a failure code); with `pid` the
 //                                            project's repositories; `reset: true` puts every knob back first; see stub-github.mjs)
+//                                          POST /seed-box ({reset?, enabled?, connection?, callbackError?}: the caller's own Box connection and the
+//                                            Box knobs: `enabled` false = 503 box_unavailable, `connection` null or {status, name?, enterprise_name?},
+//                                            `callbackError` a callback route code; the Box link check answers by the reserved links of stub-box.mjs)
 //                                          POST /seed-integrations ({pid?, reset?, slackAvailable?, slackTest?, atlassian?, github?, slack?}: the V2
-//                                            Integrations page. `atlassian` and `github` are null (not connected) or {by?, workspace?, health?};
+//                                            Integrations page. `atlassian`, `github` and `box` are null (not connected) or {by?, workspace?, health?};
 //                                            `slack` null or {channel, by?}; `by: null` = the member left; `slackTest` is "ok" or the API code the
 //                                            next Test connection answers with; `reset: true` puts the Slack knobs back; the connect (PUT) of an
 //                                            app needs the caller's own connection, set with /seed-jira (mode "oauth", connection) or /seed-github;
@@ -168,6 +171,12 @@ const control = http.createServer(async (req, res) => {
     const { reset, ...spec } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
     if (reset === true) api.github.reset();
     api.github.seed(spec);
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/seed-box") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    api.box.seed(JSON.parse(Buffer.concat(chunks).toString() || "{}"));
     return send(200, { ok: true });
   }
   if (req.method === "POST" && req.url === "/seed-integrations") {

@@ -17,7 +17,7 @@ export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMode[] }> = {
   home: { template: "", trees: ["production"] },
   canvas: { template: "/projects/{projectId}", trees: ["production"] }, // Mission Control V2: the canvas of a project (app/(v2))
-  integrations: { template: "/projects/{projectId}/integrations", trees: ["production"] }, // V2: ?github= | ?atlassian= | ?next=
+  integrations: { template: "/projects/{projectId}/integrations", trees: ["production"] }, // V2: ?github= | ?atlassian= | ?box= | ?next=
   missionControl: { template: "/projects/{projectId}/mission-control", trees: ["production"] },
   gaps: { template: "/projects/{projectId}/gaps", trees: ["production"] }, // FR-GWEB-04: the Gaps screen (was Decisions)
   plan: { template: "/projects/{projectId}/plan", trees: ["production"] }, // P20; page files in P21
@@ -116,18 +116,19 @@ export function parseGuideTopic(topic: string): GuideTopic | null {
 }
 
 /**
- * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`), the app whose set-up opens at once (`?setup=`) and
+ * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?box=`), the app whose set-up opens at once (`?setup=`) and
  * the same-site `next` path the page returns to after a connect (the canvas form that asked). Anything else is null.
  */
 export function parseIntegrationsQuery(q: URLSearchParams): {
   github: string | null;
   atlassian: string | null;
+  box: string | null;
   setup: IntegrationCardId | null;
   next: string | null;
 } {
   const next = q.get("next");
   const setup = [...INTEGRATION_APPS, "mcp" as const].find((a) => a === q.get("setup")) ?? null;
-  return { github: q.get("github"), atlassian: q.get("atlassian"), setup, next: isSameSitePath(next) ? next : null };
+  return { github: q.get("github"), atlassian: q.get("atlassian"), box: q.get("box"), setup, next: isSameSitePath(next) ? next : null };
 }
 
 /** `add` of the canvas route: the connection whose form opens after the Integrations round trip; the canvas checks it against its registry. */
