@@ -32,7 +32,12 @@ export interface StubEntry {
 const allowConsoleList = new WeakMap<Page, RegExp[]>();
 const allowOriginList = new WeakMap<Page, string[]>();
 /** The OAuth return routes a browser may open on the app (lib/oauth-route.ts): GitHub's and Atlassian's redirects land there. */
-const OAUTH_RETURN_ROUTES = ["/api/integrations/atlassian/callback", "/api/integrations/github/callback", "/api/integrations/github/setup"];
+const OAUTH_RETURN_ROUTES = [
+  "/api/integrations/atlassian/callback",
+  "/api/integrations/github/callback",
+  "/api/integrations/github/setup",
+  "/api/integrations/notion/callback",
+];
 
 export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
   requests: async ({}, use) => {
@@ -300,6 +305,7 @@ export interface SeedIntegrations extends Record<string, unknown> {
   slackTest?: string;
   atlassian?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
   github?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
+  notion?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
   slack?: { channel?: { id: string; name: string; private: boolean }; by?: { user_id: string; name: string } | null } | null;
 }
 export async function seedIntegrations(spec: SeedIntegrations): Promise<void> {
@@ -455,6 +461,24 @@ export interface SeedGitHub extends Record<string, unknown> {
 }
 export async function seedGitHub(spec: SeedGitHub): Promise<void> {
   await control("POST", "/seed-github", spec);
+}
+
+/** The Notion stub (`POST /seed-notion`, tests/support/stub-notion.mjs): the caller's connection and, with `pid`, the plan destination of a project. */
+export interface SeedNotion extends Record<string, unknown> {
+  /** Put every knob back first. */
+  reset?: boolean;
+  enabled?: boolean;
+  connection?: { status: "active" | "expired"; workspace_name: string } | null;
+  callbackError?: string | null;
+  pid?: string;
+  available?: boolean;
+  /** The destination as the API reports it (null = none); `sync` overrides fields of the finished pass. */
+  target?: Record<string, unknown> | null;
+  /** "ok", or the closed code the next access check and save answer with. */
+  access?: "ok" | { reason: string };
+}
+export async function seedNotion(spec: SeedNotion): Promise<void> {
+  await control("POST", "/seed-notion", spec);
 }
 
 /** Builds the knowledge graph of a Ready project through the BFF and waits for it (the stub runs it without a model). */

@@ -34,6 +34,7 @@ import {
   seedJira,
   seedJiraGaps,
   seedMembers,
+  seedNotion,
   seedSlack,
   seedSource,
   stubTiming,
@@ -59,11 +60,14 @@ const jiraTarget = (sync?: Record<string, unknown>) => ({
   acting: "me" as const,
   sync,
 });
+const NOTION_WIKI = "https://www.notion.so/northwind/Engineering-Wiki-423ed33606458163a8dde12275fc660d";
+const NOTION_PLANS = "https://www.notion.so/northwind/Plans-423ed33606458163a8dde12275fc660e";
 const CHECK_ACCESS = "Check access";
 const SPACE_KEY = "Jira space key";
 const ADD_SOURCE = "Add a source";
 const SET_UP_FIRST = "Set up first";
 const CHECK_LINK = "Check link";
+const ADD_SOURCE_BUTTON = "Add source";
 const CHECK_EPIC = "Check epic";
 const ADD_SELECTED = "Add selected";
 const FILES_TO_ADD = "Files to add";
@@ -78,6 +82,7 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   await stubTiming(STUB_TIMING);
+  await seedNotion({ reset: true });
   await seedGitHub({ reset: true });
   await seedIntegrations({ reset: true });
   await seedSlack({ pid: "none", channel: null, available: true, test: "ok" });
@@ -370,12 +375,12 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await link.fill(PAGE);
     await form.getByRole("button", { name: CHECK_LINK }).click();
     await expect(form.getByText("Page Checkout notes · 4 pages, 3 linked Jira issues.")).toBeVisible();
-    await expect(form.getByRole("button", { name: "Add source" })).toBeVisible();
+    await expect(form.getByRole("button", { name: ADD_SOURCE_BUTTON })).toBeVisible();
     await form.getByLabel("Follow links to other pages and Jira issues").uncheck(); // a different choice is a new check
     await expect(form.getByRole("button", { name: CHECK_LINK })).toBeVisible();
     await form.getByRole("button", { name: CHECK_LINK }).click();
     await expect(form.getByText("Page Checkout notes · 4 pages.")).toBeVisible();
-    await form.getByRole("button", { name: "Add source" }).click();
+    await form.getByRole("button", { name: ADD_SOURCE_BUTTON }).click();
     await expect(form).toBeHidden();
     const node = nodes(page).filter({ hasText: "Checkout notes" });
     await expect(node).toHaveAttribute(STATE, "busy");
@@ -428,7 +433,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(form.getByRole("button", { name: CHECK_EPIC })).toBeVisible();
     await form.getByRole("button", { name: CHECK_EPIC }).click();
     await expect(form.getByText("NWO-12 · Checkout redesign · 18 issues.")).toBeVisible();
-    await form.getByRole("button", { name: "Add source" }).click();
+    await form.getByRole("button", { name: ADD_SOURCE_BUTTON }).click();
     await expect(form).toBeHidden();
     const node = nodes(page).filter({ hasText: "NWO-12" });
     await expect(node).toHaveAttribute(STATE, "busy");
@@ -471,7 +476,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await list.getByRole("button", { name: SELECT_ALL }).click();
     await expect(list.getByText("18 of 18 issues, and the epic")).toBeVisible();
     await list.getByRole("checkbox", { name: /NWO-102 +Address form/ }).uncheck();
-    await form.getByRole("button", { name: "Add source" }).click();
+    await form.getByRole("button", { name: ADD_SOURCE_BUTTON }).click();
     await expect(form).toBeHidden();
     const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/jira-epic`);
     expect(bodiesOf(adds)).toEqual([{ key_or_link: "NWO-12", exclude: ["NWO-102"] }]);
@@ -685,6 +690,112 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     });
     await expect(node).toContainText("6 issues · GitHub", { timeout: 15_000 });
     await expect(wire(page, "github-plan")).toHaveAttribute(MOTION, "on");
+  });
+
+  test("Notion link: no Notion on the project says Set up first and comes back with the form open; a link is checked (the closed codes in words), then added as a source that imports its pages", async ({
+    page,
+    requests,
+  }) => {
+    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/); // the refused checks are answers
+    await seedNotion({ reset: true, connection: { status: "active", workspace_name: "Sample Workspace" } });
+    const pid = await canvas(page, unique("Notion form"));
+    await page.getByRole("button", { name: ADD.source }).click();
+    const plus = dialog(page, ADD_SOURCE);
+    await expect(plus.getByRole("button", { name: /^Notion link/ })).toContainText(SET_UP_FIRST);
+    await plus.getByRole("button", { name: /^Notion link/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=notion&next=%2Fprojects%2F${pid}%3Fadd%3Dnotion$`));
+    await seedIntegrations({ pid, notion: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=notion`);
+    const form = dialog(page, "Add a Notion page");
+    await expect(form.getByRole("button", { name: CHECK_LINK })).toBeDisabled();
+    const link = form.getByLabel("Page or database link");
+    for (const [text, words] of [
+      ["https://evil.example.com/Wiki-423ed33606458163a8dde12275fc660d", /not a link to a Notion page or database/],
+      ["https://www.notion.so/northwind/Wiki-423ed33606458163a8dde12275fc0404", /No page or database at this link/],
+      ["https://www.notion.so/northwind/Wiki-423ed33606458163a8dde12275fc0403", /No page or database at this link/],
+    ] as const) {
+      await link.fill(text);
+      await form.getByRole("button", { name: CHECK_LINK }).click();
+      await expect(form.getByRole("alert")).toContainText(words);
+      await expect(form.getByRole("button", { name: CHECK_LINK })).toBeVisible(); // still a check: nothing to add
+    }
+    await link.fill("https://www.notion.so/northwind/Requirements-423ed33606458163a8dde12275fc00db");
+    await form.getByRole("button", { name: CHECK_LINK }).click();
+    await expect(form.getByText("Database Requirements · 42 rows.")).toBeVisible();
+    await link.fill("https://www.notion.so/northwind/Big-423ed33606458163a8dde12275fc0b16");
+    await form.getByRole("button", { name: CHECK_LINK }).click(); // a different link is a new check
+    await expect(form.getByText("Database Big database · the first 100 rows (more were found).")).toBeVisible();
+    await link.fill(NOTION_WIKI);
+    await form.getByRole("button", { name: CHECK_LINK }).click();
+    await expect(form.getByText("Page Engineering Wiki · this page and 3 sub-pages.")).toBeVisible();
+    await form.getByRole("button", { name: ADD_SOURCE_BUTTON }).click();
+    await expect(form).toBeHidden();
+    const node = nodes(page).filter({ hasText: "Engineering Wiki" });
+    await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
+    await expect(node).toContainText("Notion");
+    const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/notion`);
+    expect(bodiesOf(adds)).toEqual([{ link: NOTION_WIKI }]);
+    await node.getByRole("button").click();
+    await expect(dialog(page, "Engineering Wiki").getByRole("button", { name: "Remove" })).toBeVisible();
+  });
+
+  test("Notion plan: no Notion on the project says Set up first; the parent page link is checked (the closed codes in words), Add destination saves it and the node shows the pass", async ({
+    page,
+    requests,
+  }) => {
+    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/);
+    const pid = await gapsFound(page, "Notion plan form");
+    await buildGraphAndPlan(page, pid);
+    await seedNotion({ connection: { status: "active", workspace_name: "Sample Workspace" } });
+    await page.goto(`/projects/${pid}`);
+    await page.getByRole("button", { name: ADD.destination }).click();
+    const plus = dialog(page, "Add a plan destination");
+    await expect(plus.getByRole("button", { name: /^Notion/ })).toContainText(SET_UP_FIRST);
+    await plus.getByRole("button", { name: /^Notion/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=notion`));
+    await seedIntegrations({ pid, notion: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=notion_plan`);
+    const form = dialog(page, "Send the plan to Notion");
+    const parent = form.getByLabel("Parent page link");
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeDisabled();
+    for (const [text, words] of [
+      ["https://evil.example.com/Plans-423ed33606458163a8dde12275fc660e", /not a link to a Notion page/],
+      ["https://www.notion.so/northwind/Plans-423ed33606458163a8dde12275fc0404", /Notion has no page at this link/],
+    ] as const) {
+      await parent.fill(text);
+      await form.getByRole("button", { name: CHECK_ACCESS }).click();
+      await expect(form.getByRole("alert")).toContainText(words);
+      await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible(); // still a check: nothing to add yet
+    }
+    await seedNotion({ pid, access: { reason: "notion_permissions_missing" } });
+    await parent.fill(NOTION_PLANS);
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByRole("alert")).toContainText("may not add or change content");
+    await seedNotion({ pid, access: "ok" });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByText("Page “Plans”. The plan database is created under it.")).toBeVisible();
+    await form.getByRole("button", { name: "Add destination" }).click();
+    await expect(form).toBeHidden();
+    const saves = requests.filter((r) => r.method === "PUT" && r.path === `/api/backend/projects/${pid}/notion-plan`);
+    expect(bodiesOf(saves)).toEqual([{ link: NOTION_PLANS, enabled: true }]);
+    const node = nodes(page).filter({ hasText: "Notion · Plans" });
+    await expect(node).toHaveAttribute(STATE, "on");
+    await expect(node).toContainText("In sync");
+    // A pass that runs moves the wire; a finished one counts its rows.
+    const target = { parent_page_title: "Plans" };
+    await seedNotion({ pid, target: { ...target, sync: { status: "running", counts: null } } });
+    await page.reload();
+    await expect(node).toHaveAttribute(STATE, "busy");
+    await expect(wire(page, "notion-plan")).toHaveAttribute(MOTION, "flow");
+    await seedNotion({
+      pid,
+      target: {
+        ...target,
+        sync: { status: "succeeded", counts: { created: 6, updated: 0, commented: 0, removed: 0, unchanged: 0, failed: 0, deferred: 0 } },
+      },
+    });
+    await expect(node).toContainText("6 rows created", { timeout: 15_000 });
+    await expect(wire(page, "notion-plan")).toHaveAttribute(MOTION, "on");
   });
 
   test("a finished build queues the gap run by itself, and once it is done the Gap hub is on and Build plan is offered", async ({
