@@ -539,7 +539,6 @@ AUTH = failure("AUTHENTICATION_ERROR", type="authentication error")
 INPUT_ERROR = {"type": "invalid input", "userPresentableMessage": "Could not find referenced Issue."}
 ESTIMATE = {"validationErrors": [{"property": "estimate"}]}
 TOO_COMPLEX = {"message": "Query too complex", "extensions": {"code": "GRAPHQL_VALIDATION_FAILED"}}
-RESET = str(int((time.time() + 30) * 1000))
 
 
 @pytest.mark.parametrize(
@@ -607,7 +606,7 @@ async def test_a_graphql_rate_limit_waits_for_the_exhausted_bucket_reset(make):
     headers = {
         "X-RateLimit-Requests-Remaining": "1200",
         "X-RateLimit-Complexity-Remaining": "0",
-        "X-RateLimit-Complexity-Reset": RESET,
+        "X-RateLimit-Complexity-Reset": str(int((time.time() + 30) * 1000)),  # read at the call, not at import
     }
     response = httpx.Response(200, headers=headers, json={"errors": [{"extensions": {"code": "RATELIMITED"}}]})
     _, gateway = make({"Viewer": response})

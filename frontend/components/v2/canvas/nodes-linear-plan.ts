@@ -5,20 +5,10 @@ import type { LinearPlan } from "@/lib/domain/linear-plan";
 import { V2_COPY } from "../v2-copy";
 import type { CanvasInput, NodeMapper, NodeView, Stages } from "./canvas-types";
 import { LINEAR_PLAN_COPY, LINEAR_RECONNECT, linearDetailText, linearPassText, linearSyncedMeta } from "./linear-plan-logic";
-import { connectedByOf, stoppedIntegration } from "./nodes-shared";
+import { connectedByOf, nodeStates, stoppedIntegration } from "./nodes-shared";
 
 function planNode(plan: LinearPlan, input: CanvasInput, stages: Stages): NodeView {
   const name = `Linear · ${plan.linearProjectName ?? plan.teamKey ?? ""}`;
-  const base = {
-    id: "linear-plan",
-    kind: "linear_plan",
-    zone: "plan",
-    mark: "linear",
-    name,
-    addedAt: "",
-    listing: false,
-    progress: null,
-  } as const;
   const link = plan.linearProjectUrl === null ? {} : { link: { href: plan.linearProjectUrl, label: LINEAR_PLAN_COPY.openProject } };
   const detail = {
     app: "Linear",
@@ -27,25 +17,11 @@ function planNode(plan: LinearPlan, input: CanvasInput, stages: Stages): NodeVie
     reconnect: null,
     ...link,
   } as const;
-  const label = (meta: string) => `Linear plan ${name}: ${meta}`;
-  const stopped = (meta: string, text: string, reconnect: "linear" | null): NodeView => ({
-    ...base,
-    meta,
-    state: "stopped",
-    badge: "stop",
-    label: label(meta),
-    wire: "off",
-    detail: { ...detail, text, reconnect },
-  });
-  const quiet = (meta: string): NodeView => ({
-    ...base,
-    meta,
-    state: "wait",
-    badge: null,
-    label: label(meta),
-    wire: "off",
-    detail: { ...detail, text: meta },
-  });
+  const { stopped, quiet, busy, on } = nodeStates(
+    { id: "linear-plan", kind: "linear_plan", zone: "plan", mark: "linear", name },
+    detail,
+    (meta) => `Linear plan ${name}: ${meta}`,
+  );
   const sync = plan.sync;
   const code = sync?.errorCode ?? null;
   const failed = sync?.status === "failed" && code !== null;
@@ -55,29 +31,10 @@ function planNode(plan: LinearPlan, input: CanvasInput, stages: Stages): NodeVie
   if (!plan.enabled) return quiet(LINEAR_PLAN_COPY.off);
   if (sync?.status === "skipped" && code !== null) return quiet(linearPassText(code));
   if (!stages.planOn) return quiet(V2_COPY.waitsForPlan);
-  if (sync?.status === "running") {
-    return {
-      ...base,
-      meta: V2_COPY.syncing,
-      state: "busy",
-      badge: "spin",
-      label: label(V2_COPY.syncing),
-      wire: "flow",
-      detail: { ...detail, text: V2_COPY.syncing },
-    };
-  }
+  if (sync?.status === "running") return busy(V2_COPY.syncing);
   const counts = sync?.counts ?? null;
   const never = sync === null || sync.status === "idle" || counts === null;
-  const meta = never ? V2_COPY.notSyncedYet : linearSyncedMeta(counts);
-  return {
-    ...base,
-    meta,
-    state: "on",
-    badge: never ? null : "ok",
-    label: label(meta),
-    wire: "on",
-    detail: { ...detail, text: linearDetailText(plan) },
-  };
+  return on(never ? V2_COPY.notSyncedYet : linearSyncedMeta(counts), linearDetailText(plan), never ? null : "ok", "on");
 }
 
 export const linearPlanNodes: NodeMapper = (input, stages) =>

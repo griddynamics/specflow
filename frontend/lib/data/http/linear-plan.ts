@@ -7,25 +7,15 @@ import type {
   LinearPlanCounts,
   LinearPlanField,
   LinearPlanPort,
-  LinearPlanSync,
   LinearPlanSyncStatus,
   LinearProjectChoice,
   LinearTeams,
 } from "@/lib/domain/linear-plan";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
+import { count, textOrNull, toSync } from "./plan-sync";
 
 const STATUSES: readonly LinearPlanSyncStatus[] = ["idle", "running", "succeeded", "partial", "failed", "skipped"];
 const FIELDS: readonly LinearPlanField[] = ["team", "project"];
-
-const textOrNull = (v: unknown): string | null => {
-  expectShape(v === null || v === undefined || isString(v));
-  return v ?? null;
-};
-
-const count = (v: unknown): number => {
-  expectShape(typeof v === "number" && Number.isSafeInteger(v) && v >= 0);
-  return v;
-};
 
 function toCounts(v: unknown): LinearPlanCounts | null {
   if (v === null || v === undefined) return null;
@@ -40,16 +30,6 @@ function toCounts(v: unknown): LinearPlanCounts | null {
     unchanged: count(v.unchanged),
     failed: count(v.failed),
   };
-}
-
-function toSync(v: unknown): LinearPlanSync | null {
-  if (v === null || v === undefined) return null;
-  expectShape(isRecord(v) && typeof v.queued === "boolean");
-  const status = STATUSES.find((s) => s === v.status);
-  expectShape(status !== undefined);
-  const finishedAt = textOrNull(v.finished_at);
-  expectShape(finishedAt === null || !Number.isNaN(Date.parse(finishedAt)));
-  return { status, queued: v.queued, finishedAt, errorCode: textOrNull(v.error_code), counts: toCounts(v.counts) };
 }
 
 export function toLinearPlan(v: unknown): LinearPlan {
@@ -71,7 +51,7 @@ export function toLinearPlan(v: unknown): LinearPlan {
     createdByGraphico: v.created_by_graphico,
     workspace: textOrNull(v.workspace),
     connectedByMe: v.connected_by_me,
-    sync: toSync(v.sync),
+    sync: toSync(v.sync, STATUSES, toCounts),
   };
 }
 

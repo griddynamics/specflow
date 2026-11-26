@@ -12,6 +12,7 @@ import type { LinearGaps } from "@/lib/domain/linear-gaps";
 import { defined } from "../support/defined";
 import { formProps, html } from "./canvas-form-support";
 import { BUILT, GAPS, integration } from "./canvas-fixtures";
+import { gapWaitTests } from "./canvas-node-support";
 
 const TARGET: LinearGaps = {
   available: true,
@@ -43,25 +44,7 @@ test("the node counts the questions posted and answered, under Gaps, with the Li
   assert.equal(nodeOf({ parentIdentifier: null }).detail.text.includes("Issue ENG"), false);
 });
 
-test("the wire moves only while a gap run goes on", () => {
-  assert.equal(nodeOf({}, { gaps: { ...GAPS, phase: "done" } }).wire, "on");
-  const waiting = nodeOf({}, { gaps: { ...GAPS, phase: "running" } });
-  assert.deepEqual([waiting.state, waiting.wire, waiting.meta], ["wait", "off", "Waits for gaps"]);
-});
-
-test("it waits while posting is off or the gaps are not found; nothing is set up means no node", () => {
-  assert.deepEqual([nodeOf({ enabled: false }).state, nodeOf({ enabled: false }).meta], ["wait", "Posting is off"]);
-  assert.equal(nodeOf({}, { gaps: null }).meta, "Waits for gaps");
-  const none = buildCanvasModel(BUILT({ gaps: GAPS, linearGaps: { ...TARGET, teamKey: null } }), NODE_MAPPERS);
-  assert.equal(
-    none.zones.gap.nodes.some((n) => n.kind === "linear_gaps"),
-    false,
-  );
-  assert.equal(
-    buildCanvasModel(BUILT({ gaps: GAPS }), NODE_MAPPERS).zones.gap.nodes.some((n) => n.kind === "linear_gaps"),
-    false,
-  );
-});
+gapWaitTests({ kind: "linear_gaps", nodeOf, unset: { linearGaps: { ...TARGET, teamKey: null } } });
 
 test("it stops only for what the API reports: a lost Linear connection offers Reconnect, another closed code says what it is", () => {
   for (const code of ["linear_not_connected", "linear_reconnect_required"]) {

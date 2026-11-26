@@ -4,6 +4,7 @@ Linear and an in-memory connection store. Without the Linear app configured they
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -113,6 +114,16 @@ async def test_a_callback_body_with_an_unknown_field_is_refused(rig) -> None:
     answer = await call(rig, "POST", "integrations/linear/callback", ALICE, {"code": "c", "state": "s", "x": 1})
 
     assert answer.status_code == 422
+
+
+async def test_get_shows_a_connection_the_workspace_revoked_as_revoked(rig) -> None:
+    await connect(rig)
+    for user_id, row in list(rig.store.rows.items()):
+        rig.store.rows[user_id] = replace(row, status="revoked")
+
+    shown = await call(rig, "GET", "integrations/linear")
+
+    assert shown.status_code == 200 and shown.json()["status"] == "revoked"
 
 
 async def test_delete_disconnects_the_caller_and_revokes_the_tokens(rig) -> None:

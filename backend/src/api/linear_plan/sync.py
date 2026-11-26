@@ -348,7 +348,7 @@ class _Pass:
         )
         self.fresh.add(node)
         self.counts.created += 1
-        await self._link(node, made.id)
+        await self._link(made.id)
         await self._store(node, content={**values, "blocked_by": []}, content_hash=digest(values), synced_at=now)
 
     async def _make(
@@ -383,11 +383,12 @@ class _Pass:
                 new, refused = dataclasses.replace(new, estimate=None), True
                 self.counts.estimate_refused += 1
 
-    async def _link(self, node: str, issue_id: str) -> None:
-        """The "Open in Graphico" link of an issue (the same url again only renames it)."""
+    async def _link(self, issue_id: str) -> None:
+        """The "Open in Graphico" link of an issue: the project's canvas, which has no per-node address (the same url
+        again only renames it)."""
 
         if self.deps.public_url:
-            url = f"{self.deps.public_url.rstrip('/')}/projects/{self.project_id}?node={node}"
+            url = f"{self.deps.public_url.rstrip('/')}/projects/{self.project_id}"
             await self.gateway.attach_link(issue_id, url, rules.LINK_TITLE)
 
     # Updating --------------------------------------------------------------------------------------------------------
@@ -472,7 +473,7 @@ class _Pass:
             refused = True
             self.counts.estimate_refused += 1
         if not old:  # an issue made by a pass that stopped before its content was stored: the link may be missing
-            await self._link(node, issue.id)
+            await self._link(issue.id)
         return refused
 
     async def _label_ids(self, issue: Issue, names: Sequence[str], *, drop_removed: bool = False) -> list[str]:

@@ -19,6 +19,7 @@ import type { LinearPlan } from "@/lib/domain/linear-plan";
 import { defined } from "../support/defined";
 import { formProps, html } from "./canvas-form-support";
 import { BUILT, GAPS, integration, READY_PLAN } from "./canvas-fixtures";
+import { skippedPassTest } from "./canvas-node-support";
 
 const COUNTS = { created: 0, updated: 0, commented: 0, removed: 0, relationsAdded: 0, estimateRefused: 0, unchanged: 0, failed: 0 };
 const PLAN: LinearPlan = {
@@ -101,16 +102,9 @@ test("it stops only for what the API reports: a lost Linear connection offers Re
   assert.match(unknown.detail.text, /reason Graphico does not know/);
 });
 
-test("a skipped pass is a wait with the words of its code, not a stop and not 'Not synced yet'", () => {
-  const skipped = (errorCode: string) => nodeOf(sync({ status: "skipped", errorCode, counts: null }));
-  for (const [code, words] of [
-    ["no_plan", "Waits for the plan"],
-    ["plan_applying", "The plan is being applied"],
-    ["target_changed", "The destination changed; the next pass uses the new one"],
-  ] as const) {
-    const n = skipped(code);
-    assert.deepEqual([n.state, n.badge, n.wire, n.meta], ["wait", null, "off", words]);
-  }
+skippedPassTest((s) => nodeOf(sync(s)));
+
+test("a pass the API cannot name still has words", () => {
   assert.match(linearPassText("linear_rate_limited"), /Graphico tries again by itself/);
 });
 

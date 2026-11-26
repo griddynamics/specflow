@@ -45,6 +45,7 @@ test("toLinearConnection: not connected, active and expired read; a status that 
     workspace: { id: "org-1", name: "Acme", urlKey: "acme" },
   });
   assert.equal(toLinearConnection(wire({ status: "expired" })).status, "expired");
+  assert.equal(toLinearConnection(wire({ status: "revoked" })).status, "revoked");
   assert.equal(toLinearConnection(wire({ available: false, status: "none", user_name: null, workspace: null })).available, false);
   invalid(() => toLinearConnection(wire({ status: "gone" })));
   invalid(() => toLinearConnection(wire({ workspace: null })));

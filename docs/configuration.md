@@ -697,12 +697,34 @@ open questions in Linear. It is off until `LINEAR_OAUTH_CLIENT_ID` is set. The a
 | `LINEAR_WEBHOOK_SECRET` | Optional. The signing secret of the app's webhook; it verifies `Linear-Signature` on `POST /api/v1/integrations/linear/webhook`. Unset: that route answers 503 and answers to gap questions are not read back. |
 | `PUBLIC_URL` | The web app's public address. The callback URL is `{PUBLIC_URL}/api/integrations/linear/callback`. |
 
-With the client ID unset the integration is off and the Linear routes answer 503 `linear_unavailable`. A partial set stops
-the api at start and names the missing variables. Make the key as for `GITHUB_TOKEN_KEY`.
+With the client ID unset the integration is off: the Linear routes answer 503 `linear_unavailable` and the connect card says
+so. A partial set stops the api at start and names the missing variables. The api logs `api.linear.mode` (`mode` `on`)
+at start. Make the key with
+`python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`. Only the api reads these
+names; compose passes them to it. Design: [Linear integration](linear/INDEX.md).
 
-A Linear OAuth app has one webhook URL, so register one app per environment (local, each shared environment). The callback
-URL of the app is `{PUBLIC_URL}/api/integrations/linear/callback`, its scopes are `read` and `write`, and the webhook URL is
-`{PUBLIC_URL}/api/v1/integrations/linear/webhook` (a public https address; a tunnel on a local stack).
+The api must reach `linear.app` and `api.linear.app` directly: its Linear client ignores `HTTPS_PROXY` and the other
+proxy variables (and `.netrc`).
+
+### Register the Linear OAuth app
+
+Register one app per deployment (local, each shared environment): a Linear app has one webhook URL. Only an **admin** of
+the Linear workspace that should own the app can create it. On linear.app: Settings, API, OAuth applications, New.
+
+| Field | Value |
+|---|---|
+| Application name | for example `Graphico (local)` |
+| Callback URL | `{PUBLIC_URL}/api/integrations/linear/callback` |
+| Public | on, so members of other workspaces can connect (a private app installs in the owning workspace only) |
+| Scopes | `read` and `write`. Graphico asks for no `admin` scope. |
+| Webhook URL | `{api public URL}/api/v1/integrations/linear/webhook`: the public https address of the **api**, not the web app's `PUBLIC_URL` (on a local stack, a tunnel to the api port 8000) |
+| Webhook events | Comments (answers to gap questions) and OAuth app authorization events (revocations). Issues is not needed. |
+
+After you create it: copy the client ID to `LINEAR_OAUTH_CLIENT_ID`, the client secret to `LINEAR_OAUTH_CLIENT_SECRET` and
+the webhook signing secret to `LINEAR_WEBHOOK_SECRET`. A workspace can require an admin to approve third-party apps; its
+members cannot connect until an admin approves. Without `LINEAR_WEBHOOK_SECRET` the webhook route answers 503
+`linear_webhook_unavailable` and answers to gap questions in Linear are not read back (the api still reads them when the
+gap target is saved and at start).
 
 ## Document parsing
 

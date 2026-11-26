@@ -1,6 +1,6 @@
 "use client";
 // Linear: connect with the caller's own account (per-user OAuth, as the Atlassian card does) and bind it to the project. If the caller is
-// connected already, the button only binds. A connection that expired says Reconnect. The workspace, the member and Disconnect come from the
+// connected already, the button only binds. A connection that expired or was revoked (the workspace withdrew the app) says Reconnect. The workspace, the member and Disconnect come from the
 // shared frame. Everything Linear is used for (a plan, gap questions, a project as a source) is set up on the canvas.
 import { useState } from "react";
 import { Button, Row } from "@graphico/ui";

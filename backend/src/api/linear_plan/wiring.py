@@ -22,12 +22,11 @@ def add_linear_plan(runtime: Any, destinations: PlanDestinations, stack: AsyncEx
     connections = runtime.linear
     if connections is None:
         return
-    mcp = runtime.settings.mcp
     runner = LinearPlanRunner(
         connections.gateway,
         transaction=runtime.transaction,
         graph_store=runtime.graph_store,
-        public_url=mcp.public_url if mcp else None,
+        public_url=runtime.settings.linear.public_url,
     )
     runtime.linear_plan = runner
     stack.push_async_callback(runner.aclose)

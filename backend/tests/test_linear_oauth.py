@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import timedelta
 
 import httpx
@@ -276,6 +277,17 @@ async def test_a_dead_grant_expires_the_connection_once(cause: str, caplog) -> N
     with pytest.raises(LinearUnauthorizedError):
         await connections.access_token(USER)
     assert len(linear.calls) == calls and "linear.expired" in caplog.text
+
+
+@pytest.mark.parametrize("status", ["active", "expired", "revoked", "something_else"])
+async def test_the_view_shows_revoked_as_revoked_and_any_other_dead_status_as_expired(status: str) -> None:
+    store = MemoryStore()
+    connections = await connected(FakeLinear(), store, Clock())
+    store.rows[USER] = replace(store.rows[USER], status=status)
+
+    view = await connections.get(USER)
+
+    assert view is not None and view.status == ("expired" if status == "something_else" else status)
 
 
 @pytest.mark.parametrize("status", [503, 401])

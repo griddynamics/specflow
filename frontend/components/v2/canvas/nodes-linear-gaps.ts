@@ -5,42 +5,18 @@ import type { LinearGaps } from "@/lib/domain/linear-gaps";
 import { V2_COPY } from "../v2-copy";
 import type { CanvasInput, NodeMapper, NodeView, Stages } from "./canvas-types";
 import { LINEAR_GAP_COPY as COPY, LINEAR_RECONNECT } from "./linear-gap-copy";
-import { connectedByOf, stoppedIntegration } from "./nodes-shared";
+import { connectedByOf, nodeStates, stoppedIntegration } from "./nodes-shared";
 
 const WORKING = new Set(["queued", "running"]);
 
 function gapNode(l: LinearGaps, input: CanvasInput, stages: Stages): NodeView {
   const name = `Linear · ${l.teamKey ?? ""} gaps`;
-  const base = {
-    id: "linear-gaps",
-    kind: "linear_gaps",
-    zone: "gap",
-    mark: "linear",
-    name,
-    addedAt: "",
-    listing: false,
-    progress: null,
-  } as const;
   const detail = { app: "Linear", by: connectedByOf(input, "linear", V2_COPY.connectedBy), remove: null, reconnect: null } as const;
-  const label = (meta: string) => `Linear gaps ${l.teamKey ?? ""}: ${meta}`;
-  const stopped = (meta: string, text: string, reconnect: "linear" | null): NodeView => ({
-    ...base,
-    meta,
-    state: "stopped",
-    badge: "stop",
-    label: label(meta),
-    wire: "off",
-    detail: { ...detail, text, reconnect },
-  });
-  const quiet = (meta: string, text: string): NodeView => ({
-    ...base,
-    meta,
-    state: "wait",
-    badge: null,
-    label: label(meta),
-    wire: "off",
-    detail: { ...detail, text },
-  });
+  const { stopped, quiet, on } = nodeStates(
+    { id: "linear-gaps", kind: "linear_gaps", zone: "gap", mark: "linear", name },
+    detail,
+    (meta) => `Linear gaps ${l.teamKey ?? ""}: ${meta}`,
+  );
   if (stoppedIntegration(input, "linear") !== undefined || (l.errorCode !== null && LINEAR_RECONNECT.has(l.errorCode)))
     return stopped(V2_COPY.stoppedReconnect, V2_COPY.stoppedBody, "linear");
   if (l.errorCode !== null) return stopped(COPY.stopped, COPY.errors[l.errorCode] ?? COPY.generic, null);
@@ -48,15 +24,12 @@ function gapNode(l: LinearGaps, input: CanvasInput, stages: Stages): NodeView {
   const g = input.gaps;
   if (!stages.gapsFound || g === null) return quiet(V2_COPY.waitsForGaps, COPY.posted);
   const meta = `${String(l.posted)} posted · ${String(l.answered)} answered`;
-  return {
-    ...base,
+  return on(
     meta,
-    state: "on",
-    badge: "ok",
-    label: label(meta),
-    wire: WORKING.has(g.phase) ? "flow" : "on",
-    detail: { ...detail, text: l.parentIdentifier === null ? COPY.posted : `${COPY.posted} ${COPY.parent} ${l.parentIdentifier}.` },
-  };
+    l.parentIdentifier === null ? COPY.posted : `${COPY.posted} ${COPY.parent} ${l.parentIdentifier}.`,
+    "ok",
+    WORKING.has(g.phase) ? "flow" : "on",
+  );
 }
 
 export const linearGapNodes: NodeMapper = (input, stages) =>

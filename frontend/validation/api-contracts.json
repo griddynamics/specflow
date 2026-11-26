@@ -224,6 +224,16 @@
       "path": "/projects/{pid}/sources/confluence/check"
     },
     {
+      "id": "add_linear_source_api_v1_projects__pid__sources_linear_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/linear"
+    },
+    {
+      "id": "check_linear_source_api_v1_projects__pid__sources_linear_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/linear/check"
+    },
+    {
       "id": "start_upload_batch_api_v1_projects__pid__sources_uploads_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/uploads"
@@ -312,6 +322,21 @@
       "id": "check_jira_gaps_access_api_v1_projects__pid__jira_gaps_access_check_post",
       "method": "POST",
       "path": "/projects/{pid}/jira-gaps/access-check"
+    },
+    {
+      "id": "get_linear_gaps_api_v1_projects__pid__linear_gaps_get",
+      "method": "GET",
+      "path": "/projects/{pid}/linear-gaps"
+    },
+    {
+      "id": "put_linear_gaps_api_v1_projects__pid__linear_gaps_put",
+      "method": "PUT",
+      "path": "/projects/{pid}/linear-gaps"
+    },
+    {
+      "id": "check_linear_gaps_access_api_v1_projects__pid__linear_gaps_access_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/linear-gaps/access-check"
     },
     {
       "id": "get_github_projects_api_v1_projects__pid__github_projects_get",
@@ -442,6 +467,21 @@
       "id": "list_github_repositories_api_v1_integrations_github_repositories_get",
       "method": "GET",
       "path": "/integrations/github/repositories"
+    },
+    {
+      "id": "get_linear_connection_api_v1_integrations_linear_get",
+      "method": "GET",
+      "path": "/integrations/linear"
+    },
+    {
+      "id": "authorize_linear_api_v1_integrations_linear_authorize_post",
+      "method": "POST",
+      "path": "/integrations/linear/authorize"
+    },
+    {
+      "id": "disconnect_linear_api_v1_integrations_linear_delete",
+      "method": "DELETE",
+      "path": "/integrations/linear"
     },
     {
       "id": "list_project_repositories_api_v1_projects__pid__repositories_get",

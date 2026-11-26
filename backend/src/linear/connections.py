@@ -39,6 +39,7 @@ logger = get_logger("linear.connections")
 
 ACTIVE: Final = "active"
 EXPIRED: Final = "expired"
+REVOKED: Final = "revoked"
 _STATE_CONTEXT: Final = b"specflow linear oauth state"
 _PKCE_CONTEXT: Final = b"specflow linear oauth pkce"
 
@@ -124,7 +125,7 @@ StoreTransaction = Callable[[], AbstractAsyncContextManager[ConnectionStore]]
 class ConnectionView:
     """What the API shows of a connection: never a token or the Linear user id of the API answer."""
 
-    status: Literal["active", "expired"]
+    status: Literal["active", "expired", "revoked"]
     linear_user_id: str
     user_name: str
     organization_id: str
@@ -135,7 +136,9 @@ class ConnectionView:
 
     @classmethod
     def of(cls, row: StoredConnection) -> ConnectionView:
-        status: Literal["active", "expired"] = ACTIVE if row.status == ACTIVE else EXPIRED
+        status: Literal["active", "expired", "revoked"] = (
+            "active" if row.status == ACTIVE else "revoked" if row.status == REVOKED else "expired"
+        )
         return cls(
             status,
             row.linear_user_id,

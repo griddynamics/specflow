@@ -93,6 +93,8 @@ delivery, so a delivery Linear gave up on (it retries 1 min, 1 h, 6 h) is not lo
 
 ## Setup
 
-One OAuth app per environment, webhook URL `{PUBLIC_URL host}/api/v1/integrations/linear/webhook`, resource types
-`Comment` and `OAuth app revocations`; its signing secret is `LINEAR_WEBHOOK_SECRET`. Local development needs a tunnel to
-the API.
+One OAuth app per environment. Its webhook URL is the public address of the api plus
+`/api/v1/integrations/linear/webhook` (not the web app's `PUBLIC_URL`; on a local stack, a tunnel to the api port 8000).
+Tick the webhook events **Comments** and **OAuth app authorization events**; Issues is not needed. The signing secret is
+`LINEAR_WEBHOOK_SECRET`. Registration steps: [oauth.md](oauth.md#register-the-linear-oauth-app) and
+[../configuration.md](../configuration.md).

@@ -22,7 +22,7 @@ async def transaction() -> Any:
 
 
 def runtime(linear: Any) -> Any:
-    settings = SimpleNamespace(mcp=SimpleNamespace(public_url="https://app.example.test"))
+    settings = SimpleNamespace(linear=SimpleNamespace(public_url="https://app.example.test"))
     return SimpleNamespace(
         linear=linear, linear_plan=None, settings=settings, transaction=transaction, graph_store=object()
     )

@@ -77,7 +77,7 @@ async def test_the_first_pass_makes_issues_sub_issues_labels_milestones_estimate
     assert "- [ ] it works" in (first.description or "") and ">>> Graphico" in (first.description or "")
     assert "> [!NOTE]" in (first.description or "") and (first.description or "").rstrip().endswith(">>>")
     [link] = harness.linear.attachments(first.id)
-    assert (link.title, link.url) == ("Open in Graphico", f"{PUBLIC_URL}/projects/{harness.project_id}?node=TASK::A::1")
+    assert (link.title, link.url) == ("Open in Graphico", f"{PUBLIC_URL}/projects/{harness.project_id}")
     rows = harness.store.items
     assert {row.identifier for row in rows.values()} == {issue.identifier for issue in harness.linear.all_issues()}
     assert rows["TASK::A::1"].content["blocked_by"] == [] and rows["TASK::A::2"].content["blocked_by"] == ["TASK::A::1"]
