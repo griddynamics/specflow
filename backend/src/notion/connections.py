@@ -431,47 +431,41 @@ class NotionConnections:
 
     async def disconnect(self, user_id: uuid.UUID) -> None:
         """Delete the connection, drop its access token and revoke the grant on Notion (best effort, a failure never
-        blocks the delete). The tokens to revoke are the cached access token of the current grant (never a refresh just
-        to revoke), else the stored one, and the stored refresh token; an expired connection is not revoked."""
+        blocks the delete). Notion's revoke takes the access token only: the cached one while it is good, else the
+        stored one (a grant with no refresh token), else one refresh of the stored refresh token (under the row lock,
+        as a use does). An expired connection is not revoked."""
 
-        tokens = await self._revocable(user_id)
+        token = await self._revocable(user_id)
         async with self._tokens.lock(user_id):
             async with self._store() as store:
                 deleted = await store.delete(user_id)
             self._forget(user_id)
-        revoked = False
-        for token in tokens:
-            revoked = await self._oauth.revoke(SecretStr(token))
-            if revoked:
-                break
+        revoked = token is not None and await self._oauth.revoke(SecretStr(token))
         log_event(logger, INFO, "notion.disconnected", user_id=str(user_id), deleted=deleted, revoked=revoked)
 
-    def _stored_tokens(self, row: StoredConnection) -> list[str]:
-        """The access token (if stored) and the refresh token (if any) of a row; one that no longer decrypts is left
-        out."""
+    def _stored_access(self, row: StoredConnection) -> str | None:
+        if not row.access_token:
+            return None
+        try:
+            return self._cipher.decrypt(row.access_token).get_secret_value() or None
+        except CipherError:
+            return None
 
-        found: list[str] = []
-        for cipher_text in (row.access_token, row.refresh_token):
-            if not cipher_text:
-                continue
-            try:
-                value = self._cipher.decrypt(cipher_text).get_secret_value()
-            except CipherError:
-                continue
-            if value:
-                found.append(value)
-        return found
-
-    async def _revocable(self, user_id: uuid.UUID) -> list[str]:
-        """What to revoke on disconnect, best first; empty for no row or an expired one."""
+    async def _revocable(self, user_id: uuid.UUID) -> str | None:
+        """The access token to revoke on disconnect; ``None`` for no row, an expired one, or when none can be had (a
+        failed refresh included)."""
 
         async with self._store() as store:
             row = await store.get(user_id)
         if row is None or row.status != ACTIVE:
-            return []
-        tokens = self._stored_tokens(row)
-        cached = await self._cached_token(user_id, row)
-        return [cached, *(t for t in tokens if t != cached)] if cached is not None else tokens
+            return None
+        token = await self._cached_token(user_id, row) or self._stored_access(row)
+        if token is not None:
+            return token
+        try:
+            return await self.refresh(user_id, used=None)
+        except NotionError:
+            return None
 
     async def _cached_token(self, user_id: uuid.UUID, row: StoredConnection) -> str | None:
         """The cached access token of the row's grant while it is good; never a refresh."""

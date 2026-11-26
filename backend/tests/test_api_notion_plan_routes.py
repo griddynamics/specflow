@@ -137,7 +137,9 @@ async def rig(monkeypatch, valid_env):
 def bind(rig: Any, user: uuid.UUID | None = None) -> None:
     """The project's Notion is connected by ``user`` (alice by default)."""
 
-    rig.integrations.put(PID, "notion", user or rig.alice, workspace_id="w1", workspace_name="Sample Workspace")
+    rig.integrations.put(
+        PID, "notion", user or rig.alice, workspace_id=rig.connections.workspace_id, workspace_name="Sample Workspace"
+    )
 
 
 async def settle(rig: Any) -> None:
@@ -358,3 +360,15 @@ async def test_saving_the_same_page_while_its_database_is_alive_keeps_it_and_sta
     await settle(rig)
 
     assert rig.db.targets[PID].database_id == made.id and rig.passes == [ALPHA]
+
+
+async def test_a_member_who_reconnected_into_another_workspace_is_refused_before_any_notion_call(rig) -> None:
+    bind(rig)
+    rig.connections.workspace_id = "ws-other"  # the binding still names the first workspace
+
+    checked = (await call(rig, "POST", f"{PATH}/access-check", ALICE, {"link": ROOT_LINK})).json()
+    saved = await call(rig, "PUT", PATH, ALICE, body())
+
+    assert checked["result"] == "failed" and checked["reason"] == "notion_reconnect_required"
+    assert error_of(saved) == (409, "notion_reconnect_required")
+    assert rig.fake.calls == [] and rig.connections.gateways_asked == [] and rig.passes == []

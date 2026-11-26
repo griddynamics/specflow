@@ -23,7 +23,7 @@ from api.plan_graph import PlanGraph
 from api.schemas import NotionPlanCounts, NotionPlanState, NotionPlanStatus
 from db import integrations as integrations_db
 from db import notion_plan as plan_db
-from db.integrations import NOTION
+from db.integrations import NOTION, IntegrationView
 from db.notion_plan import PlanTargetView, TargetSaved
 from logger.logger import get_logger
 from notion.connections import NotionConnections
@@ -92,6 +92,17 @@ class NotionPlanRunner(ExportRunner[PlanTargetView | None, NotionPlanStatus, Pus
 
         return await self._connections.gateway(user_id)
 
+    async def gateway_for_binding(self, bound: IntegrationView) -> NotionGateway:
+        """The gateway of the member of a binding. A member who reconnected into another Notion workspace than the
+        binding's is ``notion_reconnect_required`` before any Notion call."""
+
+        if bound.user_id is None:
+            raise NotionError(NotionCode.NOT_CONNECTED)
+        mine = await self._connections.get(bound.user_id)
+        if mine is not None and mine.workspace_id != bound.workspace_id:
+            raise NotionError(NotionCode.RECONNECT_REQUIRED)
+        return await self.gateway_of(bound.user_id)
+
     async def _gateway_for(self, project_id: uuid.UUID) -> NotionGateway:
         """The gateway of the member the project's Notion is bound to now (rule R1), not the one who saved the target: a
         removed member, a removed integration and a take-over all take effect on the next pass. No binding is
@@ -99,9 +110,9 @@ class NotionPlanRunner(ExportRunner[PlanTargetView | None, NotionPlanStatus, Pus
 
         async with self._transaction() as session:
             bound = await integrations_db.get_integration(session, project_id, NOTION)
-        if bound is None or bound.user_id is None:
+        if bound is None:
             raise NotionError(NotionCode.NOT_CONNECTED)
-        return await self.gateway_of(bound.user_id)
+        return await self.gateway_for_binding(bound)
 
     async def _restart(self, project_id: str) -> None:
         """Rows are left: the start merges into the running pass (``dirty``) and one more pass follows (N9)."""

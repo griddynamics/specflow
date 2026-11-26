@@ -508,3 +508,15 @@ async def test_the_member_who_connected_notion_or_the_owner_removes_it_and_nobod
     assert by_alice.status_code == by_alice_again.status_code == 204
     assert error_of(forbidden) == (403, "integration_forbidden")
     assert rig.integrations.rows == {} and rig.integrations.pointed == []
+
+
+async def test_a_notion_member_connected_to_another_workspace_than_the_binding_must_reconnect(rig) -> None:
+    rig.notion.users[rig.ben.id] = "active"
+    rig.integrations.put(rig.alpha, "notion", rig.ben.id, workspace_id="ws-1", workspace_name="Sample Workspace")
+    rig.notion.workspace_id = "ws-1"
+    same = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN))["notion"]["health"]
+    rig.notion.workspace_id = "ws-other"  # they reconnected into another Notion workspace
+
+    other = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN))["notion"]["health"]
+
+    assert (same, other) == ("active", "reconnect_required")

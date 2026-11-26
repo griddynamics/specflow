@@ -107,6 +107,8 @@ async def _health(runtime: Runtime, pid: uuid.UUID, row: IntegrationView | None)
         return "active" if bound is not None else "none"
     if found is None:
         return "none"
+    if row.app == NOTION and found.workspace_id != row.workspace_id:
+        return "reconnect_required"  # the member reconnected into another Notion workspace than the binding's
     return "active" if found.status == "active" else "reconnect_required"
 
 

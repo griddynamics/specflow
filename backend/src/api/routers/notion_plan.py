@@ -28,6 +28,7 @@ from api.schemas import (
     NotionPlanIn,
     NotionPlanOut,
 )
+from db import integrations as integrations_db
 from db import notion_plan as plan_db
 from db.integrations import NOTION
 from db.notion_plan import ParentChoice
@@ -49,10 +50,11 @@ def _runner(runtime: Runtime) -> NotionPlanRunner:
 async def _gateway(runtime: Runtime, pid: uuid.UUID) -> NotionGateway:
     """The gateway of the member the project's Notion is bound to; a ``NotionError`` says why there is none."""
 
-    member = await acting_member(runtime, pid, NOTION)
-    if member is None:
+    async with runtime.transaction() as session:
+        bound = await integrations_db.get_integration(session, pid, NOTION)
+    if bound is None:
         raise NotionError(NotionCode.NOT_CONNECTED)
-    return await _runner(runtime).gateway_of(member)
+    return await _runner(runtime).gateway_for_binding(bound)
 
 
 async def _out(runtime: Runtime, pid: uuid.UUID, user_id: uuid.UUID) -> NotionPlanOut:

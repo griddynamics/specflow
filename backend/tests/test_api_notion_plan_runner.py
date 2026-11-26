@@ -53,7 +53,9 @@ class Rig:
     async def get_integration(self, _session: Any, project_id: uuid.UUID, app: str) -> IntegrationView | None:
         if not self.bound_row or app != "notion":
             return None
-        return IntegrationView(project_id, app, self.bound, None, "w1", "Sample Workspace", NOW)
+        return IntegrationView(
+            project_id, app, self.bound, None, "ws-1", "Sample Workspace", NOW
+        )
 
     async def get_target(self, _session: Any, project_id: uuid.UUID) -> Any:
         return replace(self.target, enabled=self.on) if project_id == PID else None
@@ -225,3 +227,12 @@ def test_the_status_of_a_target_reads_its_stored_run() -> None:
     assert (live.status, live.queued) == ("running", True)
     assert (interrupted.status, interrupted.error_code) == ("failed", "interrupted")
     assert status_of(replace(base, enabled=False), live=False, queued=False).status == "idle"
+
+
+async def test_a_member_who_reconnected_into_another_workspace_ends_the_pass_before_any_notion_call(rig: Rig) -> None:
+    rig.connections.workspace_id = "ws-other"  # the binding still names the first workspace
+
+    with pytest.raises(NotionError) as raised:
+        await rig.runner._gateway_for(PID)
+
+    assert raised.value.code is NotionCode.RECONNECT_REQUIRED and rig.connections.gateways_asked == []

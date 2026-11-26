@@ -716,25 +716,44 @@ async def test_disconnecting_an_expired_connection_deletes_it_without_a_revoke()
     assert store.rows == {} and notion.revoked == [] and notion.refreshes == 0
 
 
-async def test_disconnect_never_refreshes_just_to_revoke_and_revokes_the_stored_refresh_token() -> None:
+async def test_disconnect_with_nothing_cached_refreshes_once_and_revokes_the_fresh_access_token() -> None:
     notion, store, clock = FakeNotion(), MemoryStore(), Clock()
     await connected(notion, store, clock)
-    clock.now += 3600  # the cached token is no longer good
     other_process = make(notion, store, clock)  # nothing cached at all (a restart, another replica)
 
     await other_process.disconnect(USER)
 
-    assert store.rows == {} and notion.revoked == ["refresh-1"] and notion.refreshes == 0
+    assert store.rows == {} and notion.revoked == ["access-2"] and notion.refreshes == 1
+    assert "refresh-1" not in notion.revoked  # the revoke takes an access token only
 
 
-async def test_a_stale_cached_token_is_not_revoked_but_the_stored_refresh_token_is() -> None:
+async def test_a_stale_cached_token_is_not_revoked_a_fresh_one_is() -> None:
     notion, store, clock = FakeNotion(), MemoryStore(), Clock()
     connections = await connected(notion, store, clock)
     clock.now += 3600
 
     await connections.disconnect(USER)
 
-    assert store.rows == {} and notion.revoked == ["refresh-1"] and notion.refreshes == 0
+    assert store.rows == {} and notion.revoked == ["access-2"] and notion.refreshes == 1
+
+
+async def test_a_good_cached_token_is_revoked_without_a_refresh() -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    connections = await connected(notion, store)
+
+    await connections.disconnect(USER)
+
+    assert notion.revoked == ["access-1"] and notion.refreshes == 0
+
+
+async def test_a_failed_refresh_before_the_revoke_still_deletes_the_connection() -> None:
+    notion, store = FakeNotion(), MemoryStore()
+    await connected(notion, store)
+    notion.error = (400, "invalid_grant")
+
+    await make(notion, store).disconnect(USER)
+
+    assert store.rows == {} and notion.revoked == []
 
 
 async def test_disconnect_after_a_restart_revokes_the_stored_access_token_of_a_grant_with_no_refresh_token() -> None:
