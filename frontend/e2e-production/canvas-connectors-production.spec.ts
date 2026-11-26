@@ -778,7 +778,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(form).toBeHidden();
     const saves = requests.filter((r) => r.method === "PUT" && r.path === `/api/backend/projects/${pid}/notion-plan`);
     expect(bodiesOf(saves)).toEqual([{ link: NOTION_PLANS, enabled: true }]);
-    const node = nodes(page).filter({ hasText: "Notion · Plans" });
+    const node = nodes(page).filter({ has: page.getByLabel(/^Notion Plans:/) });
     await expect(node).toHaveAttribute(STATE, "on");
     await expect(node).toContainText("In sync");
     // A pass that runs moves the wire; a finished one counts its rows.

@@ -19615,7 +19615,7 @@
     },
     "/api/v1/projects/{pid}/sources/notion": {
       "post": {
-        "description": "Check the link as above, create the source for the caller and start the import (``start_import`` of\n``api.source_imports`` with ``NotionImporter``, reading as ``acting_member(runtime, pid, NOTION)``).",
+        "description": "Check the link as above, create the source for the caller and start the import (``start_import`` of\n``api.source_imports`` with ``NotionImporter``, reading as the member the project is bound to).",
         "operationId": "add_notion_source_api_v1_projects__pid__sources_notion_post",
         "parameters": [
           {

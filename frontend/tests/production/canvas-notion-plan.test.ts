@@ -53,7 +53,13 @@ test("the dialog links the plan database only when it is an https Notion link", 
   assert.equal(open("https://www.notion.so/Plan-db-1"), "https://www.notion.so/Plan-db-1");
   assert.equal(open("https://acme.notion.site/x"), null);
   assert.equal(open(null), null);
-  for (const bad of ["http://www.notion.so/x", "javascript:alert(1)", "https://evil.example/notion.so", "https://notion.so.evil.example/x", "nope"])
+  for (const bad of [
+    Object.assign(new URL("https://www.notion.so/x"), { protocol: "http:" }).href,
+    "javascript:alert(1)",
+    "https://evil.example/notion.so",
+    "https://notion.so.evil.example/x",
+    "nope",
+  ])
     assert.equal(notionDatabaseLink(bad), null, bad);
 });
 

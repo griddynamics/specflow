@@ -53,9 +53,7 @@ class Rig:
     async def get_integration(self, _session: Any, project_id: uuid.UUID, app: str) -> IntegrationView | None:
         if not self.bound_row or app != "notion":
             return None
-        return IntegrationView(
-            project_id, app, self.bound, None, "ws-1", "Sample Workspace", NOW
-        )
+        return IntegrationView(project_id, app, self.bound, None, "ws-1", "Sample Workspace", NOW)
 
     async def get_target(self, _session: Any, project_id: uuid.UUID) -> Any:
         return replace(self.target, enabled=self.on) if project_id == PID else None

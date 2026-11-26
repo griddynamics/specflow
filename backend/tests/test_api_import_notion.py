@@ -533,26 +533,26 @@ def fail_markdown_of(fake: FakeNotionGateway, page_id: str, code: NotionCode) ->
             raise NotionError(code)
         return await inner(requested)
 
-    fake.page_markdown = read  # type: ignore[method-assign]
+    vars(fake)["page_markdown"] = read  # an instance attribute shadows the method for this one fake
 
 
 async def test_a_title_with_an_e_mail_address_is_scrubbed_in_the_heading_the_names_and_the_stored_original() -> None:
     fake = FakeNotionConnections()
-    secret = "ann@corp.com"  # noqa: S105 - a test address, not a credential
-    fake.fake.pages[WIKI_PAGE_ID] = replace(fake.fake.pages[WIKI_PAGE_ID], title=f"Notes of {secret}")
-    fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(page_line(ONBOARDING, f"Sub of {secret}"))
-    fake.fake.pages[ONBOARDING] = replace(fake.fake.pages[ONBOARDING], title=f"Sub of {secret}")
+    address = "ann@corp.com"
+    fake.fake.pages[WIKI_PAGE_ID] = replace(fake.fake.pages[WIKI_PAGE_ID], title=f"Notes of {address}")
+    fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(page_line(ONBOARDING, f"Sub of {address}"))
+    fake.fake.pages[ONBOARDING] = replace(fake.fake.pages[ONBOARDING], title=f"Sub of {address}")
 
     writer = await run(WIKI_PAGE_ID, fake)
     link = NotionLink(WIKI_PAGE_ID)
     kind, title = await notion_module.open_link(fake.fake, NotionImport(link))
 
     assert (kind, title) == ("page", "Notes of (e-mail hidden)")
-    assert all(secret not in name for _id, name in writer.declared)
+    assert all(address not in name for _id, name in writer.declared)
     assert all(
-        secret not in name and secret not in markdown.split("\n")[0] for name, markdown, _o in writer.added.values()
+        address not in name and address not in markdown.split("\n")[0] for name, markdown, _o in writer.added.values()
     )
-    assert all(secret not in json.loads(o)["page"]["title"] for _n, _m, o in writer.added.values())
+    assert all(address not in json.loads(o)["page"]["title"] for _n, _m, o in writer.added.values())
     name, markdown, original = writer.added[f"page:{WIKI_PAGE_ID}"]
     assert name == "Notes of (e-mail hidden)" and markdown.startswith("# Notes of (e-mail hidden)\n")
     assert json.loads(original)["page"]["title"] == "Notes of (e-mail hidden)"

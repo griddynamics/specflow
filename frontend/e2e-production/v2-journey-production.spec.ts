@@ -162,7 +162,7 @@ test.describe("Mission Control V2: the journey", { tag: "@production" }, () => {
     await notionForm.getByRole("button", { name: CHECK }).click();
     await notionForm.getByRole("button", { name: "Add destination" }).click();
     await expect(notionForm).toBeHidden();
-    await expect(nodes(page).and(page.locator('[data-kind="notion"]')).filter({ hasText: "Plans" })).toHaveCount(1);
+    await expect(nodes(page).filter({ has: page.getByLabel(/^Notion Plans:/) })).toHaveCount(1);
     const planNode = nodes(page).filter({ hasText: "GitHub · " });
     await expect(planNode).toHaveCount(1);
     await expect(nodes(page).filter({ hasText: "Automatic" })).toHaveCount(2); // MCP joins Gap and Plan by itself

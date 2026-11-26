@@ -16,7 +16,8 @@ export const NOTION_WORDS = {
   addPages: "Add pages in Notion",
   forget: "Forget my Notion account",
   forgetTitle: "Forget your Notion account?",
-  forgetBody: "Your Notion account is removed from Graphico. Every project that uses this account stops reading and writing Notion until someone reconnects.",
+  forgetBody:
+    "Your Notion account is removed from Graphico. Every project that uses this account stops reading and writing Notion until someone reconnects.",
   forgotten: "Notion account removed. Projects that used it need reconnecting.",
   tryAgain: "Try again",
   unavailable: "Notion is not available on this server.",

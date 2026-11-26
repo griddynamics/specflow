@@ -20,7 +20,8 @@ function planNode(n: NotionPlan, input: CanvasInput, stages: Stages): NodeView {
     progress: null,
   } as const;
   const detail = { app: "Notion", by: connectedByOf(input, "notion", V2_COPY.connectedBy), remove: null, reconnect: null } as const;
-  const label = (meta: string) => `${name === "Notion" ? name : `Notion ${name}`}: ${meta}`;
+  const title = name === "Notion" ? name : `Notion ${name}`;
+  const label = (meta: string) => `${title}: ${meta}`;
   const { stopped, quiet } = restingViews("notion", base, detail, label);
   const sync = n.sync;
   const code = sync?.errorCode ?? null;
