@@ -13,6 +13,8 @@ import { NOTION_PLAN_WORDS, notionAccessOutcome, notionPlanCheckText, notionPlan
 import { ReadGate, readGateState } from "./ReadGate";
 import { useCheckAdd } from "./use-check-add";
 
+const LINK_MAX = 2048;
+
 type Gate = { kind: "loading" } | { kind: "failed" } | { kind: "closed"; text: string } | { kind: "open" };
 
 /** The field and the check of the form, once the server can run the destination. */
@@ -53,6 +55,7 @@ export function NotionPlanFormBody({ projectId, spec, reload, onBack, onClose }:
           id={linkId}
           value={link}
           spellCheck={false}
+          maxLength={LINK_MAX}
           readOnly={flow.busy !== null}
           onChange={(event) => {
             setLink(event.target.value);

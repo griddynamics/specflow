@@ -46,7 +46,6 @@ test("nobody connected and the caller has no connection: Connect Notion, with th
     howTo: true,
     retry: false,
     stoppedNotice: false,
-    confirmForget: false,
     addPages: false,
     forget: false,
     bindsOnly: false,
@@ -84,14 +83,21 @@ test("a working binding has no primary button and no how-to; Add pages only for 
     howTo: false,
     retry: false,
     stoppedNotice: false,
-    confirmForget: true,
     addPages: true,
     forget: true,
     bindsOnly: false,
   });
   assert.equal(notionSetupViewOf(WORKING, false, active).addPages, false);
   assert.equal(notionSetupViewOf(WORKING, true, mine(null)).addPages, false);
-  assert.equal(notionSetupViewOf(WORKING, true, mine({ status: "expired" })).addPages, false);
+});
+
+test("a working binding with the caller's own expired connection: Reconnect for the caller, Add pages stays reachable, no how-to", () => {
+  const v = notionSetupViewOf(WORKING, true, mine({ status: "expired" }));
+  assert.equal(v.primary, "reconnect");
+  assert.equal(v.bindsOnly, false);
+  assert.equal(v.howTo, false);
+  assert.equal(v.addPages, true);
+  assert.equal(v.forget, true);
 });
 
 test("Notion off on the server is a note and no button; before the read it is loading with the button waiting", () => {
@@ -113,13 +119,10 @@ test("a failed read of the caller's connection is not a stuck loading: Retry is 
   assert.equal(notionSetupViewOf(NONE, false, mine(null)).retry, false);
 });
 
-test("Forget asks first when it would stop this project's working Notion; the words say it differs from Disconnect", () => {
-  const active = mine({ status: "active" });
-  assert.equal(notionSetupViewOf(WORKING, true, active).confirmForget, true);
-  assert.equal(notionSetupViewOf(WORKING, false, active).confirmForget, false);
-  assert.equal(notionSetupViewOf(NONE, true, active).confirmForget, false);
-  assert.match(NOTION_WORDS.forgetBody, /Your Notion account is removed from Graphico.*project's Notion stops/);
+test("Forget always asks first, and the words say every project that uses the account stops", () => {
+  assert.match(NOTION_WORDS.forgetBody, /Every project that uses this account stops reading and writing Notion until someone reconnects\./);
   assert.match(NOTION_WORDS.forgotten, /Projects that used it need reconnecting/);
+  assert.equal(NOTION_WORDS.reconnectFirst, "Notion access ended. Reconnect Notion first.");
 });
 
 test("a bound project that does not work shows the reconnect notice; a working or unbound one does not", () => {

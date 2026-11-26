@@ -56,9 +56,12 @@ export function NotionSetup(props: Readonly<SetupProps>) {
       return;
     }
     setBusy(true);
-    void props.onConnect().then(() => {
-      setBusy(false);
-    });
+    props
+      .onConnect()
+      .catch(props.onError)
+      .finally(() => {
+        setBusy(false);
+      });
   };
   const forget = () => {
     setBusy(true);
@@ -112,8 +115,7 @@ export function NotionSetup(props: Readonly<SetupProps>) {
               variant="ghost"
               size="sm"
               onClick={() => {
-                if (view.confirmForget) setAsking(true);
-                else forget();
+                setAsking(true);
               }}
               disabled={busy}
             >

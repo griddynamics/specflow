@@ -16,14 +16,14 @@ export const NOTION_WORDS = {
   addPages: "Add pages in Notion",
   forget: "Forget my Notion account",
   forgetTitle: "Forget your Notion account?",
-  forgetBody: "Your Notion account is removed from Graphico. This project's Notion stops until someone reconnects.",
+  forgetBody: "Your Notion account is removed from Graphico. Every project that uses this account stops reading and writing Notion until someone reconnects.",
   forgotten: "Notion account removed. Projects that used it need reconnecting.",
   tryAgain: "Try again",
   unavailable: "Notion is not available on this server.",
   loadFailed: "Your Notion connection could not be read.",
   returnToast: RETURN_TOAST,
   unexpected: "Notion could not be connected. Try again.",
-  reconnectFirst: "Your Notion access ended. Reconnect Notion first.",
+  reconnectFirst: "Notion access ended. Reconnect Notion first.",
 } as const;
 
 /** The toast of `?notion=<code>` for a refusal (`connected` is the page's own bind and toast). */
@@ -33,7 +33,7 @@ export const notionReturnWord = (code: string): string =>
 export interface NotionSetupView {
   /** `loading` until the caller's connection is read; `unavailable` when the server has Notion off. */
   state: "loading" | "failed" | "unavailable" | "ready";
-  /** The primary button: absent while the project's Notion works. */
+  /** The primary button: absent while the project's Notion works and the caller's own connection is fine. */
   primary: "connect" | "reconnect" | null;
   /** The how-to shows until the project's Notion works. */
   howTo: boolean;
@@ -43,8 +43,6 @@ export interface NotionSetupView {
   retry: boolean;
   /** The project is bound but stopped: the notice above Reconnect. */
   stoppedNotice: boolean;
-  /** Forgetting the account stops this project's Notion (the caller holds the working binding): ask first. */
-  confirmForget: boolean;
   /** "Forget my Notion account": the caller has a connection of their own. */
   forget: boolean;
   /** The button only binds the caller's active connection to the project (no trip to Notion). */
@@ -56,7 +54,6 @@ const NOTHING = {
   howTo: false,
   retry: false,
   stoppedNotice: false,
-  confirmForget: false,
   addPages: false,
   forget: false,
   bindsOnly: false,
@@ -73,21 +70,20 @@ export function notionSetupViewOf(
   if (read !== null && !read.enabled) {
     return { ...NOTHING, state: "unavailable" };
   }
-  const stopped = (bound && !working) || read?.status === "expired";
   let state: NotionSetupView["state"] = "ready";
   if (mine === null) state = "loading";
   else if (mine === "failed") state = "failed";
   let primary: NotionSetupView["primary"] = "connect";
-  if (working) primary = null;
-  else if (stopped) primary = "reconnect";
+  // The caller's own expired connection needs Reconnect even when the project's binding works (it is the account that acts).
+  if (read?.status === "expired" || (bound && !working)) primary = "reconnect";
+  else if (working) primary = null;
   return {
     state,
     primary,
     howTo: !working,
     retry: mine === "failed",
     stoppedNotice: bound && !working,
-    confirmForget: working && canDisconnect,
-    addPages: working && canDisconnect && read?.status === "active",
+    addPages: working && canDisconnect && read?.connected === true,
     forget: read?.connected === true,
     bindsOnly: !working && read?.status === "active",
   };

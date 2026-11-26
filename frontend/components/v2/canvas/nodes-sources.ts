@@ -9,7 +9,7 @@ import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
 import { CONFLUENCE_WORDS } from "./confluence-logic";
 import { JIRA_EPIC_WORDS } from "./jira-epic-logic";
-import { NOTION_WORDS } from "./notion-logic";
+import { NOTION_IMPORT_WORDS } from "./notion-logic";
 import type { NodeMapper, NodeView, Stages } from "./canvas-types";
 
 const APP_NAME: Partial<Record<SourceKind, string>> = {
@@ -54,7 +54,7 @@ export const unitText = (kind: SourceKind, text: string): string => {
 const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess: string; failedMeta: string; failed: string }>> = {
   confluence: CONFLUENCE_WORDS,
   jira_epic: JIRA_EPIC_WORDS,
-  notion: NOTION_WORDS,
+  notion: NOTION_IMPORT_WORDS,
 };
 
 /** A node of a Jira epic is named by its key ("NWO-12: Checkout redesign" is its full name, in the label and the dialog). */

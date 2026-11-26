@@ -75,6 +75,13 @@ export function NodeDialog({
     <Stack>
       <Notice>{detail.text}</Notice>
       {detail.by === null ? null : <Notice>{detail.by}</Notice>}
+      {detail.link == null ? null : (
+        <Row>
+          <ButtonLink variant="ghost" size="sm" href={detail.link} target="_blank" rel="noopener noreferrer">
+            {CANVAS_COPY.notionOpenDatabase}
+          </ButtonLink>
+        </Row>
+      )}
       {failed ? <Notice role="alert">{CANVAS_COPY.removeFailed}</Notice> : null}
       {renaming ? (
         <RenameUpload

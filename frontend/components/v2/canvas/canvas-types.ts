@@ -98,6 +98,8 @@ export interface NodeDetail {
   remove: "source" | "repository" | null;
   /** A stopped node offers to reconnect this app on the Integrations page. */
   reconnect: IntegrationApp | null;
+  /** An https link to open the thing in its app (the Notion plan database); absent when there is none. */
+  link?: string | null;
 }
 
 export interface NodeView {

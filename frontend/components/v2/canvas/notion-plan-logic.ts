@@ -43,6 +43,8 @@ const text = (map: Record<string, string>, code: string): string | undefined => 
 /** What a failed check or save says, from the API's closed code; anything else is the general failure. */
 export function notionPlanFailureText(e: unknown): string {
   const code = isDataError(e) ? (e.detail?.apiCode ?? "") : "";
+  // A link over the length cap is a 422 `validation_failed` (the field is capped at 2048 too): it is not a link.
+  if (isDataError(e) && e.code === "validation" && code === "validation_failed") return FAILURE.notion_link_invalid;
   return text(FAILURE, code) ?? V2_COPY.actionFailed;
 }
 
@@ -87,4 +89,17 @@ export function notionPassNote(status: string, counts: NotionPlanCounts | null):
   if (counts !== null && counts.failed > 0) parts.push(NOTION_PLAN_WORDS.failedRows);
   if (counts !== null && counts.deferred > 0) parts.push(NOTION_PLAN_WORDS.more);
   return parts.join(" ");
+}
+
+/** The plan database's link for the node's dialog: only an https link on a Notion host is offered, anything else is none. */
+export function notionDatabaseLink(url: string | null): string | null {
+  if (url === null) return null;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    const notion = ["notion.so", "notion.com"].some((d) => host === d || host.endsWith(`.${d}`));
+    return u.protocol === "https:" && notion ? u.href : null;
+  } catch {
+    return null;
+  }
 }

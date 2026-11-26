@@ -70,6 +70,7 @@ export const CANVAS_COPY = {
   notionLink: "Page or database link",
   notionNote: "The page and its sub-pages, or every row of the database, are read once when it is added.",
   notionPlanParent: "Parent page link",
+  notionOpenDatabase: "Open the Notion database",
   // Jira epic
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",

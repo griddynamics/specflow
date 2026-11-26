@@ -1,6 +1,6 @@
 // The connector registry (06a, D5, D20): every kind of connection the canvas offers, in the order its plus dialog lists them. Only kinds of
 // V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
-// link (08), the Jira epic (09), the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), the Notion link and the Notion plan destination (after V2). To add one: write its form component and its node
+// link (08), the Jira epic (09), the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), the Notion link and the Notion plan destination. To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
 import { confluenceNodes, driveNodes, jiraEpicNodes, notionNodes, uploadNodes } from "./canvas/nodes-sources";
 import { githubNodes } from "./canvas/nodes-github";

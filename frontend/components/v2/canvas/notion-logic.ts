@@ -1,11 +1,11 @@
 // The words and rules of the Notion link source (docs/notion/source.md), free of React: what a failed check or add says (the closed codes of
-// the API), what a passed check says, and what a node says when its import stopped. Stream D2 owns this file and refines the words.
+// the API), what a passed check says, and what a node says when its import stopped.
 import { isDataError } from "@/lib/domain/errors";
 import type { NotionCheck } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
 
 /** What a Notion node says when the API reports its import failed (`no_access`, or any other closed reason). */
-export const NOTION_WORDS = {
+export const NOTION_IMPORT_WORDS = {
   noAccessMeta: "Cannot read it",
   noAccess: "The Notion account that connected it cannot read this page or database now. Another member reconnects Notion.",
   failedMeta: "Import failed",

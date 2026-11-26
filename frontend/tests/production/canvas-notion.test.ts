@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 import { NotionAnswer, NotionFormView } from "@/components/v2/canvas/NotionForm";
-import { NOTION_WORDS, notionCheckText, notionFailureText } from "@/components/v2/canvas/notion-logic";
+import { NOTION_IMPORT_WORDS, notionCheckText, notionFailureText } from "@/components/v2/canvas/notion-logic";
 import { CONNECTORS } from "@/components/v2/connectors";
 import { V2_COPY } from "@/components/v2/v2-copy";
 import { toNotionCheck } from "@/lib/data/http/sources";
@@ -63,7 +63,7 @@ test("every closed code a source check or add can answer has its own words; an u
 test("the words never show a code, and a prototype key is no code", () => {
   assert.equal(failure("constructor"), V2_COPY.actionFailed);
   assert.equal(failure("__proto__"), V2_COPY.actionFailed);
-  for (const text of [...Object.values(NOTION_WORDS), failure("notion_auth_failed"), failure("notion_unreachable")]) {
+  for (const text of [...Object.values(NOTION_IMPORT_WORDS), failure("notion_auth_failed"), failure("notion_unreachable")]) {
     assert.doesNotMatch(text, /notion_[a-z_]+/);
   }
 });

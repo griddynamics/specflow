@@ -9,6 +9,7 @@ import { NotionPlanFormBody } from "@/components/v2/canvas/NotionPlanForm";
 import {
   notionAccessOutcome,
   notionCountsText,
+  notionDatabaseLink,
   notionPassNote,
   notionPassText,
   notionPlanCheckText,
@@ -27,7 +28,7 @@ test("the node is named after the parent page, under Plan, with the Notion mark,
   const n = nodeOf({});
   assert.deepEqual(
     [n.zone, n.mark, n.name, n.state, n.badge, n.meta, n.wire, n.kind],
-    ["plan", "notion", "Notion · Plans", "on", "ok", "6 rows created", "on", "notion_plan"],
+    ["plan", "notion", "Plans", "on", "ok", "6 rows created", "on", "notion_plan"],
   );
   assert.equal(n.detail.app, "Notion");
   assert.equal(n.detail.reconnect, null);
@@ -38,6 +39,27 @@ test("the node is named after the parent page, under Plan, with the Notion mark,
   const never = nodeOf(sync({ status: "idle", counts: null }));
   assert.deepEqual([never.meta, never.badge, never.state], ["Not synced yet", null, "on"]);
   assert.equal(nodeOf({ sync: null }).meta, "Not synced yet");
+});
+
+test("the name is the parent page title (Notion when it has none); Notion is only in the accessible label", () => {
+  const n = nodeOf({});
+  assert.equal(n.label, "Notion Plans: 6 rows created");
+  const bare = nodeOf({ parentPageTitle: null });
+  assert.deepEqual([bare.name, bare.label], ["Notion", "Notion: 6 rows created"]);
+});
+
+test("the dialog links the plan database only when it is an https Notion link", () => {
+  const open = (databaseUrl: string | null) => nodeOf({ databaseUrl }).detail.link ?? null;
+  assert.equal(open("https://www.notion.so/Plan-db-1"), "https://www.notion.so/Plan-db-1");
+  assert.equal(open("https://acme.notion.site/x"), null);
+  assert.equal(open(null), null);
+  for (const bad of ["http://www.notion.so/x", "javascript:alert(1)", "https://evil.example/notion.so", "https://notion.so.evil.example/x", "nope"])
+    assert.equal(notionDatabaseLink(bad), null, bad);
+});
+
+test("a 422 validation_failed (a link over the cap) reads as not a link", () => {
+  const e = new DataError("validation", false, { apiCode: "validation_failed" });
+  assert.equal(notionPlanFailureText(e), "This is not a link to a Notion page.");
 });
 
 test("the dialog says what a partial pass could not do and that deferred rows follow", () => {
@@ -57,7 +79,7 @@ test("the wire moves only while a pass runs", () => {
 
 test("it waits for the plan, and while it is off; no parent page is no node", () => {
   const waiting = nodeOf({}, { plan: null });
-  assert.deepEqual([waiting.state, waiting.wire, waiting.meta, waiting.name], ["wait", "off", "Waits for the plan", "Notion · Plans"]);
+  assert.deepEqual([waiting.state, waiting.wire, waiting.meta, waiting.name], ["wait", "off", "Waits for the plan", "Plans"]);
   const off = nodeOf({ enabled: false });
   assert.deepEqual([off.state, off.meta], ["wait", "Sync is off"]);
   assert.equal(maybeNodeOf({ parentPageId: null, parentPageTitle: null }), undefined);
@@ -154,7 +176,7 @@ test("check then add: a page link passes and is saved on; the project ends with 
   const saved = await port.save("p1", { link: PARENT, enabled: true });
   assert.deepEqual([saved.enabled, saved.parentPageTitle, saved.databaseUrl], [true, "Plans", null]);
   const n = nodeOf(saved);
-  assert.equal(n.name, "Notion · Plans");
+  assert.equal(n.name, "Plans");
 });
 
 test("every refusal of the check reaches the form in its own words", async () => {
@@ -194,7 +216,7 @@ test("the stub's seeded destination drives the node through its states", async (
   const { port, model } = modelPort("p1");
   model.seed({ pid: "p1", target: { parent_page_title: "Roadmap", sync: { status: "running", counts: null } } });
   const running = nodeOf(await port.get("p1"));
-  assert.deepEqual([running.name, running.state, running.meta], ["Notion · Roadmap", "busy", "Syncing…"]);
+  assert.deepEqual([running.name, running.state, running.meta], ["Roadmap", "busy", "Syncing…"]);
   model.seed({
     pid: "p1",
     target: { parent_page_title: "Roadmap", sync: { status: "failed", error_code: "notion_reconnect_required", counts: null } },
