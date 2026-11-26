@@ -81,7 +81,8 @@ class LinearInspection:
 
 @dataclass(frozen=True)
 class LinearRead:
-    """What an import reads: the issue of an issue source, the issues under the target, the project documents."""
+    """What an import reads: the issue of an issue source, the issues under the target, the project documents (the
+    project's own overview first)."""
 
     root: Issue | None
     issues: tuple[Issue, ...]
@@ -122,10 +123,21 @@ async def sub_issues(gateway: LinearGateway, issue_id: str, cap: int) -> tuple[l
     return found, False
 
 
+def project_overview(project: Project) -> Document | None:
+    """The project's own text (its short description and its Markdown overview) as one document, under the project's
+    id; none when both are empty."""
+
+    text = "\n\n".join(part.strip() for part in (project.description, project.content) if part and part.strip())
+    return Document(project.id, project.id, project.name, text, project.url) if text else None
+
+
 async def _read(gateway: LinearGateway, source: LinearImport) -> LinearRead:
     if source.kind == "project":
+        project = await gateway.project(source.target_id)
         issues, capped = await project_issues(gateway, source.target_id, MAX_LINEAR_ISSUES)
-        return LinearRead(None, tuple(issues), tuple(await gateway.project_documents(source.target_id)), capped)
+        overview = project_overview(project)
+        documents = (*([overview] if overview else []), *await gateway.project_documents(source.target_id))
+        return LinearRead(None, tuple(issues), documents, capped)
     root = await gateway.issue(source.target_id)
     issues, capped = await sub_issues(gateway, root.id, MAX_LINEAR_ISSUES)
     return LinearRead(root, tuple(issues), (), capped)

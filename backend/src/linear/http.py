@@ -61,6 +61,7 @@ TokenRefresher = Callable[[str], Awaitable[str]]
 _ISSUE_URL: Final = re.compile(r"https?://linear\.app/([^/]+)/issue/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?")
 _PROJECT_URL: Final = re.compile(r"https?://linear\.app/([^/]+)/project/([^/?#]+)(?:[/?#].*)?")
 _IDENTIFIER: Final = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
+_PROJECT_IDENTIFIER: Final = re.compile(r"[Pp]-[A-Za-z][A-Za-z0-9]*-\d+")  # P-ENG-12: Linear's project identifier
 _CAMEL: Final = re.compile(r"(?<!^)(?=[A-Z])")
 _INPUT_NAMES: Final = ("estimate", "priority", "title", "description", "name", "body", "url", "color")
 
@@ -95,7 +96,7 @@ _LABEL: Final = """
 fragment LabelFields on IssueLabel { id name color isGroup parent { id } team { id } }
 """
 _PROJECT: Final = """
-fragment ProjectFields on Project { id name url description teams(first: 25) { nodes { id } } }
+fragment ProjectFields on Project { id name url description content teams(first: 25) { nodes { id } } }
 """
 _COMMENT: Final = """
 fragment CommentFields on Comment { id body createdAt user { id name } issue { id } }
@@ -243,6 +244,7 @@ def _project(node: Mapping[str, Any]) -> Project:
         url=node["url"],
         team_ids=tuple(str(team["id"]) for team in _nodes(node.get("teams"))),
         description=node.get("description") or None,
+        content=node.get("content") or None,
     )
 
 
@@ -527,6 +529,8 @@ class HttpLinearGateway:
         if project_url:
             await self._same_workspace(project_url.group(1))
             return await self._project_by_slug(project_url.group(2))
+        if _PROJECT_IDENTIFIER.fullmatch(text):
+            return await self.project(text.upper())
         if _IDENTIFIER.fullmatch(text):
             return await self.issue(text)
         raise LinearInvalidError("link")

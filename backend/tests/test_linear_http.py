@@ -230,6 +230,14 @@ async def test_issue_maps_every_field_and_asks_by_id_or_identifier(make):
     assert issue.updated_at == datetime(2026, 3, 2, 10, tzinfo=UTC)
 
 
+async def test_a_project_identifier_is_looked_up_as_the_project_with_its_overview(make):
+    overview = project_node(content="## Scope")
+    linear, gateway = make({"Project": data({"project": overview})})
+    found = await gateway.resolve_link("p-gra-1")
+    assert (found.id, found.description, found.content) == (PROJECT, "Why", "## Scope")
+    assert linear.sent() == ("Project", {"id": "P-GRA-1"})
+
+
 async def test_issue_without_optional_fields(make):
     bare = issue_node(description=None, estimate=None, priority=0, project=None, labels={"nodes": []}, assignee=None)
     linear, gateway = make({"Issue": [data({"issue": bare}), data({"issue": issue_node()})]})

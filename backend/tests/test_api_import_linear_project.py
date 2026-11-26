@@ -279,3 +279,35 @@ async def test_the_check_says_when_there_are_more_issues_than_the_cap(monkeypatc
     found = await inspect_link(space.fake, space.project.url)
 
     assert (found.issues, found.capped, len(found.items)) == (4, True, 4)
+
+
+async def test_a_project_with_only_a_description_and_an_overview_is_one_document_found_by_its_identifier() -> None:
+    space = await seed_workspace()
+    empty = space.fake.add_project(
+        space.team.id, "New UI", description="Liquid glass header and footer.", content="## Scope\n\nHeader, footer."
+    )
+    identifier = space.fake.project_identifier(empty.id)
+
+    for link in (identifier, identifier.lower(), f"{empty.url}/overview"):
+        found = await inspect_link(space.fake, link)
+        assert (found.target.kind, found.target.name, found.issues, found.documents) == ("project", "New UI", 0, 1)
+
+    writer = await run(LinearImport("project", empty.id), space)
+
+    assert writer.added == {
+        f"document:{empty.id}": (
+            "New UI",
+            "# New UI\n\nLiquid glass header and footer.\n\n## Scope\n\nHeader, footer.",
+            writer.added[f"document:{empty.id}"][2],
+        )
+    }
+    assert json.loads(writer.added[f"document:{empty.id}"][2])["document"]["url"] == empty.url
+
+
+async def test_a_project_without_any_text_has_no_overview_document() -> None:
+    space = await seed_workspace()
+    bare = space.fake.add_project(space.team.id, "Bare")
+
+    found = await inspect_link(space.fake, space.fake.project_identifier(bare.id))
+
+    assert (found.issues, found.documents) == (0, 0)

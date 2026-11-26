@@ -32,6 +32,7 @@ not `active` when it runs fails the source with `no_access`.
 |---|---|
 | a project link (`https://linear.app/<workspace>/project/<slug>-<id>`) | the project: its issues and its documents |
 | an issue link (`https://linear.app/<workspace>/issue/<ID>/...`) | the issue and all its sub-issues, level by level |
+| a project identifier (`P-ENG-1`) | the same as a project link, in the workspace of the member |
 | an issue identifier (`ENG-12`) | the same as an issue link, in the workspace of the member |
 | anything else | refused: 422 `linear_link_invalid` |
 | a link of another workspace, or an object the member cannot see | refused: 409 `linear_not_found` (the link's workspace is compared with the viewer's, AC-S2-2) |
@@ -62,7 +63,9 @@ an issue source too). `exclude` lists issue identifiers (`^[A-Z][A-Z0-9_]*-\d+$`
 
 Each item is stored twice, as for the other importers: the original as JSON (`original.json`) and a Markdown document
 (`origin = connection`, `status = parsed`, `parser = linear_project-convert`). One Markdown document **per issue** and
-**one per project document**. External ids are `issue:<IDENTIFIER>` and `document:<document id>`.
+**one per project document**. A project's own text (its short description and its Markdown overview, joined) is one
+more document, first, under the project's id; a project with no text has none, so a project with no issues and only a
+description still imports one document. External ids are `issue:<IDENTIFIER>` and `document:<document id>`.
 
 An issue document (`issue_markdown`) holds, in this order: the heading `# <IDENTIFIER> <title>`; one line of facts
 separated by `|` (state, labels, priority name, estimate, assignee; a missing fact is left out); `Parent: <parent

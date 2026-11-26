@@ -61,7 +61,8 @@ class Project:
     name: str
     url: str
     team_ids: tuple[str, ...] = ()
-    description: str | None = None
+    description: str | None = None  # the short summary
+    content: str | None = None  # the overview in Markdown
 
 
 @dataclass(frozen=True)

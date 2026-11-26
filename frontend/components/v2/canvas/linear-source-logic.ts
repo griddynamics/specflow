@@ -27,7 +27,7 @@ const FAILURE: Record<string, string> = {
   linear_unavailable: "Linear is not set up on this server.",
   linear_not_connected: "Connect Linear in Integrations first.",
   linear_reconnect_required: "The Linear connection needs a reconnect in Integrations.",
-  linear_link_invalid: "This is not a Linear project or issue link, or an identifier such as ENG-12.",
+  linear_link_invalid: "This is not a Linear project or issue link, or an identifier such as P-ENG-1 or ENG-12.",
   linear_not_found: "Linear has no such project or issue, or the connected account cannot see it.",
   linear_forbidden: "The connected account is not allowed to read this in Linear.",
   linear_rate_limited: "Linear is limiting requests. Try again in a minute.",

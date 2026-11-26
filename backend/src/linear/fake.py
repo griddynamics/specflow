@@ -56,6 +56,7 @@ DEFAULT_STATES: Final[tuple[tuple[str, StateType], ...]] = (
     ("Canceled", "canceled"),
 )
 _IDENTIFIER: Final = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
+_PROJECT_IDENTIFIER: Final = re.compile(r"[Pp]-[A-Za-z][A-Za-z0-9]*-\d+")
 _ISSUE_URL: Final = re.compile(r"https?://linear\.app/([^/]+)/issue/([A-Za-z][A-Za-z0-9]*-\d+)(?:/.*)?")
 _PROJECT_URL: Final = re.compile(r"https?://linear\.app/([^/]+)/project/([^/?#]+)(?:/.*)?")
 _WRITES: Final = frozenset(
@@ -112,6 +113,7 @@ class FakeLinear:
         self._states: dict[str, list[WorkflowState]] = {}
         self._labels: dict[str, Label] = {}
         self._projects: dict[str, Project] = {}
+        self._project_keys: dict[str, str] = {}  # P-ENG-1 -> project id (Linear's project identifier)
         self._milestones: dict[str, Milestone] = {}
         self._issues: dict[str, Issue] = {}
         self._numbers: dict[str, int] = {}
@@ -151,12 +153,23 @@ class FakeLinear:
         self._numbers[team.id] = 0
         return team
 
-    def add_project(self, team_id: str, name: str, *, project_id: str | None = None) -> Project:
+    def add_project(
+        self,
+        team_id: str,
+        name: str,
+        *,
+        project_id: str | None = None,
+        description: str | None = None,
+        content: str | None = None,
+    ) -> Project:
         self._team(team_id)
-        project = Project(project_id or str(uuid.uuid4()), name, "", (team_id,))
-        project = replace(project, url=self._project_url(project))
-        self._projects[project.id] = project
-        return project
+        project = Project(project_id or str(uuid.uuid4()), name, "", (team_id,), description, content)
+        return self._keep_project(project)
+
+    def project_identifier(self, project_id: str) -> str:
+        """The ``P-<TEAM>-<n>`` identifier Linear shows for a project."""
+
+        return next(key for key, found in self._project_keys.items() if found == project_id)
 
     def add_document(self, project_id: str, title: str, content: str) -> Document:
         self._project(project_id)
@@ -273,6 +286,8 @@ class FakeLinear:
         if project_url:
             self._workspace(project_url.group(1))
             return self._project_by_slug(project_url.group(2))
+        if _PROJECT_IDENTIFIER.fullmatch(text):
+            return self._project(text)
         if _IDENTIFIER.fullmatch(text):
             return self._issue(text)
         raise LinearInvalidError("link")
@@ -288,10 +303,7 @@ class FakeLinear:
         self._free(key, self._projects)
         if not name.strip():
             raise LinearInvalidError("name")
-        project = Project(key, name, "", (team_id,), description)
-        project = replace(project, url=self._project_url(project))
-        self._projects[key] = project
-        return project
+        return self._keep_project(Project(key, name, "", (team_id,), description))
 
     async def create_milestone(
         self,
@@ -514,8 +526,16 @@ class FakeLinear:
             raise LinearNotFoundError
         return team
 
+    def _keep_project(self, project: Project) -> Project:
+        project = replace(project, url=self._project_url(project))
+        self._projects[project.id] = project
+        team = self._teams[project.team_ids[0]]
+        number = 1 + sum(key.startswith(f"P-{team.key}-") for key in self._project_keys)
+        self._project_keys[f"P-{team.key}-{number}"] = project.id
+        return project
+
     def _project(self, project_id: str) -> Project:
-        project = self._projects.get(project_id)
+        project = self._projects.get(self._project_keys.get(project_id.upper(), project_id))
         if project is None:
             raise LinearNotFoundError
         return project
