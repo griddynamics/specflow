@@ -23,8 +23,6 @@ const CHANNEL = { id: "C0NWO", name: "northwind-specs", private: false };
 const SITE = "https://northwind.atlassian.test";
 const PLUS = { graph: "Add source", gap: "Add channel", plan: "Add destination" } as const;
 const CHECK = "Check access";
-const NOTION_PAGE = "https://www.notion.so/northwind/Engineering-Wiki-423ed33606458163a8dde12275fc660d";
-const NOTION_PARENT = "https://www.notion.so/northwind/Plans-423ed33606458163a8dde12275fc660e";
 
 /** The plus of a stage, the connector's card, and the form it opens. */
 async function openForm(page: Page, stage: keyof typeof PLUS, card: RegExp, title: string): Promise<Locator> {
@@ -111,7 +109,10 @@ test.describe("Mission Control V2: the journey", { tag: "@production" }, () => {
       "Check link",
     );
     await addLinkSource(page, /^Jira epic/, "Add a Jira epic", "Epic key or link", "NWO-12", "Check epic");
-    await addLinkSource(page, /^Notion link/, "Add a Notion page", "Page or database link", NOTION_PAGE, "Check link");
+    const notionSource = await openForm(page, "graph", /^Notion pages/, "Add Notion pages");
+    await notionSource.getByLabel(/^Engineering Wiki/).check();
+    await notionSource.getByRole("button", { name: "Add selected" }).click();
+    await expect(notionSource).toBeHidden();
     await expect(
       nodes(page)
         .filter({ hasText: /^Upload / })
@@ -158,7 +159,7 @@ test.describe("Mission Control V2: the journey", { tag: "@production" }, () => {
         .first(),
     ).toBeVisible();
     const notionForm = await openForm(page, "plan", /^Notion/, "Send the plan to Notion");
-    await notionForm.getByLabel("Parent page link").fill(NOTION_PARENT);
+    await notionForm.getByLabel("Parent page").selectOption({ label: "Plans" });
     await notionForm.getByRole("button", { name: CHECK }).click();
     await notionForm.getByRole("button", { name: "Add destination" }).click();
     await expect(notionForm).toBeHidden();

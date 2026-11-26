@@ -1,19 +1,19 @@
 "use client";
-// Notion plan destination: the link of the page the plan database is created under, Check access, then Add destination (docs/notion/plan.md
+// Notion plan destination: the page the plan database is created under, picked from what the member shared (`NotionPicker`), Check access, then
+// Add destination (docs/notion/plan.md
 // "In the canvas"). Any member may add it; it acts as the member Notion is connected by. A changed link is a new check. A refusal is shown in
 // words; an unbound project or an expired connection comes back from the check as a closed reason, and from the save as a 409.
-import { useEffect, useId, useState } from "react";
-import { Button, Field, Notice, TextInput } from "@graphico/ui";
+import { useEffect, useState } from "react";
+import { Button, Notice } from "@graphico/ui";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";
 import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
 import { NOTION_PLAN_WORDS, notionAccessOutcome, notionPlanCheckText, notionPlanFailureText } from "./notion-plan-logic";
+import { NotionPickerView, useNotionShared } from "./NotionPicker";
 import { ReadGate, readGateState } from "./ReadGate";
 import { useCheckAdd } from "./use-check-add";
-
-const LINK_MAX = 2048;
 
 type Gate = { kind: "loading" } | { kind: "failed" } | { kind: "closed"; text: string } | { kind: "open" };
 
@@ -21,7 +21,7 @@ type Gate = { kind: "loading" } | { kind: "failed" } | { kind: "closed"; text: s
 export function NotionPlanFormBody({ projectId, spec, reload, onBack, onClose }: Readonly<FormProps>) {
   const { notionPlan } = useV2Ports();
   const [link, setLink] = useState("");
-  const linkId = useId();
+  const shared = useNotionShared(projectId);
   const trimmed = link.trim();
   const flow = useCheckAdd<{ parentPageTitle: string }>({
     signature: trimmed,
@@ -50,18 +50,14 @@ export function NotionPlanFormBody({ projectId, spec, reload, onBack, onClose }:
         </Button>
       }
     >
-      <Field label={CANVAS_COPY.notionPlanParent} htmlFor={linkId} hint={NOTION_PLAN_WORDS.parentHint}>
-        <TextInput
-          id={linkId}
-          value={link}
-          spellCheck={false}
-          maxLength={LINK_MAX}
-          readOnly={flow.busy !== null}
-          onChange={(event) => {
-            setLink(event.target.value);
-          }}
-        />
-      </Field>
+      <NotionPickerView
+        read={shared}
+        label={CANVAS_COPY.notionPlanParent}
+        hint={NOTION_PLAN_WORDS.parentHint}
+        value={link}
+        disabled={flow.busy !== null}
+        onChange={setLink}
+      />
       <div role="status">{flow.result === null ? null : <Notice>{notionPlanCheckText(flow.result)}</Notice>}</div>
       {flow.problem === null ? null : <Notice role="alert">{flow.problem}</Notice>}
     </ConnectFrame>

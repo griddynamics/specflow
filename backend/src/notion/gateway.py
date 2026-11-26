@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Final, Protocol
 
-from notion.model import NotionDatabase, NotionDataSource, NotionPage, PageMarkdown, RowsPage
+from notion.model import NotionDatabase, NotionDataSource, NotionPage, PageMarkdown, RowsPage, SearchKind, SearchPage
 
 NOTION_VERSION: Final = "2026-03-11"
 API_BASE: Final = "https://api.notion.com"
@@ -53,6 +53,11 @@ class NotionGateway(Protocol):
     ) -> RowsPage:
         """One page of rows (``POST /v1/data_sources/{id}/query``); the caller loops on ``next_cursor``. ``where`` is
         Notion's ``filter`` object."""
+
+    async def search(self, kind: SearchKind, *, start_cursor: str | None = None) -> SearchPage:
+        """One page of what the connection can read, of one kind (``POST /v1/search`` with an ``object`` filter),
+        last edited first; the caller loops on ``next_cursor``. Pages include database rows (their parent is a data
+        source)."""
 
     # Write -----------------------------------------------------------------------------------------------------
 

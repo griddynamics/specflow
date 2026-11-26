@@ -16,7 +16,7 @@ import { createLinearPlanModel } from "./stub-linear-plan.mjs";
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
 import { createLinearGapsModel } from "./stub-linear-gaps.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
-import { bindingRefusal, checkNotion, createNotionModel, createNotionPlanModel } from "./stub-notion.mjs";
+import { bindingRefusal, checkNotion, createNotionModel, createNotionPlanModel, sharedNotion } from "./stub-notion.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
@@ -1013,6 +1013,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
         return json(res, 201, {
           source: importedSource(pid, { kind: "confluence", name: checked.body.title, link: body.link, pages: checked.body.pages }),
         });
+      }
+      if (did === "notion" && req.method === "GET" && action === "shared") {
+        const refused = bindingRefusal(integrations.notionHealth(pid));
+        return refused === null ? json(res, 200, sharedNotion()) : err(res, refused.status, refused.code);
       }
       if (did === "notion" && req.method === "POST" && (action === undefined || action === "check")) {
         const body = await readJson();

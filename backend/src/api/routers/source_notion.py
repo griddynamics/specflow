@@ -16,7 +16,7 @@ from api.deps import MemberDep, RuntimeDep, UserDep
 from api.imports.notion import NotionImport, NotionImporter, inspect, open_link
 from api.notion import notion_connections, notion_error
 from api.runtime import Runtime
-from api.schemas import BatchSourceOut, NotionCheckOut, NotionLinkIn
+from api.schemas import BatchSourceOut, NotionCheckOut, NotionLinkIn, NotionSharedItem, NotionSharedOut
 from api.source_imports import StartedImport, start_import
 from db import integrations as integrations_db
 from db.integrations import NOTION
@@ -25,6 +25,7 @@ from notion.connections import NotionConnections
 from notion.gateway import NotionGateway
 from notion.links import parse_link
 from notion.reasons import NotionCode, NotionError
+from notion.shared import shared_objects
 
 logger = get_logger("api.routers.source_notion")
 router = APIRouter(prefix="/projects/{pid}/sources/notion", tags=["sources"])
@@ -37,21 +38,49 @@ async def _reader(
     """The link parsed and the gateway of the member the project's Notion is bound to; every refusal is an
     ``ApiError`` of ``api.notion``."""
 
-    connections = notion_connections(runtime)
     try:
         source = NotionImport(parse_link(link))
+    except NotionError as error:
+        raise notion_error(error) from None
+    connections, member, gateway = await _bound(runtime, project_id)
+    return connections, member, source, gateway
+
+
+async def _bound(runtime: Runtime, project_id: uuid.UUID) -> tuple[NotionConnections, uuid.UUID, NotionGateway]:
+    """The gateway of the member the project's Notion is bound to; every refusal is an ``ApiError`` of
+    ``api.notion``."""
+
+    connections = notion_connections(runtime)
+    try:
         async with runtime.transaction() as session:
             bound = await integrations_db.get_integration(session, project_id, NOTION)
         if bound is not None and bound.user_id is not None:
             member = bound.user_id
             mine = await connections.get(member)
             if mine is None or mine.workspace_id == bound.workspace_id:
-                return connections, member, source, await connections.gateway(member)
+                return connections, member, await connections.gateway(member)
             # the member reconnected into another Notion workspace: the binding's pages are not theirs any more
             raise notion_error(NotionError(NotionCode.RECONNECT_REQUIRED))
     except NotionError as error:
         raise notion_error(error) from None
     raise notion_error(NotionError(NotionCode.NOT_CONNECTED))
+
+
+@router.get("/shared", response_model=NotionSharedOut)
+async def list_shared_notion(runtime: RuntimeDep, access: MemberDep) -> NotionSharedOut:
+    """The pages and databases the member the project's Notion is bound to shared with Graphico, for the pickers of
+    the source and plan forms (``notion.shared``); ``409 notion_not_connected``, ``409 notion_reconnect_required``."""
+
+    *_, gateway = await _bound(runtime, access.project.id)
+    try:
+        found = await shared_objects(gateway)
+    except NotionError as error:
+        raise notion_error(error) from None
+    items = [
+        NotionSharedItem(kind=item.kind, title=item.title, link=item.link, parent_title=item.parent_title)
+        for item in found.items
+    ]
+    return NotionSharedOut(items=items, capped=found.capped)
 
 
 @router.post("/check", response_model=NotionCheckOut)

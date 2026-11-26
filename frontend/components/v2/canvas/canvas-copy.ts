@@ -67,9 +67,9 @@ export const CANVAS_COPY = {
     "The page and its sub-pages, or every page of the space, are read once when it is added. Add the link again to read a newer version.",
   confluenceAdding: "Adding…",
   // Notion link and plan destination
-  notionLink: "Page or database link",
-  notionNote: "The page and its sub-pages, or every row of the database, are read once when it is added.",
-  notionPlanParent: "Parent page link",
+  notionLink: "Page or database",
+  notionNote: "Each one becomes its own source: a page with its sub-pages, a database with its rows, read once when it is added.",
+  notionPlanParent: "Parent page",
   notionOpenDatabase: "Open the Notion database",
   // Jira epic
   jiraEpicIssues: "Issues to add",

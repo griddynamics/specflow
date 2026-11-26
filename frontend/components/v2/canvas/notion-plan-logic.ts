@@ -6,7 +6,7 @@ import { V2_COPY } from "../v2-copy";
 
 /** The words this destination adds to `V2_COPY` and `CANVAS_COPY` (both are frozen). */
 export const NOTION_PLAN_WORDS = {
-  parentHint: "The link of a page you shared with Graphico in Notion.",
+  parentHint: "A page you shared with Graphico when you connected Notion.",
   checkedHint: "The plan database is created under it.",
   more: "More rows follow in the next pass.",
   failedRows: "Notion refused some rows.",
@@ -20,7 +20,7 @@ const FAILURE: Record<string, string> = {
   notion_auth_failed: "Notion refused the request of this server.",
   notion_rate_limited: "Notion is limiting requests just now. Try again in a minute.",
   notion_link_invalid: "This is not a link to a Notion page.",
-  notion_not_shared: "Notion has no page at this link, or you did not share it with Graphico when you connected Notion.",
+  notion_not_shared: "Notion has no such page now, or it is no longer shared with Graphico.",
   notion_parent_not_a_page: "This is a link to a database. Use the link of a page; the plan database is created under it.",
   notion_permissions_missing: "The Notion connection may not add or change content. Reconnect Notion and allow it.",
 };

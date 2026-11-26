@@ -419,6 +419,11 @@
       "path": "/projects/{pid}/notion-plan/access-check"
     },
     {
+      "id": "list_shared_notion_api_v1_projects__pid__sources_notion_shared_get",
+      "method": "GET",
+      "path": "/projects/{pid}/sources/notion/shared"
+    },
+    {
       "id": "check_notion_link_api_v1_projects__pid__sources_notion_check_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/notion/check"

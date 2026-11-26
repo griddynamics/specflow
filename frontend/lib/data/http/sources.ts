@@ -15,6 +15,7 @@ import {
   checkConfluenceLink,
   checkJiraEpicLink,
   checkNotionLink,
+  listNotionShared,
   endBatch,
   getDriveIdentity,
   listSourceFiles,
@@ -42,6 +43,8 @@ import {
   type JiraEpicCheck,
   type JiraEpicChild,
   type NotionCheck,
+  type NotionShared,
+  type NotionSharedItem,
   type ProcessingClass,
   type SourcesPort,
   type UploadReport,
@@ -327,6 +330,9 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         opts.changed(projectId);
       }
     },
+    async listNotion(projectId) {
+      return toNotionShared(await guard(() => listNotionShared(projectId)));
+    },
     async checkNotion(projectId, link) {
       return toNotionCheck(await guard(() => checkNotionLink(projectId, link)));
     },
@@ -382,6 +388,23 @@ export function toConfluenceCheck(body: unknown): ConfluenceCheck {
       body.linked_issues >= 0,
   );
   return { kind: body.kind, title: body.title, pages: body.pages, capped: body.capped, linkedIssues: body.linked_issues };
+}
+
+const toNotionSharedItem = (item: unknown): NotionSharedItem => {
+  expectShape(
+    isRecord(item) &&
+      (item.kind === "page" || item.kind === "database") &&
+      isString(item.title) &&
+      isString(item.link) &&
+      (item.parent_title === null || isString(item.parent_title)),
+  );
+  return { kind: item.kind, title: item.title, link: item.link, parentTitle: item.parent_title };
+};
+
+/** `GET .../sources/notion/shared` -> `NotionShared`; any other shape is `invalid_response`. */
+export function toNotionShared(body: unknown): NotionShared {
+  expectShape(isRecord(body) && Array.isArray(body.items) && typeof body.capped === "boolean");
+  return { items: body.items.map(toNotionSharedItem), capped: body.capped };
 }
 
 /** `POST .../sources/notion/check` -> `NotionCheck`; any other shape is `invalid_response`. */

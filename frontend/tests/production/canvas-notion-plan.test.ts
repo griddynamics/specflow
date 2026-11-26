@@ -143,7 +143,7 @@ test("each closed code has its own words; an unknown one is the general failure"
   assert.equal(new Set(words).size, codes.length);
   for (const w of words) assert.notEqual(w, "Something went wrong. Try again.");
   assert.match(failure("notion_parent_not_a_page"), /link to a database/);
-  assert.match(failure("notion_not_shared"), /did not share it/);
+  assert.match(failure("notion_not_shared"), /no longer shared with Graphico/);
   assert.equal(failure("something_new"), "Something went wrong. Try again.");
   assert.equal(notionPlanFailureText(new Error("x")), "Something went wrong. Try again.");
 });
@@ -168,10 +168,12 @@ test("the registry has Notion under Plan, needing Notion, with the add label Add
   assert.deepEqual(spec.check, { test: "Check access", testing: "Checking…", add: "Add destination" });
 });
 
-test("the form asks for the parent page link, once, with Check access", () => {
+test("the form asks for the parent page from the picker, once, with Check access", () => {
   const view = html(createElement(NotionPlanFormBody, formProps("plan", "notion_plan")));
-  assert.equal(view.match(/Parent page link/g)?.length, 1);
-  assert.match(view, /link of a page you shared with Graphico/);
+  assert.equal(view.match(/>Parent page</g)?.length, 1);
+  assert.match(view, /A page you shared with Graphico when you connected Notion/);
+  assert.match(view, /<select[^>]*disabled=""/);
+  assert.doesNotMatch(view, /<input/);
   assert.match(view, /disabled=""[^>]*>Check access<\/button>/);
 });
 
@@ -197,7 +199,7 @@ test("every refusal of the check reaches the form in its own words", async () =>
     return null;
   };
   assert.match(defined(await words("not a link")), /not a link to a Notion page/);
-  assert.match(defined(await words(NOT_SHARED)), /did not share it/);
+  assert.match(defined(await words(NOT_SHARED)), /no longer shared with Graphico/);
   model.seed({ pid: "p1", access: { reason: "notion_parent_not_a_page" } });
   assert.match(defined(await words(DATABASE_PARENT)), /link to a database/);
   model.seed({ pid: "p1", access: { reason: "notion_permissions_missing" } });

@@ -1,20 +1,22 @@
 ---
 type: Design
 title: "Notion as a project source"
-description: "A pasted Notion page or database link imported once as documents: check, import, Markdown conversion, caps, failures, routes"
+description: "A Notion page or database picked from what the member shared, imported once as documents: picker, check, import, Markdown conversion, caps, failures, routes"
 status: draft
 tags: [notion, sources]
 ---
 # source.md: a Notion page or database as a project source
 
-A member pastes a link to a Notion page or database, **Check link** says what it would import, **Add source** imports it
-once (decision D7 of Mission Control: no live sync). The import runs in the api process through the importer seam
+A member ticks Notion pages and databases in a checklist of what they shared with Graphico, and **Add selected** imports each
+one as its own source, once (decision D7 of Mission Control: no live sync). The import runs in the api process through the importer seam
 ([../sources/importers.md](../sources/importers.md)) as the member the project's Notion is connected by (rule R1), the same
 shape as a Confluence link. Decisions: N2 to N6.
 
 ## Link and check
 
-- The form takes a link (N2), not a picker: a search over the workspace returns every shared object, rows included.
+- The form offers a checklist (N2), not a text field: nobody types or pastes a link, so a mistyped link cannot happen.
+  See "Picking a page" below. The routes still take a link: the form posts the link of each item ticked. The form has no
+  check step; the check route stays for API callers.
   `notion.links.parse_link` accepts `https` links of `notion.so`, `www.notion.so`, `notion.com`, `www.notion.com`, `app.notion.com` and `*.notion.site`; the
   object id is the last 32 hex digits of the path; `?v=` marks a database. Anything else is `notion_link_invalid`.
 - `POST /projects/{pid}/sources/notion/check` `{link}` reads the object as the bound member and answers
@@ -25,6 +27,26 @@ shape as a Confluence link. Decisions: N2 to N6.
   opens the link (add does not check again) and starts the import, which walks once, and answers the source card. `external_id` is a fresh uuid, `link` as pasted. Any member may call both
   (D6). `409 notion_not_connected` when the project has no Notion binding, `409 notion_reconnect_required` when the
   bound member's connection expired.
+
+## Picking a page
+
+`GET /projects/{pid}/sources/notion/shared` lists what the bound member shared with Graphico on Notion's consent page
+(`notion.shared`): `{items: [{kind: page | database, title, link, parent_title}], capped}`.
+
+- It is a `POST /v1/search` per kind (`page`, then `data_source`), last edited first, at most 4 pages of 100 each.
+- Database rows (a page whose parent is a database or data source) and trashed objects are left out. A database is listed
+  once, by the title of its data source; its `link` is the database id, which the check reads as a database.
+- `parent_title` is the title of the parent page when that page is listed too ("Onboarding · in Engineering Wiki").
+- Titles are scrubbed as the import scrubs them. The list is sorted by title and holds at most 300 items; `capped` says
+  there were more.
+- Any member may read it. Its refusals are those of the check: `409 notion_not_connected`, `409 notion_reconnect_required`,
+  a refused search as its closed code, `503 notion_unavailable`.
+- The source form is a checklist like the GitHub repositories and the Box files: pages first (with "in <parent>"), then
+  databases, nothing ticked, Select all and Select none, a count, and **Add selected**. Each item is added in turn
+  (`POST .../sources/notion`); when one is refused, the items before it are in and leave the list, the refused one is
+  named ("Old notes: ...") and stays ticked with the rest. The plan form picks one parent page from a dropdown of the
+  pages only. When nothing is shared, the form says to connect Notion again and tick the pages. A page shared then
+  unshared since is `notion_not_shared`.
 
 ## Reading (N3)
 

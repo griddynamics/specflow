@@ -295,6 +295,21 @@ export interface NotionCheck {
   capped: boolean;
 }
 
+/** A page or database the member the project's Notion is connected by shared with Graphico; `link` is what the check, the add and the plan
+ * destination take, `parentTitle` the title of its parent page when that page is shared too. */
+export interface NotionSharedItem {
+  kind: "page" | "database";
+  title: string;
+  link: string;
+  parentTitle: string | null;
+}
+
+/** What the Notion pickers offer, sorted by title; `capped` when there is more than the list holds. */
+export interface NotionShared {
+  items: NotionSharedItem[];
+  capped: boolean;
+}
+
 /** Collect side (D1, D6, D7): sources, sync, access, uploads and removal. The status read carries the counts per source; `files` the
  * file list of one source (sources-ux). */
 export interface SourcesPort {
@@ -335,6 +350,8 @@ export interface SourcesPort {
   /** Reads a Notion page or database link as the member the project's Notion is connected by and counts what an import would take; stores nothing. A refusal
    * rejects a `DataError` whose `detail.apiCode` is the closed code (`notion_link_invalid`, `notion_not_shared`, `notion_not_connected`, ...). */
   checkNotion(projectId: string, link: string): Promise<NotionCheck>;
+  /** The pages and databases the member the project's Notion is connected by shared with Graphico, for the pickers. Rejects like the check. */
+  listNotion(projectId: string): Promise<NotionShared>;
   /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
   addNotion(projectId: string, link: string): Promise<void>;
 }

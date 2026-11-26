@@ -112,12 +112,13 @@ stored `running`); starts are merged, one pass runs per process, `running` is st
 ## In the canvas
 
 The plus of the Plan stage lists **Notion** next to Jira and GitHub Projects; it needs the project's Notion integration, else
-the card says "Set up first". The form asks for a **parent page link**. **Check access** runs as the member Notion is
+the card says "Set up first". The form asks for the **parent page**, picked from the pages the member shared (the list of
+[source.md](source.md#picking-a-page), pages only). **Check access** runs as the member Notion is
 connected by (an unbound project or an expired connection comes back as `{result: failed, reason: notion_not_connected |
 notion_reconnect_required}`, not as an error; the save answers them with 409); **Add destination** saves it turned on and the pass runs in the background. The node is named
 after the parent page title ("Notion" without one; its accessible label is "Notion <title>: <state>"), waits for the plan, counts the rows made (`sync.counts.created`), and while `sync.status` is `running`
 the canvas reads `GET` every 3 seconds. It stops only for what the API reports: `notion_not_connected`,
-`notion_reconnect_required` or `notion_permissions_missing` offer Reconnect Notion; any other closed code says what it is. A link longer than 2048 characters, or a `422 validation_failed`, reads "This is not a link to a Notion page." The node dialog has **Open the Notion database**, shown only for an `https` database URL of `notion.so` or `notion.com`.
+`notion_reconnect_required` or `notion_permissions_missing` offer Reconnect Notion; any other closed code says what it is. A `422 validation_failed` reads "This is not a link to a Notion page." The node dialog has **Open the Notion database**, shown only for an `https` database URL of `notion.so` or `notion.com`.
 
 ## Limits
 

@@ -353,6 +353,7 @@ export const addLinearSourceLink = (pid: string, link: string, exclude: readonly
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/linear`, json(exclude.length === 0 ? { link } : { link, exclude })).then(
     (r) => r.body,
   );
+export const listNotionShared = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/sources/notion/shared`).then((r) => r.body);
 export const checkNotionLink = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/notion/check`, json({ link })).then((r) => r.body);
 export const addNotionSource = (pid: string, link: string) =>

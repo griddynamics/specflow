@@ -9195,6 +9195,68 @@
         "title": "NotionReturnToIn",
         "type": "object"
       },
+      "NotionSharedItem": {
+        "description": "A page or database the bound member shared with Graphico; ``link`` is what the check and the add take, and\n``parent_title`` the title of its parent page when that page is shared too.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "page",
+              "database"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "link": {
+            "title": "Link",
+            "type": "string"
+          },
+          "parent_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Title"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "link",
+          "parent_title"
+        ],
+        "title": "NotionSharedItem",
+        "type": "object"
+      },
+      "NotionSharedOut": {
+        "description": "What the pickers offer, sorted by title; ``capped`` when there is more than the list holds.",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotionSharedItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "capped"
+        ],
+        "title": "NotionSharedOut",
+        "type": "object"
+      },
       "NotionUrlOut": {
         "properties": {
           "url": {
@@ -21765,6 +21827,49 @@
           }
         },
         "summary": "Check Notion Link",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/notion/shared": {
+      "get": {
+        "description": "The pages and databases the member the project's Notion is bound to shared with Graphico, for the pickers of\nthe source and plan forms (``notion.shared``); ``409 notion_not_connected``, ``409 notion_reconnect_required``.",
+        "operationId": "list_shared_notion_api_v1_projects__pid__sources_notion_shared_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotionSharedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Shared Notion",
         "tags": [
           "sources"
         ]

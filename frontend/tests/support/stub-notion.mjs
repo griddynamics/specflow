@@ -55,6 +55,32 @@ export function checkNotion(link) {
   return { status: 200, body: { kind: "page", title: "Engineering Wiki", pages: 4, capped: false } };
 }
 
+/** What the bound member shared, for the pickers (`GET .../sources/notion/shared`), sorted by title. The ids follow the reserved links above:
+ * "Old notes" ends in 0404 (no longer shared), the two databases in 00db and 0b16; "Onboarding" sits under "Engineering Wiki". */
+const SHARED_ID = "423ed33606458163a8dde12275fc";
+export const SHARED_LINKS = {
+  big: `https://www.notion.so/${SHARED_ID}0b16`,
+  wiki: `https://www.notion.so/${SHARED_ID}660d`,
+  oldNotes: `https://www.notion.so/${SHARED_ID}0404`,
+  onboarding: `https://www.notion.so/${SHARED_ID}0b0a`,
+  plans: `https://www.notion.so/${SHARED_ID}660e`,
+  requirements: `https://www.notion.so/${SHARED_ID}00db`,
+};
+export function sharedNotion() {
+  const item = (kind, title, link, parent_title = null) => ({ kind, title, link, parent_title });
+  return {
+    items: [
+      item("database", "Big database", SHARED_LINKS.big),
+      item("page", "Engineering Wiki", SHARED_LINKS.wiki),
+      item("page", "Old notes", SHARED_LINKS.oldNotes),
+      item("page", "Onboarding", SHARED_LINKS.onboarding, "Engineering Wiki"),
+      item("page", "Plans", SHARED_LINKS.plans),
+      item("database", "Requirements", SHARED_LINKS.requirements),
+    ],
+    capped: false,
+  };
+}
+
 /**
  * The caller's connection: `state.connection` is null or {status: "active" | "expired", workspace_name, connected_at?}. `callbackError` is an
  * API code the callback answers with.

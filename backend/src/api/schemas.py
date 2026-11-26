@@ -1112,6 +1112,23 @@ class NotionLinkIn(BaseModel):
     link: str = Field(max_length=LINK_MAX)
 
 
+class NotionSharedItem(BaseModel):
+    """A page or database the bound member shared with Graphico; ``link`` is what the check and the add take, and
+    ``parent_title`` the title of its parent page when that page is shared too."""
+
+    kind: Literal["page", "database"]
+    title: str
+    link: str
+    parent_title: str | None
+
+
+class NotionSharedOut(BaseModel):
+    """What the pickers offer, sorted by title; ``capped`` when there is more than the list holds."""
+
+    items: list[NotionSharedItem]
+    capped: bool
+
+
 class NotionCheckOut(BaseModel):
     """What the link would import: a page with its sub-pages, or a database with its rows; ``pages`` is the count (at
     most the page cap, ``capped`` when there are more)."""

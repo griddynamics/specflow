@@ -63,6 +63,47 @@ def path(rig: Any, tail: str = "") -> str:
     return f"projects/{rig.alpha}/sources/notion{tail}"
 
 
+async def test_any_member_lists_what_the_bound_member_shared_for_the_pickers(rig) -> None:
+    for who in (ALICE, BEN):
+        response = await call(rig, "GET", path(rig, "/shared"), who)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["capped"] is False
+        assert {
+            "kind": "database",
+            "title": "Requirements DB",
+            "parent_title": None,
+            "link": link_of(REQUIREMENTS_DATABASE_ID).replace("Some-Title-", ""),
+        } in body["items"]
+        wiki = next(item for item in body["items"] if item["title"] == "Engineering Wiki")
+        assert wiki == {
+            "kind": "page",
+            "title": "Engineering Wiki",
+            "parent_title": "Specflow Notion Lab",
+            "link": link_of(WIKI_PAGE_ID).replace("Some-Title-", ""),
+        }
+    assert set(rig.connections.gateways_asked) == {ACTING}
+
+
+async def test_the_list_needs_a_binding_a_live_connection_and_the_integration(rig) -> None:
+    assert error_of(await call(rig, "GET", path(rig, "/shared"), CAROL)) == (404, "project_not_found")
+    rig.connections.expire(ACTING)
+    assert error_of(await call(rig, "GET", path(rig, "/shared"), ALICE)) == (409, "notion_reconnect_required")
+    rig.connections.users[ACTING] = "active"
+    rig.integrations.release(rig.alpha, ACTING)
+    assert error_of(await call(rig, "GET", path(rig, "/shared"), ALICE)) == (409, "notion_not_connected")
+    rig.runtime.notion = None
+    assert error_of(await call(rig, "GET", path(rig, "/shared"), ALICE)) == (503, "notion_unavailable")
+    assert rig.fake.calls == []
+
+
+async def test_a_refused_search_is_a_closed_code(rig) -> None:
+    rig.fake.fail("search", NotionCode.RATE_LIMITED)
+
+    assert error_of(await call(rig, "GET", path(rig, "/shared"), ALICE)) == (503, "notion_rate_limited")
+
+
 async def test_the_check_of_a_page_answers_its_title_and_the_pages_of_its_tree_as_any_member(rig) -> None:
     for who in (ALICE, BEN):
         response = await call(rig, "POST", path(rig, "/check"), who, {"link": WIKI_LINK})

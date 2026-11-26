@@ -24,6 +24,8 @@ from notion.model import (
     NotionPage,
     PageMarkdown,
     RowsPage,
+    SearchKind,
+    SearchPage,
     data_source_from_json,
     database_from_json,
     page_from_json,
@@ -180,6 +182,17 @@ class FakeNotionGateway:
         chunk = ids[start : start + page_size]
         more = start + page_size < len(ids)
         return RowsPage(tuple(self.pages[normal(i)] for i in chunk), str(start + page_size) if more else None)
+
+    async def search(self, kind: SearchKind, *, start_cursor: str | None = None) -> SearchPage:
+        self._enter("search", kind, start_cursor=start_cursor)
+        found: list[Any] = list(self.pages.values() if kind == "page" else self.data_sources.values())
+        found = [item for item in found if normal(item.id) not in self._unshared]
+        start = int(start_cursor or 0)
+        chunk = tuple(found[start : start + PAGE_SIZE])
+        cursor = str(start + PAGE_SIZE) if start + PAGE_SIZE < len(found) else None
+        if kind == "page":
+            return SearchPage(pages=chunk, next_cursor=cursor)
+        return SearchPage(data_sources=chunk, next_cursor=cursor)
 
     @staticmethod
     def _matches(page: NotionPage, where: Mapping[str, Any]) -> bool:

@@ -1000,5 +1000,5 @@ async def test_every_gateway_method_forwards_its_arguments(inner) -> None:
 async def test_the_wrapper_follows_the_gateway_protocol_method_for_method() -> None:
     names = [name for name in vars(NotionGateway) if not name.startswith("_")]
 
-    assert len(names) == 11
+    assert len(names) == 12
     assert set(names) <= set(vars(RefreshingNotionGateway))

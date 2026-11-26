@@ -128,7 +128,7 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
       "Confluence link",
       "Jira epic",
       "Linear project",
-      "Notion link",
+      "Notion pages",
       "Slack channel",
       "Jira sub-tasks",
       "Linear issues",

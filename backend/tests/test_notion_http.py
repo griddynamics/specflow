@@ -126,6 +126,46 @@ async def test_query_with_has_more_false_has_no_cursor_even_when_notion_sends_on
     assert (await rig.gateway.query_data_source(REQUIREMENTS_DATA_SOURCE_ID)).next_cursor is None
 
 
+async def test_search_asks_for_one_kind_last_edited_first_and_parses_it() -> None:
+    notion = FixtureNotion()
+    page = notion.pages[ROOT_PAGE_ID]
+    source = notion.data_sources[REQUIREMENTS_DATA_SOURCE_ID]
+    answers = iter(
+        [
+            reply(200, {"results": [page], "next_cursor": "c2", "has_more": True}),
+            reply(200, {"results": [source], "next_cursor": None, "has_more": False}),
+        ]
+    )
+    rig = make_rig(lambda _r: next(answers))
+    fake = FakeNotionGateway()
+
+    pages = await rig.gateway.search("page")
+    sources = await rig.gateway.search("data_source", start_cursor="c2")
+
+    assert pages.pages == (await fake.page(ROOT_PAGE_ID),) and pages.data_sources == () and pages.next_cursor == "c2"
+    assert sources.data_sources == (await fake.data_source(REQUIREMENTS_DATA_SOURCE_ID),) and sources.pages == ()
+    assert sources.next_cursor is None
+    order = {"timestamp": "last_edited_time", "direction": "descending"}
+    assert [(r.method, r.url.path) for r in rig.requests] == [("POST", "/v1/search")] * 2
+    assert json.loads(rig.requests[0].content) == {
+        "page_size": 100,
+        "filter": {"property": "object", "value": "page"},
+        "sort": order,
+    }
+    assert json.loads(rig.requests[1].content) == {
+        "page_size": 100,
+        "filter": {"property": "object", "value": "data_source"},
+        "sort": order,
+        "start_cursor": "c2",
+    }
+
+
+async def test_a_search_answer_without_results_is_unreachable() -> None:
+    rig = make_rig(lambda _r: reply(200, {"object": "list"}))
+
+    assert await code_of(rig.gateway.search("page")) is NotionCode.UNREACHABLE
+
+
 # Markdown follow-up -------------------------------------------------------------------------------------------------
 
 

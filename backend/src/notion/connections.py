@@ -33,7 +33,15 @@ from logger.logger import INFO, WARNING, get_logger, log_event
 from notion.gateway import NOTION_VERSION, PAGE_SIZE, NotionGateway
 from notion.http import HttpNotionGateway, TokenSource
 from notion.limiter import RateLimiters, WaitBudget
-from notion.model import NotionDatabase, NotionDataSource, NotionPage, PageMarkdown, RowsPage
+from notion.model import (
+    NotionDatabase,
+    NotionDataSource,
+    NotionPage,
+    PageMarkdown,
+    RowsPage,
+    SearchKind,
+    SearchPage,
+)
 from notion.reasons import NotionCode, NotionError
 from settings import NotionSettings
 
@@ -347,6 +355,9 @@ class RefreshingNotionGateway:
         return await self._run(
             lambda g: g.query_data_source(data_source_id, start_cursor=start_cursor, page_size=page_size, where=where)
         )
+
+    async def search(self, kind: SearchKind, *, start_cursor: str | None = None) -> SearchPage:
+        return await self._run(lambda g: g.search(kind, start_cursor=start_cursor))
 
     async def create_database(self, parent_page_id: str, title: str, properties: Mapping[str, Any]) -> NotionDatabase:
         return await self._run(lambda g: g.create_database(parent_page_id, title, properties))

@@ -10,6 +10,7 @@ import { serveStub } from "../support/stub-fetch";
 import { formProps, html } from "./canvas-form-support";
 
 export const PAGE = "https://www.notion.so/Engineering-Wiki-423ed33606458137b924dd97aa16e0a9";
+export const CHILD_PAGE = "https://www.notion.so/423ed33606458143b422d74e5eb9926c";
 export const DATABASE = "https://www.notion.so/Requirements-423ed3360645819b8a30d73a847000db";
 export const BIG_DATABASE = "https://www.notion.so/Big-423ed3360645819b8a30d73a84700b16";
 export const NOT_SHARED = "https://www.notion.so/Gone-423ed33606458137b924dd97aa160404";

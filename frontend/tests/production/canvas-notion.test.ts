@@ -1,33 +1,39 @@
-// The Notion link source on the canvas (stream D2, docs/notion/source.md): the form before any answer, what each answer says, the words of every
-// closed code of the check and the add, and the same words reached through the http port against the stub API (tests/support/stub-notion.mjs).
+// The Notion pages source on the canvas (stream D2, docs/notion/source.md): the checklist of what the bound member shared, the words of every
+// closed code of the list and the add, what the API's check says, and the same words reached through the http port against the stub API (tests/support/stub-notion.mjs).
 // Port 3342 (stub API). Pure and server-rendered: no browser.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
-import { NotionAnswer, NotionFormView } from "@/components/v2/canvas/NotionForm";
-import { NOTION_IMPORT_WORDS, notionCheckText, notionFailureText } from "@/components/v2/canvas/notion-logic";
+import { NotionFormView } from "@/components/v2/canvas/NotionForm";
+import { NotionPickerView, type NotionSharedRead } from "@/components/v2/canvas/NotionPicker";
+import { NOTION_IMPORT_WORDS, notionAddFailureText, notionCheckText, notionFailureText } from "@/components/v2/canvas/notion-logic";
 import { CONNECTORS } from "@/components/v2/connectors";
 import { V2_COPY } from "@/components/v2/v2-copy";
-import { toNotionCheck } from "@/lib/data/http/sources";
+import { toNotionCheck, toNotionShared } from "@/lib/data/http/sources";
 import { DataError, isDataError } from "@/lib/domain/errors";
+import type { NotionShared } from "@/lib/domain/sources";
 import { defined } from "../support/defined";
 import { html } from "./canvas-form-support";
-import { BIG_DATABASE, DATABASE, emptyForm, NOT_SHARED, notionFormRig, PAGE } from "./notion-form-support";
+import { BIG_DATABASE, CHILD_PAGE, DATABASE, emptyForm, NOT_SHARED, notionFormRig, PAGE } from "./notion-form-support";
 
 const rig = notionFormRig(3342);
 const failure = (apiCode: string) => notionFailureText(new DataError("validation", false, { apiCode }));
 
-test("the registry has the Notion link in Graph, needing Notion, with the check labels", () => {
+test("the registry has Notion pages in Graph, needing Notion, with no check step", () => {
   const spec = defined(CONNECTORS.find((c) => c.kind === "notion"));
-  assert.deepEqual([spec.zone, spec.app, spec.mark], ["graph", "notion", "notion"]);
-  assert.deepEqual(spec.check, { test: "Check link", testing: "Checking…", add: "Add source" });
+  assert.deepEqual(
+    [spec.zone, spec.app, spec.mark, spec.name, spec.title],
+    ["graph", "notion", "notion", "Notion pages", "Add Notion pages"],
+  );
+  assert.equal(spec.check, null);
 });
 
-test("the form asks for the link, says it reads once, and Check link is off until there is a link", () => {
+test("the form first reads what is shared, says each pick is its own source, and Add selected is off until something is ticked", () => {
   const view = emptyForm();
-  assert.match(view, />Page or database link<\/label>/);
-  assert.match(view, /read once when it is added/);
-  assert.match(view, /disabled=""[^>]*>Check link<\/button>/);
+  assert.match(view, /Reading your shared Notion pages…/);
+  assert.doesNotMatch(view, /<input|<select/);
+  assert.match(view, /Each one becomes its own source/);
+  assert.match(view, /disabled=""[^>]*>Add selected<\/button>/);
   assert.doesNotMatch(view, /role="alert"/);
 });
 
@@ -49,7 +55,7 @@ test("every closed code a source check or add can answer has its own words; an u
   assert.match(failure("notion_not_connected"), /Connect Notion in Integrations first/);
   assert.match(failure("notion_reconnect_required"), /needs a reconnect in Integrations/);
   assert.match(failure("notion_link_invalid"), /not a link to a Notion page or database/);
-  assert.match(failure("notion_not_shared"), /Share it with Graphico when you connect Notion/);
+  assert.match(failure("notion_not_shared"), /no longer shared with Graphico/);
   assert.match(failure("notion_rate_limited"), /busy right now/);
   assert.match(failure("notion_unavailable"), /not available on this server/);
   assert.match(failure("notion_unreachable"), /did not answer/);
@@ -82,19 +88,6 @@ test("a passed check says what an import takes: a page with its sub-pages, a dat
   assert.equal(notionCheckText({ ...db, pages: 1 }), "Database Requirements · 1 row.");
   assert.equal(notionCheckText({ ...db, pages: 0 }), "Database Requirements · 0 rows.");
   assert.equal(notionCheckText({ ...db, pages: 100, capped: true }), "Database Requirements · the first 100 rows (more were found).");
-});
-
-test("the answer region shows a passed check as a status and a refusal as an alert", () => {
-  const none = html(createElement(NotionAnswer, { result: null, problem: null }));
-  assert.match(none, /<div role="status"><\/div>/);
-  assert.doesNotMatch(none, /role="alert"/);
-  const checked = html(
-    createElement(NotionAnswer, { result: { kind: "database", title: "Requirements", pages: 42, capped: false }, problem: null }),
-  );
-  assert.match(checked, /role="status"[^>]*>.*Database Requirements · 42 rows\./);
-  assert.doesNotMatch(checked, /role="alert"/);
-  const refused = html(createElement(NotionAnswer, { result: null, problem: failure("notion_not_connected") }));
-  assert.match(refused, /role="alert"[^>]*>.*Connect Notion in Integrations first/);
 });
 
 test("against the stub: a page, a database and a capped database are checked in words", async () => {
@@ -151,38 +144,126 @@ test("the check wire keeps kind, title, count and cap; a fractional count, a mis
   }
 });
 
-test("a link over the length cap is a 422 validation_failed and says the link is not valid; the field stops at 2048", () => {
+test("a link over the length cap is a 422 validation_failed and says the link is not valid", () => {
   const long = notionFailureText(new DataError("validation", false, { apiCode: "validation_failed" }));
   assert.equal(long, failure("notion_link_invalid"));
-  assert.match(emptyForm(), /maxLength="2048"/);
 });
+
+const WIKI = "Engineering Wiki";
+const SHARED: NotionShared = {
+  items: [
+    { kind: "page", title: WIKI, link: PAGE, parentTitle: null },
+    { kind: "page", title: "Onboarding", link: CHILD_PAGE, parentTitle: WIKI },
+    { kind: "database", title: "Requirements", link: DATABASE, parentTitle: null },
+  ],
+  capped: false,
+};
+const ready = (shared: NotionShared = SHARED): NotionSharedRead => ({ kind: "ready", shared });
 
 const view = (over: Partial<Parameters<typeof NotionFormView>[0]>) =>
   html(
     createElement(NotionFormView, {
-      link: PAGE,
-      onLink: () => undefined,
+      shared: ready(),
+      added: new Set<string>(),
+      picked: new Set<string>(),
       busy: false,
-      label: "Check link",
-      result: null,
       problem: null,
+      onPick: () => undefined,
       onBack: () => undefined,
-      onSubmit: () => undefined,
+      onAdd: () => undefined,
       ...over,
     }),
   );
 
-test("while a call runs the field is read-only and the button is busy and says Checking…", () => {
-  const busy = view({ busy: true, label: "Checking…" });
-  assert.match(busy, /readOnly=""/);
-  assert.match(busy, /aria-busy="true"[^>]*>Checking…<\/button>/);
-  assert.match(busy, /disabled=""/);
-  assert.doesNotMatch(view({}), /readOnly=""/);
+test("the checklist lists the shared pages first, with their parent page, then the databases, nothing ticked", () => {
+  const list = view({});
+  assert.match(list, /<legend[^>]*>Shared with Graphico<\/legend>/);
+  assert.equal(list.match(/type="checkbox"/g)?.length, 3);
+  assert.doesNotMatch(list, /checked=""/);
+  assert.match(list, /Engineering Wiki[\s\S]*Onboarding[\s\S]*in Engineering Wiki[\s\S]*Requirements[\s\S]*Database/);
+  assert.match(list, />0 picked</);
+  assert.match(list, /disabled=""[^>]*>Add selected<\/button>/);
 });
 
-test("after a passed check the line says what is imported and the button says Add source", () => {
-  const checked = view({ label: "Add source", result: { kind: "page", title: "Engineering Wiki", pages: 4, capped: false } });
-  assert.match(checked, /Page Engineering Wiki · this page and 3 sub-pages\./);
-  assert.match(checked, />Add source<\/button>/);
-  assert.doesNotMatch(checked, /disabled=""/);
+test("ticked items are counted and enable Add selected; while the adds run the list and the button are off", () => {
+  const two = view({ picked: new Set([PAGE, DATABASE]) });
+  assert.equal(two.match(/checked=""/g)?.length, 2);
+  assert.match(two, />2 picked</);
+  assert.doesNotMatch(two, /disabled=""[^>]*>Add selected/);
+  const busy = view({ picked: new Set([PAGE]), busy: true });
+  assert.equal(busy.match(/type="checkbox"[^>]*disabled=""|disabled=""[^>]*type="checkbox"/g)?.length, 3);
+  assert.match(busy, /aria-busy="true"[^>]*>Adding…<\/button>/);
+});
+
+test("items added by an earlier click leave the list, and a failed add is named in words", () => {
+  const after = view({
+    added: new Set([PAGE]),
+    picked: new Set([DATABASE]),
+    problem: "Requirements: Connect Notion in Integrations first.",
+  });
+  assert.equal(after.match(/type="checkbox"/g)?.length, 2);
+  assert.match(after, /role="alert"[^>]*>Requirements: Connect Notion in Integrations first\./);
+  assert.equal(
+    notionAddFailureText("Requirements", new DataError("conflict", false, { apiCode: "notion_not_connected" })),
+    "Requirements: Connect Notion in Integrations first.",
+  );
+});
+
+test("nothing shared, a refused read and a capped list are said in words", () => {
+  const empty = view({ shared: ready({ items: [], capped: false }) });
+  assert.doesNotMatch(empty, /type="checkbox"/);
+  assert.match(empty, /Nothing is shared with Graphico yet/);
+  const failed = view({ shared: { kind: "failed", text: failure("notion_not_connected") } });
+  assert.match(failed, /role="alert"[^>]*>[^<]*Connect Notion in Integrations first/);
+  assert.match(view({ shared: ready({ ...SHARED, capped: true }) }), /Only the first 300 pages and databases are listed/);
+});
+
+test("the plan's parent page picker offers the shared pages only, one to pick", () => {
+  const picker = html(
+    createElement(NotionPickerView, { read: ready(), label: "Parent page", value: PAGE, disabled: false, onChange: () => undefined }),
+  );
+  assert.doesNotMatch(picker, /Requirements/);
+  assert.match(picker, />Choose…<\/option>/);
+  assert.match(picker, /<option value="[^"]*e0a9" selected="">Engineering Wiki<\/option>/);
+  assert.match(picker, />Onboarding · in Engineering Wiki<\/option>/);
+});
+
+test("the shared wire keeps kind, title, link and parent; anything else is invalid_response", () => {
+  assert.deepEqual(toNotionShared({ items: [{ kind: "page", title: "T", link: PAGE, parent_title: null, extra: 1 }], capped: true }), {
+    items: [{ kind: "page", title: "T", link: PAGE, parentTitle: null }],
+    capped: true,
+  });
+  for (const bad of [
+    { items: [], capped: "no" },
+    { items: [{ kind: "row", title: "T", link: PAGE, parent_title: null }], capped: false },
+    { items: [{ kind: "page", title: "T", link: PAGE }], capped: false },
+    {},
+  ]) {
+    assert.throws(
+      () => toNotionShared(bad),
+      (e) => isDataError(e) && e.code === "invalid_response",
+    );
+  }
+});
+
+test("against the stub: the picker reads what the bound member shared; an unbound or expired project is said in words", async () => {
+  const pid = await rig.project();
+  const shared = await rig.sources.listNotion(pid);
+  assert.deepEqual(
+    shared.items.map((i) => [i.kind, i.title, i.parentTitle]),
+    [
+      ["database", "Big database", null],
+      ["page", WIKI, null],
+      ["page", "Old notes", null],
+      ["page", "Onboarding", WIKI],
+      ["page", "Plans", null],
+      ["database", "Requirements", null],
+    ],
+  );
+  assert.equal(await rig.checkSays(pid, defined(shared.items[1]).link), "Page Engineering Wiki · this page and 3 sub-pages.");
+  assert.equal(await rig.checkSays(pid, defined(shared.items[2]).link), failure("notion_not_shared"));
+  const unbound = await rig.project("none");
+  assert.equal(await rig.sources.listNotion(unbound).then(() => "listed", notionFailureText), failure("notion_not_connected"));
+  const expired = await rig.project("reconnect_required");
+  assert.equal(await rig.sources.listNotion(expired).then(() => "listed", notionFailureText), failure("notion_reconnect_required"));
 });

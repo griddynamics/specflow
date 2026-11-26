@@ -60,8 +60,11 @@ const jiraTarget = (sync?: Record<string, unknown>) => ({
   acting: "me" as const,
   sync,
 });
-const NOTION_WIKI = "https://www.notion.so/northwind/Engineering-Wiki-423ed33606458163a8dde12275fc660d";
-const NOTION_PLANS = "https://www.notion.so/northwind/Plans-423ed33606458163a8dde12275fc660e";
+const NOTION_WIKI = "https://www.notion.so/423ed33606458163a8dde12275fc660d"; // the stub's shared "Engineering Wiki" (stub-notion.mjs)
+const WIKI = "Engineering Wiki";
+const NOTION_PLANS = "https://www.notion.so/423ed33606458163a8dde12275fc660e"; // its shared "Plans"
+const NOTION_OLD_NOTES = "https://www.notion.so/423ed33606458163a8dde12275fc0404"; // shared, then unshared
+const NOTION_REQUIREMENTS = "https://www.notion.so/423ed33606458163a8dde12275fc00db"; // a database
 const CHECK_ACCESS = "Check access";
 const SPACE_KEY = "Jira space key";
 const ADD_SOURCE = "Add a source";
@@ -343,7 +346,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(detail.getByRole("button", { name: "Remove" })).toHaveCount(0);
   });
 
-  test("Confluence: no Atlassian on the project says Set up first and comes back with the form open; a link is checked (the closed codes in words), then added as a source that imports its pages", async ({
+  test("Confluence: no Atlassian on the project says Set up first and comes back with the form open; a shared page or database is picked and checked (the closed codes in words), then added as a source that imports its pages", async ({
     page,
     requests,
   }) => {
@@ -692,54 +695,45 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(wire(page, "github-plan")).toHaveAttribute(MOTION, "on");
   });
 
-  test("Notion link: no Notion on the project says Set up first and comes back with the form open; a link is checked (the closed codes in words), then added as a source that imports its pages", async ({
+  test("Notion pages: no Notion on the project says Set up first and comes back with the form open; shared pages and databases are ticked and each becomes a source, a refused one is named and stays ticked", async ({
     page,
     requests,
   }) => {
-    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/); // the refused checks are answers
+    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/); // the refused add is an answer
     await seedNotion({ reset: true, connection: { status: "active", workspace_name: "Sample Workspace" } });
     const pid = await canvas(page, unique("Notion form"));
     await page.getByRole("button", { name: ADD.source }).click();
     const plus = dialog(page, ADD_SOURCE);
-    await expect(plus.getByRole("button", { name: /^Notion link/ })).toContainText(SET_UP_FIRST);
-    await plus.getByRole("button", { name: /^Notion link/ }).click();
+    await expect(plus.getByRole("button", { name: /^Notion pages/ })).toContainText(SET_UP_FIRST);
+    await plus.getByRole("button", { name: /^Notion pages/ }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=notion&next=%2Fprojects%2F${pid}%3Fadd%3Dnotion$`));
     await seedIntegrations({ pid, notion: { by: ALEX, health: "active" } });
     await page.goto(`/projects/${pid}?add=notion`);
-    const form = dialog(page, "Add a Notion page");
-    await expect(form.getByRole("button", { name: CHECK_LINK })).toBeDisabled();
-    const link = form.getByLabel("Page or database link");
-    for (const [text, words] of [
-      ["https://evil.example.com/Wiki-423ed33606458163a8dde12275fc660d", /not a link to a Notion page or database/],
-      ["https://www.notion.so/northwind/Wiki-423ed33606458163a8dde12275fc0404", /No page or database at this link/],
-      ["https://www.notion.so/northwind/Wiki-423ed33606458163a8dde12275fc0403", /No page or database at this link/],
-    ] as const) {
-      await link.fill(text);
-      await form.getByRole("button", { name: CHECK_LINK }).click();
-      await expect(form.getByRole("alert")).toContainText(words);
-      await expect(form.getByRole("button", { name: CHECK_LINK })).toBeVisible(); // still a check: nothing to add
-    }
-    await link.fill("https://www.notion.so/northwind/Requirements-423ed33606458163a8dde12275fc00db");
-    await form.getByRole("button", { name: CHECK_LINK }).click();
-    await expect(form.getByText("Database Requirements · 42 rows.")).toBeVisible();
-    await link.fill("https://www.notion.so/northwind/Big-423ed33606458163a8dde12275fc0b16");
-    await form.getByRole("button", { name: CHECK_LINK }).click(); // a different link is a new check
-    await expect(form.getByText("Database Big database · the first 100 rows (more were found).")).toBeVisible();
-    await link.fill(NOTION_WIKI);
-    await form.getByRole("button", { name: CHECK_LINK }).click();
-    await expect(form.getByText("Page Engineering Wiki · this page and 3 sub-pages.")).toBeVisible();
-    await form.getByRole("button", { name: ADD_SOURCE_BUTTON }).click();
+    const form = dialog(page, "Add Notion pages");
+    const addSelected = form.getByRole("button", { name: "Add selected" });
+    await expect(form.getByRole("checkbox")).toHaveCount(6); // the stub's shared pages, then its databases
+    await expect(addSelected).toBeDisabled();
+    for (const name of [new RegExp(`^${WIKI}`), /^Old notes/, /^Requirements/]) await form.getByLabel(name).check();
+    await expect(form.getByText("3 picked")).toBeVisible();
+    await addSelected.click(); // Engineering Wiki gets in; Old notes was unshared since Notion was connected
+    await expect(form.getByRole("alert")).toContainText(/^Old notes: .*no longer shared with Graphico/);
+    await expect(form.getByRole("checkbox")).toHaveCount(5);
+    await expect(form.getByLabel(/^Old notes/)).toBeChecked();
+    await form.getByLabel(/^Old notes/).uncheck();
+    await addSelected.click();
     await expect(form).toBeHidden();
-    const node = nodes(page).filter({ hasText: "Engineering Wiki" });
-    await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
-    await expect(node).toContainText("Notion");
+    for (const name of [WIKI, "Requirements"]) {
+      const node = nodes(page).filter({ hasText: name });
+      await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
+      await expect(node).toContainText("Notion");
+    }
     const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/notion`);
-    expect(bodiesOf(adds)).toEqual([{ link: NOTION_WIKI }]);
-    await node.getByRole("button").click();
-    await expect(dialog(page, "Engineering Wiki").getByRole("button", { name: "Remove" })).toBeVisible();
+    expect(bodiesOf(adds)).toEqual([{ link: NOTION_WIKI }, { link: NOTION_OLD_NOTES }, { link: NOTION_REQUIREMENTS }]);
+    await nodes(page).filter({ hasText: WIKI }).getByRole("button").click();
+    await expect(dialog(page, WIKI).getByRole("button", { name: "Remove" })).toBeVisible();
   });
 
-  test("Notion plan: no Notion on the project says Set up first; the parent page link is checked (the closed codes in words), Add destination saves it and the node shows the pass", async ({
+  test("Notion plan: no Notion on the project says Set up first; the parent page is picked and checked (the closed codes in words), Add destination saves it and the node shows the pass", async ({
     page,
     requests,
   }) => {
@@ -756,19 +750,15 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await seedIntegrations({ pid, notion: { by: ALEX, health: "active" } });
     await page.goto(`/projects/${pid}?add=notion_plan`);
     const form = dialog(page, "Send the plan to Notion");
-    const parent = form.getByLabel("Parent page link");
+    const parent = form.getByLabel("Parent page");
     await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeDisabled();
-    for (const [text, words] of [
-      ["https://evil.example.com/Plans-423ed33606458163a8dde12275fc660e", /not a link to a Notion page/],
-      ["https://www.notion.so/northwind/Plans-423ed33606458163a8dde12275fc0404", /Notion has no page at this link/],
-    ] as const) {
-      await parent.fill(text);
-      await form.getByRole("button", { name: CHECK_ACCESS }).click();
-      await expect(form.getByRole("alert")).toContainText(words);
-      await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible(); // still a check: nothing to add yet
-    }
+    await expect(parent.getByRole("option")).toHaveText(["Choose…", WIKI, "Old notes", `Onboarding · in ${WIKI}`, "Plans"]);
+    await parent.selectOption({ label: "Old notes" });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByRole("alert")).toContainText(/no longer shared with Graphico/);
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible(); // still a check: nothing to add yet
     await seedNotion({ pid, access: { reason: "notion_permissions_missing" } });
-    await parent.fill(NOTION_PLANS);
+    await parent.selectOption({ label: "Plans" });
     await form.getByRole("button", { name: CHECK_ACCESS }).click();
     await expect(form.getByRole("alert")).toContainText("may not add or change content");
     await seedNotion({ pid, access: "ok" });

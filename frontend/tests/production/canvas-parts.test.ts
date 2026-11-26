@@ -149,7 +149,7 @@ test("the registry lists each kind once; only MCP is automatic, each kind has a 
   assert.equal(NODE_MAPPERS.length, 15);
   assert.equal(CONNECTORS.find((c) => c.kind === "gdrive")?.check?.add, "Add source");
   assert.equal(CONNECTORS.find((c) => c.kind === "jira")?.check?.test, "Check access");
-  assert.deepEqual(CONNECTORS.find((c) => c.kind === "notion")?.check, { test: "Check link", testing: "Checking…", add: "Add source" });
+  assert.equal(CONNECTORS.find((c) => c.kind === "notion")?.check, null, "Notion pages are ticked from a list: no check step");
   assert.deepEqual(CONNECTORS.find((c) => c.kind === "notion_plan")?.check, {
     test: "Check access",
     testing: "Checking…",

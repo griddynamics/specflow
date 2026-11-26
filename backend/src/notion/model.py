@@ -69,6 +69,19 @@ class RowsPage:
     next_cursor: str | None
 
 
+SearchKind = Literal["page", "data_source"]
+
+
+@dataclass(frozen=True)
+class SearchPage:
+    """One page of ``search``: the pages or the data sources the connection can read (one of the two, by the kind
+    asked for) and the cursor of the next page (``None`` at the end)."""
+
+    pages: tuple[NotionPage, ...] = ()
+    data_sources: tuple[NotionDataSource, ...] = ()
+    next_cursor: str | None = None
+
+
 @dataclass(frozen=True)
 class PageMarkdown:
     """A page as Notion-flavored Markdown (v2). The gateway has already read every ``unknown_block_ids`` subtree and

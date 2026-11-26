@@ -60,6 +60,7 @@ const http: HttpPorts = {
     checkJiraEpic: never,
     addJiraEpic: never,
     checkNotion: never,
+    listNotion: never,
     addNotion: never,
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },

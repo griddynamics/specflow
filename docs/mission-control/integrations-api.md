@@ -310,6 +310,7 @@ connection has no login, so its workspace name is the Notion workspace.
 | `POST /integrations/notion/authorize` | `{return_to}` | 200 `{url}` (Notion's consent page) | 422 `validation_failed`; 503 `notion_unavailable` |
 | `POST /integrations/notion/callback` | `{code, state}` | 200 `{connection, return_to}` | 400 `notion_state_invalid`, `notion_code_invalid`; 502 `notion_unreachable`, `notion_auth_failed`; 503 `notion_unavailable` |
 | `DELETE /integrations/notion` | | 204 | 503 `notion_unavailable` |
+| `GET /projects/{pid}/sources/notion/shared` | | 200 `{items: [{kind, title, link, parent_title}], capped}` (what the bound member shared, for the pickers) | 404 `project_not_found`; 409 `notion_not_connected`, `notion_reconnect_required`; 502; 503 |
 | `POST /projects/{pid}/sources/notion/check` | `{link}` | 200 `{kind, title, pages, capped}` | 404 `project_not_found`; 409 `notion_not_connected`, `notion_reconnect_required`, `notion_not_shared`; 422 `notion_link_invalid`; 502; 503 |
 | `POST /projects/{pid}/sources/notion` | `{link}` | 201 the source card | as the check |
 | `GET /projects/{pid}/notion-plan` | | 200 `NotionPlanOut` | 404 `project_not_found` |

@@ -26,7 +26,7 @@ member's account. The decisions behind it are N1 to N13 in the table below; each
 | # | Decision |
 |---|---|
 | N1 | OAuth only: one public connection, one connection per user, the refresh token encrypted; no internal-token mode in the product |
-| N2 | A source is a pasted link to a page or database, with Check link, then Add source; no page picker |
+| N2 | Sources are ticked in a checklist of what the member shared (not a typed link), then Add selected: one source per page or database; the plan's parent page is one pick from the same list |
 | N3 | Pages are read as Markdown, never as a block tree; sub-pages and database rows are followed; a row is a properties table plus its body |
 | N4 | One import takes at most 100 pages and rows together; depth is bounded by that cap and a visited set |
 | N5 | The stored original has e-mail addresses removed from user mentions; the converted Markdown goes to the document |
@@ -35,6 +35,6 @@ member's account. The decisions behind it are N1 to N13 in the table below; each
 | N8 | A pass overwrites owned fields only while the row's Status is in the to-do group; otherwise it adds one comment; a removed item is marked `Removed`, never deleted |
 | N9 | A pass spends at most 240 requests on rows; when rows are left, another pass follows |
 | N10 | One request limiter per Notion connection (`bot_id`), shared by import and export; `Retry-After` honoured; a pass or import waits at most 60 s in all |
-| N11 | The plan form takes a parent page link; the first pass creates the database under it and stores its ids |
+| N11 | The plan form takes a parent page, picked from the pages the member shared; the first pass creates the database under it and stores its ids |
 | N12 | One migration, `0012_notion`, adds the three Notion tables and widens the two check constraints |
 | N13 | The per-app table of Mission Control lists Notion as a source and as a plan destination |

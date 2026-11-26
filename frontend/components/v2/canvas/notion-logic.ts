@@ -1,7 +1,7 @@
 // The words and rules of the Notion link source (docs/notion/source.md), free of React: what a failed check or add says (the closed codes of
 // the API), what a passed check says, and what a node says when its import stopped.
 import { isDataError } from "@/lib/domain/errors";
-import type { NotionCheck } from "@/lib/domain/sources";
+import type { NotionCheck, NotionSharedItem } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
 
 /** What a Notion node says when the API reports its import failed (`no_access`, or any other closed reason). */
@@ -12,6 +12,29 @@ export const NOTION_IMPORT_WORDS = {
   failed: "The import failed. Add the link again.",
 } as const;
 
+/** The words of the Notion lists: the source checklist (`NotionForm`) and the plan's parent page picker (`NotionPicker`). */
+export const NOTION_PICKER_WORDS = {
+  legend: "Shared with Graphico",
+  database: "Database",
+  pick: "Choose…",
+  loading: "Reading your shared Notion pages…",
+  none: "Nothing to choose",
+  nothing: "Nothing is shared with Graphico yet. In Integrations, connect Notion again and tick the pages it may read.",
+  noPages: "No page is shared with Graphico yet. In Integrations, connect Notion again and tick the pages it may read.",
+  capped: "Only the first 300 pages and databases are listed.",
+} as const;
+
+/** One option of the parent page picker: the title, and the parent page when there is one ("Onboarding · in Engineering Wiki"). */
+export function notionOptionLabel(item: NotionSharedItem): string {
+  return item.parentTitle === null ? item.title : `${item.title} · in ${item.parentTitle}`;
+}
+
+/** The count under the checklist: "2 picked". */
+export const notionPickedText = (n: number): string => `${String(n)} picked`;
+
+/** A failed add of one picked item, named: "Engineering Wiki: Connect Notion in Integrations first." The items before it are in. */
+export const notionAddFailureText = (title: string, e: unknown): string => `${title}: ${notionFailureText(e)}`;
+
 const FAILURE: Record<string, string> = {
   notion_not_connected: "Connect Notion in Integrations first.",
   notion_reconnect_required: "The Notion connection needs a reconnect in Integrations.",
@@ -20,7 +43,7 @@ const FAILURE: Record<string, string> = {
   notion_auth_failed: "Notion refused this server's request. Ask your admin to check the Notion setup.",
   notion_rate_limited: "Notion is busy right now. Try again in a minute.",
   notion_link_invalid: "This is not a link to a Notion page or database.",
-  notion_not_shared: "No page or database at this link. Share it with Graphico when you connect Notion.",
+  notion_not_shared: "Notion has no such page or database now, or it is no longer shared with Graphico.",
   source_not_found: "The source was removed. Add the link again.",
 };
 

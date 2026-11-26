@@ -34,6 +34,8 @@ from notion.model import (
     NotionPage,
     PageMarkdown,
     RowsPage,
+    SearchKind,
+    SearchPage,
     data_source_from_json,
     database_from_json,
     page_from_json,
@@ -208,6 +210,24 @@ class HttpNotionGateway:
         cursor = body.get("next_cursor")
         more = bool(body.get("has_more")) and isinstance(cursor, str) and bool(cursor)
         return RowsPage(tuple(_parse(page_from_json, row) for row in results), cursor if more else None)
+
+    async def search(self, kind: SearchKind, *, start_cursor: str | None = None) -> SearchPage:
+        payload: dict[str, Any] = {
+            "page_size": PAGE_SIZE,
+            "filter": {"property": "object", "value": kind},
+            "sort": {"timestamp": "last_edited_time", "direction": "descending"},
+        }
+        if start_cursor:
+            payload["start_cursor"] = start_cursor
+        body = await self._request("POST", _path("search"), json=payload, safe=True)
+        results = body.get("results")
+        if not isinstance(results, list):
+            raise NotionError(NotionCode.UNREACHABLE)
+        cursor = body.get("next_cursor")
+        more = cursor if bool(body.get("has_more")) and isinstance(cursor, str) and cursor else None
+        if kind == "page":
+            return SearchPage(pages=tuple(_parse(page_from_json, raw) for raw in results), next_cursor=more)
+        return SearchPage(data_sources=tuple(_parse(data_source_from_json, raw) for raw in results), next_cursor=more)
 
     # Write ---------------------------------------------------------------------------------------------------------
 
