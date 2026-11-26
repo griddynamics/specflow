@@ -21,8 +21,8 @@ shape as a Confluence link. Decisions: N2 to N6.
   `{kind: page | database, title, pages, capped}`: `pages` is at least the count of the page and the pages and databases it names, or of the
   first page of the database's rows, at most the cap; `capped` is true when there may be more. A page or database that does not exist or was not ticked in the
   picker is `409 notion_not_shared`.
-- `POST /projects/{pid}/sources/notion` `{link}` checks again, creates the source for the caller (`connected_by`),
-  starts the import and answers the source card. `external_id` is a fresh uuid, `link` as pasted. Any member may call both
+- `POST /projects/{pid}/sources/notion` `{link}` creates the source for the caller (`connected_by`),
+  opens the link (add does not check again) and starts the import, which walks once, and answers the source card. `external_id` is a fresh uuid, `link` as pasted. Any member may call both
   (D6). `409 notion_not_connected` when the project has no Notion binding, `409 notion_reconnect_required` when the
   bound member's connection expired.
 

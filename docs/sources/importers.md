@@ -1,6 +1,6 @@
 ---
 type: Design
-title: "Importers: Confluence links and Jira epics"
+title: "Importers: Confluence links, Jira epics and Notion"
 description: "The sources the API reads itself from Atlassian: what a Confluence link or a Jira epic imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
 status: draft
 tags: [sources, confluence, jira, import]
@@ -110,3 +110,9 @@ italic, code, strikethrough, links, line breaks, bullet, ordered and task lists,
 (as quotes), expands (title in bold), rules, mentions as names, emoji, dates, statuses, cards as links and media as
 `[attachment]`. A node it does not know renders the text of its children. The Confluence "follow links" import of a linked
 issue uses the same reader and document.
+
+## Notion page or database
+
+A Notion link is a source of kind `notion` through the same seam; it reads as the member the project's Notion is connected by,
+over that member's own Notion connection (not Atlassian). The link, the check, the Markdown conversion, the cap of 100 pages
+and rows, the e-mail scrub and the failure reasons are specified in [../notion/source.md](../notion/source.md).
