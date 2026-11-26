@@ -107,8 +107,8 @@ the card says "Set up first". The form asks for a **parent page link**. **Check 
 connected by (an unbound project or an expired connection comes back as `{result: failed, reason: notion_not_connected |
 notion_reconnect_required}`, not as an error; the save answers them with 409); **Add destination** saves it turned on and the pass runs in the background. The node is named
 `Notion · <parent page title>`, waits for the plan, counts the rows made (`sync.counts.created`), and while `sync.status` is `running`
-the canvas reads `GET` every 3 seconds. It stops only for what the API reports: `notion_not_connected` or
-`notion_reconnect_required` offer Reconnect Notion; any other closed code says what it is.
+the canvas reads `GET` every 3 seconds. It stops only for what the API reports: `notion_not_connected`,
+`notion_reconnect_required` or `notion_permissions_missing` offer Reconnect Notion; any other closed code says what it is.
 
 ## Limits
 
@@ -123,4 +123,4 @@ the canvas reads `GET` every 3 seconds. It stops only for what the API reports: 
 
 The create of the database with two-way self-relations and the `Status` groups were tried in the sandbox ("Specflow Plan
 (trial)" in [discovery.md](discovery.md)). A full pass of 300 rows at the real limit, and the comment path on a row moved to
-"In progress", are left to the owner's live check (V6 of the plan).
+"In progress", are left to the owner's live check.

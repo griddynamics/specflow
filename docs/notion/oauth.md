@@ -64,6 +64,8 @@ sequenceDiagram
 - The token response carries `workspace_id`, `workspace_name` and `bot_id`; they are stored with the Fernet refresh
   token. A refused code is `notion_code_invalid`; `429`, `5xx`, a timeout or a transport error is `notion_unreachable`.
   Connecting again replaces the row (new grant, `active`).
+- The return route (a page of the web app, not the API) adds two codes of its own to `?notion=<code>`: `notion_consent_denied`
+  (Notion came back with `?error=`, the API is not called) and `notion_unexpected` (any other answer of the API).
 - Notion has no install step: the page picker of the consent page is how a user shares pages. To share more later the user
   connects again.
 
@@ -96,7 +98,7 @@ fixed 60-second window, and answers `429` or `529` with `Retry-After` (at most 6
   180).
 - `Retry-After` is honoured. A pass or an import waits at most 60 s in all for the limit; a wait that does not fit ends it
   with `notion_rate_limited` (a plan pass) or `unknown_error` (an import, N6).
-- Retries: `429` and `529` always, `5xx` for `GET` only, five attempts with exponential backoff and jitter.
+- Retries: `429` and `529` always, `5xx` for reads only (`GET` and read-only `POST`s), five attempts with exponential backoff and jitter.
 - The request limit is per process: one api replica is assumed (as for the importers and the Slack bindings).
 
 ## Log events
@@ -130,4 +132,4 @@ nothing of it. The migration also widens the check constraints of `project_integ
 ## Not verified live
 
 The OAuth consent and the page picker need a browser click on Notion's consent page; the first live run is left to the
-owner (V4 of the plan). Business and Enterprise limits (600 a minute) are Notion's documentation, not measured.
+owner. Business and Enterprise limits (600 a minute) are Notion's documentation, not measured.

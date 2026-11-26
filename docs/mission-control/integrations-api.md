@@ -106,10 +106,10 @@ Unchanged (members could already): sources, uploads, Drive, source removal, grap
 
 ## Importer seam
 
-For sources the API reads itself (Confluence pages, Jira epics; each source session adds its importer). Nothing in
+For sources the API reads itself (Confluence pages, Jira epics, Notion pages; each source session adds its importer). Nothing in
 the graph build changes: an importer writes `parsed` documents the build already reads.
 
-- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence` or `jira_epic` (`SourceKindName` too).
+- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence`, `jira_epic` or `notion` (`SourceKindName` too).
   `external_id` of an imported source is `str(uuid)`, as a Local files batch has; `connected_by` is the importing member.
 - `api.imports.ImportRunner` (`Runtime.imports`) holds the imports of the process: one asyncio task per source, at most
   two at once (`MAX_CONCURRENT_IMPORTS`). `add_source` creates the source (`listing`); `start(job, importer)` runs it:
@@ -146,7 +146,7 @@ space). Pages that "follow links" would add are not counted. The check reads Con
 stored. Adding does not repeat a source for the same link: every add is a new source (D7).
 
 **Progress and status.** The new source is a card of `GET /projects/{pid}/sources?batches=1` like any other: `kind`
-`confluence` or `jira_epic`, `name` (the title), `link` (as pasted), `added_by` (the caller), `counts` per file state,
+`confluence`, `jira_epic` or `notion`, `name` (the title), `link` (as pasted), `added_by` (the caller), `counts` per file state,
 `total`, `listing_finished` (false while `listing`), `open` false and, when the import failed, `failure_reason` (`no_access`
 or `unknown_error`). Items appear as pages are declared and finish as they are stored, so `total` grows while the import
 runs; a page the bound member cannot see is a file in a problem state (`access_lost`). `GET /projects/{pid}/sources`
@@ -318,7 +318,7 @@ connection has no login, so its workspace name is the Notion workspace.
 
 - `NotionPlanOut`: `available` (false when Notion is off on this server: the other fields are empty), `parent_page_id`,
   `parent_page_title`, `parent_page_url`, `database_url` (set once the first pass made the database), `enabled`,
-  `connected_by_name` (the Notion workspace name), `connected_by_me`, `sync` (`status` `idle|running|succeeded|partial|failed|skipped`,
+  `connected_by_name` (the Notion workspace name), `connected_by_me`, `sync` (`project_id`, `enabled`, `status` `idle|running|succeeded|partial|failed|skipped`,
   `queued`, `trigger`, `started_at`, `finished_at`, `error_code`, `counts{created, updated, commented, removed, unchanged, failed,
   deferred}`, `parent_page_title`; null without a target).
 - A source's `kind` is `notion`; an import never shows a `notion_*` code (closed failure reasons of sources, N6); the check does.
@@ -360,5 +360,5 @@ its start (the member who ran the connect, while they are a member).
 The Notion tables (migration `0011_notion`; columns in [../notion/oauth.md](../notion/oauth.md#data) and [../notion/plan.md](../notion/plan.md)):
 `notion_connections` (one row per user: workspace, bot, encrypted refresh token, `status`), `notion_plan_targets` (one per project: the parent
 page, the database and its data source once made, `enabled`, the last pass) and `notion_plan_items` (the map of plan nodes to rows,
-`kind` `story|task`). All three have row-level security on and no grant. The migration also widens the checks of
+`kind` `story|task`). All three have row-level security on and no grant; the two plan tables carry the policy `agent_project_scope`, `notion_connections` none (not project-scoped). The migration also widens the checks of
 `project_integrations.app` and `connections.kind` with `notion`.

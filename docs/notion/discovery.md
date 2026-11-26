@@ -37,7 +37,7 @@ A private page "Specflow Notion Lab" in the owner's Notion workspace holds the t
 
 ### Conversion test
 
-A prototype converter (line-based, no HTML parser, ~120 lines; kept in the local plan folder, not committed) turned the PRD
+A prototype converter (line-based, no HTML parser, ~120 lines; a throwaway script, not in the repository) turned the PRD
 and ADR content into plain GFM with no tags left. Rules that worked:
 
 | NFM | GFM output |
@@ -96,7 +96,7 @@ added to the sandbox root page, gave these results on `Notion-Version: 2026-03-1
 
 - Rate limit per connection, fixed 60-second window: 180 requests/minute on Free/Plus, 600 on Business/Enterprise.
   429 and 529 carry `Retry-After` (at most 60 s) and `additional_data.retry_after`. Retry 429/529 always, 5xx only for
-  GET/DELETE, exponential backoff with jitter, 5 attempts. One queue per connection so one job cannot spend the budget.
+  reads (GET, read-only POST), exponential backoff with jitter, 5 attempts. One queue per connection so one job cannot spend the budget.
 - Webhooks exist (`page.content_updated`, `database.content_updated`, `comment.created`, …). They are set per connection
   in the developer portal, need a public HTTPS endpoint, a one-time verification token and an `X-Notion-Signature`
   HMAC check. `page.content_updated` is aggregated and arrives about one minute after the edit.

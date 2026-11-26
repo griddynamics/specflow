@@ -15,7 +15,7 @@ shape as a Confluence link. Decisions: N2 to N6.
 ## Link and check
 
 - The form takes a link (N2), not a picker: a search over the workspace returns every shared object, rows included.
-  `notion.links.parse_link` accepts `https` links of `notion.so`, `www.notion.so`, `app.notion.com` and `*.notion.site`; the
+  `notion.links.parse_link` accepts `https` links of `notion.so`, `www.notion.so`, `notion.com`, `www.notion.com`, `app.notion.com` and `*.notion.site`; the
   object id is the last 32 hex digits of the path; `?v=` marks a database. Anything else is `notion_link_invalid`.
 - `POST /projects/{pid}/sources/notion/check` `{link}` reads the object as the bound member and answers
   `{kind: page | database, title, pages, capped}`: `pages` is at least the count of the page and the pages and databases it names, or of the
@@ -44,7 +44,7 @@ and no user id.
 ## Conversion
 
 `notion.convert.to_markdown` turns Notion-flavoured Markdown into plain GFM with the rules of
-[discovery.md](discovery.md#conversion-test): callouts become blockquotes, toggles and tabs become headings, columns are
+[discovery.md](discovery.md#conversion-test): callouts become blockquotes, heading toggles and tabs become headings, plain toggles a bold line, columns are
 flattened, synced blocks keep their content, user mentions keep the display name only, page and database mentions become
 links, dates become ISO text, styled tables become GFM tables, `<meeting-notes>` keep summary and notes and skip the
 transcript, `<custom-block>` is dropped. Images are named, never fetched. No NFM tag and no e-mail is left in the output.

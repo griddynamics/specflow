@@ -1,9 +1,9 @@
 ---
 type: Design
 title: "Importers: Confluence links, Jira epics and Notion"
-description: "The sources the API reads itself from Atlassian: what a Confluence link or a Jira epic imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
+description: "The sources the API reads itself from Atlassian and Notion: what a Confluence link or a Jira epic imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
 status: draft
-tags: [sources, confluence, jira, import]
+tags: [sources, confluence, jira, notion, import]
 ---
 # importers.md: sources the API imports itself
 
@@ -14,12 +14,12 @@ importer seam of [../mission-control/integrations-api.md](../mission-control/int
 
 Rules shared by every importer:
 
-- **Acting account.** The import reads as the member the project's Atlassian is connected by (`project_integrations`, R1),
-  never as the caller. The caller is only `connections.connected_by` (who added the source). No new Atlassian scope is
+- **Acting account.** The import reads as the member the project's Atlassian (Notion: the project's Notion) is connected by
+  (`project_integrations`, R1), never as the caller. The caller is only `connections.connected_by` (who added the source). No new Atlassian scope is
   used: `read:page`, `read:hierarchical-content`, `read:space` (Confluence) and `read:jira-work` (Jira) were granted already
   ([../jira-sync/oauth.md](../jira-sync/oauth.md)). The site is the deployment's one site (`ATLASSIAN_SITE_URL`); a link
   on another host is `atlassian_site_mismatch`.
-- **One source per link.** `kind` is `confluence` or `jira_epic`; `external_id` is a fresh uuid, `link` the link as pasted.
+- **One source per link.** `kind` is `confluence`, `jira_epic` or `notion`; `external_id` is a fresh uuid, `link` the link as pasted.
 - **Originals and Markdown.** Each item is stored twice: the API's answer as JSON (`original.json` in object storage) and
   a Markdown document (`origin = connection`, `status = parsed`, `parser = <kind>-convert`). The document starts with the
   title as its heading; the graph reads it like any other (`doc:<document id>` lineage, path `<source name>/<item name>`).

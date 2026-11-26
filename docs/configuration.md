@@ -53,7 +53,6 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | api | The one Atlassian account of the [Jira sync](#jira-sync) (`token` mode). Set both with `ATLASSIAN_SITE_URL`, or none. Not read when `ATLASSIAN_OAUTH_CLIENT_ID` is set. |
 | `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](#jira-sync) (`oauth` mode, which wins over the one account). The client ID turns it on and then needs the secret, a Fernet key, `ATLASSIAN_SITE_URL` and `PUBLIC_URL`. |
 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_TOKEN_KEY` | api, worker-agents | The GitHub App of the [GitHub integration](#github-integration). The client ID turns it on and then needs the secret, the app slug, a Fernet key and `PUBLIC_URL`. |
-
 | `NOTION_OAUTH_CLIENT_ID`, `NOTION_OAUTH_CLIENT_SECRET`, `NOTION_TOKEN_KEY` | api | The public Notion connection of the [Notion integration](#notion-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. |
 
 ## Settings with a default (D)
@@ -66,6 +65,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `NEO4J_DATABASE` | unset | api, workers, tools | Alias of `GRAPH_STORE_NAME` while `GRAPH_STORE` is `neo4j`. |
 | `AGENT_TRACE_SENSITIVE_DATA` | `false` | api, workers | `true` puts document text into traces. Use it only for local debugging. |
 | `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Vector size of `GRAPH_EMBEDDING_MODEL`; set it together with the model, because the default fits only models with 1536 dimensions (1 to 4096). The first build of each api process checks it with one embedding call, before the schema and any extraction: a mismatch fails that build at once with `embedding_dim_mismatch`, and the `api.graph_build.failed` log gives `expected` and `actual`. To change it after a build, see [Local stack](#local-stack). |
+| `NOTION_REQUESTS_PER_MINUTE` | `150` | api | Requests a minute one Notion connection may send; import and export share it. 1 to 600 ([Notion integration](#notion-integration)). |
 | `GRAPH_STATE_DIR` | `.graph-build/state` | api | Folder of the graph build file stores, relative to the working directory. |
 | `GRAPH_LLM_CONCURRENCY` | `8` | api, tools | How many graph-build model calls may run at once. |
 | `GAP_ENABLED` | `true` | api | With the graph build configured, runs gap runs and serves the gap routes; `false` makes them answer 503 `gap_unavailable` ([gap settings](graph/gap/architecture.md#settings)). |
