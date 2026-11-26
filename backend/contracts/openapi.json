@@ -18562,7 +18562,7 @@
     },
     "/api/v1/projects/{pid}/notion-plan/access-check": {
       "post": {
-        "description": "Read the parent page as the bound member (``api.notion_plan.access.check_access``).",
+        "description": "Read the parent page as the bound member (``api.notion_plan.access.check_access``). A project with no binding\nor an expired connection is a ``failed`` answer, not an error: the form shows it in words.",
         "operationId": "check_notion_plan_access_api_v1_projects__pid__notion_plan_access_check_post",
         "parameters": [
           {
