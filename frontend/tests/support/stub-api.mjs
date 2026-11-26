@@ -1009,12 +1009,16 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
         const checked = typeof body?.link === "string" ? checkBox(body.link) : { status: 422, code: "validation_failed" };
         if (!("body" in checked)) return err(res, checked.status, checked.code);
         if (action === "check") return json(res, 200, checked.body);
+        const exclude = body.exclude ?? [];
+        if (!Array.isArray(exclude) || exclude.length > 1000 || !exclude.every((k) => typeof k === "string" && /^[0-9]+$/.test(k)))
+          return err(res, 422, "validation_failed");
+        const listed = new Set(checked.body.files.map((f) => f.id));
         return json(res, 201, {
           source: importedSource(pid, {
             kind: "box",
             name: checked.body.name,
             link: body.link,
-            pages: checked.body.files + checked.body.skipped,
+            pages: checked.body.files.length - new Set(exclude.filter((k) => listed.has(k))).size + checked.body.skipped,
           }),
         });
       }
@@ -1059,7 +1063,15 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           }),
         });
       }
-      if (did && did !== "gdrive" && did !== "uploads" && did !== "confluence" && did !== "jira-epic" && did !== "linear" && did !== "box") {
+      if (
+        did &&
+        did !== "gdrive" &&
+        did !== "uploads" &&
+        did !== "confluence" &&
+        did !== "jira-epic" &&
+        did !== "linear" &&
+        did !== "box"
+      ) {
         if (!action && req.method === "DELETE") {
           await drain();
           model.remove(pid, did);

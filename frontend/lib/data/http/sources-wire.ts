@@ -59,7 +59,12 @@ export function toProgress(v: unknown): { listingFinished: boolean; total: numbe
 
 function toRef(v: Record<string, unknown>, addedAt: unknown): SourceRef {
   expectShape(
-    (v.kind === "gdrive" || v.kind === "upload" || v.kind === "confluence" || v.kind === "jira_epic" || v.kind === "linear_project" || v.kind === "box") &&
+    (v.kind === "gdrive" ||
+      v.kind === "upload" ||
+      v.kind === "confluence" ||
+      v.kind === "jira_epic" ||
+      v.kind === "linear_project" ||
+      v.kind === "box") &&
       isString(v.id) &&
       v.id !== "" &&
       isString(v.name) &&

@@ -26,7 +26,12 @@ const titleOf = (card: IntegrationCardId | null): string => {
 const isBindable = (app: IntegrationApp): app is BindableApp => app !== "slack";
 
 /** The app whose sign-in or install page the browser just came back from, by the query parameter it set. */
-function returnedAppOf(query: { github: string | null; atlassian: string | null; linear: string | null; box: string | null }): BindableApp | null {
+function returnedAppOf(query: {
+  github: string | null;
+  atlassian: string | null;
+  linear: string | null;
+  box: string | null;
+}): BindableApp | null {
   if (query.github !== null) return "github";
   if (query.linear !== null) return "linear";
   if (query.box !== null) return "box";

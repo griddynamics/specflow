@@ -39,6 +39,7 @@ import {
   type DriveSaveResult,
   type DriveTestResult,
   type BoxCheck,
+  type BoxCheckFile,
   type ConfluenceCheck,
   type JiraEpicCheck,
   type JiraEpicChild,
@@ -320,9 +321,9 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
     async checkBox(projectId, link) {
       return toBoxCheck(await guard(() => checkBoxLink(projectId, link)));
     },
-    async addBox(projectId, link) {
+    async addBox(projectId, link, exclude = []) {
       try {
-        await guard(() => addBoxSource(projectId, link));
+        await guard(() => addBoxSource(projectId, link, exclude));
       } finally {
         opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
       }
@@ -367,6 +368,25 @@ export function toJiraEpicCheck(body: unknown): JiraEpicCheck {
   };
 }
 
+const BOX_CATEGORIES: readonly BoxCheckFile["category"][] = [
+  "pdf",
+  "word",
+  "powerpoint",
+  "excel",
+  "html",
+  "markdown",
+  "csv",
+  "text",
+  "note",
+];
+
+const toBoxFile = (f: unknown): BoxCheckFile => {
+  expectShape(isRecord(f) && isString(f.id) && f.id !== "" && isString(f.name) && isString(f.path));
+  const category = BOX_CATEGORIES.find((c) => c === f.category);
+  expectShape(category !== undefined);
+  return { id: f.id, name: f.name, path: f.path, category };
+};
+
 /** `POST .../sources/box/check` -> `BoxCheck`; any other shape is `invalid_response`. */
 export function toBoxCheck(body: unknown): BoxCheck {
   const count = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
@@ -374,12 +394,23 @@ export function toBoxCheck(body: unknown): BoxCheck {
     isRecord(body) &&
       (body.kind === "folder" || body.kind === "file") &&
       isString(body.name) &&
-      count(body.files) &&
+      Array.isArray(body.files) &&
+      typeof body.files_capped === "boolean" &&
       count(body.skipped) &&
       count(body.folders) &&
+      count(body.bytes) &&
       typeof body.capped === "boolean",
   );
-  return { kind: body.kind, name: body.name, files: body.files, skipped: body.skipped, folders: body.folders, capped: body.capped };
+  return {
+    kind: body.kind,
+    name: body.name,
+    files: (body.files as unknown[]).map(toBoxFile),
+    filesCapped: body.files_capped,
+    skipped: body.skipped,
+    folders: body.folders,
+    bytes: body.bytes,
+    capped: body.capped,
+  };
 }
 
 /** `POST .../sources/confluence/check` -> `ConfluenceCheck`; any other shape is `invalid_response`. */

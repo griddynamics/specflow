@@ -19,7 +19,7 @@ import pytest
 
 from api.imports import ImportFailedError, SourceGoneError
 from api.imports import box as box_module
-from api.imports.box import BoxImport, BoxImporter, Inspection, inspect
+from api.imports.box import BoxImport, BoxImporter, CheckedFile, Inspection, inspect
 from api.uploads import MAX_BYTES
 from box import content as content_module
 from box.codes import BoxCode, BoxError
@@ -91,7 +91,42 @@ async def test_the_check_counts_files_by_lane_folders_and_skipped_types() -> Non
 
     found = await check(connections)
 
-    assert found == Inspection("folder", "Project", "2001", files=6, skipped=5, folders=1, capped=False)
+    assert found == Inspection(
+        "folder",
+        "Project",
+        "2001",
+        files=[
+            CheckedFile("1", "a.pdf", "", "pdf"),
+            CheckedFile("2", "b.docx", "", "word"),
+            CheckedFile("3", "c.md", "", "markdown"),
+            CheckedFile("4", "Note.boxnote", "", "note"),
+            CheckedFile("5", "t.txt", "", "text"),
+            CheckedFile("10", "deep.xlsx", "Sub", "excel"),
+        ],
+        files_capped=False,
+        skipped=5,
+        folders=1,
+        bytes=60,
+        capped=False,
+    )
+
+
+async def test_the_check_lists_the_nested_path_and_every_category() -> None:
+    box, connections = rig(
+        [folder_entry("2002", "A"), file_entry("1", "x.pptx"), file_entry("2", "y.html"), file_entry("3", "z.csv")]
+    )
+    add_folder(box, "2002", [folder_entry("2003", "B")], "A")
+    add_folder(box, "2003", [file_entry("4", "deep.pdf", 7)], "B")
+
+    found = await check(connections)
+
+    assert [(f.id, f.path, f.category) for f in found.files] == [
+        ("1", "", "powerpoint"),
+        ("2", "", "html"),
+        ("3", "", "csv"),
+        ("4", "A/B", "pdf"),
+    ]
+    assert (found.bytes, found.folders) == (37, 2)
 
 
 async def test_a_file_link_is_one_file_and_an_unsupported_one_is_skipped() -> None:
@@ -100,10 +135,18 @@ async def test_a_file_link_is_one_file_and_an_unsupported_one_is_skipped() -> No
     add_file(box, file_entry("3003", "logo.png", 5))
 
     assert await check(connections, BoxImport(parse_link("https://app.box.com/file/3001"))) == Inspection(
-        "file", "Spec.pdf", "3001", files=1, skipped=0, folders=0, capped=False
+        "file",
+        "Spec.pdf",
+        "3001",
+        files=[CheckedFile("3001", "Spec.pdf", "", "pdf")],
+        files_capped=False,
+        skipped=0,
+        folders=0,
+        bytes=5,
+        capped=False,
     )
     assert await check(connections, BoxImport(parse_link("https://app.box.com/file/3003"))) == Inspection(
-        "file", "logo.png", "3003", files=0, skipped=1, folders=0, capped=False
+        "file", "logo.png", "3003", files=[], files_capped=False, skipped=1, folders=0, bytes=0, capped=False
     )
 
 
@@ -113,7 +156,7 @@ async def test_a_trashed_file_and_a_file_over_its_cap_are_skipped_not_counted_as
 
     found = await check(connections)
 
-    assert (found.files, found.skipped) == (1, 2)
+    assert (len(found.files), found.skipped) == (1, 2)
 
 
 async def test_the_size_cap_is_by_format() -> None:
@@ -130,7 +173,7 @@ async def test_the_size_cap_is_by_format() -> None:
 
     found = await check(connections)
 
-    assert (found.files, found.skipped) == (3, 2)
+    assert (len(found.files), found.skipped) == (3, 2)
 
 
 async def test_the_file_cap_stops_the_walk_and_is_logged_once_with_counts_only(monkeypatch, caplog) -> None:
@@ -140,11 +183,18 @@ async def test_the_file_cap_stops_the_walk_and_is_logged_once_with_counts_only(m
     with caplog.at_level(logging.INFO):
         found = await check(connections)
 
-    assert (found.files, found.capped) == (3, True)
+    assert (len(found.files), found.files_capped, found.capped) == (3, True, True)
     records = [r for r in caplog.records if getattr(r, "event", None) == "api.imports.box_cap_reached"]
     assert len(records) == 1
     assert (records[0].cap, records[0].files, records[0].entries) == ("files", 3, 3)
     assert NAME_CANARY not in caplog.text
+
+
+async def test_the_check_ignores_exclude() -> None:
+    _box, connections = rig([file_entry("1", "a.pdf"), file_entry("2", "b.pdf")])
+    source = BoxImport(parse_link("https://app.box.com/folder/2001"), frozenset({"1"}))
+
+    assert [f.id for f in (await check(connections, source)).files] == ["1", "2"]
 
 
 async def test_the_entry_cap_counts_files_folders_and_skipped_items(monkeypatch, caplog) -> None:
@@ -159,7 +209,7 @@ async def test_the_entry_cap_counts_files_folders_and_skipped_items(monkeypatch,
     with caplog.at_level(logging.INFO):
         found = await check(connections)
 
-    assert (found.files, found.skipped, found.folders, found.capped) == (0, 4, 1, True)
+    assert (len(found.files), found.files_capped, found.skipped, found.folders, found.capped) == (0, False, 4, 1, True)
     records = [r for r in caplog.records if getattr(r, "event", None) == "api.imports.box_cap_reached"]
     assert len(records) == 1 and records[0].cap == "entries" and records[0].entries == 5
 
@@ -168,7 +218,7 @@ async def test_the_walk_follows_the_pages_of_a_folder() -> None:
     box, connections = rig([file_entry(str(n), f"{n}.pdf") for n in range(7)])
     box.page_size = 3
 
-    assert (await check(connections)).files == 7
+    assert len((await check(connections)).files) == 7
 
 
 async def test_a_web_link_all_files_and_an_unreadable_target_are_refused() -> None:
@@ -192,7 +242,7 @@ async def test_a_shared_link_resolves_to_its_folder_and_is_sent_only_as_the_boxa
 
     found = await check(connections, source)
 
-    assert (found.kind, found.resolved_id, found.files) == ("folder", "2001", 1)
+    assert (found.kind, found.resolved_id, len(found.files)) == ("folder", "2001", 1)
     assert set(box.shared_headers) == {"shared_link=https://app.box.com/s/abc123"}
     assert len(box.shared_headers) == 2  # the resolution and the listing, as the member (not an anonymous read)
     assert all("abc123" not in path for _, path in box.calls)
@@ -467,3 +517,53 @@ async def test_a_note_whose_content_url_is_outside_dl_boxcloud_com_is_an_item_fa
     writer = await run(box, connections)
 
     assert writer.failed == [("file:1", "unknown_error", "read")] and box.content_auth == []
+
+
+# The member unchecks files ---------------------------------------------------------------------------------------
+
+
+async def test_an_excluded_file_is_neither_declared_nor_downloaded_nor_parsed_and_only_the_count_is_logged(
+    caplog,
+) -> None:
+    box, connections = rig(
+        [
+            folder_entry("2002", "Sub"),
+            file_entry("1", f"keep-{NAME_CANARY}"),
+            file_entry("2", f"drop-{NAME_CANARY}"),
+            file_entry("4", "Drop.boxnote"),
+            file_entry("7", "pic.png"),
+        ]
+    )
+    add_folder(box, "2002", [file_entry("10", "deep.md"), file_entry("11", "drop.md")], "Sub")
+    box.content["1"], box.content["10"] = PDF, b"# md"
+    source = BoxImport(parse_link("https://app.box.com/folder/2001"), frozenset({"2", "4", "11", "999"}))
+
+    with caplog.at_level(logging.INFO):
+        writer = await run(box, connections, source)
+
+    assert sorted(writer.declared) == [
+        ("file:1", f"keep-{NAME_CANARY}"),
+        ("file:10", "Sub/deep.md"),
+        ("file:7", "pic.png"),
+    ]
+    assert sorted(writer.files) == ["file:1", "file:10"] and writer.notes == {}
+    assert sorted(writer.parsed) == ["file:1", "file:10"]
+    assert not any(call_path.endswith(("/2/content", "/11/content")) for _, call_path in box.calls)
+    finished = [r for r in caplog.records if getattr(r, "event", None) == "api.imports.box_finished"]
+    assert len(finished) == 1 and finished[0].excluded == 3 and finished[0].skipped == 1
+    assert NAME_CANARY not in caplog.text and "999" not in caplog.text
+
+
+async def test_an_excluded_file_still_counts_toward_the_file_cap(monkeypatch) -> None:
+    monkeypatch.setattr(box_module, "MAX_FILES", 3)
+    box, connections = rig([file_entry(str(n), f"{n}.pdf") for n in range(1, 8)])
+    for n in range(1, 8):
+        box.content[str(n)] = PDF + str(n).encode()
+    source = BoxImport(parse_link("https://app.box.com/folder/2001"), frozenset({"1"}))
+
+    writer = await run(box, connections, source)
+
+    assert sorted(writer.declared) == [
+        ("file:2", "2.pdf"),
+        ("file:3", "3.pdf"),
+    ]  # never file 4: the check did not show it

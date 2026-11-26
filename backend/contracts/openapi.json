@@ -767,15 +767,26 @@
         "type": "object"
       },
       "BoxCheckOut": {
-        "description": "What the link would import: ``files`` the import takes (at most the file cap), ``skipped`` the items of\nanother type that it declares and skips, ``folders`` the folders it walks, ``capped`` when a cap stopped the walk.\n``name`` is the name of the folder or file in Box (shown, not stored by the check).",
+        "description": "What the link would import: the importable ``files`` (at most the file cap, in walk order; ``files_capped`` when\nthere are more), ``skipped`` the items of another type that it declares and skips, ``folders`` the folders it\nwalks, ``bytes`` the listed size of the importable files, ``capped`` when a cap stopped the walk. ``name`` is the\nname of the folder or file in Box (shown, not stored by the check).",
         "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
           "capped": {
             "title": "Capped",
             "type": "boolean"
           },
           "files": {
+            "items": {
+              "$ref": "#/components/schemas/BoxFileOut"
+            },
             "title": "Files",
-            "type": "integer"
+            "type": "array"
+          },
+          "files_capped": {
+            "title": "Files Capped",
+            "type": "boolean"
           },
           "folders": {
             "title": "Folders",
@@ -802,8 +813,10 @@
           "kind",
           "name",
           "files",
+          "files_capped",
           "skipped",
           "folders",
+          "bytes",
           "capped"
         ],
         "title": "BoxCheckOut",
@@ -894,10 +907,59 @@
         "title": "BoxConnectionOut",
         "type": "object"
       },
+      "BoxFileOut": {
+        "description": "One importable file of the check: ``path`` is the folder names below the source root, joined with ``/`` (``\"\"``\nin the root).",
+        "properties": {
+          "category": {
+            "enum": [
+              "pdf",
+              "word",
+              "powerpoint",
+              "excel",
+              "html",
+              "markdown",
+              "csv",
+              "text",
+              "note"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "path",
+          "category"
+        ],
+        "title": "BoxFileOut",
+        "type": "object"
+      },
       "BoxLinkIn": {
         "additionalProperties": false,
-        "description": "One Box link: a folder, a file or a shared link (docs/box/source.md \"Links\").",
+        "description": "One Box link: a folder, a file or a shared link (docs/box/source.md \"Links\") and, for the add, the listed files\n(Box file ids) the member unchecked; the check ignores ``exclude``.",
         "properties": {
+          "exclude": {
+            "items": {
+              "pattern": "^[0-9]{1,32}$",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Exclude",
+            "type": "array"
+          },
           "link": {
             "maxLength": 2048,
             "title": "Link",
@@ -20774,7 +20836,7 @@
     },
     "/api/v1/projects/{pid}/sources/box": {
       "post": {
-        "description": "Create the source for the caller and start its import as the member the project's Box is connected by.",
+        "description": "Create the source for the caller and start its import (without the unchecked files) as the member the project's\nBox is connected by.",
         "operationId": "add_box_source_api_v1_projects__pid__sources_box_post",
         "parameters": [
           {
@@ -20827,7 +20889,7 @@
     },
     "/api/v1/projects/{pid}/sources/box/check": {
       "post": {
-        "description": "What the link would import: the folder or file, how many files, how many items are skipped, whether a cap hit.",
+        "description": "What the link would import: the folder or file, its importable files (to uncheck), what is skipped, the caps.",
         "operationId": "check_box_link_api_v1_projects__pid__sources_box_check_post",
         "parameters": [
           {

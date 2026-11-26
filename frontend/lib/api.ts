@@ -336,8 +336,8 @@ export const addConfluenceSource = (pid: string, link: string, follow: boolean) 
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/confluence`, json({ link, follow })).then((r) => r.body);
 export const checkBoxLink = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/box/check`, json({ link })).then((r) => r.body);
-export const addBoxSource = (pid: string, link: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/sources/box`, json({ link })).then((r) => r.body);
+export const addBoxSource = (pid: string, link: string, exclude: readonly string[] = []) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/box`, json({ link, exclude })).then((r) => r.body);
 export const checkJiraEpicLink = (pid: string, keyOrLink: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/jira-epic/check`, json({ key_or_link: keyOrLink })).then((r) => r.body);
 export const addJiraEpicSource = (pid: string, keyOrLink: string, exclude: readonly string[] = []) =>

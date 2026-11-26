@@ -117,7 +117,7 @@ test("PUT binds the caller's own connection: Atlassian by the cloud site, GitHub
   assert.deepEqual(github.workspace, { id: "octo", name: "octo" });
   assert.deepEqual(
     (await integrations.list(pid)).map((r) => r.health),
-    ["active", "active", "none", "none"],
+    ["active", "active", "none", "none", "none"],
   );
 });
 

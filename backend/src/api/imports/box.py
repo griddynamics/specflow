@@ -26,7 +26,7 @@ import json
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, Literal
 
 from pydantic import SecretStr
@@ -81,6 +81,18 @@ _NO_ACCESS_CODES: Final = frozenset(
 _ABORT_CODES: Final = _NO_ACCESS_CODES - {BoxCode.NO_ACCESS}
 
 Lane = Literal["original", "note", "skipped"]
+# The ``category`` of a listed file in the check (``BoxCheckOut.files``): its parser format, ``.txt`` is ``text``.
+Category = Literal["pdf", "word", "powerpoint", "excel", "html", "markdown", "csv", "text", "note"]
+CATEGORIES: Final[dict[DocumentFormat, Category]] = {
+    DocumentFormat.PDF: "pdf",
+    DocumentFormat.DOCX: "word",
+    DocumentFormat.PPTX: "powerpoint",
+    DocumentFormat.XLSX: "excel",
+    DocumentFormat.HTML: "html",
+    DocumentFormat.MARKDOWN: "markdown",
+    DocumentFormat.CSV: "csv",
+}
+EXCLUDE_MAX: Final = MAX_FILES  # ``BoxLinkIn.exclude`` (asserted in the tests)
 
 
 @dataclass(frozen=True)
@@ -92,6 +104,7 @@ class Found:
     lane: Lane
     media_type: str = ""
     cap: int = 0
+    category: Category = "text"
 
     @property
     def external_id(self) -> str:
@@ -101,7 +114,8 @@ class Found:
 @dataclass
 class Scan:
     """The result of one walk. ``files`` are the importable files (at most ``MAX_FILES``), ``skipped`` the files of
-    other types or over their cap, ``unreadable`` the folders the member cannot read (``(external id, path)``)."""
+    other types or over their cap, ``unreadable`` the folders the member cannot read (``(external id, path)``),
+    ``excluded`` the importable files the member unchecked: they count toward the file cap but are not in ``files``."""
 
     root: BoxItem
     files: list[Found]
@@ -109,6 +123,8 @@ class Scan:
     unreadable: list[tuple[str, str]]
     folders: int = 0
     entries: int = 0
+    excluded: int = 0
+    bytes: int = 0  # the listed size of ``files``
     cap: str | None = None  # ``files`` or ``entries`` when a cap ended the walk
 
 
@@ -119,7 +135,8 @@ def classify(item: BoxItem, path: str) -> Found:
     if not item.active:
         return Found(item, path, "skipped")
     if extension == _NOTE:
-        return Found(item, path, "note", "text/plain", MAX_NOTE_BYTES)
+        return Found(item, path, "note", "text/plain", MAX_NOTE_BYTES, "note")
+    category: Category = "text"
     if extension == "txt":
         media_type, cap = _TEXT_MEDIA_TYPE, MAX_TEXT_BYTES
     else:
@@ -127,9 +144,10 @@ def classify(item: BoxItem, path: str) -> Found:
         if spec is None:
             return Found(item, path, "skipped")
         media_type, cap = spec.media_type, _FORMAT_CAPS.get(spec.format, MAX_TEXT_BYTES)
+        category = CATEGORIES.get(spec.format, "text")
     if item.size > cap:
         return Found(item, path, "skipped")
-    return Found(item, path, "original", media_type, cap)
+    return Found(item, path, "original", media_type, cap, category)
 
 
 class _Reader:
@@ -176,7 +194,28 @@ async def _page(reader: _Reader, folder_id: str, marker: str | None) -> ItemsPag
     )
 
 
-def _take(scan: Scan, entries: list[BoxItem], prefix: str, queue: deque[tuple[str, str]]) -> None:
+def _place(scan: Scan, found: Found, *, excluded: bool) -> bool:
+    """Sort one file into ``scan``; False when the file cap ends the walk instead (the file is then not taken). A file
+    the member unchecked (``excluded``) still counts toward the file cap, so the import stops where the check stopped
+    and never takes a file the check did not show; it is neither declared nor in ``files``."""
+
+    if found.lane == "skipped":
+        if not excluded:
+            scan.skipped.append(found)
+        return True
+    if len(scan.files) + scan.excluded >= MAX_FILES:
+        return False
+    if excluded:
+        scan.excluded += 1
+    else:
+        scan.files.append(found)
+        scan.bytes += found.item.size
+    return True
+
+
+def _take(
+    scan: Scan, entries: list[BoxItem], prefix: str, queue: deque[tuple[str, str]], exclude: frozenset[str]
+) -> None:
     """Sort the entries of one page into ``scan``, until a cap ends the walk (``scan.cap``)."""
 
     for entry in entries:
@@ -190,20 +229,18 @@ def _take(scan: Scan, entries: list[BoxItem], prefix: str, queue: deque[tuple[st
             queue.append((entry.id, f"{path}/"))
             continue
         found = classify(entry, path) if entry.kind == "file" else Found(entry, path, "skipped")
-        if found.lane != "skipped" and len(scan.files) >= MAX_FILES:
+        if not _place(scan, found, excluded=entry.kind == "file" and entry.id in exclude):
             scan.cap = "files"  # this file is not taken, so it is not counted
             return
         scan.entries += 1
-        (scan.skipped if found.lane == "skipped" else scan.files).append(found)
 
 
-async def _scan(reader: _Reader, root: BoxItem) -> Scan:
+async def _scan(reader: _Reader, root: BoxItem, exclude: frozenset[str]) -> Scan:
     """Walk the tree under ``root`` (breadth first) and sort what is in it, to the caps."""
 
     scan = Scan(root, [], [], [])
     if root.kind == "file":
-        found = classify(root, root.name)
-        (scan.files if found.lane != "skipped" else scan.skipped).append(found)
+        _place(scan, classify(root, root.name), excluded=root.id in exclude)
         scan.entries = 1
         return scan
     queue: deque[tuple[str, str]] = deque([(root.id, "")])
@@ -218,7 +255,7 @@ async def _scan(reader: _Reader, root: BoxItem) -> Scan:
                     raise  # the root, or anything but a folder the member cannot read: the run ends
                 scan.unreadable.append((f"folder:{folder_id}", prefix.rstrip("/")))
                 break
-            _take(scan, page.entries, prefix, queue)
+            _take(scan, page.entries, prefix, queue, exclude)
             marker = page.next_marker
             if marker is None:
                 break
@@ -231,24 +268,40 @@ def _failure(error: BoxError) -> ImportFailedError:
 
 @dataclass(frozen=True)
 class BoxImport:
-    """What to import: the parsed link (a folder, a file or a shared item)."""
+    """What to import: the parsed link (a folder, a file or a shared item) and the ids of the listed files the member
+    unchecked."""
 
     target: BoxTarget
+    exclude: frozenset[str] = field(default_factory=frozenset)
+
+
+@dataclass(frozen=True)
+class CheckedFile:
+    """One importable file of the check: its Box ``id``, ``name``, ``path`` (the folders below the source root, joined
+    with ``/``; ``""`` in the root) and its ``category``."""
+
+    id: str
+    name: str
+    path: str
+    category: Category
 
 
 @dataclass(frozen=True)
 class Inspection:
     """What a link would import, for the check: a folder tree or one file, its name, the ``files`` an import takes (at
-    most ``MAX_FILES``), the ``skipped`` items of other types, the ``folders`` walked, and whether a cap ``capped`` the
-    walk. ``kind`` and ``resolved_id`` name the item the link resolved to (for ``connections.link``); a shared link
-    resolves to its folder or file."""
+    most ``MAX_FILES``, in walk order; ``files_capped`` when there are more), the ``skipped`` items of other types, the
+    ``folders`` walked, the listed ``bytes`` of the files, and whether a cap ``capped`` the
+    walk. ``kind`` and ``resolved_id`` name the item the link resolved to (for ``connections.link``); a shared
+    link resolves to its folder or file."""
 
     kind: Literal["folder", "file"]
     name: str
     resolved_id: str
-    files: int
+    files: list[CheckedFile]
+    files_capped: bool
     skipped: int
     folders: int
+    bytes: int
     capped: bool
 
 
@@ -290,10 +343,20 @@ async def inspect(connections: BoxConnections, user_id: uuid.UUID, source: BoxIm
 
     reader = _Reader(connections, user_id, source.target)
     root = await _resolve(reader, source.target)
-    scan = await _scan(reader, root)
+    scan = await _scan(reader, root, frozenset())  # the check lists every file: the member unchecks in this list
     _log_cap(scan, user_id=str(user_id))
     kind: Literal["folder", "file"] = "file" if root.kind == "file" else "folder"
-    return Inspection(kind, root.name, root.id, len(scan.files), len(scan.skipped), scan.folders, scan.cap is not None)
+    return Inspection(
+        kind,
+        root.name,
+        root.id,
+        [CheckedFile(f.item.id, f.item.name, f.path.rpartition("/")[0], f.category) for f in scan.files],
+        scan.cap == "files",
+        len(scan.skipped),
+        scan.folders,
+        scan.bytes,
+        scan.cap is not None,
+    )
 
 
 class BoxImporter:
@@ -312,7 +375,7 @@ class BoxImporter:
         reader = _Reader(self._connections, job.user_id, self._source.target)
         try:
             root = await _resolve(reader, self._source.target)
-            scan = await _scan(reader, root)
+            scan = await _scan(reader, root, self._source.exclude)
         except BoxError as error:
             raise _failure(error) from None
         _log_cap(scan, project_id=str(job.project_id))
@@ -333,6 +396,7 @@ class BoxImporter:
             duplicates=run.duplicates,
             failed=run.failed + len(scan.unreadable),
             skipped=len(scan.skipped),
+            excluded=scan.excluded,
             folders=scan.folders,
         )
 

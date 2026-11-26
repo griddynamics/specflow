@@ -2,14 +2,7 @@
 // V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
 // link (08), the Jira epic (09), the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), Linear: project source, gap issues, plan destination (LINEAR). To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
-import {
-  boxNodes,
-  confluenceNodes,
-  driveNodes,
-  jiraEpicNodes,
-  linearProjectNodes,
-  uploadNodes,
-} from "./canvas/nodes-sources";
+import { boxNodes, confluenceNodes, driveNodes, jiraEpicNodes, linearProjectNodes, uploadNodes } from "./canvas/nodes-sources";
 import { BoxForm } from "./canvas/BoxForm";
 import { githubNodes } from "./canvas/nodes-github";
 import { ConfluenceForm } from "./canvas/ConfluenceForm";
@@ -35,6 +28,7 @@ import { UploadForm } from "./canvas/UploadForm";
 import type { ConnectorSpec } from "./connector-types";
 
 const CHECK_ACCESS = "Check access";
+const ADD_SOURCE = "Add source";
 
 export const CONNECTORS: readonly ConnectorSpec[] = [
   {
@@ -57,7 +51,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "gdrive",
     app: null,
     title: "Connect a Google Drive folder",
-    check: { test: "Test connection", testing: "Testing…", add: "Add source" },
+    check: { test: "Test connection", testing: "Testing…", add: ADD_SOURCE },
     Form: DriveForm,
     nodes: driveNodes,
   },
@@ -81,7 +75,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "confluence",
     app: "atlassian",
     title: "Add a Confluence link",
-    check: { test: "Check link", testing: "Checking…", add: "Add source" },
+    check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
     Form: ConfluenceForm,
     nodes: confluenceNodes,
   },
@@ -93,7 +87,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "jira",
     app: "atlassian",
     title: "Add a Jira epic",
-    check: { test: "Check epic", testing: "Checking…", add: "Add source" },
+    check: { test: "Check epic", testing: "Checking…", add: ADD_SOURCE },
     Form: JiraEpicForm,
     nodes: jiraEpicNodes,
   },
@@ -105,7 +99,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "linear",
     app: "linear",
     title: "Add a Linear project",
-    check: { test: "Check link", testing: "Checking…", add: "Add source" },
+    check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
     Form: LinearSourceForm, // LINEAR S4
     nodes: linearProjectNodes,
   },
@@ -117,7 +111,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "box",
     app: "box",
     title: "Add a Box link",
-    check: { test: "Check link", testing: "Checking…", add: "Add source" },
+    check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
     Form: BoxForm,
     nodes: boxNodes,
   },

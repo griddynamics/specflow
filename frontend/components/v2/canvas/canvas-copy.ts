@@ -71,6 +71,10 @@ export const CANVAS_COPY = {
   boxLinkHint: "A folder, a file or a shared link from Box",
   boxNote: "The folder with all its sub-folders, or the file, is read once when it is added. Add the link again to read a newer version.",
   openBox: "Open in Box",
+  boxFiles: "Files to add",
+  boxSelectAll: "Select all",
+  boxSelectNone: "Select none",
+  boxCapped: "The folder has more files than one import takes. Only the first ones are listed and imported.",
   // Jira epic
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",

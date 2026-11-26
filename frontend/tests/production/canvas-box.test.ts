@@ -1,20 +1,22 @@
 // The Box link source on the canvas: what its nodes say in each state the sources API reports, where a node opens, the words of a failed check or add,
-// the line of a passed check, the toast of the way back from Box, the form before any answer and the Box card of the Integrations page. Pure and
+// the line of a passed check and the file list, the toast of the way back from Box, the form before any answer and the Box card of the Integrations page. Pure and
 // server-rendered: no browser.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { boxCheckText, boxFailureText, boxOpen, boxToast } from "@/components/v2/canvas/box-logic";
+import { boxCheckText, boxFailureText, boxOpen, boxToast, folderHint, idOfFile, selectionText } from "@/components/v2/canvas/box-logic";
 import { BoxForm } from "@/components/v2/canvas/BoxForm";
 import { buildCanvasModel } from "@/components/v2/canvas/canvas-model";
 import type { NodeView } from "@/components/v2/canvas/canvas-types";
+import { checkAll, checkNone, excludeOf, toggle } from "@/components/v2/canvas/pick-logic";
 import type { FormProps } from "@/components/v2/connector-types";
 import { CONNECTORS, NODE_MAPPERS } from "@/components/v2/connectors";
 import { DataContext, type DataContextValue } from "@/lib/data/provider";
 import type { DataPorts } from "@/lib/data/ports";
 import { createUiHandoff, createUiStore } from "@/lib/data/ui-store";
 import { DataError } from "@/lib/domain/errors";
+import type { BoxCheck, BoxCheckFile } from "@/lib/domain/sources";
 import { routesFor } from "@/lib/routes";
 import { defined } from "../support/defined";
 import { input, statusOf, wireSource } from "./canvas-fixtures";
@@ -92,15 +94,51 @@ test("each closed code of the check and the add has its own words; an unknown on
   assert.equal(boxFailureText(new Error("x")), "Something went wrong. Try again.");
 });
 
-test("a passed check says what is there: a folder or a file, the skipped types and the cap", () => {
-  const folder = { kind: "folder", name: "Project files", files: 12, skipped: 3, folders: 2, capped: false } as const;
-  assert.equal(boxCheckText(folder), "Folder Project files · 12 files, 3 skipped (other types).");
-  assert.equal(boxCheckText({ ...folder, files: 1, skipped: 0 }), "Folder Project files · 1 file.");
+const check = (over: Partial<BoxCheck> = {}): BoxCheck => ({
+  kind: "folder",
+  name: "Project files",
+  files: Array.from({ length: 12 }, (_, i) => file(i + 1)),
+  filesCapped: false,
+  skipped: 3,
+  folders: 2,
+  bytes: 12 * 102400,
+  capped: false,
+  ...over,
+});
+function file(n: number, path = ""): BoxCheckFile {
+  return { id: String(4000 + n), name: `File ${String(n)}.pdf`, path, category: "pdf" };
+}
+
+test("a passed check says what is there: a folder or a file, the size, the skipped types and the folders; the cap is not said twice", () => {
+  assert.equal(boxCheckText(check()), "Folder Project files · 12 files (1.2 MB), 3 skipped (other types), 2 folders.");
   assert.equal(
-    boxCheckText({ kind: "file", name: "Spec.pdf", files: 1, skipped: 0, folders: 0, capped: false }),
-    "File Spec.pdf · 1 file.",
+    boxCheckText(check({ files: [file(1)], skipped: 0, folders: 1, bytes: 2048 })),
+    "Folder Project files · 1 file (2.0 KB), 1 folder.",
   );
-  assert.match(boxCheckText({ ...folder, files: 1000, capped: true }), /1000 files \(the first ones; more were found\)/);
+  assert.equal(
+    boxCheckText(check({ kind: "file", name: "Spec.pdf", files: [file(1)], skipped: 0, folders: 0, bytes: 2048 })),
+    "File Spec.pdf · 1 file (2.0 KB).",
+  );
+  assert.equal(
+    boxCheckText(check({ files: [], bytes: 0, skipped: 4, folders: 0 })),
+    "Folder Project files · 0 files, 4 skipped (other types).",
+  );
+  assert.doesNotMatch(boxCheckText(check({ capped: true, filesCapped: true })), /first ones/);
+});
+
+test("the selection line appears only when a file is unchecked, and the ids left out are what exclude carries", () => {
+  const files = check().files;
+  const rows = files.map(idOfFile);
+  assert.equal(selectionText(files, checkAll()), null);
+  assert.equal(selectionText(files, toggle(checkAll(), "4002", false)), "11 of 12 files");
+  assert.equal(selectionText(files, checkNone(rows)), "No files");
+  assert.deepEqual(excludeOf(rows, toggle(toggle(checkAll(), "4005", false), "4002", false)), ["4002", "4005"]);
+  assert.equal(selectionText([file(1)], toggle(checkAll(), "4001", false)), "No files");
+});
+
+test("the folder after a file name is its path, and nothing for a file in the root", () => {
+  assert.equal(folderHint(file(1)), undefined);
+  assert.equal(folderHint(file(1, "design/archive")), "design/archive");
 });
 
 test("the way back from Box toasts success or the reason in words", () => {
@@ -122,7 +160,7 @@ test("the registry has the Box link in Graph, needing Box, with its check labels
   assert.deepEqual(spec.check, { test: "Check link", testing: "Checking…", add: "Add source" });
 });
 
-test("the Box form asks for one link, says it reads once, and Check link is off until there is a link", () => {
+test("the Box form asks for one link, says it reads once, shows no list before a check, and Check link is off until there is a link", () => {
   const props: FormProps = {
     projectId: "p1",
     zone: "graph",
@@ -137,5 +175,6 @@ test("the Box form asks for one link, says it reads once, and Check link is off 
   assert.match(view, /A folder, a file or a shared link from Box/);
   assert.match(view, /read once when it is added/);
   assert.doesNotMatch(view, /only reads/, "the card says it, the form does not repeat it");
+  assert.doesNotMatch(view, /Files to add/);
   assert.match(view, /disabled=""[^>]*>Check link<\/button>/);
 });

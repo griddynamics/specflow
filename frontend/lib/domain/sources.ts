@@ -268,14 +268,25 @@ export interface ConfluenceCheck {
   linkedIssues: number;
 }
 
-/** What the check of a Box link found, nothing stored (docs/box/source.md): a folder (its whole tree) or one file; `files` an import would take (at most
- * the cap), `skipped` the items of other types (declared, never downloaded), `folders` walked, `capped` = a cap stopped the walk. */
+/** One importable file of a checked Box link: `id` is the Box file id (digits; what `exclude` carries), `path` the folder inside the source ("" in the root). */
+export interface BoxCheckFile {
+  id: string;
+  name: string;
+  path: string;
+  category: "pdf" | "word" | "powerpoint" | "excel" | "html" | "markdown" | "csv" | "text" | "note";
+}
+
+/** What the check of a Box link found, nothing stored (docs/box/source.md): a folder (its whole tree) or one file. `files` are the importable files an
+ * import would take (at most 1000), `filesCapped` = there are more than listed, `skipped` the items of other types (declared, never downloaded), `folders`
+ * walked, `bytes` the listed size of the importable files, `capped` = a cap stopped the walk. */
 export interface BoxCheck {
   kind: "folder" | "file";
   name: string;
-  files: number;
+  files: BoxCheckFile[];
+  filesCapped: boolean;
   skipped: number;
   folders: number;
+  bytes: number;
   capped: boolean;
 }
 
@@ -335,8 +346,9 @@ export interface SourcesPort {
   /** Reads a Box folder, file or shared link as the member the project's Box is connected by and counts what an import would take; stores nothing. A
    * refusal rejects a `DataError` whose `detail.apiCode` is the closed code (`box_link_invalid`, `box_no_access`, `box_not_connected`, ...). */
   checkBox(projectId: string, link: string): Promise<BoxCheck>;
-  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
-  addBox(projectId: string, link: string): Promise<void>;
+  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); `exclude` are the Box file ids of the listed files the member unchecked
+   * (at most 1000). The card is in the next status. Rejects like the check. */
+  addBox(projectId: string, link: string, exclude?: readonly string[]): Promise<void>;
   /** Reads a Jira epic (a key such as `ABC-12`, or its link) of the project's Atlassian site and counts its issues; stores nothing. Rejects like the Confluence check. */
   checkJiraEpic(projectId: string, keyOrLink: string): Promise<JiraEpicCheck>;
   /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). `exclude` are the keys of the children not to import (the epic

@@ -8,8 +8,18 @@ import { StubError } from "./stub-members.mjs";
 const ME_ID = "u1";
 const APPS = ["atlassian", "github", "slack", "linear", "box"];
 const BINDABLE = ["atlassian", "github", "linear", "box"];
-const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected", linear: "linear_not_connected", box: "box_not_connected" };
-const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable", linear: "linear_unavailable", box: "box_unavailable" };
+const NOT_CONNECTED = {
+  atlassian: "atlassian_not_connected",
+  github: "github_not_connected",
+  linear: "linear_not_connected",
+  box: "box_not_connected",
+};
+const UNAVAILABLE = {
+  atlassian: "atlassian_oauth_unavailable",
+  github: "github_unavailable",
+  linear: "linear_unavailable",
+  box: "box_unavailable",
+};
 const TEST_STATUS = { slack_not_connected: 409, slack_not_in_channel: 409, slack_unreachable: 502, slack_unavailable: 503 };
 const validation = (...errors) => new StubError(422, "validation_failed", { errors });
 

@@ -7,8 +7,8 @@ tags: [box, sources, import]
 ---
 # source.md: the Box link source
 
-A member pastes **one** Box link: a folder, a file or a shared link. **Check link** says what an import would take, **Add
-source** imports it once (D7). The import runs in the API process through the importer seam (`api.imports`, AC5;
+A member pastes **one** Box link: a folder, a file or a shared link. **Check link** lists what an import would take; the
+member may uncheck files they do not want. **Add source** imports the checked ones once (D7). The import runs in the API process through the importer seam (`api.imports`, AC5;
 [../sources/importers.md](../sources/importers.md)) as the member the project's Box is connected by (`project_integrations`,
 app `box`, R1), never as the caller. Any member may check and add (D6). Graphico only reads Box ([oauth.md](oauth.md)).
 The source `kind` is `box`; `external_id` is a fresh uuid (adding a changed folder again is a new source); `connected_by` is
@@ -74,6 +74,17 @@ Constants in `api/imports/box.py`:
 
 A hit cap stops the listing, is logged once with counts (`api.imports.box_cap_reached`: `project_id`, `cap`, `files`,
 `entries`), and the check says `capped: true`. Skipped files count toward the entries but not toward `MAX_FILES`.
+
+**The file list of the check.** `files` lists the importable files in walk order (folders breadth first), at most
+`MAX_FILES`; `files_capped` is true when the walk found more importable files than are listed. Each entry is
+`{id, name, path, category}`: `id` the Box file id (digits), `path` the folder names below the source root joined with `/`
+(`""` in the root), `category` one of `pdf`, `word`, `powerpoint`, `excel`, `html`, `markdown`, `csv`, `text`, `note`.
+`bytes` is the listed size of the listed files. The names are shown by the check and stored nowhere.
+
+**Exclude.** The add takes `exclude`: the Box file ids of listed files the member unchecked (digits only, at most 1000, else
+422 `validation_failed`; the check ignores it). An excluded file is neither declared nor downloaded nor parsed, and an id
+that is not in the walk is ignored. An excluded file still counts toward `MAX_FILES`, so the import stops where the check
+stopped and never takes a file the check did not show. The finished log carries the count (`excluded`), never ids or names.
 Throttling and `202`: [oauth.md](oauth.md#rate-limits).
 
 ## Failure mapping (closed vocabulary, AC24)
@@ -103,8 +114,11 @@ Check refusals are `ApiError`s with the `box_*` codes of [codes.md](codes.md). B
 ## In the canvas
 
 The plus of the Graph stage, **Box link**. It needs the project's Box integration, else the card says "Set up first" and
-returns with the form open. A link field, **Check link** (`Folder or file name, N files, M skipped`, and when capped that the
-first files are read), then **Add source**. Changing the link asks for a new check. A refused check or add says its closed code
+returns with the form open. A link field, **Check link** (`Folder or file name, N files (size), M skipped, K folders`), and
+the importable files listed with checkboxes (all checked; **Select all** and **Select none**; a row is the file name with its
+folder; "N of M files" or "No files" once one is unchecked; when a cap was hit a note says only the first ones are listed and
+imported), then **Add source**, which imports the checked files and is off while none is checked. Changing the link asks for a
+new check and starts again with every file checked. A refused check or add says its closed code
 in words. The node is named after the folder or file and counts files while it imports; `no_access` offers **Reconnect Box**.
 Remove deletes the source and its documents.
 

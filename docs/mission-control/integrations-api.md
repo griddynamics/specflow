@@ -182,11 +182,16 @@ What the canvas form (check, then add) calls. Any member (D6); the import reads 
 | Method, path | Body | Success | Errors |
 |---|---|---|---|
 | `POST /projects/{pid}/sources/box/check` | `{link}` | 200 `BoxCheckOut` | 404 `project_not_found`; the codes below |
-| `POST /projects/{pid}/sources/box` | `{link}` | 201 `BatchSourceOut` (`kind` `box`, `listing_finished` false) | as the check; 404 `source_not_found` (removed at once) |
+| `POST /projects/{pid}/sources/box` | `{link, exclude?}` | 201 `BatchSourceOut` (`kind` `box`, `listing_finished` false) | as the check; 404 `source_not_found` (removed at once) |
 
 `link` is at most 2048 characters (the body is closed: other keys are 422 `validation_failed`). `BoxCheckOut`: `kind` (`folder` or
-`file`), `name` (shown, not stored), `files` (importable files, at most 1000), `skipped` (items of other types: declared, never
-downloaded), `folders` (walked), `capped` (a cap stopped the walk). The check reads Box (the tree walk, no download); nothing is
+`file`), `name` (shown, not stored), `files` (`[{id, name, path, category}]`: the importable files in walk order, at most 1000;
+`id` the Box file id, `path` the folder inside the source or `""`, `category` one of `pdf`, `word`, `powerpoint`, `excel`,
+`html`, `markdown`, `csv`, `text`, `note`), `files_capped` (more importable files than listed), `skipped` (items of other types:
+declared, never downloaded), `folders` (walked), `bytes` (the listed size of the listed files), `capped` (a cap stopped the
+walk). The add takes an optional `exclude`: Box file ids (digits only), default `[]`, at most 1000 (else 422
+`validation_failed`); a listed file whose id is in it is neither declared nor downloaded, an id that is not in the walk is
+ignored, and the check ignores `exclude`. The log carries the count only. The check reads Box (the tree walk, no download); nothing is
 stored. A shared link in `link` is never stored: `connections.link` is the canonical folder or file address.
 
 Codes (a fixed sentence only, never Box's text): `box_unavailable` 503; `box_not_connected` 409 (the project has no Box connection

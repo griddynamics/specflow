@@ -72,10 +72,43 @@ test("any other shape of a connection is invalid_response", () => {
   }
 });
 
-test("a check answer keeps kind, name, counts and the cap; any other shape is invalid_response", () => {
-  const ok = { kind: "folder", name: "N", files: 12, skipped: 3, folders: 2, capped: false };
-  assert.deepEqual(toBoxCheck(ok), ok);
-  for (const bad of [null, {}, { ...ok, kind: "page" }, { ...ok, files: -1 }, { ...ok, capped: "no" }, { ...ok, name: 4 }]) {
+const file = (over: Record<string, unknown> = {}) => ({ id: "4711", name: "Spec.pdf", path: "design", category: "pdf", ...over });
+const check = (over: Record<string, unknown> = {}) => ({
+  kind: "folder",
+  name: "Project files",
+  files: [file()],
+  files_capped: false,
+  skipped: 2,
+  folders: 1,
+  bytes: 2048,
+  capped: false,
+  ...over,
+});
+
+test("a check answer keeps the listed files and the counts; any other shape is invalid_response", () => {
+  assert.deepEqual(toBoxCheck(check()), {
+    kind: "folder",
+    name: "Project files",
+    files: [{ id: "4711", name: "Spec.pdf", path: "design", category: "pdf" }],
+    filesCapped: false,
+    skipped: 2,
+    folders: 1,
+    bytes: 2048,
+    capped: false,
+  });
+  assert.equal(toBoxCheck(check({ files: [file({ category: "note" })] })).files[0]?.category, "note");
+  for (const bad of [
+    null,
+    check({ kind: "page" }),
+    check({ files: [file({ category: "video" })] }),
+    check({ files: [file({ id: "" })] }),
+    check({ files: [file({ path: null })] }),
+    check({ files_capped: "no" }),
+    check({ bytes: -1 }),
+    check({ capped: "no" }),
+    check({ name: 4 }),
+    check({ files: undefined }),
+  ]) {
     invalid(() => toBoxCheck(bad));
   }
 });
@@ -130,28 +163,20 @@ test("disconnect forgets the connection", async () => {
 
 // ---- the source routes ----
 
-test("check posts {link} and answers a folder: its name, the files an import takes, the skipped ones and the cap only when hit", async () => {
+test("check posts {link} and answers a folder: its name, the listed files, the skipped ones and the cap only when hit", async () => {
   const pid = await project();
-  assert.deepEqual(await sources.checkBox(pid, FOLDER), {
-    kind: "folder",
-    name: "Project files",
-    files: 12,
-    skipped: 3,
-    folders: 2,
-    capped: false,
-  });
+  const found = await sources.checkBox(pid, FOLDER);
+  assert.deepEqual(
+    [found.kind, found.name, found.files.length, found.filesCapped, found.skipped, found.folders, found.bytes, found.capped],
+    ["folder", "Project files", 12, false, 3, 2, 12 * 102400, false],
+  );
+  assert.deepEqual(found.files[2], { id: "1003", name: "File 3.pptx", path: "design", category: "powerpoint" });
   assert.equal(last().path, `/api/backend/projects/${pid}/sources/box/check`);
   assert.deepEqual(JSON.parse(last().body ?? "{}"), { link: FOLDER });
   const big = await sources.checkBox(pid, "https://app.box.com/folder/9999");
-  assert.deepEqual([big.files, big.capped], [1000, true]);
-  assert.deepEqual(await sources.checkBox(pid, "https://app.box.com/file/77"), {
-    kind: "file",
-    name: "Spec.pdf",
-    files: 1,
-    skipped: 0,
-    folders: 0,
-    capped: false,
-  });
+  assert.deepEqual([big.files.length, big.filesCapped, big.capped, big.skipped], [1000, true, true, 20]);
+  const one = await sources.checkBox(pid, "https://app.box.com/file/77");
+  assert.deepEqual([one.kind, one.name, one.files.length, one.skipped, one.capped], ["file", "Spec.pdf", 1, 0, false]);
   assert.equal((await sources.checkBox(pid, "https://acme.app.box.com/s/abc")).name, "Shared folder");
   assert.equal(changed.length, 0, "a check changes nothing");
 });
@@ -168,12 +193,21 @@ test("the closed codes reach the caller as the API's code: not a link, All Files
   assert.equal(await code("https://app.box.com/file/403"), "box_no_access");
 });
 
-test("add posts the same body, tells the knowledge port the sources changed, and the source is in the status as kind box with its link", async () => {
+test("add posts the link with an empty exclude, tells the knowledge port the sources changed", async () => {
   const pid = await project();
   await sources.addBox(pid, FOLDER);
   assert.equal(last().path, `/api/backend/projects/${pid}/sources/box`);
-  assert.deepEqual(JSON.parse(last().body ?? "{}"), { link: FOLDER });
+  assert.deepEqual(JSON.parse(last().body ?? "{}"), { link: FOLDER, exclude: [] });
   assert.deepEqual(changed, [pid]);
+});
+
+test("an add sends the unchecked ids as exclude, also ids the check did not list", async () => {
+  const pid = await project();
+  await sources.addBox(pid, FOLDER, ["1001"]);
+  assert.deepEqual(JSON.parse(last().body ?? "{}"), { link: FOLDER, exclude: ["1001"] });
+  await sources.addBox(pid, FOLDER, ["999999"]);
+  assert.deepEqual(JSON.parse(last().body ?? "{}"), { link: FOLDER, exclude: ["999999"] });
+  await rejects(sources.addBox(pid, FOLDER, ["id:1"]), "validation", "validation_failed");
 });
 
 test("a refused add still tells the port (the source may exist) and rejects with the code", async () => {

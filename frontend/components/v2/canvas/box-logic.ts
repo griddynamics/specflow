@@ -1,9 +1,11 @@
 // The words and rules of the Box link source (docs/box/source.md), free of React: what a failed check or add says (the closed codes of the API), what a
 // passed check says, what a node says when its import stopped, and the toast of `?box=` on the way back from Box.
 import { isDataError } from "@/lib/domain/errors";
-import type { BoxCheck } from "@/lib/domain/sources";
+import { bytesText } from "@/components/settings/github-logic";
+import type { BoxCheck, BoxCheckFile } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
+import { pickedCount, type Pickable, type Unchecked } from "./pick-logic";
 
 /** What a Box node says when the API reports its import failed (`no_access`, or any other closed reason). */
 export const BOX_WORDS = {
@@ -45,13 +47,27 @@ export function boxOpen(link: string | null): { href: string; label: string } | 
 
 const plural = (n: number, one: string): string => `${String(n)} ${n === 1 ? one : one + "s"}`;
 
-/** The line under a passed check: "Folder Project · 12 files, 3 skipped.", with the cap when it was hit. */
+/** The line under a passed check: "Folder Project · 12 files (3.2 MB), 3 skipped (other types), 2 folders."; the cap has its own note under the list. */
 export function boxCheckText(c: BoxCheck): string {
   const what = c.kind === "folder" ? "Folder" : "File";
-  const count = plural(c.files, "file");
-  const files = c.capped ? `${count} (the first ones; more were found)` : count;
+  const count = plural(c.files.length, "file");
+  const size = c.files.length === 0 ? "" : ` (${bytesText(c.bytes)})`;
   const skipped = c.skipped === 0 ? "" : `, ${String(c.skipped)} skipped (other types)`;
-  return `${what} ${c.name} · ${files}${skipped}.`;
+  const folders = c.folders === 0 ? "" : `, ${plural(c.folders, "folder")}`;
+  return `${what} ${c.name} · ${count}${size}${skipped}${folders}.`;
+}
+
+/** A listed file is picked by its Box file id, which is what `exclude` carries. */
+export const idOfFile = (f: BoxCheckFile): Pickable => ({ id: f.id });
+
+/** What a row says after the file name: the folder it is in, or nothing for a file in the root. */
+export const folderHint = (f: BoxCheckFile): string | undefined => (f.path === "" ? undefined : f.path);
+
+/** What an Add would take once a file is unchecked: "12 of 14 files", or "No files"; nothing while every file is checked (the check line has the count). */
+export function selectionText(files: readonly BoxCheckFile[], unchecked: Unchecked): string | null {
+  const picked = pickedCount(files.map(idOfFile), unchecked);
+  if (picked === files.length) return null;
+  return picked === 0 ? "No files" : `${String(picked)} of ${plural(files.length, "file")}`;
 }
 
 const TOAST: Record<string, string> = {

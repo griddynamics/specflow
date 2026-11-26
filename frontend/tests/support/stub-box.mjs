@@ -5,8 +5,8 @@
 // Reserved links (app.box.com):
 //   /folder/0                    All Files: 422 box_link_invalid
 //   /folder/403, /folder/404     409 box_no_access
-//   /folder/9999                 a folder "Big archive", 1000 files, 20 skipped, capped
-//   /folder/<other>              a folder "Project files", 12 files, 3 skipped, 2 folders
+//   /folder/9999                 a folder "Big archive", 1000 listed files, 20 skipped, capped, files_capped
+//   /folder/<other>              a folder "Project files", 12 files (every third one in "design"), 3 skipped, 2 folders
 //   /file/<id>                   a file "Spec.pdf", 1 file (/file/404 is 409 box_no_access)
 //   /s/password                  422 box_link_password
 //   /s/<token>, /v/<name>        a shared folder "Shared folder", 5 files
@@ -17,6 +17,17 @@ export const AUTHORIZE_URL = "https://account.box.com/api/oauth2/authorize";
 const STATE_SIGNATURE = "stub-signature";
 const ROUTE_STATUS = { box_state_invalid: 400, box_code_invalid: 400, box_unreachable: 502, box_unavailable: 503 };
 const MAX_FILES = 1000;
+
+const CATEGORIES = ["pdf", "word", "powerpoint", "excel", "html", "markdown", "csv", "text", "note"];
+const listing = (count, skipped, folders, { capped = false } = {}) => {
+  const files = Array.from({ length: count }, (_, i) => ({
+    id: String(1000 + i + 1),
+    name: `File ${String(i + 1)}.${["pdf", "docx", "pptx", "xlsx", "html", "md", "csv", "txt", "boxnote"][i % 9]}`,
+    path: i % 3 === 2 ? "design" : "",
+    category: CATEGORIES[i % 9],
+  }));
+  return { files, files_capped: capped, skipped, folders, bytes: count * 102400, capped };
+};
 
 const validation = (loc) => new StubError(422, "validation_failed", { errors: [{ loc, type: "value_error" }] });
 const only = (body, keys) =>
@@ -44,22 +55,19 @@ export function checkBox(link) {
       body: {
         kind: "folder",
         name: big ? "Big archive" : "Project files",
-        files: big ? MAX_FILES : 12,
-        skipped: big ? 20 : 3,
-        folders: big ? 300 : 2,
-        capped: big,
+        ...(big ? listing(MAX_FILES, 20, 300, { capped: true }) : listing(12, 3, 2)),
       },
     };
   }
   const file = /^\/file\/(\d+)\/?$/.exec(url.pathname)?.[1];
   if (file !== undefined) {
     if (file === "403" || file === "404") return { status: 409, code: "box_no_access" };
-    return { status: 200, body: { kind: "file", name: "Spec.pdf", files: 1, skipped: 0, folders: 0, capped: false } };
+    return { status: 200, body: { kind: "file", name: "Spec.pdf", ...listing(1, 0, 0) } };
   }
   const shared = /^\/(?:s|v)\/([^/]+)\/?$/.exec(url.pathname)?.[1];
   if (shared === "password") return { status: 422, code: "box_link_password" };
   if (shared !== undefined) {
-    return { status: 200, body: { kind: "folder", name: "Shared folder", files: 5, skipped: 0, folders: 1, capped: false } };
+    return { status: 200, body: { kind: "folder", name: "Shared folder", ...listing(5, 0, 1) } };
   }
   return { status: 422, code: "box_link_invalid" };
 }

@@ -23,7 +23,14 @@ const APP_NAME: Partial<Record<SourceKind, string>> = {
   box: "Box",
 };
 
-const MARK = { upload: "upload", gdrive: "gdrive", confluence: "confluence", jira_epic: "jira", linear_project: "linear", box: "box" } as const;
+const MARK = {
+  upload: "upload",
+  gdrive: "gdrive",
+  confluence: "confluence",
+  jira_epic: "jira",
+  linear_project: "linear",
+  box: "box",
+} as const;
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 

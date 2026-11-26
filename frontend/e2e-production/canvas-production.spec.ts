@@ -142,7 +142,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
     await expect(gap.getByRole("button", { name: /^Slack channel/ })).toBeEnabled();
     await gap.getByText("Connections for the other stages").click();
     await expect(gap.getByRole("button", { name: /^Upload/ })).toHaveAttribute("aria-disabled", "true");
-    await expect(gap.getByText("For Graph")).toHaveCount(6);
+    await expect(gap.getByText("For Graph")).toHaveCount(7);
     await expect(gap.getByText("For Plan")).toHaveCount(3);
   });
 

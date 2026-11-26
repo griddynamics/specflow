@@ -20,7 +20,9 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
+from api.imports import box as box_module
 from api.imports.box import BoxImporter
+from api.schemas import BOX_EXCLUDE_MAX
 from atlassian_import_support import SOURCE_ID, FakeImports, source_card
 from box_import_support import MEMBER, BoxWriter, FakeConnections, NoteBox, as_writer, file_entry, folder_entry
 from box_support import ENTERPRISE_ID, SHARED_ITEM_FOLDER, SHARED_LINK_CANARY
@@ -90,9 +92,14 @@ async def test_the_check_of_a_folder_answers_its_name_and_the_counts_as_any_memb
         assert response.json() == {
             "kind": "folder",
             "name": CANARY,
-            "files": 2,
+            "files": [
+                {"id": "1", "name": "a.pdf", "path": "", "category": "pdf"},
+                {"id": "3", "name": "b.docx", "path": "Sub", "category": "word"},
+            ],
+            "files_capped": False,
             "skipped": 1,
             "folders": 1,
+            "bytes": 20,
             "capped": False,
         }
 
@@ -112,11 +119,54 @@ async def test_the_check_of_a_file_link_is_one_file(rig) -> None:
     assert response.json() == {
         "kind": "file",
         "name": "Spec.pdf",
-        "files": 1,
+        "files": [{"id": "1", "name": "Spec.pdf", "path": "", "category": "pdf"}],
+        "files_capped": False,
         "skipped": 0,
         "folders": 0,
+        "bytes": 5,
         "capped": False,
     }
+
+
+async def test_the_check_lists_at_most_the_file_cap_and_says_when_there_are_more(rig, monkeypatch) -> None:
+    monkeypatch.setattr(box_module, "MAX_FILES", 1)
+
+    body = (await call(rig, "POST", path(rig, "/check"), ALICE, {"link": FOLDER_LINK})).json()
+
+    assert [f["id"] for f in body["files"]] == ["1"]
+    assert (body["files_capped"], body["capped"]) == (True, True)
+
+
+async def test_the_check_ignores_exclude(rig) -> None:
+    response = await call(rig, "POST", path(rig, "/check"), ALICE, {"link": FOLDER_LINK, "exclude": ["1", "3"]})
+
+    assert response.status_code == 200 and [f["id"] for f in response.json()["files"]] == ["1", "3"]
+
+
+@pytest.mark.parametrize("exclude", [["id:1"], ["1a"], [""], [1], ["1"] * (BOX_EXCLUDE_MAX + 1), "1"])
+async def test_a_bad_exclude_is_refused_before_any_read(rig, exclude) -> None:
+    response = await call(rig, "POST", path(rig), ALICE, {"link": FOLDER_LINK, "exclude": exclude})
+
+    assert error_of(response) == (422, "validation_failed")
+    assert rig.box.calls == [] and rig.imports.added == []
+
+
+async def test_the_exclude_cap_is_the_file_cap() -> None:
+    assert BOX_EXCLUDE_MAX == box_module.MAX_FILES
+
+
+async def test_adding_without_the_files_the_member_unchecked_skips_them_entirely(rig) -> None:
+    rig.box.content["3"] = b"docx bytes"
+
+    response = await call(rig, "POST", path(rig), BEN, {"link": FOLDER_LINK, "exclude": ["1", "42"]})
+
+    assert response.status_code == 201
+    (job, importer) = rig.imports.started[0]
+    writer = BoxWriter()
+    await importer(job, as_writer(writer))
+    assert [external for external, _ in writer.declared] == ["file:3", "file:2"]
+    assert list(writer.files) == ["file:3"] and writer.parsed == ["file:3"]
+    assert not any(call_path.endswith("/1/content") for _, call_path in rig.box.calls)
 
 
 async def test_a_non_member_is_a_stranger_to_the_project(rig) -> None:

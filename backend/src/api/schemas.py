@@ -1130,24 +1130,43 @@ class BoxCallbackOut(BaseModel):
     return_to: str
 
 
+BOX_EXCLUDE_MAX = 1000  # = api.imports.box.MAX_FILES (asserted in the tests)
+BoxFileId = Annotated[str, StringConstraints(pattern=r"^[0-9]{1,32}$")]
+
+
 class BoxLinkIn(BaseModel):
-    """One Box link: a folder, a file or a shared link (docs/box/source.md "Links")."""
+    """One Box link: a folder, a file or a shared link (docs/box/source.md "Links") and, for the add, the listed files
+    (Box file ids) the member unchecked; the check ignores ``exclude``."""
 
     model_config = ConfigDict(extra="forbid")
 
     link: str = Field(max_length=LINK_MAX)
+    exclude: list[BoxFileId] = Field(default_factory=list, max_length=BOX_EXCLUDE_MAX)
+
+
+class BoxFileOut(BaseModel):
+    """One importable file of the check: ``path`` is the folder names below the source root, joined with ``/`` (``""``
+    in the root)."""
+
+    id: str
+    name: str
+    path: str
+    category: Literal["pdf", "word", "powerpoint", "excel", "html", "markdown", "csv", "text", "note"]
 
 
 class BoxCheckOut(BaseModel):
-    """What the link would import: ``files`` the import takes (at most the file cap), ``skipped`` the items of
-    another type that it declares and skips, ``folders`` the folders it walks, ``capped`` when a cap stopped the walk.
-    ``name`` is the name of the folder or file in Box (shown, not stored by the check)."""
+    """What the link would import: the importable ``files`` (at most the file cap, in walk order; ``files_capped`` when
+    there are more), ``skipped`` the items of another type that it declares and skips, ``folders`` the folders it
+    walks, ``bytes`` the listed size of the importable files, ``capped`` when a cap stopped the walk. ``name`` is the
+    name of the folder or file in Box (shown, not stored by the check)."""
 
     kind: Literal["folder", "file"]
     name: str
-    files: int
+    files: list[BoxFileOut]
+    files_capped: bool
     skipped: int
     folders: int
+    bytes: int
     capped: bool
 
 
