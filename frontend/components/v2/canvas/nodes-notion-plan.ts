@@ -4,7 +4,7 @@
 import type { NotionPlan } from "@/lib/domain/notion-plan";
 import { V2_COPY } from "../v2-copy";
 import type { CanvasInput, NodeMapper, NodeView, Stages } from "./canvas-types";
-import { connectedByOf, stoppedIntegration } from "./nodes-shared";
+import { connectedByOf, restingViews, stoppedIntegration } from "./nodes-shared";
 import { notionCountsText, notionPassNote, notionPassText, NOTION_RECONNECT } from "./notion-plan-logic";
 
 function planNode(n: NotionPlan, input: CanvasInput, stages: Stages): NodeView {
@@ -21,24 +21,7 @@ function planNode(n: NotionPlan, input: CanvasInput, stages: Stages): NodeView {
   } as const;
   const detail = { app: "Notion", by: connectedByOf(input, "notion", V2_COPY.connectedBy), remove: null, reconnect: null } as const;
   const label = (meta: string) => `Notion ${name}: ${meta}`;
-  const stopped = (meta: string, text: string, reconnect: "notion" | null): NodeView => ({
-    ...base,
-    meta,
-    state: "stopped",
-    badge: "stop",
-    label: label(meta),
-    wire: "off",
-    detail: { ...detail, text, reconnect },
-  });
-  const quiet = (meta: string): NodeView => ({
-    ...base,
-    meta,
-    state: "wait",
-    badge: null,
-    label: label(meta),
-    wire: "off",
-    detail: { ...detail, text: meta },
-  });
+  const { stopped, quiet } = restingViews("notion", base, detail, label);
   const sync = n.sync;
   const code = sync?.errorCode ?? null;
   const failed = sync?.status === "failed" && code !== null;

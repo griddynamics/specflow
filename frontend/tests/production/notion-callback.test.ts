@@ -96,14 +96,17 @@ test("a return_to that is not a path of this site never leaves the site", async 
 });
 
 test("the code list is closed and carries every code the page words", () => {
-  assert.deepEqual([...NOTION_CODES].sort(), [
-    "connected",
-    "notion_auth_failed",
-    "notion_code_invalid",
-    "notion_consent_denied",
-    "notion_state_invalid",
-    "notion_unavailable",
-    "notion_unexpected",
-    "notion_unreachable",
-  ]);
+  assert.deepEqual(
+    [...NOTION_CODES].toSorted((a, b) => a.localeCompare(b)),
+    [
+      "connected",
+      "notion_auth_failed",
+      "notion_code_invalid",
+      "notion_consent_denied",
+      "notion_state_invalid",
+      "notion_unavailable",
+      "notion_unexpected",
+      "notion_unreachable",
+    ],
+  );
 });

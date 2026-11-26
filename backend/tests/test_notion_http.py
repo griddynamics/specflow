@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from functools import partial
 from typing import Any
 
 import httpx
 import pytest
+from tests.notion_http_support import BEARER, Clock, FixtureNotion, error, make_rig, reply
 
 from notion import http as notion_http
 from notion.fake import (
@@ -23,7 +25,6 @@ from notion.fake import (
 from notion.http import HttpNotionGateway
 from notion.limiter import RateLimiter, RateLimiters, WaitBudget
 from notion.reasons import NotionCode, NotionError
-from tests.notion_http_support import TOKEN, Clock, FixtureNotion, error, make_rig, reply
 
 NOT_FOUND = "object_not_found"
 
@@ -32,7 +33,7 @@ NOT_FOUND = "object_not_found"
 def _no_jitter(monkeypatch: pytest.MonkeyPatch) -> None:
     """Backoff is the full delay (1, 2, 4, 8 s) so waits can be asserted."""
 
-    monkeypatch.setattr(notion_http.random, "uniform", lambda _low, high: high)
+    monkeypatch.setattr(notion_http._JITTER, "uniform", lambda _low, high: high)
 
 
 def served() -> tuple[FixtureNotion, Any]:
@@ -70,7 +71,7 @@ async def test_every_request_carries_the_token_the_version_and_markdown_v2() -> 
     assert first.url.params["markdown_version"] == "v2"
     assert second.url.params.get("markdown_version") is None
     for request in rig.requests:
-        assert request.headers["authorization"] == f"Bearer {TOKEN}"
+        assert request.headers["authorization"] == f"Bearer {BEARER}"
         assert request.headers["notion-version"] == "2026-03-11"
     assert len(rig.tokens) == 2  # the token source is asked once per request
 
@@ -250,9 +251,13 @@ async def test_the_confirmation_call_passes_on_a_real_failure_of_its_own() -> No
 
 async def test_the_message_of_a_400_is_never_read() -> None:
     for message in ("Provided ID is a database, not a page.", "", "something else entirely"):
-        rig = make_rig(lambda r, m=message: wrong_kind_answer(r, m))  # type: ignore[misc]
+        rig = make_rig(partial(wrong_kind_answer, message=message))
 
         assert await code_of(rig.gateway.page("d")) is NotionCode.NOT_A_PAGE
+
+
+def _fixed(response: httpx.Response, _request: httpx.Request) -> httpx.Response:
+    return response
 
 
 def wrong_kind_answer(request: httpx.Request, message: str) -> httpx.Response:
@@ -287,7 +292,7 @@ async def test_a_refusal_is_one_closed_code_and_carries_no_provider_text(
 
     assert raised.value.code is expected
     assert str(raised.value) == expected.value
-    assert "PROVIDER-TEXT" not in repr(raised.value) and TOKEN not in repr(raised.value)
+    assert "PROVIDER-TEXT" not in repr(raised.value) and BEARER not in repr(raised.value)
     assert raised.value.__cause__ is None
     assert len(rig.requests) == 1
 
@@ -302,7 +307,7 @@ async def test_a_401_is_never_retried_on_any_method() -> None:
 
 async def test_an_answer_that_is_not_a_notion_object_is_unreachable() -> None:
     for response in (httpx.Response(200, text="<html>"), reply(200, []), reply(200, {"no": "id"})):
-        rig = make_rig(lambda _r, r=response: r)  # type: ignore[misc]
+        rig = make_rig(partial(_fixed, response))
         assert await code_of(rig.gateway.page("x")) is NotionCode.UNREACHABLE
     rig = make_rig(lambda _r: reply(200, {"results": "no"}))
     assert await code_of(rig.gateway.query_data_source("x")) is NotionCode.UNREACHABLE
@@ -349,18 +354,18 @@ async def test_a_429_holds_every_caller_of_the_same_bot() -> None:
         rig.limiter,
         base_url="https://notion.test",
         client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _r: reply(200, PAGE))),
-        sleep=rig.clock.sleep,  # noqa: E501
+        sleep=rig.clock.sleep,
     )
 
     await rig.gateway.page("p")
-    other_budget_before = other._budget.remaining  # noqa: SLF001
+    other_budget_before = other._budget.remaining
     await other.page("p")
 
     assert rig.clock.sleeps == [5.0] and other_budget_before == 60.0
 
 
 async def _token() -> str:
-    return TOKEN
+    return BEARER
 
 
 async def test_a_529_is_retried_with_backoff_when_it_names_no_retry_after() -> None:
@@ -529,11 +534,11 @@ async def test_write_payloads_follow_the_notion_api() -> None:
 async def test_aclose_closes_a_client_it_made_and_leaves_one_it_was_given() -> None:
     _, rig = served()
     await rig.gateway.aclose()
-    assert not rig.gateway._client.is_closed  # noqa: SLF001
+    assert not rig.gateway._client.is_closed
 
     own = HttpNotionGateway(_token, RateLimiter(60))
     await own.aclose()  # nothing made yet
-    client = own._http()  # noqa: SLF001
+    client = own._http()
     assert client.trust_env is False
     await own.aclose()
     assert client.is_closed

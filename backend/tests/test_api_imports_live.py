@@ -24,6 +24,7 @@ from api.graph_build.corpus import PostgresCorpusSource
 from api.imports import ImportFailedError, ImportJob, ImportRunner, ImportWriter
 from api.imports.confluence import ConfluenceImport, ConfluenceImporter
 from api.imports.jira_epic import JiraEpicImport, JiraEpicImporter
+from api.imports.notion import NotionImport, NotionImporter
 from atlassian_import_support import (
     FakeAtlassian,
     FakeConnections,
@@ -37,10 +38,14 @@ from db import sources as sources_db
 from db.github import session_transaction
 from db.session import build_engine, build_session_factory
 from jira.confluence_links import PageTarget
+from notion.fake import PRD_PAGE_ID, WIKI_PAGE_ID
+from notion.links import NotionLink
+from notion_support import FakeNotionConnections
 from settings import DatabaseSettings
 from specflow_live import requires_live
 from storage.keys import document_prefix
 from storage.memory import InMemoryObjectStore
+from test_api_import_notion import FAKE_CONVERTER, ONBOARDING
 
 pytestmark = requires_live("POSTGRES")
 
@@ -402,17 +407,12 @@ async def test_a_jira_epic_import_is_the_corpus_with_its_issues_and_comments(fac
     assert (summary.kind, summary.counts["done"], summary.failure_reason) == ("jira_epic", 2, None)
 
 
-# Notion (stream D1): the Notion importer over the fixture-backed gateway and the real writer ---------------------------
+# Notion: the importer over the fixture-backed gateway and the real writer ----------------------------------------
 
 
 async def test_a_notion_import_is_the_corpus_with_slim_originals_and_a_skipped_page_is_a_problem_item(
     factory, runner, store
 ) -> None:
-    from api.imports.notion import NotionImport, NotionImporter
-    from notion.fake import WIKI_PAGE_ID
-    from notion.links import NotionLink
-    from test_api_import_notion import FAKE_CONVERTER, ONBOARDING
-    from notion_support import FakeNotionConnections
 
     user, project = await member_project(factory)
     connections = FakeNotionConnections()
@@ -445,11 +445,6 @@ async def test_a_notion_import_is_the_corpus_with_slim_originals_and_a_skipped_p
 
 
 async def test_a_notion_import_of_an_unshared_link_fails_the_source_with_no_access(factory, runner) -> None:
-    from api.imports.notion import NotionImport, NotionImporter
-    from notion.fake import PRD_PAGE_ID
-    from notion.links import NotionLink
-    from notion_support import FakeNotionConnections
-    from test_api_import_notion import FAKE_CONVERTER
 
     user, project = await member_project(factory)
     connections = FakeNotionConnections()

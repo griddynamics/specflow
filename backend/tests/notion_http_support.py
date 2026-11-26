@@ -17,7 +17,7 @@ from notion.fake import FIXTURES, normal
 from notion.http import HttpNotionGateway
 from notion.limiter import RateLimiter, WaitBudget
 
-TOKEN: Final = "secret-token-value"
+BEARER: Final = "secret-bearer-value"
 Handler = Callable[[httpx.Request], httpx.Response]
 
 
@@ -56,8 +56,8 @@ def make_rig(handler: Handler, *, per_minute: int = 600, budget: float = 60.0) -
         return handler(request)
 
     async def token() -> str:
-        tokens.append(TOKEN)
-        return TOKEN
+        tokens.append(BEARER)
+        return BEARER
 
     limiter = RateLimiter(per_minute, clock=clock.time, sleep=clock.sleep)
     wait = WaitBudget(budget)
@@ -92,8 +92,8 @@ def _rich(parts: Any) -> Any:
 
 def _stored(properties: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    for name, value in properties.items():
-        value = dict(value)
+    for name, raw in properties.items():
+        value = dict(raw)
         for kind in ("title", "rich_text"):
             if isinstance(value.get(kind), list):
                 value[kind] = _rich(value[kind])
@@ -144,47 +144,47 @@ class FixtureNotion:
 
     def _get(self, kind: str, object_id: str | None, tail: str | None) -> httpx.Response:
         assert object_id
-        if kind == "pages" and tail == "markdown":
-            if object_id in self.databases:
-                return self._wrong_kind()
-            return reply(200, self.markdown[object_id]) if object_id in self.markdown else self._missing()
-        if kind == "pages":
-            if object_id in self.databases:
-                return self._wrong_kind()
-            return reply(200, self.pages[object_id]) if object_id in self.pages else self._missing()
-        if kind == "databases":
-            if object_id in self.pages:
-                return self._wrong_kind()
-            return reply(200, self.databases[object_id]) if object_id in self.databases else self._missing()
-        if kind == "data_sources":
-            return reply(200, self.data_sources[object_id]) if object_id in self.data_sources else self._missing()
-        raise AssertionError(kind)
+        other = {"pages": self.databases, "databases": self.pages}.get(kind, {})
+        if object_id in other:
+            return self._wrong_kind()
+        stored = {
+            "pages": self.markdown if tail == "markdown" else self.pages,
+            "databases": self.databases,
+            "data_sources": self.data_sources,
+        }
+        if kind not in stored:
+            raise AssertionError(kind)
+        return reply(200, stored[kind][object_id]) if object_id in stored[kind] else self._missing()
 
     def _write(
         self, method: str, kind: str, object_id: str | None, tail: str | None, body: dict[str, Any]
     ) -> httpx.Response:
-        if kind == "data_sources" and tail == "query":
-            return self._query(object_id, body)
-        if kind == "databases" and method == "POST":
-            return self._create_database(body)
-        if kind == "data_sources" and method == "PATCH":
-            return self._update_source(object_id, body)
-        if kind == "pages" and method == "POST":
-            return self._create_page(body)
-        if kind == "pages" and tail == "markdown":
-            if object_id not in self.pages:
-                return self._missing()
-            self.markdown[object_id] = {"id": object_id, "markdown": body["replace_content"]["new_str"]}
-            return reply(200, self.pages[object_id])
-        if kind == "pages" and method == "PATCH":
-            return self._update_page(object_id, body)
-        if kind == "comments":
-            page_id = normal(body["parent"]["page_id"])
-            if page_id not in self.pages:
-                return self._missing()
-            self.comments.append((page_id, body["markdown"]))
-            return reply(200, {"object": "comment", "id": self.new_id()})
-        raise AssertionError((method, kind, tail))
+        routes = {
+            ("data_sources", "query"): lambda: self._query(object_id, body),
+            ("databases", "POST"): lambda: self._create_database(body),
+            ("data_sources", "PATCH"): lambda: self._update_source(object_id, body),
+            ("pages", "POST"): lambda: self._create_page(body),
+            ("pages", "markdown"): lambda: self._replace_markdown(object_id, body),
+            ("pages", "PATCH"): lambda: self._update_page(object_id, body),
+            ("comments", method): lambda: self._comment(body),
+        }
+        route = routes.get((kind, tail or method)) or routes.get((kind, method))
+        if route is None:
+            raise AssertionError((method, kind, tail))
+        return route()
+
+    def _replace_markdown(self, object_id: str | None, body: dict[str, Any]) -> httpx.Response:
+        if object_id not in self.pages:
+            return self._missing()
+        self.markdown[object_id] = {"id": object_id, "markdown": body["replace_content"]["new_str"]}
+        return reply(200, self.pages[object_id])
+
+    def _comment(self, body: dict[str, Any]) -> httpx.Response:
+        page_id = normal(body["parent"]["page_id"])
+        if page_id not in self.pages:
+            return self._missing()
+        self.comments.append((page_id, body["markdown"]))
+        return reply(200, {"object": "comment", "id": self.new_id()})
 
     def _query(self, source_id: str | None, body: dict[str, Any]) -> httpx.Response:
         if source_id not in self.rows:

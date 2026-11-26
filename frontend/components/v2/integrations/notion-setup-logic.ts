@@ -3,6 +3,15 @@
 import type { Integration } from "@/lib/domain/integrations";
 import type { NotionConnection } from "@/lib/domain/notion-connection";
 
+const RETURN_TOAST: Record<string, string> = {
+  notion_consent_denied: "Notion access was not approved. Connect again when you are ready.",
+  notion_state_invalid: "The Notion sign-in expired. Connect again.",
+  notion_code_invalid: "Notion did not accept the approval. Connect again.",
+  notion_unreachable: "Notion could not be reached. Try again.",
+  notion_auth_failed: "Notion refused the access. Connect again.",
+  notion_unavailable: "Notion is not available on this server.",
+};
+
 export const NOTION_WORDS = {
   addPages: "Add pages in Notion",
   forget: "Forget my Notion account",
@@ -12,14 +21,7 @@ export const NOTION_WORDS = {
   tryAgain: "Try again",
   unavailable: "Notion is not available on this server.",
   loadFailed: "Your Notion connection could not be read.",
-  returnToast: {
-    notion_consent_denied: "Notion access was not approved. Connect again when you are ready.",
-    notion_state_invalid: "The Notion sign-in expired. Connect again.",
-    notion_code_invalid: "Notion did not accept the approval. Connect again.",
-    notion_unreachable: "Notion could not be reached. Try again.",
-    notion_auth_failed: "Notion refused the access. Connect again.",
-    notion_unavailable: "Notion is not available on this server.",
-  } as Record<string, string>,
+  returnToast: RETURN_TOAST,
   unexpected: "Notion could not be connected. Try again.",
   reconnectFirst: "Your Notion access ended. Reconnect Notion first.",
 } as const;
@@ -72,9 +74,15 @@ export function notionSetupViewOf(
     return { ...NOTHING, state: "unavailable" };
   }
   const stopped = (bound && !working) || read?.status === "expired";
+  let state: NotionSetupView["state"] = "ready";
+  if (mine === null) state = "loading";
+  else if (mine === "failed") state = "failed";
+  let primary: NotionSetupView["primary"] = "connect";
+  if (working) primary = null;
+  else if (stopped) primary = "reconnect";
   return {
-    state: mine === null ? "loading" : mine === "failed" ? "failed" : "ready",
-    primary: working ? null : stopped ? "reconnect" : "connect",
+    state,
+    primary,
     howTo: !working,
     retry: mine === "failed",
     stoppedNotice: bound && !working,

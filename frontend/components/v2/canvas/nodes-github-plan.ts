@@ -4,7 +4,7 @@ import type { GitHubProjects } from "@/lib/domain/github-projects";
 import { V2_COPY } from "../v2-copy";
 import type { CanvasInput, NodeMapper, NodeView, Stages } from "./canvas-types";
 import { githubPassText, GITHUB_RECONNECT } from "./github-plan-logic";
-import { connectedByOf, stoppedIntegration } from "./nodes-shared";
+import { connectedByOf, restingViews, stoppedIntegration } from "./nodes-shared";
 
 const plural = (n: number): string => `${String(n)} ${n === 1 ? "issue" : "issues"}`;
 
@@ -22,24 +22,7 @@ function planNode(g: GitHubProjects, input: CanvasInput, stages: Stages): NodeVi
   } as const;
   const detail = { app: "GitHub", by: connectedByOf(input, "github", V2_COPY.connectedBy), remove: null, reconnect: null } as const;
   const label = (meta: string) => `GitHub Projects ${name}: ${meta}`;
-  const stopped = (meta: string, text: string, reconnect: "github" | null): NodeView => ({
-    ...base,
-    meta,
-    state: "stopped",
-    badge: "stop",
-    label: label(meta),
-    wire: "off",
-    detail: { ...detail, text, reconnect },
-  });
-  const quiet = (meta: string): NodeView => ({
-    ...base,
-    meta,
-    state: "wait",
-    badge: null,
-    label: label(meta),
-    wire: "off",
-    detail: { ...detail, text: meta },
-  });
+  const { stopped, quiet } = restingViews("github", base, detail, label);
   const sync = g.sync;
   const code = sync?.errorCode ?? null;
   const failed = sync?.status === "failed" && code !== null;

@@ -67,7 +67,7 @@ export const CANVAS_COPY = {
     "The page and its sub-pages, or every page of the space, are read once when it is added. Add the link again to read a newer version.",
   confluenceAdding: "Adding…",
   // Notion link and plan destination
-  notionLink: "Notion page or database link",
+  notionLink: "Page or database link",
   notionNote: "The page and its sub-pages, or every row of the database, are read once when it is added.",
   notionPlanParent: "Parent page link",
   // Jira epic

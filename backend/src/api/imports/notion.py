@@ -279,13 +279,13 @@ class _Walk:
 
     async def _read(self, item: _Page | _Row | NotionPage) -> AsyncIterator[_Event]:
         row = item.page if isinstance(item, _Row) else None
-        item = row or item
-        title = item.title or UNTITLED
-        external_id = f"page:{item.id}"
+        page = item.page if isinstance(item, _Row) else item
+        title = page.title or UNTITLED
+        external_id = f"page:{page.id}"
         try:
-            nfm = (await self._gateway.page_markdown(item.id)).markdown
+            nfm = (await self._gateway.page_markdown(page.id)).markdown
         except NotionError as error:
-            if error.code not in _SKIPPABLE or _key(item.id) == self._root:
+            if error.code not in _SKIPPABLE or _key(page.id) == self._root:
                 raise
             yield _Skipped(external_id, title, NO_ACCESS, READ_STEP)
             return
@@ -299,7 +299,7 @@ class _Walk:
         except MarkupTooDeepError:  # one page nested too deep to convert: its item is an error, the walk goes on
             yield _Skipped(external_id, title, CONVERT_FAILED, CONVERT_STEP)
             return
-        yield _Doc(external_id, title, _page_record(item), nfm, markdown)
+        yield _Doc(external_id, title, _page_record(page), nfm, markdown)
         for ref in converted.sub_pages:
             if self._take(ref.id):
                 yield _Found(f"page:{ref.id}", ref.title or UNTITLED)
@@ -329,7 +329,7 @@ async def inspect(gateway: NotionGateway, source: NotionImport) -> Inspection:
     kind, title = await walk.open(source.link)
     if kind == "database":
         if not walk.root_sources:
-            return Inspection(kind, title, 0, False)
+            return Inspection(kind, title, 0, capped=False)
         found = await gateway.query_data_source(walk.root_sources[0])
         return Inspection(
             kind, title, min(len(found.rows), MAX_PAGES), found.next_cursor is not None or len(found.rows) > MAX_PAGES

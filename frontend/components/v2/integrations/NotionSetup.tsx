@@ -14,6 +14,11 @@ import { NOTION_WORDS, notionSetupViewOf } from "./notion-setup-logic";
 import { CANVAS_COPY } from "../canvas/canvas-copy";
 import { V2_COPY } from "../v2-copy";
 
+const connectLabel = (busy: boolean, primary: "connect" | "reconnect" | null): string => {
+  if (busy) return V2_COPY.connecting;
+  return primary === "reconnect" ? V2_COPY.reconnectNotion : V2_COPY.connectNotion;
+};
+
 export function NotionSetup(props: Readonly<SetupProps>) {
   const { notionConnection } = usePorts();
   const toast = useToast();
@@ -37,17 +42,13 @@ export function NotionSetup(props: Readonly<SetupProps>) {
   };
   const authorize = () => {
     setBusy(true);
-    try {
-      void notionConnection.authorize(props.returnTo).then(({ url }) => {
-        try {
-          window.location.assign(url); // the page is left; it returns with ?notion=<code>
-        } catch (e: unknown) {
-          fail(e);
-        }
-      }, fail);
-    } catch (e: unknown) {
-      fail(e);
-    }
+    void notionConnection.authorize(props.returnTo).then(({ url }) => {
+      try {
+        window.location.assign(url); // the page is left; it returns with ?notion=<code>
+      } catch (e: unknown) {
+        fail(e);
+      }
+    }, fail);
   };
   const connect = () => {
     if (!view.bindsOnly) {
@@ -95,7 +96,7 @@ export function NotionSetup(props: Readonly<SetupProps>) {
       {view.primary === null ? null : (
         <Row>
           <Button onClick={connect} disabled={busy || view.state === "loading"}>
-            {busy ? V2_COPY.connecting : view.primary === "reconnect" ? V2_COPY.reconnectNotion : V2_COPY.connectNotion}
+            {connectLabel(busy, view.primary)}
           </Button>
         </Row>
       )}

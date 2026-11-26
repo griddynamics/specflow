@@ -41,11 +41,11 @@ async def _reader(
     try:
         source = NotionImport(parse_link(link))
         member = await acting_member(runtime, project_id, NOTION)
-        if member is None:
-            raise NotionError(NotionCode.NOT_CONNECTED)
-        return connections, member, source, await connections.gateway(member)
+        if member is not None:
+            return connections, member, source, await connections.gateway(member)
     except NotionError as error:
         raise notion_error(error) from None
+    raise notion_error(NotionError(NotionCode.NOT_CONNECTED))
 
 
 @router.post("/check", response_model=NotionCheckOut)

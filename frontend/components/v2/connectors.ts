@@ -89,7 +89,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     kind: "notion",
     zone: "graph",
     name: "Notion link",
-    line: "A page or a database, read when it is added",
+    line: "A page or a database, read once",
     mark: "notion",
     app: "notion",
     title: "Add a Notion page",

@@ -53,6 +53,8 @@ export type Health = "active" | "reconnect_required" | "none";
 /** A port over the stub model of one project whose Notion binding has the given health. */
 export function modelPort(pid: string, health: Health = "active") {
   const model = createNotionPlanModel(() => health);
+  /** A call that throws is a rejected promise, as an async port's would be. */
+  const later = <T>(run: () => T): Promise<T> => Promise.resolve().then(run);
   const refuse = <T>(run: () => T): T => {
     try {
       return run();
@@ -62,9 +64,9 @@ export function modelPort(pid: string, health: Health = "active") {
     }
   };
   const port: NotionPlanPort = {
-    get: async () => toNotionPlan(model.get(pid)),
-    save: async (_pid, input) => toNotionPlan(refuse(() => model.put(pid, { link: input.link, enabled: input.enabled }))),
-    checkAccess: async (_pid, link) => toNotionPlanAccess(refuse(() => model.check(pid, { link }))),
+    get: () => later(() => toNotionPlan(model.get(pid))),
+    save: (_pid, input) => later(() => toNotionPlan(refuse(() => model.put(pid, { link: input.link, enabled: input.enabled })))),
+    checkAccess: (_pid, link) => later(() => toNotionPlanAccess(refuse(() => model.check(pid, { link })))),
   };
   return { model, port };
 }

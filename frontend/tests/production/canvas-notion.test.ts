@@ -25,7 +25,7 @@ test("the registry has the Notion link in Graph, needing Notion, with the check 
 
 test("the form asks for the link, says it reads once, and Check link is off until there is a link", () => {
   const view = emptyForm();
-  assert.match(view, />Notion page or database link<\/label>/);
+  assert.match(view, />Page or database link<\/label>/);
   assert.match(view, /read once when it is added/);
   assert.match(view, /disabled=""[^>]*>Check link<\/button>/);
   assert.doesNotMatch(view, /role="alert"/);

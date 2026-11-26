@@ -162,10 +162,11 @@ test("failed connects: notion_unavailable (503 of the PUT), not connected and re
 // ---- the card body, rendered on the server (effects do not run: the caller's connection is not read yet) ----
 
 const noop = () => undefined;
+const ports: Partial<DataPorts> = {};
 const ui = createUiStore();
 const context: DataContextValue = {
   ui,
-  ports: {} as DataPorts,
+  ports: ports as DataPorts,
   routes: routesFor("production"),
   handoff: createUiHandoff(ui),
 };
@@ -185,21 +186,23 @@ const props = (integration: Integration, over: Partial<SetupProps> = {}): SetupP
 });
 
 test("the Notion card before anything is bound: a waiting Connect Notion button, the how-to and the acts-as rule", () => {
-  const out = html(createElement(NotionSetup, props(NONE)));
-  assert.match(out, /disabled="" type="button" class="gx-btn">Connect Notion<\/button>/);
-  assert.match(out, /<details class="gx-how">.*Show me how/);
-  assert.match(out, /tick the pages and databases/);
-  assert.match(out, /Uses the account of the member who connected it/);
-  assert.doesNotMatch(out, />Disconnect</);
+  const view = html(createElement(NotionSetup, props(NONE)));
+  assert.match(view, /disabled="" type="button" class="gx-btn">Connect Notion<\/button>/);
+  assert.match(view, /<details class="gx-how">.*Show me how/);
+  assert.match(view, /tick the pages and databases/);
+  assert.match(view, /Uses the account of the member who connected it/);
+  assert.doesNotMatch(view, />Disconnect</);
 });
 
 test("the Notion card of a stopped binding says Reconnect Notion and why; a working one has nothing to press but Done and Disconnect", () => {
-  const stopped = html(createElement(NotionSetup, props(STOPPED)));
-  assert.match(stopped, />Reconnect Notion<\/button>/);
-  assert.match(stopped, /The account that connected it has no access now/);
-  const working = html(createElement(NotionSetup, props(WORKING, { canDisconnect: true })));
-  assert.doesNotMatch(working, /Connect Notion|Reconnect Notion|Show me how/);
-  assert.match(working, /Sample Workspace · Connected by Alex Kim/);
-  assert.match(working, />Disconnect<\/button>/);
-  assert.match(working, />Done<\/button>/);
+  {
+    const view = html(createElement(NotionSetup, props(STOPPED)));
+    assert.match(view, />Reconnect Notion<\/button>/);
+    assert.match(view, /The account that connected it has no access now/);
+  }
+  const view = html(createElement(NotionSetup, props(WORKING, { canDisconnect: true })));
+  assert.doesNotMatch(view, /Connect Notion|Reconnect Notion|Show me how/);
+  assert.match(view, /Sample Workspace · Connected by Alex Kim/);
+  assert.match(view, />Disconnect<\/button>/);
+  assert.match(view, />Done<\/button>/);
 });

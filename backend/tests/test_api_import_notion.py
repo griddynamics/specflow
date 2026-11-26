@@ -1,7 +1,7 @@
 """The Notion importer (``api.imports.notion``) over the fixture-backed ``FakeNotionGateway`` and a writer that records
 what it stores: a page tree, a database's rows, a page that holds a database, the cap, cycles, the pages a member
 cannot see, a page too deep to convert, the failure reasons of the source, the slim original and a second run after a
-restart. The converter of stream B is injected (``FakeConverter``): the real one is tested in ``tests/notion/convert``.
+restart. Most tests inject a fake converter; the last test runs the real one (``notion.convert``) over the fixtures.
 
 Sequence of the tree scenario::
 
@@ -36,12 +36,12 @@ from notion.fake import (
 )
 from notion.links import NotionLink, dashed
 from notion.model import DatabaseRef, NotionPage, PageMarkdown, PageRef
-from notion.reasons import NotionCode
+from notion.reasons import NotionCode, NotionError
 from notion_support import ACTING, FakeNotionConnections, RecordingWriter, as_writer, notion_job
 
-PAGE_TAG = re.compile(r'<page url="([^"]+)">\s*(.*?)\s*</page>', re.S)
+PAGE_TAG = re.compile(r'<page url="([^"]+)">\s*(.*?)\s*</page>', re.DOTALL)
 DATABASE_TAG = re.compile(
-    r'<database url="([^"]+)" data-source-url="collection://([^"]*)">\s*(.*?)\s*</database>', re.S
+    r'<database url="([^"]+)" data-source-url="collection://([^"]*)">\s*(.*?)\s*</database>', re.DOTALL
 )
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 TOO_DEEP = "<<too-deep>>"
@@ -54,7 +54,10 @@ ONBOARDING, RUNBOOKS, RUNBOOK = (
 
 
 def id_of(url: str) -> str:
-    return dashed(re.search(r"([0-9a-fA-F]{32})$", url.split("?")[0].rstrip("/"))[1])  # type: ignore[index]
+    found = re.search(r"([0-9a-fA-F]{32})$", url.split("?", maxsplit=1)[0].rstrip("/"))
+    if found is None:
+        raise ValueError(url)
+    return dashed(found[1])
 
 
 def to_markdown(nfm: str) -> ConvertedPage:
@@ -143,7 +146,7 @@ async def test_the_original_of_a_page_is_slim_json_with_the_page_fields_and_the_
 async def test_a_database_link_stores_its_rows_as_properties_table_and_body() -> None:
     writer = await run(REQUIREMENTS_DATABASE_ID)
 
-    assert len(writer.added) == 3 and [d[1] for d in writer.declared][0] == "Show earned points on checkout summary"
+    assert len(writer.added) == 3 and next(d[1] for d in writer.declared) == "Show earned points on checkout summary"
     name, markdown, original = writer.added["page:423ed336-0645-81d7-96ef-e0d042cb7f97"]
     assert name == "Show earned points on checkout summary"
     assert markdown.startswith("# Show earned points on checkout summary\n\n| ")
@@ -399,7 +402,7 @@ async def test_a_second_run_after_a_restart_names_the_same_items_and_a_gone_sour
     assert first.declared == second.declared and list(first.added) == list(second.added)
 
     class Gone(RecordingWriter):
-        async def declare(self, external_id: str, name: str) -> None:
+        async def declare(self, *_args: object) -> None:
             raise SourceGoneError
 
     with pytest.raises(SourceGoneError):
@@ -456,9 +459,8 @@ async def test_inspect_of_a_page_too_deep_to_convert_counts_the_page_only_and_re
     fake.fake.unshare(PRD_PAGE_ID)
 
     assert found.pages == 1
-    with pytest.raises(Exception) as refused:
+    with pytest.raises(NotionError, match="notion_not_shared"):
         await inspect(fake.fake, NotionImport(NotionLink(PRD_PAGE_ID)))
-    assert str(refused.value) == "notion_not_shared"
 
 
 async def test_a_database_line_without_a_data_source_url_reads_the_database_for_its_data_sources() -> None:
@@ -491,3 +493,27 @@ async def test_a_link_the_gateway_calls_invalid_fails_the_source_with_no_access(
         await run(PRD_PAGE_ID, fake)
 
     assert caught.value.reason == "no_access"
+
+
+NFM_TAG = re.compile(
+    r"</?(?:callout|toggle|columns?|tabs?|synced-block(?:-reference)?|quote|bookmark|embed|pdf|file|audio|video|image|"
+    r"page|database|data-source|mention|date|table|empty-block|unknown)\b"
+)
+
+USER_ID = re.compile(r"user://[^\s\"'<>)\]\\]")
+
+
+@pytest.mark.parametrize("target", [ROOT_PAGE_ID, WIKI_PAGE_ID, PRD_PAGE_ID, REQUIREMENTS_DATABASE_ID])
+async def test_the_real_converter_over_the_sandbox_fixtures_leaves_no_nfm_tag_email_or_user_id(target) -> None:
+    writer = RecordingWriter()
+    await NotionImporter(FakeNotionConnections(), NotionImport(NotionLink(target)))(
+        notion_job(uuid.UUID(int=1)), as_writer(writer)
+    )
+
+    assert writer.added
+    for _name, markdown, original in writer.added.values():
+        text = original.decode() if isinstance(original, bytes) else original
+        assert not NFM_TAG.search(markdown), markdown
+        assert not EMAIL.search(markdown) and "user://" not in markdown
+        # the original keeps the NFM as read, minus e-mails and user ids (the bare "user://" scheme stays, N5)
+        assert not EMAIL.search(text) and not USER_ID.search(text)

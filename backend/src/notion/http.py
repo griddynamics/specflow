@@ -15,6 +15,7 @@ caller's: ``query_data_source`` answers one page. The tests are ``test_notion_ht
 from __future__ import annotations
 
 import asyncio
+import math
 import random
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
@@ -46,6 +47,7 @@ MAX_ATTEMPTS: Final = 5
 RETRY_AFTER_CAP: Final = 60.0  # Notion's own ceiling for ``Retry-After``
 BACKOFF_BASE: Final = 1.0
 BACKOFF_CAP: Final = 30.0
+_JITTER: Final = random.SystemRandom()  # backoff jitter, not a secret
 TIMEOUT_SECONDS: Final = 30
 MAX_FOLLOW_UPS: Final = 25  # ``unknown_block_ids`` subtrees read for one page
 UNREADABLE: Final = frozenset({NotionCode.NOT_SHARED, NotionCode.PERMISSIONS_MISSING})  # 404, 403
@@ -82,13 +84,13 @@ def _retry_after(response: httpx.Response) -> float | None:
         seconds = float(response.headers["retry-after"])
     except (KeyError, ValueError):
         return None
-    return min(max(0.0, seconds), RETRY_AFTER_CAP) if seconds == seconds else None  # NaN is no answer
+    return None if math.isnan(seconds) else min(max(0.0, seconds), RETRY_AFTER_CAP)  # NaN is no answer
 
 
 def _backoff(attempt: int) -> float:
     """Exponential backoff with jitter (half to the full delay) after ``attempt`` failed attempts."""
 
-    return min(BACKOFF_CAP, BACKOFF_BASE * 2 ** (attempt - 1)) * random.uniform(0.5, 1.0)  # noqa: S311
+    return min(BACKOFF_CAP, BACKOFF_BASE * 2.0 ** (attempt - 1)) * _JITTER.uniform(0.5, 1.0)
 
 
 def _parse[T](parser: Callable[[Mapping[str, Any]], T], body: Mapping[str, Any]) -> T:
@@ -311,7 +313,7 @@ class HttpNotionGateway:
                 await self._backoff(attempt, str(status))
                 continue
             raise _refusal(response)
-        raise NotionError(NotionCode.UNREACHABLE)  # pragma: no cover - the loop always returns or raises
+        raise NotionError(NotionCode.UNREACHABLE)  # unreachable: the loop always returns or raises
 
     async def _backoff(self, attempt: int, why: str) -> None:
         wait = _backoff(attempt)

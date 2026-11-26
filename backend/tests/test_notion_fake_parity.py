@@ -6,6 +6,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from tests.notion_http_support import FixtureNotion, make_rig
+
 from notion.fake import (
     ADR_PAGE_ID,
     EMPTY_BODY_ROW_ID,
@@ -21,7 +23,6 @@ from notion.fake import (
 from notion.gateway import NotionGateway
 from notion.model import NotionPage
 from notion.reasons import NotionCode, NotionError
-from tests.notion_http_support import FixtureNotion, make_rig
 
 MISSING = "423ed336-0645-8100-0000-000000000000"
 SECRET_PAGE = WIKI_PAGE_ID
