@@ -106,7 +106,22 @@ test("the plan is due for a replan only when a graph build finished after this s
 test("the registry lists each kind once, in V2's scope; only MCP is automatic, each kind has a mapper and the apps are the ones D20 allows", () => {
   assert.deepEqual(
     CONNECTORS.map((c) => c.kind),
-    ["upload", "gdrive", "github", "confluence", "jira_epic", "box", "slack", "jira_gap", "jira", "github_plan", "mcp"],
+    [
+      "upload",
+      "gdrive",
+      "github",
+      "confluence",
+      "jira_epic",
+      "linear_project",
+      "box",
+      "slack",
+      "jira_gap",
+      "linear_gaps",
+      "jira",
+      "github_plan",
+      "linear_plan",
+      "mcp",
+    ],
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === null).map((c) => c.kind),
@@ -114,13 +129,14 @@ test("the registry lists each kind once, in V2's scope; only MCP is automatic, e
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === "graph").map((c) => c.app),
-    [null, null, "github", "atlassian", "atlassian", "box"],
+    [null, null, "github", "atlassian", "atlassian", "linear", "box"],
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === "plan").map((c) => [c.kind, c.app]),
     [
       ["jira", "atlassian"],
       ["github_plan", "github"],
+      ["linear_plan", "linear"],
     ],
   );
   assert.equal(
@@ -128,7 +144,7 @@ test("the registry lists each kind once, in V2's scope; only MCP is automatic, e
     null,
     "the channel is the Slack integration: it is bound from inside Slack",
   );
-  assert.equal(NODE_MAPPERS.length, 11);
+  assert.equal(NODE_MAPPERS.length, 14);
   assert.equal(CONNECTORS.find((c) => c.kind === "gdrive")?.check?.add, "Add source");
   assert.equal(CONNECTORS.find((c) => c.kind === "jira")?.check?.test, "Check access");
   assert.deepEqual(CONNECTORS.find((c) => c.kind === "slack")?.check, { test: "Test connection", testing: "Posting…", add: "Add channel" });

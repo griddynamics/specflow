@@ -143,7 +143,7 @@ whether it is applied at once). `AnswerInput`:
 | `placement` | Optional override: `amend` or `document` |
 | `answered_by` | The user id, from the host's session; `ai` for AI answers |
 | `updated_at` | The gap's `updated_at` as the caller read it; a gap changed since then raises `StaleGapError` (the web route requires it) |
-| `via` | Where the person answered: `web` (the default, the web card) or `elicitation` (the dialog of the MCP tool `answer_gap`, [../../mcp-server/tools.md](../../mcp-server/tools.md) "answer_gap"); kept in the detail of the `answered` event |
+| `via` | Where the person answered: `web` (the default, the web card), `elicitation` (the dialog of the MCP tool `answer_gap`, [../../mcp-server/tools.md](../../mcp-server/tools.md) "answer_gap"), `slack`, `jira` or `linear` (a reply in the project's channel on that app: [../../linear/gaps.md](../../linear/gaps.md) for `linear`); kept in the detail of the `answered` event |
 
 Checks; nothing is written when one fails:
 

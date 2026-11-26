@@ -6,24 +6,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callbackDestination, setupDestination } from "@/lib/github-callback";
-import { codeOfAnswer, locationOn, withParam, type CallbackAnswer } from "@/lib/oauth-callback";
+import { codeOfAnswer, withParam } from "@/lib/oauth-callback";
+import { api, appCallbackRulesTests, EVIL, query } from "./oauth-callback-support";
 import { isSameSitePath } from "@/lib/same-site-path";
 
 const BACK = "/projects/p1/settings?tab=github";
 const stateFor = (r: unknown, p = "authorize") => `nonce.${Buffer.from(JSON.stringify({ u: "u1", r, p, e: 1 })).toString("base64url")}.sig`;
-const query = (q: Record<string, string>) => new URLSearchParams(q);
-const PUBLIC = "https://app.example";
-const EVIL = ["//evil.example/x", "https://evil.example/x", "/\\evil.example", "/.//evil.example", "/%2e%2e//evil.example", "/%2f/evil"];
-
-function api(answer: CallbackAnswer | Error) {
-  const calls: unknown[][] = [];
-  const post = (...args: string[]) => {
-    calls.push(args);
-    return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
-  };
-  return { calls, post };
-}
-
 // ---- The OAuth callback ----
 
 test("callback success: code and state go to the API once; the browser lands on the API's return_to with ?github=connected", async () => {
@@ -66,39 +54,7 @@ test("callback: each API code lands with that code; any other answer, and the AP
   );
 });
 
-test("callback: no session, or a 401 from the API, goes to sign-in; no code or state is github_unexpected without a call", async () => {
-  const fake = api({ status: 200, body: {} });
-  assert.equal(await callbackDestination(query({ code: "c", state: stateFor(BACK) }), false, fake.post), "/login");
-  assert.equal(await callbackDestination(query({ state: stateFor(BACK) }), true, fake.post), `${BACK}&github=github_unexpected`);
-  assert.equal(await callbackDestination(query({ code: "c" }), true, fake.post), "/?github=github_unexpected");
-  assert.equal(fake.calls.length, 0);
-  assert.equal(
-    await callbackDestination(query({ code: "c", state: stateFor(BACK) }), true, api({ status: 401, body: null }).post),
-    "/login",
-  );
-});
-
-test("callback: a malicious return_to (in the state or in the answer) never sends the browser off the site", async () => {
-  for (const r of EVIL) {
-    const state = stateFor(r);
-    const denied = await callbackDestination(query({ error: "x", state }), true, api({ status: 200, body: {} }).post);
-    const connected = await callbackDestination(query({ code: "c", state }), true, api({ status: 200, body: { return_to: r } }).post);
-    assert.equal(denied, "/?github=github_consent_denied", r);
-    assert.equal(connected, "/?github=connected", r);
-    for (const to of [denied, connected]) assert.equal(new URL(locationOn(to, PUBLIC)).origin, PUBLIC, r);
-  }
-});
-
-test("callback: the destination never carries the code or the state", async () => {
-  const state = stateFor(BACK);
-  for (const answer of [
-    { status: 200, body: { return_to: BACK } },
-    { status: 400, body: { error: { code: "github_code_invalid" } } },
-  ]) {
-    const to = await callbackDestination(query({ code: "secret-code", state }), true, api(answer).post);
-    assert.ok(!to.includes("secret-code") && !to.includes(state) && !to.includes("sig"), to);
-  }
-});
+appCallbackRulesTests({ param: "github", codeInvalid: "github_code_invalid", back: BACK, stateFor, destination: callbackDestination });
 
 // ---- The setup route ----
 

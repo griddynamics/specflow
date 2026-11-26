@@ -271,6 +271,7 @@ async def test_install_registers_the_tools_and_the_prompt() -> None:
         "get_task_brief",
         "get_task_path",
         "jira_sync_status",
+        "linear_sync_status",
         "list_areas",
         "list_feature_tasks",
         "list_features",
@@ -286,6 +287,7 @@ async def test_install_registers_the_tools_and_the_prompt() -> None:
         "search_spec",
         "similar",
         "sync_to_jira",
+        "sync_to_linear",
         "trace",
     ]
     assert len(PROMPTS) == 3 and all(isinstance(prompt, PromptDeclaration) for prompt in PROMPTS)

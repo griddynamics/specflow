@@ -3,6 +3,7 @@
 import { atlassianToast } from "@/components/settings/jira-logic";
 import { githubToast } from "@/components/settings/github-logic";
 import { boxToast } from "../canvas/box-logic";
+import { LINEAR_FAILURE, linearToast } from "./linear-logic";
 import { isDataError } from "@/lib/domain/errors";
 import type { Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { IntegrationState } from "@graphico/ui";
@@ -34,8 +35,9 @@ export function cardViewOf(i: Integration): CardView {
 /** Slack's channel is removed through its own web route; the other apps go through the integrations route. */
 export const disconnectsThroughSlackRoute = (app: IntegrationApp): boolean => app === "slack";
 
-/** The toast of `?github=`, `?atlassian=` or `?box=` on the way back from an app. */
-export function returnToast(app: "atlassian" | "github" | "box", code: string): { title: string; tone: "success" | "danger" } {
+/** The toast of `?github=`, `?atlassian=`, `?linear=` or `?box=` on the way back from an app. */
+export function returnToast(app: "atlassian" | "github" | "linear" | "box", code: string): { title: string; tone: "success" | "danger" } {
+  if (app === "linear") return linearToast(code);
   if (app === "box") return boxToast(code);
   return app === "github" ? githubToast(code) : atlassianToast(code);
 }
@@ -52,6 +54,7 @@ const FAILURE: Record<string, string> = {
   integration_already_connected: V2_COPY.alreadyConnected,
   integration_forbidden: V2_COPY.notAllowedToRemove,
   slack_unavailable: V2_COPY.slackNotOnServer,
+  ...LINEAR_FAILURE,
 };
 
 /** What a failed connect or disconnect says; `gone` = the project is not the caller's any more (the page goes home). */

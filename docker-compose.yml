@@ -465,6 +465,11 @@ services:
       GITHUB_APP_CLIENT_SECRET: "${GITHUB_APP_CLIENT_SECRET:-}"
       GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-}"
       GITHUB_TOKEN_KEY: "${GITHUB_TOKEN_KEY:-}"
+      # Linear integration: the client ID turns it on (docs/configuration.md "Linear integration"); the api only.
+      LINEAR_OAUTH_CLIENT_ID: "${LINEAR_OAUTH_CLIENT_ID:-}"
+      LINEAR_OAUTH_CLIENT_SECRET: "${LINEAR_OAUTH_CLIENT_SECRET:-}"
+      LINEAR_TOKEN_KEY: "${LINEAR_TOKEN_KEY:-}"
+      LINEAR_WEBHOOK_SECRET: "${LINEAR_WEBHOOK_SECRET:-}"
       # Box integration: the client ID turns it on (docs/configuration.md "Box integration").
       BOX_OAUTH_CLIENT_ID: "${BOX_OAUTH_CLIENT_ID:-}"
       BOX_OAUTH_CLIENT_SECRET: "${BOX_OAUTH_CLIENT_SECRET:-}"

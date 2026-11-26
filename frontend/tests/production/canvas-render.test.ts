@@ -127,11 +127,14 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
       "GitHub repository",
       "Confluence link",
       "Jira epic",
+      "Linear project",
       "Box link",
       "Slack channel",
       "Jira sub-tasks",
+      "Linear issues",
       "Jira",
       "GitHub Projects",
+      "Linear",
     ],
     "its own stage first, then the others",
   );
@@ -141,9 +144,9 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
   assert.doesNotMatch(view.gap, /Nothing can be added/);
   assert.match(view.none, /Nothing can be added to this stage yet/);
   assert.match(view.gap, /Connections for the other stages<\/summary>/);
-  assert.equal(count(view.gap, 'aria-disabled="true"'), 8);
-  assert.equal(count(view.gap, "For Graph"), 6);
-  assert.equal(count(view.gap, "For Plan"), 2);
+  assert.equal(count(view.gap, 'aria-disabled="true"'), 10);
+  assert.equal(count(view.gap, "For Graph"), 7);
+  assert.equal(count(view.gap, "For Plan"), 3);
 });
 
 test("a connection whose app is not connected says 'Set up first' and names the app", () => {

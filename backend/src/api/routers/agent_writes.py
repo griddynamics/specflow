@@ -38,8 +38,9 @@ from api.errors import (
 )
 from api.finding_refs import InvalidRefError, checked_refs
 from api.gap.development import development_service, gap_kind
+from api.linear_plan.mirror import TaskChange
 from api.routers.agent import AgentRoute
-from api.write_support import plan_read, write_refusal, written
+from api.write_support import mirror_to_linear, plan_read, write_refusal, written
 from graph.core.errors import ConfigurationError
 from graph.gap import AnswerInvalidError, GapKind, GapService, NewGap, SourceRef
 from graph.plan.arguments import check_pr_url, commit_text
@@ -109,7 +110,10 @@ async def add_finding(
         holders = await holders_of(runtime, project.id, user.id, [author])
         return views.with_author(result, holders.of(author)), not result.created
 
-    return await written("findings", graph_id, user, ids, add)
+    found = await written("findings", graph_id, user, ids, add)
+    reason = f"finding {found.finding.finding_id}"
+    mirror_to_linear(runtime, graph_id, (TaskChange(task, "blocked", reason=reason) for task in found.blocked))
+    return found
 
 
 async def _added(
@@ -256,4 +260,8 @@ async def complete_story(
             raise await write_refusal(reads, graph_id, body.story_id, error) from None
         return views.completion_view(graph_id, body.story_id, done), done.repeat
 
-    return await written("story-completion", graph_id, user, {"story_id": body.story_id}, complete)
+    completion = await written("story-completion", graph_id, user, {"story_id": body.story_id}, complete)
+    mirror_to_linear(
+        runtime, graph_id, (TaskChange(task, "completed", pr_url=body.pr_url) for task in completion.completed)
+    )
+    return completion

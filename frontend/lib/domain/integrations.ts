@@ -1,9 +1,9 @@
 // docs/mission-control/integrations-api.md: the project's integrations. An integration binds one member's per-user connection (Atlassian,
-// GitHub, Box) or the Slack channel binding to the project; every use of the app in the project acts as that member. Screens reach it only
+// GitHub, Linear, Box) or the Slack channel binding to the project; every use of the app in the project acts as that member. Screens reach it only
 // through `IntegrationsPort`; the http adapter (`lib/data/http/integrations.ts`) is the one implementation.
 
 /** The apps a project can connect, in the order the API lists them. */
-export const INTEGRATION_APPS = ["atlassian", "github", "slack", "box"] as const;
+export const INTEGRATION_APPS = ["atlassian", "github", "slack", "linear", "box"] as const;
 export type IntegrationApp = (typeof INTEGRATION_APPS)[number];
 
 /**

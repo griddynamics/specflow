@@ -10,6 +10,10 @@ import type { GapsPort } from "@/lib/domain/gaps";
 import type { GitHubPort } from "@/lib/domain/github";
 import type { IntegrationsPort } from "@/lib/domain/integrations";
 import type { JiraPort } from "@/lib/domain/jira";
+import type { LinearPort } from "@/lib/domain/linear";
+import type { LinearGapsPort } from "@/lib/domain/linear-gaps";
+import type { LinearPlanPort } from "@/lib/domain/linear-plan";
+import type { LinearSourcePort } from "@/lib/domain/linear-source";
 import type { GitHubProjectsPort } from "@/lib/domain/github-projects";
 import type { JiraGapsPort } from "@/lib/domain/jira-gaps";
 import type { MembersPort } from "@/lib/domain/members";
@@ -45,6 +49,10 @@ export interface DataPorts {
   github: GitHubPort; // the caller's GitHub connection and the GitHub repositories of a project: Settings (GitHub tab)
   box: BoxPort; // the caller's Box connection: the V2 Integrations page (docs/box/oauth.md)
   integrations: IntegrationsPort; // who each app is connected by for a project: the V2 Integrations page
+  linear: LinearPort; // LINEAR S1: the caller's Linear connection: the V2 Integrations page
+  linearPlan: LinearPlanPort; // LINEAR S3: the Linear plan destination of a project: the V2 canvas (Plan stage)
+  linearSource: LinearSourcePort; // LINEAR S4: a Linear project or issue as a source: the V2 canvas (Graph stage)
+  linearGaps: LinearGapsPort; // LINEAR S5: the Linear gap channel of a project: the V2 canvas (Gaps stage)
 }
 
 /** In-memory hand-over between screens (§1.5);  */

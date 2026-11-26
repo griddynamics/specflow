@@ -343,7 +343,7 @@ Organization projects (until then: `github_permissions_missing`).
 ## Data
 
 `project_integrations` (migration `0008_project_integrations`): primary key (`project_id`, `app`), `app` one of
-`atlassian`, `github`, `slack`, `box` (a later integration widens the check; `box` by migration `0011_box`), `user_id` (null once the member left; foreign
+`atlassian`, `github`, `slack`, `linear` (migration `0011_linear`), `box` (migration `0012_box`), `user_id` (null once the member left; foreign
 key `users.id` on delete set null), `workspace_id`, `workspace_name`, `connected_at`. Row-level security on, policy
 `agent_project_scope`, no grant. The migration fills an `atlassian` row from every Jira target whose acting account
 has a connection, and a `github` row from the first adder of every project's repositories whose adder has a GitHub

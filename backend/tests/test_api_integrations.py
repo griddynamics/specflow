@@ -113,17 +113,23 @@ def apps(response: httpx.Response) -> dict[str, dict[str, Any]]:
 async def test_a_project_without_connections_lists_the_four_apps_with_nothing_acting(rig) -> None:
     answer = await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN)
 
-    assert [item["app"] for item in answer.json()["integrations"]] == ["atlassian", "github", "slack", "box"]
+    assert [item["app"] for item in answer.json()["integrations"]] == [
+        "atlassian",
+        "github",
+        "slack",
+        "linear",
+        "box",
+    ]
     assert list(apps(answer).values()) == [
         {
             "app": app,
-            "available": True,
+            "available": app != "linear",  # Linear is off until its connections exist (stream S1)
             "connected_by": None,
             "workspace": None,
             "connected_at": None,
             "health": "none",
         }
-        for app in ("atlassian", "github", "slack", "box")
+        for app in ("atlassian", "github", "slack", "linear", "box")
     ]
 
 
@@ -144,9 +150,10 @@ async def test_a_connected_app_names_the_member_its_workspace_and_the_health_of_
     assert listed["slack"]["workspace"] == {"id": "T1", "name": "Shop"}
     assert {app: item["health"] for app, item in listed.items()} == {
         **dict.fromkeys(("atlassian", "github", "slack"), "active"),
+        "linear": "none",
         "box": "none",  # nobody connected it
     }
-    assert all(item["connected_at"] is not None for app, item in listed.items() if app != "box")
+    assert all(item["connected_at"] is not None for app, item in listed.items() if app not in ("linear", "box"))
 
 
 async def test_an_expired_connection_asks_to_reconnect_and_a_missing_one_or_member_acts_as_nothing(rig) -> None:
@@ -172,7 +179,7 @@ async def test_an_app_the_server_does_not_run_is_unavailable(rig) -> None:
     listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))
 
     assert {app: item["available"] for app, item in listed.items()} == dict.fromkeys(
-        ("atlassian", "github", "slack", "box"), False
+        ("atlassian", "github", "slack", "linear", "box"), False
     )
 
 
@@ -307,6 +314,12 @@ async def test_the_apps_the_server_does_not_run_refuse_a_connect(rig) -> None:
     assert error_of(github) == (503, "github_unavailable")
     assert error_of(atlassian) == (503, "atlassian_oauth_unavailable")
     assert error_of(box) == (503, "box_unavailable")
+
+
+async def test_linear_is_off_and_refuses_a_connect_until_its_connections_exist(rig) -> None:
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/linear")
+
+    assert error_of(refused) == (503, "linear_unavailable")
 
 
 async def test_slack_is_connected_by_its_command_not_by_put(rig) -> None:

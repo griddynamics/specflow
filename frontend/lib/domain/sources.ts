@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "box";
+export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "linear_project" | "box";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;

@@ -2,7 +2,8 @@
 
 An integration binds one member's per-user connection to the project: every use of the app in the project (a Jira
 target, a repository, a Slack channel) acts as that member, and the card says so. A member reads them; any member
-connects Atlassian, GitHub or Box with their own active connection (one workspace per app per project); the member who
+connects Atlassian, GitHub, Linear or Box with their own active connection (one workspace per app per project); the
+member who
 connected an app, or the owner, removes it. Slack is bound by its own command in the channel, not here. No transaction
 is open across a call to an app; events carry ids and codes only.
 """
@@ -22,6 +23,7 @@ from api.contained import Contained
 from api.deps import MemberDep, RuntimeDep, UserDep
 from api.errors import ApiError
 from api.github import github_connections, github_error
+from api.linear.errors import linear_not_connected, linear_unavailable
 from api.project_integrations import (
     atlassian_not_connected,
     integration_forbidden,
@@ -32,17 +34,26 @@ from api.project_integrations import (
 from api.runtime import Runtime
 from box.codes import BoxCode, BoxError
 from db import integrations as integrations_db
-from db.integrations import ATLASSIAN, BOX, GITHUB, SLACK, BindingHeldError, IntegrationView, WorkspaceMismatchError
+from db.integrations import (
+    ATLASSIAN,
+    BOX,
+    GITHUB,
+    LINEAR,
+    SLACK,
+    BindingHeldError,
+    IntegrationView,
+    WorkspaceMismatchError,
+)
 from github.codes import GitHubCode, GitHubError
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("api.routers.integrations")
 router = APIRouter(prefix="/projects/{pid}/integrations", tags=["integrations"])
 
-AppName = Literal["atlassian", "github", "slack", "box"]
-BindableApp = Literal["atlassian", "github", "box"]  # Slack is bound by ``/specflow connect`` in the channel
+AppName = Literal["atlassian", "github", "slack", "linear", "box"]
+BindableApp = Literal["atlassian", "github", "linear", "box"]  # Slack is bound by ``/specflow connect`` in the channel
 Health = Literal["active", "reconnect_required", "none"]
-APPS: Final[tuple[AppName, ...]] = ("atlassian", "github", "slack", "box")
+APPS: Final[tuple[AppName, ...]] = ("atlassian", "github", "slack", "linear", "box")
 
 
 class IntegrationMemberOut(BaseModel):
@@ -84,6 +95,8 @@ def _available(runtime: Runtime, app: str) -> bool:
         return runtime.jira is not None and runtime.jira.connections is not None
     if app == GITHUB:
         return runtime.github is not None
+    if app == LINEAR:
+        return runtime.linear is not None
     if app == BOX:
         return runtime.box is not None
     return runtime.slack is not None
@@ -99,6 +112,8 @@ async def _health(runtime: Runtime, pid: uuid.UUID, row: IntegrationView | None)
         found = None if atlassian is None else await atlassian.get(row.user_id)
     elif row.app == GITHUB:
         found = None if runtime.github is None else await runtime.github.get(row.user_id)
+    elif row.app == LINEAR:
+        found = None if runtime.linear is None else await runtime.linear.get(row.user_id)
     elif row.app == BOX:
         found = None if runtime.box is None else await runtime.box.get(row.user_id)
     else:
@@ -139,6 +154,17 @@ async def list_project_integrations(runtime: RuntimeDep, access: MemberDep) -> P
     return ProjectIntegrationsOut(integrations=[await _out(runtime, pid, app, rows.get(app)) for app in APPS])
 
 
+async def _box_workspace(runtime: Runtime, user_id: uuid.UUID) -> tuple[str, str]:
+    """The Box enterprise (or account) of the caller's own active Box connection."""
+
+    mine = await box_connections(runtime).get(user_id)
+    if mine is None:
+        raise box_error(BoxError(BoxCode.NOT_CONNECTED))
+    if mine.status != "active":
+        raise box_error(BoxError(BoxCode.RECONNECT_REQUIRED))
+    return mine.workspace_id, mine.workspace_name
+
+
 async def _own_workspace(runtime: Runtime, user_id: uuid.UUID, app: BindableApp) -> tuple[str, str]:
     """The workspace of the caller's own active connection; ``409 <app>_not_connected`` without one."""
 
@@ -151,13 +177,15 @@ async def _own_workspace(runtime: Runtime, user_id: uuid.UUID, app: BindableApp)
         if mine is None or mine.status != "active":
             raise atlassian_not_connected()
         return mine.cloud_id, _atlassian_site(runtime) or mine.cloud_id
+    if app == LINEAR:
+        if runtime.linear is None:
+            raise linear_unavailable()
+        linear = await runtime.linear.get(user_id)
+        if linear is None or linear.status != "active":
+            raise linear_not_connected()
+        return linear.organization_id, linear.organization_name
     if app == BOX:
-        mine_box = await box_connections(runtime).get(user_id)
-        if mine_box is None:
-            raise box_error(BoxError(BoxCode.NOT_CONNECTED))
-        if mine_box.status != "active":
-            raise box_error(BoxError(BoxCode.RECONNECT_REQUIRED))
-        return mine_box.workspace_id, mine_box.workspace_name
+        return await _box_workspace(runtime, user_id)
     github = github_connections(runtime)
     found = await github.get(user_id)
     if found is None or found.status != "active":
@@ -191,7 +219,8 @@ async def put_project_integration(
                 await integrations_db.point_jira_target(session, pid, user.id)
             elif app == GITHUB:
                 await integrations_db.point_repositories(session, pid, user.id)
-            # Box has no acting-account column: the importer reads the bound member of this row (``acting_member``).
+            # Linear is read from the row each use; Box has no acting-account column: the importer reads the bound
+            # member of this row (``acting_member``).
     except WorkspaceMismatchError:
         log_event(logger, INFO, "api.integrations.refused", project_id=str(pid), app=app, user_id=str(user.id))
         raise integration_workspace_mismatch() from None

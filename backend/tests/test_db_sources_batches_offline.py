@@ -261,7 +261,7 @@ async def test_adopt_unheld_without_a_project_runs_the_unscoped_statements() -> 
 
 
 def test_the_vocabularies_know_the_new_kind_and_states() -> None:
-    assert models.CONNECTION_KINDS == ("gdrive", "upload", "confluence", "jira_epic", "box")
+    assert models.CONNECTION_KINDS == ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box")
     assert {"processing", "duplicate"} <= set(models.ITEM_STATES)
     assert {
         "processed",

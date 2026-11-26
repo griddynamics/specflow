@@ -6,10 +6,10 @@
 import { StubError } from "./stub-members.mjs";
 
 const ME_ID = "u1";
-const APPS = ["atlassian", "github", "slack", "box"];
-const BINDABLE = ["atlassian", "github", "box"];
-const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected", box: "box_not_connected" };
-const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable", box: "box_unavailable" };
+const APPS = ["atlassian", "github", "slack", "linear", "box"];
+const BINDABLE = ["atlassian", "github", "linear", "box"];
+const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected", linear: "linear_not_connected", box: "box_not_connected" };
+const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable", linear: "linear_unavailable", box: "box_unavailable" };
 const TEST_STATUS = { slack_not_connected: 409, slack_not_in_channel: 409, slack_unreachable: 502, slack_unavailable: 503 };
 const validation = (...errors) => new StubError(422, "validation_failed", { errors });
 
@@ -17,11 +17,11 @@ const validation = (...errors) => new StubError(422, "validation_failed", { erro
  * `roleOf(pid)` is the caller's role ("owner" or "collaborator"; throws 404 for a non-member). `jira`, `github` and `box` are the stub models whose
  * `state.connection` is the caller's own connection. `displayName` is the caller's name.
  */
-export function createIntegrationsModel({ roleOf, jira, github, box, displayName }) {
+export function createIntegrationsModel({ roleOf, jira, github, linear, box, displayName }) {
   const state = { slackAvailable: true, slackTest: "ok" };
   const projects = new Map(); // pid -> {atlassian, github, slack, box: row | null, channel: {id, name, private} | null}
   const mine = (pid) => {
-    if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, box: null, channel: null });
+    if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, linear: null, box: null, channel: null });
     return projects.get(pid);
   };
 
@@ -30,11 +30,21 @@ export function createIntegrationsModel({ roleOf, jira, github, box, displayName
       ? jira.state.mode === "oauth"
       : app === "github"
         ? github.state.enabled
-        : app === "box"
-          ? box.state.enabled
-          : state.slackAvailable;
+        : app === "linear"
+          ? linear.state.available
+          : app === "box"
+            ? box.state.enabled
+            : state.slackAvailable;
   const callerConnection = (app) =>
-    app === "atlassian" ? jira.state.connection : app === "box" ? box.state.connection : github.state.connection;
+    app === "atlassian"
+      ? jira.state.connection
+      : app === "github"
+        ? github.state.connection
+        : app === "linear"
+          ? linear.state.connection
+          : app === "box"
+            ? box.state.connection
+            : null;
 
   function healthOf(app, row) {
     if (row === null) return "none";
@@ -69,9 +79,12 @@ export function createIntegrationsModel({ roleOf, jira, github, box, displayName
     if (!availableOf(app)) throw new StubError(503, UNAVAILABLE[app]);
     const own = callerConnection(app);
     if (own === null || own.status !== "active") throw new StubError(409, NOT_CONNECTED[app]);
-    let workspace = { id: own.login, name: own.login };
-    if (app === "atlassian") workspace = { id: "cloud-stub", name: "example.atlassian.net" };
-    if (app === "box") workspace = { id: "enterprise-stub", name: own.enterprise_name ?? own.name };
+    const workspaces = {
+      atlassian: { id: "cloud-stub", name: "example.atlassian.net" },
+      linear: { id: own.workspace?.id, name: own.workspace?.name },
+      box: { id: "enterprise-stub", name: own.enterprise_name ?? own.name },
+    };
+    const workspace = workspaces[app] ?? { id: own.login, name: own.login };
     const p = mine(pid);
     const current = p[app];
     if (current !== null && current.user_id !== null && current.workspace.id !== workspace.id)

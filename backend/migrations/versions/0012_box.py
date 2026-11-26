@@ -1,9 +1,10 @@
 """Box: one Box connection per user, the ``box`` project integration and the ``box`` source kind.
 
-Adds, on top of revision 0010_github_projects, the table box_connections (one row per Specflow user who connected a
+Adds, on top of revision 0011_linear, the table box_connections (one row per Specflow user who connected a
 Box account; the refresh token is Fernet ciphertext; the Box display name, the Box user id and the enterprise are kept,
 the Box login e-mail is not), as in docs/box/oauth.md. Widens ck_project_integrations_app to
-``atlassian, github, slack, box`` and ck_connections_kind to ``gdrive, upload, confluence, jira_epic, box`` (a Box
+``atlassian, github, slack, linear, box`` and ck_connections_kind to
+``gdrive, upload, confluence, jira_epic, linear_project, box`` (a Box
 source is imported by the API). Row-level security is enabled on box_connections; it has no policy and no grant: the
 agent role reads none of it. No existing row changes.
 
@@ -12,15 +13,15 @@ takes a lock on ``users`` and the constraint swaps one on ``project_integrations
 not granted in time the statement fails and the WHOLE transaction (one per run) is rolled back, so nothing is half
 applied; the next start of the api retries the revision.
 
-downgrade() returns to the 0010_github_projects schema exactly: it DROPS box_connections (every Box connection is lost;
+downgrade() returns to the 0011_linear schema exactly: it DROPS box_connections (every Box connection is lost;
 each user connects again), DELETES every ``box`` row of project_integrations (every binding is lost) and every ``box``
 row of connections with its connection_items and the documents they hold (their objects stay in object storage until
 removed by hand), then restores both check constraints.
 
-Other branches (Notion, Linear) also claim revision 0011: whoever merges second renumbers.
+Linear took revision 0011 first, so this revision follows it.
 
-Revision ID: 0011_box
-Revises: 0010_github_projects
+Revision ID: 0012_box
+Revises: 0011_linear
 """
 
 from __future__ import annotations
@@ -35,8 +36,8 @@ from sqlalchemy.dialects import postgresql
 from db.migration_helpers import connection_columns, set_lock_timeout
 
 # revision identifiers, used by Alembic.
-revision: str = "0011_box"
-down_revision: str | Sequence[str] | None = "0010_github_projects"
+revision: str = "0012_box"
+down_revision: str | Sequence[str] | None = "0011_linear"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -53,9 +54,9 @@ ENABLE_RLS = "0003_enable_rls.sql"
 # The table the statement above names; replaced with the new table.
 TABLE_PLACEHOLDER = "gap_option"
 STATUSES = ("active", "expired")
-OLD_APPS = ("atlassian", "github", "slack")
+OLD_APPS = ("atlassian", "github", "slack", "linear")
 NEW_APP = "box"
-OLD_KINDS = ("gdrive", "upload", "confluence", "jira_epic")
+OLD_KINDS = ("gdrive", "upload", "confluence", "jira_epic", "linear_project")
 NEW_KIND = "box"
 
 
@@ -91,7 +92,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema to 0010_github_projects; every Box connection, binding and Box source is lost."""
+    """Downgrade schema to 0011_linear; every Box connection, binding and Box source is lost."""
 
     set_lock_timeout(read_migration_sql(LOCK_TIMEOUT))
     sources = sa.table(SOURCES, sa.column("id", UUID), sa.column("kind", sa.Text()))

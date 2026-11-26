@@ -116,19 +116,27 @@ export function parseGuideTopic(topic: string): GuideTopic | null {
 }
 
 /**
- * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?box=`), the app whose set-up opens at once (`?setup=`) and
+ * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?linear=`, `?box=`), the app whose set-up opens at once (`?setup=`) and
  * the same-site `next` path the page returns to after a connect (the canvas form that asked). Anything else is null.
  */
 export function parseIntegrationsQuery(q: URLSearchParams): {
   github: string | null;
   atlassian: string | null;
+  linear: string | null;
   box: string | null;
   setup: IntegrationCardId | null;
   next: string | null;
 } {
   const next = q.get("next");
   const setup = [...INTEGRATION_APPS, "mcp" as const].find((a) => a === q.get("setup")) ?? null;
-  return { github: q.get("github"), atlassian: q.get("atlassian"), box: q.get("box"), setup, next: isSameSitePath(next) ? next : null };
+  return {
+    github: q.get("github"),
+    atlassian: q.get("atlassian"),
+    linear: q.get("linear"),
+    box: q.get("box"),
+    setup,
+    next: isSameSitePath(next) ? next : null,
+  };
 }
 
 /** `add` of the canvas route: the connection whose form opens after the Integrations round trip; the canvas checks it against its registry. */

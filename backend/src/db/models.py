@@ -55,9 +55,9 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # The Drive-related values mirror
 # drive.categories / reasons; a test keeps them equal. They are
 # written out here so the models do not import the Drive package.
-# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations); ``box``
-# is too (migration 0011_box).
-CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "box")
+# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations);
+# ``linear_project`` is too (migration 0011_linear) and ``box`` (migration 0012_box).
+CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box")
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",
@@ -385,10 +385,15 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 # them equal (db does not import github).
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
 BOX_CONNECTION_STATUSES: Final = ("active", "expired")
-INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "box")
+INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "linear", "box")
 JIRA_GAP_GROUPINGS: Final = ("one", "area")
 GITHUB_PROJECT_TRIGGERS: Final = ("plan_run", "settings", "recovery")
 GITHUB_PROJECT_ITEM_KINDS: Final = ("story", "subtask")
+# Linear tables (migration 0011_linear): the plan destination reuses JIRA_RUN_STATUSES.
+LINEAR_CONNECTION_STATUSES: Final = ("active", "expired", "revoked")
+LINEAR_TRIGGERS: Final = ("plan_run", "mcp", "settings", "recovery")
+LINEAR_ISSUE_KINDS: Final = ("story", "subtask")
+LINEAR_GAP_GROUPINGS: Final = ("one", "area")
 REPOSITORY_CLONE_STATES: Final = ("pending", "cloning", "cloned", "failed")
 REPOSITORY_FAILURE_CODES: Final = (
     "github_not_connected",
@@ -405,6 +410,14 @@ REPOSITORY_FAILURE_CODES: Final = (
 
 def _project_id() -> Mapped[uuid.UUID]:
     return mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+
+
+def _opt_text() -> Mapped[str | None]:
+    return mapped_column(Text, nullable=True)
+
+
+def _opt_time() -> Mapped[datetime | None]:
+    return mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def _json(*, nullable: bool = False) -> Mapped[Any]:
@@ -750,7 +763,7 @@ class GitHubConnection(Base):
 
 
 class BoxConnection(Base):
-    """One user's Box connection (migration ``0011_box``, docs/box/oauth.md "Tokens"): the refresh token is Fernet
+    """One user's Box connection (migration ``0012_box``, docs/box/oauth.md "Tokens"): the refresh token is Fernet
     ciphertext; the access token is never stored. ``name`` is the Box display name (the ``login`` e-mail is not
     stored); ``enterprise_id`` and ``enterprise_name`` are null for a personal account. Not project-scoped:
     row-level security is on with no policy and no grant, so the agent role reads nothing of it."""
@@ -913,8 +926,131 @@ class GitHubProjectItem(Base):
     item_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     content: Mapped[Any] = _json(nullable=True)
-    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str | None] = _opt_text()
     position: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
-    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    removed_at: Mapped[datetime | None] = _opt_time()
+    error_code: Mapped[str | None] = _opt_text()
+    synced_at: Mapped[datetime | None] = _opt_time()
+
+
+class LinearConnection(Base):
+    """One member's Linear OAuth connection (migration ``0011_linear``): the access and refresh tokens are Fernet
+    ciphertext (the refresh token rotates on every refresh). Not project-scoped: row-level security is on with no policy
+    and no grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "linear_connections"
+    __table_args__ = (
+        CheckConstraint(_one_of("status", LINEAR_CONNECTION_STATUSES), name="status"),
+        Index("ix_linear_connections_linear_user_id", "organization_id", "linear_user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    linear_user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    linear_user_name: Mapped[str] = mapped_column(Text, nullable=False)
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False)
+    organization_name: Mapped[str] = mapped_column(Text, nullable=False)
+    organization_url_key: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[str] = mapped_column(Text, nullable=False)
+    access_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LinearTarget(Base):
+    """The Linear plan destination of a project and its last export pass (migration ``0011_linear``): the team and the
+    Linear project the issues go to. The member the export acts as is read from ``project_integrations`` on every pass.
+    Holds no credential."""
+
+    __tablename__ = "linear_targets"
+    __table_args__ = (
+        CheckConstraint(_one_of("last_status", JIRA_RUN_STATUSES), name="last_status"),
+        CheckConstraint(_one_of("last_trigger", LINEAR_TRIGGERS), name="last_trigger"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    team_id: Mapped[str] = mapped_column(Text, nullable=False)
+    team_key: Mapped[str] = mapped_column(Text, nullable=False)
+    linear_project_id: Mapped[str] = mapped_column(Text, nullable=False)
+    linear_project_name: Mapped[str] = mapped_column(Text, nullable=False)
+    linear_project_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_graphico: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_status: Mapped[str | None] = _opt_text()
+    last_trigger: Mapped[str | None] = _opt_text()
+    last_started_at: Mapped[datetime | None] = _opt_time()
+    last_finished_at: Mapped[datetime | None] = _opt_time()
+    last_error_code: Mapped[str | None] = _opt_text()
+    last_counts: Mapped[Any] = _json(nullable=True)
+
+
+class LinearIssue(Base):
+    """The Linear issue of a plan node: a pending row (no issue id) before the create, the applied content after. A
+    story
+    is an issue, a task a sub-issue of its story's issue. ``mirrored_state`` is the last state the status mirror set."""
+
+    __tablename__ = "linear_issues"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "node_id"),
+        UniqueConstraint("project_id", "identifier"),
+        CheckConstraint(_one_of("kind", LINEAR_ISSUE_KINDS), name="kind"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    issue_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    identifier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content: Mapped[Any] = _json(nullable=True)
+    content_hash: Mapped[str | None] = _opt_text()
+    position: Mapped[int | None] = mapped_column(Integer)
+    mirrored_state: Mapped[str | None] = _opt_text()
+    removed_at: Mapped[datetime | None] = _opt_time()
+    error_code: Mapped[str | None] = _opt_text()
+    synced_at: Mapped[datetime | None] = _opt_time()
+
+
+class LinearGapTarget(Base):
+    """The Linear gap channel of a project (migration ``0011_linear``): the team (and optional Linear project) its open
+    questions are posted in, how they are grouped and the parent issue they hang under. Holds no credential."""
+
+    __tablename__ = "linear_gap_targets"
+    __table_args__ = (CheckConstraint(_one_of("grouping", LINEAR_GAP_GROUPINGS), name="grouping"),)
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    team_id: Mapped[str] = mapped_column(Text, nullable=False)
+    team_key: Mapped[str] = mapped_column(Text, nullable=False)
+    linear_project_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grouping: Mapped[str] = mapped_column(Text, nullable=False)
+    parent_issue_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    parent_issue_identifier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class LinearGapIssue(Base):
+    """A gap posted to Linear: the issue that asks it, its ``area``, its number in the issue and when it was posted and
+    answered. Holds no Linear text."""
+
+    __tablename__ = "linear_gap_issues"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "gap_id"),
+        Index("ix_linear_gap_issues_issue_id", "issue_id"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    gap_id: Mapped[str] = mapped_column(Text, nullable=False)
+    issue_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    identifier: Mapped[str] = mapped_column(Text, nullable=False)
+    area: Mapped[str] = mapped_column(Text, nullable=False)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

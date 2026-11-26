@@ -6,6 +6,8 @@ import type { ProjectRepositories } from "@/lib/domain/github";
 import type { JiraSettings } from "@/lib/domain/jira";
 import type { GitHubProjects } from "@/lib/domain/github-projects";
 import type { JiraGaps } from "@/lib/domain/jira-gaps";
+import type { LinearGaps } from "@/lib/domain/linear-gaps";
+import type { LinearPlan } from "@/lib/domain/linear-plan";
 import type { SlackSettings } from "@/lib/domain/slack";
 import type { Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { PlanState } from "@/lib/domain/plan";
@@ -16,7 +18,20 @@ export type ZoneId = CanvasZoneId;
 /** The kinds of connection the canvas knows. A session that registers one adds its name here, its spec to `connectors.ts` and its node
  * mapper to the list `CONNECTORS` gives the model. */
 export type ConnectorKind =
-  "upload" | "gdrive" | "github" | "confluence" | "jira_epic" | "box" | "slack" | "jira_gap" | "jira" | "github_plan" | "mcp";
+  | "upload"
+  | "gdrive"
+  | "github"
+  | "confluence"
+  | "jira_epic"
+  | "slack"
+  | "jira_gap"
+  | "jira"
+  | "github_plan"
+  | "mcp"
+  | "linear_project"
+  | "linear_gaps"
+  | "linear_plan"
+  | "box";
 
 /** What the open gaps say, from `gaps.check` and the first page of `gaps.list` (`more`: the page was full, so the counts are "at least"). */
 export interface GapsSummary {
@@ -61,6 +76,10 @@ export interface CanvasInput {
   jiraGaps: JiraGaps | null;
   /** The Slack channel of the project. */
   slack: SlackSettings | null;
+  /** The Linear plan destination of the project. */
+  linearPlan: LinearPlan | null;
+  /** The Linear gap channel of the project. */
+  linearGaps: LinearGaps | null;
 }
 
 /** What the stages before a node say, so a mapper can tell "waits for the stage before it" from "working". */
@@ -80,6 +99,8 @@ export interface NodeDetail {
   by: string | null;
   /** The state in a sentence. */
   text: string;
+  /** A link to the object in the app (the Linear project of the plan), shown under the state. */
+  link?: { href: string; label: string };
   /** Remove is offered for a source or a repository: which port removes it. */
   remove: "source" | "repository" | null;
   /** A stopped node offers to reconnect this app on the Integrations page. */

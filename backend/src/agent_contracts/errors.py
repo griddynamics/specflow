@@ -31,6 +31,8 @@ ErrorCode = Literal[
     "answer_invalid",
     "jira_unavailable",
     "jira_not_configured",
+    "linear_unavailable",
+    "linear_not_configured",
 ]
 
 PROJECT_NOT_FOUND: Final = "project_not_found"
@@ -59,3 +61,5 @@ GAP_STALE: Final = "gap_stale"
 ANSWER_INVALID: Final = "answer_invalid"
 JIRA_UNAVAILABLE: Final = "jira_unavailable"
 JIRA_NOT_CONFIGURED: Final = "jira_not_configured"
+LINEAR_UNAVAILABLE: Final = "linear_unavailable"
+LINEAR_NOT_CONFIGURED: Final = "linear_not_configured"

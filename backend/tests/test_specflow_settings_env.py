@@ -27,6 +27,7 @@ from settings import (
     GraphStoreSettings,
     JiraSettings,
     LangfuseSettings,
+    LinearSettings,
     McpSettings,
     SlackAppSettings,
     SlackNoticeSettings,
@@ -50,7 +51,7 @@ SETTINGS_CLASSES = (
     JiraSettings,
     AtlassianOAuthSettings,
     GitHubSettings,
-    BoxSettings,
+    LinearSettings,
     LangfuseSettings,
     McpSettings,
     ApiInternalSettings,
@@ -119,6 +120,10 @@ OPTIONAL_KEYS = frozenset(
         "GITHUB_APP_CLIENT_SECRET",
         "GITHUB_APP_SLUG",
         "GITHUB_TOKEN_KEY",
+        "LINEAR_OAUTH_CLIENT_ID",
+        "LINEAR_OAUTH_CLIENT_SECRET",
+        "LINEAR_TOKEN_KEY",
+        "LINEAR_WEBHOOK_SECRET",
         "BOX_OAUTH_CLIENT_ID",
         "BOX_OAUTH_CLIENT_SECRET",
         "BOX_TOKEN_KEY",
@@ -186,7 +191,7 @@ def _env_names_read_in_code() -> set[str]:
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS | STACK_KEYS
     assert len(REQUIRED_KEYS) == 23
-    assert len(OPTIONAL_KEYS) == 32
+    assert len(OPTIONAL_KEYS) == 36
     assert len(STACK_KEYS) == 6
 
 
@@ -555,6 +560,71 @@ def test_the_agents_worker_reads_the_github_settings_and_the_parse_worker_does_n
     assert load_settings("worker", env, queues=["agents"]).github is not None
     assert load_settings("worker", {**env, "PUBLIC_URL": ""}, queues=["parse"]).github is None
     assert load_settings("migrate", {**env, "PUBLIC_URL": ""}).github is None
+
+
+# Linear integration (api role only) ----------------------------------------------------------------------------------
+
+LINEAR_ENV = {
+    "LINEAR_OAUTH_CLIENT_ID": "lin-client-1",
+    "LINEAR_OAUTH_CLIENT_SECRET": "lin-secret-canary-4f2a",
+    "LINEAR_TOKEN_KEY": base64.urlsafe_b64encode(bytes(range(2, 34))).decode(),
+    "PUBLIC_URL": "http://localhost:3001/",
+}
+
+
+def test_the_linear_client_id_turns_the_integration_on_with_its_callback(valid_env):
+    linear = load_settings("api", {**valid_env, **LINEAR_ENV}).linear
+
+    assert isinstance(linear, LinearSettings)
+    assert linear.client_id == "lin-client-1"
+    assert linear.webhook_secret is None
+    assert linear.callback_url == "http://localhost:3001/api/integrations/linear/callback"
+
+
+def test_the_linear_webhook_secret_is_optional_and_a_blank_one_is_unset(valid_env):
+    with_secret = load_settings("api", {**valid_env, **LINEAR_ENV, "LINEAR_WEBHOOK_SECRET": "whsec-canary"}).linear
+    blank = load_settings("api", {**valid_env, **LINEAR_ENV, "LINEAR_WEBHOOK_SECRET": "  "}).linear
+
+    assert with_secret is not None
+    assert with_secret.webhook_secret is not None
+    assert with_secret.webhook_secret.get_secret_value() == "whsec-canary"
+    assert blank is not None
+    assert blank.webhook_secret is None
+
+
+def test_linear_is_off_without_the_client_id_and_in_the_other_roles(valid_env):
+    off = {**valid_env, **LINEAR_ENV, "LINEAR_OAUTH_CLIENT_ID": "  ", "LINEAR_TOKEN_KEY": "x"}
+
+    assert load_settings("api", off).linear is None
+    assert load_settings("worker", {**valid_env, **LINEAR_ENV}).linear is None
+
+
+@pytest.mark.parametrize("missing", ["LINEAR_OAUTH_CLIENT_SECRET", "LINEAR_TOKEN_KEY", "PUBLIC_URL"])
+def test_a_partial_linear_set_is_refused_at_startup_naming_the_missing_variable(valid_env, missing):
+    env = {**valid_env, **{name: value for name, value in LINEAR_ENV.items() if name != missing}}
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", env)
+
+    assert raised.value.variables == (missing,)
+    assert "lin-secret-canary" not in str(raised.value)
+
+
+@pytest.mark.parametrize(("name", "value"), [("LINEAR_TOKEN_KEY", "not-a-key"), ("LINEAR_OAUTH_CLIENT_SECRET", "  ")])
+def test_a_bad_linear_value_is_refused_naming_it(valid_env, name, value):
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", {**valid_env, **LINEAR_ENV, name: value})
+
+    assert raised.value.variables == (name,)
+
+
+def test_the_linear_secrets_are_not_in_the_repr_of_the_settings(valid_env):
+    settings = load_settings("api", {**valid_env, **LINEAR_ENV, "LINEAR_WEBHOOK_SECRET": "whsec-canary"})
+
+    shown = repr(settings)
+    assert "lin-secret-canary" not in shown
+    assert "whsec-canary" not in shown
+    assert LINEAR_ENV["LINEAR_TOKEN_KEY"] not in shown
 
 
 # Box integration (docs/box/oauth.md "Settings") -----------------------------------------------------------------------

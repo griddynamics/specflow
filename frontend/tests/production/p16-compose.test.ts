@@ -88,7 +88,11 @@ const http: HttpPorts = {
   jiraGaps: { get: never, save: never, checkAccess: never },
   slack: { get: never, unbind: never, test: never },
   integrations: { list: never, connect: never, disconnect: never },
+  linear: { connection: never, authorize: never, disconnect: never },
+  linearPlan: { get: never, teams: never, projects: never, save: never, checkAccess: never },
+  linearSource: { check: never, add: never },
   box: { connection: never, authorize: never, disconnect: never },
+  linearGaps: { get: never, save: never, checkAccess: never },
   github: {
     connection: never,
     authorize: never,
@@ -105,7 +109,7 @@ const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github, box, integrations", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github, integrations, linear, box", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
@@ -122,6 +126,10 @@ test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects
   assert.equal(ports.github, http.github);
   assert.equal(ports.box, http.box);
   assert.equal(ports.integrations, http.integrations);
+  assert.equal(ports.linear, http.linear);
+  assert.equal(ports.linearPlan, http.linearPlan);
+  assert.equal(ports.linearSource, http.linearSource);
+  assert.equal(ports.linearGaps, http.linearGaps);
   assert.equal((await ports.createProject.create({ name: "X", collaboratorEmails: [] })).id, UUID);
   assert.deepEqual(Object.keys(ports.createProject), ["create"]);
 });
@@ -199,6 +207,10 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "jira",
       "jiraGaps",
       "knowledge",
+      "linear",
+      "linearGaps",
+      "linearPlan",
+      "linearSource",
       "members",
       "missionControl",
       "people",

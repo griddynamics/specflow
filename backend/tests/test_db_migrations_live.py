@@ -71,6 +71,11 @@ APP_TABLES = [
     "jira_gap_targets",
     "jira_issues",
     "jira_targets",
+    "linear_connections",
+    "linear_gap_issues",
+    "linear_gap_targets",
+    "linear_issues",
+    "linear_targets",
     "project_integrations",
     "project_invites",
     "project_members",
@@ -88,7 +93,8 @@ HEAD_0007 = "0007_github"
 HEAD_0008 = "0008_project_integrations"
 HEAD_0009 = "0009_jira_gaps"
 HEAD_0010 = "0010_github_projects"
-HEAD = "0011_box"
+HEAD_0011 = "0011_linear"
+HEAD = "0012_box"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
@@ -388,7 +394,9 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(
         migrated_database,
         "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
         "AND relnamespace = 'public'::regnamespace",
-    ) == [7 + len(GAP_TABLES) + len(JIRA_TABLES) + 9]  # 0001-0010 as before; 0011 adds one (box_connections)
+    ) == [
+        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 14
+    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's to 0008's, 0009's to 12's
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
@@ -1171,14 +1179,75 @@ def test_l32_0010_adds_the_projects_tables_scoped_to_the_agent_role_and_its_down
     assert fingerprint(scratch_database) == before
 
 
-# Box, added by revision 0011 on top of 0010 ----------------------------------------------------------------
+# Linear, added by revision 0011 on top of 0010 --------------------------------------------------------------
 
 
-def test_l33_0011_adds_box_connections_the_box_app_and_kind_and_its_downgrade_returns_to_0010(
+def test_l33_0011_adds_the_linear_tables_and_widens_the_checks_and_its_downgrade_returns_to_0010(
     scratch_database: DatabaseSettings, agent_role: AgentRole
 ) -> None:
     cfg = alembic_config(scratch_database, agent_role.name)
     command.upgrade(cfg, HEAD_0010)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+
+    command.upgrade(cfg, HEAD_0011)
+
+    assert stamped_versions(scratch_database) == [HEAD_0011]
+    for table in ("linear_targets", "linear_issues", "linear_gap_targets", "linear_gap_issues"):
+        assert run_app(
+            scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
+        ) == ["true"]
+        assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = :table", table=table) == [
+            1
+        ]
+    assert run_app(scratch_database, "SELECT count(*) FROM pg_policies WHERE tablename = 'linear_connections'") == [0]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    integration = (
+        "INSERT INTO project_integrations (project_id, app, workspace_id, workspace_name, connected_at) "
+        "VALUES (:p, :app, 'w', 'W', now())"
+    )
+    with pytest.raises(IntegrityError):  # a closed set of apps
+        run_app(scratch_database, integration, p=project, app="asana")
+    run_app(scratch_database, integration, p=project, app="linear")
+    target = (
+        "INSERT INTO linear_targets (project_id, team_id, team_key, linear_project_id, linear_project_name, "
+        "created_by_graphico, enabled, updated_at, last_trigger) "
+        "VALUES (:p, 't', 'ENG', 'lp', 'Plan', true, true, now(), :trigger)"
+    )
+    with pytest.raises(IntegrityError):  # a closed set of triggers
+        run_app(scratch_database, target, p=project, trigger="mcp")
+    run_app(scratch_database, target, p=project, trigger="settings")
+    with pytest.raises(IntegrityError):  # one target per project
+        run_app(scratch_database, target, p=project, trigger="plan_run")
+    item = (
+        "INSERT INTO linear_issues (project_id, node_id, kind, identifier, requested_at) "
+        "VALUES (:p, :node, :kind, :identifier, now())"
+    )
+    with pytest.raises(IntegrityError):  # a closed set of kinds
+        run_app(scratch_database, item, p=project, node="X", kind="epic", identifier="ENG-1")
+    run_app(scratch_database, item, p=project, node="STORY::A", kind="story", identifier="ENG-1")
+    with pytest.raises(IntegrityError):  # one row per node
+        run_app(scratch_database, item, p=project, node="STORY::A", kind="story", identifier="ENG-2")
+    with pytest.raises(IntegrityError):  # one node per identifier
+        run_app(scratch_database, item, p=project, node="STORY::B", kind="story", identifier="ENG-1")
+    run_app(scratch_database, item, p=project, node="STORY::C", kind="story", identifier=None)
+    run_app(scratch_database, item, p=project, node="STORY::D", kind="story", identifier=None)  # pending rows repeat
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0010]
+    assert fingerprint(scratch_database) == before
+
+
+# Box, added by revision 0012 on top of 0011 ----------------------------------------------------------------
+
+
+def test_l34_0012_adds_box_connections_the_box_app_and_kind_and_its_downgrade_returns_to_0011(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0011)
     before = fingerprint(scratch_database)
     ana = insert_user(scratch_database, "ana@example.com")
     project = insert_project(scratch_database, ana, role="owner")
@@ -1214,5 +1283,5 @@ def test_l33_0011_adds_box_connections_the_box_app_and_kind_and_its_downgrade_re
 
     command.downgrade(cfg, "-1")
 
-    assert stamped_versions(scratch_database) == [HEAD_0010]
+    assert stamped_versions(scratch_database) == [HEAD_0011]
     assert fingerprint(scratch_database) == before

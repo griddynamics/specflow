@@ -1,8 +1,9 @@
 """Application-role data access for the project integrations (migration ``0008_project_integrations``).
 
-A row binds a member's per-user connection (Atlassian, GitHub, Box) or Slack channel binding to a project: the member
-is the account every use of the app in the project acts as, and the row names the project's one workspace (Atlassian
-site, GitHub account, Slack workspace). The acting account the runners read stays where it was (``jira_targets``
+A row binds a member's per-user connection (Atlassian, GitHub, Linear, Box) or Slack channel binding to a project: the
+member is the
+account every use of the app in the project acts as, and the row names the project's one workspace (Atlassian site,
+GitHub account, Slack workspace). The acting account the runners read stays where it was (``jira_targets``
 ``connected_user_id``, ``project_repositories`` ``added_by``): ``point_*`` copies the bound member there.
 
 Same rules as ``db.atlassian``: every function runs inside the caller's session and transaction, flushes and never
@@ -25,12 +26,13 @@ from db.models import (
     BoxConnection,
     GitHubConnection,
     JiraTarget,
+    LinearConnection,
     ProjectIntegration,
     ProjectRepository,
     User,
 )
 
-ATLASSIAN, GITHUB, SLACK, BOX = "atlassian", "github", "slack", "box"
+ATLASSIAN, GITHUB, SLACK, LINEAR, BOX = "atlassian", "github", "slack", "linear", "box"
 
 
 class WorkspaceMismatchError(Exception):
@@ -84,6 +86,8 @@ async def _holds(session: AsyncSession, app: str, user_id: uuid.UUID) -> bool:
         probe = exists().where(AtlassianConnection.user_id == user_id, AtlassianConnection.status == "active")
     elif app == GITHUB:
         probe = exists().where(GitHubConnection.user_id == user_id, GitHubConnection.status == "active")
+    elif app == LINEAR:
+        probe = exists().where(LinearConnection.user_id == user_id, LinearConnection.status == "active")
     elif app == BOX:
         probe = exists().where(BoxConnection.user_id == user_id, BoxConnection.status == "active")
     else:

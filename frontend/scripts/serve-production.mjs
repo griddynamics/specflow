@@ -15,6 +15,8 @@
 //                                            claimsReleased; answers the project; see stub-members.mjs `seed`)
 //                                          POST /seed-jira-gaps ({pid, available?, target?, access?}: the Jira gap channel of a project,
 //                                            `GET /projects/{pid}/jira-gaps`; see stub-jira-gaps.mjs)
+//                                          POST /seed-linear-gaps ({pid, available?, target?, access?}: the Linear gap channel of a project,
+//                                            `GET /projects/{pid}/linear-gaps`; see stub-linear-gaps.mjs)
 //                                          POST /seed-github-projects ({pid?, available?, organization?, target?, access?}: the GitHub Projects
 //                                            plan destination of a project, `GET /projects/{pid}/github-projects`; `organization` null = a user's
 //                                            repository; `target` = {repository_id, repository, project_node_id, project_title, enabled?, sync?} or
@@ -235,6 +237,19 @@ const control = http.createServer(async (req, res) => {
     api.jira.seed(spec);
     return send(200, {});
   }
+  // POST /seed-linear-plan ({pid?, available?, workspace?, target?, access?}) -> api.linearPlan.seed(spec), like /seed-github-projects.
+  if (req.method === "POST" && req.url === "/seed-linear-plan") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.linearPlan.seed(spec);
+    return send(200, {});
+  }
   if (req.method === "POST" && req.url === "/seed-github-projects") {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -245,6 +260,19 @@ const control = http.createServer(async (req, res) => {
       return send(400, { error: "bad_json" });
     }
     api.githubProjects.seed(spec);
+    return send(200, {});
+  }
+  // POST /seed-linear-gaps ({pid, available?, target?, access?}) -> api.linearGaps.seed(spec), like /seed-jira-gaps.
+  if (req.method === "POST" && req.url === "/seed-linear-gaps") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    api.linearGaps.seed(spec);
     return send(200, {});
   }
   if (req.method === "POST" && req.url === "/seed-jira-gaps") {
@@ -258,6 +286,15 @@ const control = http.createServer(async (req, res) => {
     }
     api.jiraGaps.seed(spec);
     return send(200, {});
+  }
+  // POST /seed-linear ({reset?, available?, connection?, callbackError?}) -> api.linear.seed(spec). LINEAR S4: seed a `linear_project` source through /seed-source.
+  if (req.method === "POST" && req.url === "/seed-linear") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const { reset, ...spec } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    if (reset === true) api.linear.reset();
+    api.linear.seed(spec);
+    return send(200, { ok: true });
   }
   if (req.method === "POST" && (req.url === "/seed-source" || req.url === "/remove-source")) {
     const chunks = [];

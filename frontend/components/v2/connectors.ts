@@ -1,8 +1,15 @@
 // The connector registry (06a, D5, D20): every kind of connection the canvas offers, in the order its plus dialog lists them. Only kinds of
 // V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
-// link (08), the Jira epic (09), the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b). To add one: write its form component and its node
+// link (08), the Jira epic (09), the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), Linear: project source, gap issues, plan destination (LINEAR). To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
-import { boxNodes, confluenceNodes, driveNodes, jiraEpicNodes, uploadNodes } from "./canvas/nodes-sources";
+import {
+  boxNodes,
+  confluenceNodes,
+  driveNodes,
+  jiraEpicNodes,
+  linearProjectNodes,
+  uploadNodes,
+} from "./canvas/nodes-sources";
 import { BoxForm } from "./canvas/BoxForm";
 import { githubNodes } from "./canvas/nodes-github";
 import { ConfluenceForm } from "./canvas/ConfluenceForm";
@@ -10,10 +17,15 @@ import { JiraEpicForm } from "./canvas/JiraEpicForm";
 import { jiraNodes } from "./canvas/nodes-jira";
 import { githubPlanNodes } from "./canvas/nodes-github-plan";
 import { jiraGapNodes } from "./canvas/nodes-jira-gaps";
+import { linearGapNodes } from "./canvas/nodes-linear-gaps";
+import { linearPlanNodes } from "./canvas/nodes-linear-plan";
 import { slackNodes } from "./canvas/nodes-slack";
 import { GitHubForm } from "./canvas/GitHubForm";
 import { GitHubPlanForm } from "./canvas/GitHubPlanForm";
 import { JiraGapForm } from "./canvas/JiraGapForm";
+import { LinearGapForm } from "./canvas/LinearGapForm";
+import { LinearPlanForm } from "./canvas/LinearPlanForm";
+import { LinearSourceForm } from "./canvas/LinearSourceForm";
 import { JiraForm } from "./canvas/JiraForm";
 import { SlackForm } from "./canvas/SlackForm";
 import { mcpNodes } from "./canvas/nodes-mcp";
@@ -21,6 +33,8 @@ import { DriveForm } from "./canvas/DriveForm";
 import { McpForm } from "./canvas/McpForm";
 import { UploadForm } from "./canvas/UploadForm";
 import type { ConnectorSpec } from "./connector-types";
+
+const CHECK_ACCESS = "Check access";
 
 export const CONNECTORS: readonly ConnectorSpec[] = [
   {
@@ -84,6 +98,18 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     nodes: jiraEpicNodes,
   },
   {
+    kind: "linear_project",
+    zone: "graph",
+    name: "Linear project",
+    line: "A project or issue and its issues",
+    mark: "linear",
+    app: "linear",
+    title: "Add a Linear project",
+    check: { test: "Check link", testing: "Checking…", add: "Add source" },
+    Form: LinearSourceForm, // LINEAR S4
+    nodes: linearProjectNodes,
+  },
+  {
     kind: "box",
     zone: "graph",
     name: "Box link",
@@ -116,9 +142,21 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "jira",
     app: "atlassian",
     title: "Send gaps to Jira",
-    check: { test: "Check access", testing: "Checking…", add: "Add channel" },
+    check: { test: CHECK_ACCESS, testing: "Checking…", add: "Add channel" },
     Form: JiraGapForm,
     nodes: jiraGapNodes,
+  },
+  {
+    kind: "linear_gaps",
+    zone: "gap",
+    name: "Linear issues",
+    line: "Gaps as sub-issues of one issue",
+    mark: "linear",
+    app: "linear",
+    title: "Send gaps to Linear",
+    check: { test: CHECK_ACCESS, testing: "Checking…", add: "Add channel" },
+    Form: LinearGapForm, // LINEAR S5
+    nodes: linearGapNodes,
   },
   {
     kind: "jira",
@@ -128,7 +166,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "jira",
     app: "atlassian",
     title: "Send the plan to Jira",
-    check: { test: "Check access", testing: "Checking…", add: "Add destination" },
+    check: { test: CHECK_ACCESS, testing: "Checking…", add: "Add destination" },
     Form: JiraForm,
     nodes: jiraNodes,
   },
@@ -140,9 +178,21 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "github",
     app: "github",
     title: "Send the plan to GitHub Projects",
-    check: { test: "Check access", testing: "Checking…", add: "Add destination" },
+    check: { test: CHECK_ACCESS, testing: "Checking…", add: "Add destination" },
     Form: GitHubPlanForm,
     nodes: githubPlanNodes,
+  },
+  {
+    kind: "linear_plan",
+    zone: "plan",
+    name: "Linear",
+    line: "Stories and sub-issues in a team",
+    mark: "linear",
+    app: "linear",
+    title: "Send the plan to Linear",
+    check: { test: CHECK_ACCESS, testing: "Checking…", add: "Add destination" },
+    Form: LinearPlanForm, // LINEAR S3
+    nodes: linearPlanNodes,
   },
   {
     kind: "mcp",

@@ -132,12 +132,11 @@ All need a signed-in user. Binding to a project is `PUT /projects/{pid}/integrat
 
 ## Data
 
-`box_connections` (migration `0011_box`): `user_id` (primary key, foreign key `users.id` on delete cascade), `box_user_id`,
+`box_connections` (migration `0012_box`): `user_id` (primary key, foreign key `users.id` on delete cascade), `box_user_id`,
 `name`, `enterprise_id`, `enterprise_name`, `refresh_token` (Fernet ciphertext), `refresh_expires_at`, `status`
 (`active`, `expired`), `connected_at`, `last_used_at`, `expired_at`. Row-level security on, **no policy and no grant**: the
 agent role reads none of it. The same migration widens `ck_project_integrations_app` (adds `box`) and `ck_connections_kind`
 (adds `box`). Downgrade drops the table, deletes every `box` binding and every Box source with its items and documents.
-The revision number 0011 may need to change when another branch claims it first.
 
 ## Log events
 

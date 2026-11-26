@@ -138,6 +138,11 @@ export const CANVAS_COPY = {
     "Sign in to Atlassian and approve the access Graphico asks for.",
     "When Atlassian asks which site to allow, choose your team's site. Graphico brings you back here.",
   ],
+  howLinear: [
+    "Press Connect Linear.",
+    "Sign in to Linear and approve the access Graphico asks for, in the workspace you work in.",
+    "Graphico brings you back here. What it writes in Linear is written as you.",
+  ],
   howBox: [
     "Press Connect your Box account.",
     "Sign in to Box and allow Graphico.",
@@ -157,7 +162,7 @@ export const CANVAS_COPY = {
   app: "App",
   removeFailed: "It could not be removed. Try again.",
   // The files inside a source, and renaming an upload
-  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues", box: "Files" },
+  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues", linear_project: "Issues", box: "Files" },
   filesLabel: "Files in this source",
   filesNone: "Nothing in this source yet.",
   filesFailed: "The files could not be read.",
