@@ -43,7 +43,7 @@ GitHub and Notion to their own account first, with the per-user routes (`/integr
 | Model | Fields |
 |---|---|
 | `ProjectIntegrationOut` | `app`, `available` (the server runs the app: Atlassian `oauth` mode, GitHub on, Slack on, Notion on: `NOTION_OAUTH_CLIENT_ID` set), `connected_by` (`{user_id, name}` or null), `workspace` (`{id, name}` or null), `connected_at` (or null), `health` |
-| `health` | `active`: the bound member's connection works (Slack: the channel is bound); `reconnect_required`: their Atlassian, GitHub or Notion connection expired; `none`: nothing acts (no row, the member left, or their connection is gone) |
+| `health` | `active`: the bound member's connection works (Slack: the channel is bound); `reconnect_required`: their Atlassian, GitHub or Notion connection expired (Notion: or it is in another Notion workspace than the binding, no Notion call is made); `none`: nothing acts (no row, the member left, or their connection is gone) |
 
 `connected_by.name` is the member's display name (their email when they have no name). `connected_by` is null and
 `workspace` stays when the member left: another member connects it again (D2). The Atlassian workspace name is the host
@@ -329,7 +329,7 @@ connection has no login, so its workspace name is the Notion workspace.
 | Code | HTTP | When |
 |---|---|---|
 | `atlassian_not_connected` | 409 | `PUT` Atlassian: the caller has no active Atlassian connection |
-| `notion_not_connected`, `notion_reconnect_required` | 409 | `PUT` Notion: the caller has no active Notion connection; the Notion check, add and save: the project has no Notion binding, or the bound member's connection expired |
+| `notion_not_connected`, `notion_reconnect_required` | 409 | `PUT` Notion: the caller has no active Notion connection; the Notion check, add, save and access-check: the project has no Notion binding, or the bound member's connection expired or is in another Notion workspace than the binding (no Notion call is made) |
 | `notion_state_invalid`, `notion_code_invalid` | 400 | the Notion callback: the sign-in `state` is not valid, or Notion refused the code |
 | `notion_link_invalid`, `notion_not_shared`, `notion_parent_not_a_page`, `notion_permissions_missing` | 422, 409, 422, 409 | the Notion check, add and save: not a link to a page or database; nothing shared at the link; a database where a page is needed; the connection may not write |
 | `notion_unreachable`, `notion_auth_failed` | 502 | Notion did not answer, or refused this server's credentials |

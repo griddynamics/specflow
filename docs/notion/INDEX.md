@@ -33,7 +33,7 @@ member's account. The decisions behind it are N1 to N13 in the table below; each
 | N6 | Import failure reasons stay the closed set of sources; only the check route shows `notion_*` codes |
 | N7 | The plan is one database per project, one row per story and per live task, built by the same mapping as the Jira and GitHub Projects exports |
 | N8 | A pass overwrites owned fields only while the row's Status is in the to-do group; otherwise it adds one comment; a removed item is marked `Removed`, never deleted |
-| N9 | A pass writes at most 120 rows; when rows are left, another pass follows |
+| N9 | A pass spends at most 240 requests on rows; when rows are left, another pass follows |
 | N10 | One request limiter per Notion connection (`bot_id`), shared by import and export; `Retry-After` honoured; a pass or import waits at most 60 s in all |
 | N11 | The plan form takes a parent page link; the first pass creates the database under it and stores its ids |
 | N12 | One migration, `0011_notion`, adds the three Notion tables and widens the two check constraints |

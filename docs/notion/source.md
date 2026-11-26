@@ -35,6 +35,9 @@ Pages are read as Markdown, never as a block tree: `GET /v1/pages/{id}/markdown?
 - every `<database url=… data-source-url="collection://…">` line: the rows of that data source, through
   `POST /v1/data_sources/{id}/query` (100 per page, the gateway pages by cursor).
 
+The gateway follows `unknown_block_ids` itself (up to 25 subtrees); a page that is still truncated or incomplete afterwards
+ends with a note and the import logs `api.imports.page_incomplete`.
+
 A link to a database imports its rows. Which of the two a link is, is read from Notion: page first; when that read says
 `notion_parent_not_a_page` (Notion answers 400 for a database id on a page route), the link is read as a database. A link
 without `?v=` can be either. A visited set stops cycles; depth is bounded by the cap. A database row's document is
@@ -47,7 +50,7 @@ and no user id.
 [discovery.md](discovery.md#conversion-test): callouts become blockquotes, heading toggles and tabs become headings, plain toggles a bold line, columns are
 flattened, synced blocks keep their content, user mentions keep the display name only, page and database mentions become
 links, dates become ISO text, styled tables become GFM tables, `<meeting-notes>` keep summary and notes and skip the
-transcript, `<custom-block>` is dropped. Images are named, never fetched. No NFM tag and no e-mail is left in the output.
+transcript, `<custom-block>` is dropped. Images are named, never fetched. No NFM tag is left in the output and no e-mail outside code spans and fenced code (code is left as written; an address needs an alphabetic final label).
 A page nested too deeply is `MarkupTooDeepError`.
 
 ## Caps (N4)
@@ -58,7 +61,7 @@ A page nested too deeply is `MarkupTooDeepError`.
 ## Originals (N5)
 
 `ImportWriter.add(original=…)` stores JSON `{page: {id, url, title, last_edited_time}, markdown}` per page, where `markdown`
-is `scrub_original(nfm)`: every e-mail is removed (a user mention carries `user://<id>/<email>` even when the connection
+is `scrub_original(nfm)`: every e-mail is removed outside code spans and fenced code, page titles included (a user mention carries `user://<id>/<email>` even when the connection
 asks for user information without e-mail). Notion's `properties`, `created_by` and `last_edited_by` are never stored: they
 carry people and e-mails. The GFM goes to the document.
 
@@ -72,6 +75,7 @@ The failure vocabulary stays closed ([../sources/importers.md](../sources/import
 | What happened | Result |
 |---|---|
 | a page or row the member cannot see (404) | that item is `no_access`, step `read`; the import goes on |
+| Notion refuses a sub-page or row (`notion_item_invalid`, `notion_permissions_missing`) | that item is `unknown_error` or `no_access`, step `read`; the import goes on; only the root page fails the source |
 | the link cannot be read at all, or the member's connection is gone | the source fails `no_access` |
 | Notion is down or throttled past the retries | the source fails `unknown_error` |
 | a page too deep to convert | that item is `convert_failed`, step `convert` |

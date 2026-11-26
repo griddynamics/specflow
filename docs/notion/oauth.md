@@ -73,10 +73,12 @@ sequenceDiagram
 
 The same rules as GitHub ([../github/oauth.md](../github/oauth.md#tokens)), on `notion_connections`:
 
-- the refresh token is stored encrypted; the access token lives in the process's memory only (`integrations.tokens`).
-  A token answer without `expires_in` never expires: it is cached and replaced only after a `401`. An answer without a
-  refresh token still connects, as a connection that cannot be refreshed: a `401` on it sets `expired`
-  (`notion_reconnect_required`) and Notion's token endpoint is not called;
+- the refresh token is stored encrypted; the access token lives in the process's memory, and is also stored encrypted
+  (Fernet, column `access_token`) only for a grant with no refresh token, so it survives a restart or a second replica
+  (`integrations.tokens`). A token answer without `expires_in` never expires: it is cached and replaced only after a `401`.
+  An answer without a refresh token still connects, as a connection that cannot be refreshed: a `401` on a token that was
+  used sets `expired` (`notion_reconnect_required`) and Notion's token endpoint is not called. A cache miss never expires
+  a connection, and a refresh answer without a refresh token keeps the stored one;
 - a refresh runs under a per-user lock and `FOR UPDATE` on the row, and the rotated refresh token is committed before the
   new access token is used;
 - a `401` refreshes once and asks once more: the REST client never retries a `401` (`notion_auth_failed`); the refreshing
@@ -85,8 +87,12 @@ The same rules as GitHub ([../github/oauth.md](../github/oauth.md#tokens)), on `
   (`notion_reconnect_required`) and the connection is never refreshed again until the user reconnects; any other refusal
   keeps it `active` (`notion_unreachable`, or `notion_auth_failed` for a wrong client secret);
 - every use reads the row first (`notion_not_connected` without one), so another replica's disconnect or reconnect is seen;
-- disconnect deletes the row, drops the cached token and calls `POST /v1/oauth/revoke` with it (best effort): without a
-  cached token that is still good it never refreshes just to revoke, it skips the revoke.
+- disconnect deletes the row, drops the cached token and calls `POST /v1/oauth/revoke` with an access token (best effort):
+  the cached one while it is good, else the stored one (a grant with no refresh token), else one refresh under the row lock
+  whose fresh access token is revoked. A failed refresh or revoke never blocks the delete; an expired connection is not
+  revoked. A refresh token is never sent to revoke.
+- a project binding to a workspace other than the one of the member's connection is `notion_reconnect_required` everywhere
+  (see [codes.md](codes.md)).
 
 ## Request budget
 
@@ -98,7 +104,7 @@ fixed 60-second window, and answers `429` or `529` with `Retry-After` (at most 6
   180).
 - `Retry-After` is honoured. A pass or an import waits at most 60 s in all for the limit; a wait that does not fit ends it
   with `notion_rate_limited` (a plan pass) or `unknown_error` (an import, N6).
-- Retries: `429` and `529` always, `5xx` for reads only (`GET` and read-only `POST`s), five attempts with exponential backoff and jitter.
+- Retries: `429` and `529` always, `5xx` for reads only (`GET` and read-only `POST`s) and `409` `conflict_error` on any method, five attempts with exponential backoff and jitter.
 - The request limit is per process: one api replica is assumed (as for the importers and the Slack bindings).
 
 ## Log events
@@ -124,7 +130,7 @@ the workspace of the project is the caller's `workspace_id`, one workspace per p
 ## Data
 
 `notion_connections` (migration `0011_notion`): `user_id` (primary key, cascade with the user), `workspace_id`,
-`workspace_name`, `bot_id`, `refresh_token` (Fernet ciphertext), `refresh_expires_at`, `status` (`active`, `expired`),
+`workspace_name`, `bot_id`, `refresh_token` (Fernet ciphertext), `access_token` (Fernet ciphertext, nullable: only for a grant with no refresh token), `refresh_expires_at`, `status` (`active`, `expired`),
 `connected_at`, `last_used_at`, `expired_at`. Row-level security is on with no policy and no grant: the agent role reads
 nothing of it. The migration also widens the check constraints of `project_integrations.app` and `connections.kind` with
 `notion`.

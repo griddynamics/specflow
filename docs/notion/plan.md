@@ -1,7 +1,7 @@
 ---
 type: Design
 title: "Notion as a plan destination"
-description: "A project's plan exported to a Notion database: target, schema, mapping, rules of a pass, row cap, runs, routes, codes, limits"
+description: "A project's plan exported to a Notion database: target, schema, mapping, rules of a pass, request budget, runs, routes, codes, limits"
 status: draft
 tags: [notion, plan, mission-control]
 ---
@@ -71,15 +71,24 @@ enabled target, `target_changed` when the destination changed during the pass. T
    archived. One that returns loses the check and gets a comment. A row a person deleted or archived in Notion is
    `notion_page_gone` and is never made again.
 
+A row Notion no longer finds (404) while the database is there is settled as removed by a person (`notion_page_gone` on the
+row); it is never made again and does not end the pass. A pass that loses the race to store the database (target changed, or
+another pass stored its own first) ends `skipped` with `target_changed` and writes no rows; the database it just made stays in
+Notion and is logged as `api.notion_plan.sync.database_not_saved`.
+
+Row text written to Notion is escaped (`<`, `>`, `$` and `user://`), so plan text cannot create Notion tags or mentions.
+
 A row Notion refuses (400) fails that item only (`notion_item_invalid`, status `partial`). Every other refusal ends the pass
 `failed` with one closed code and the next pass continues from the rows.
 
 ### Row cap (N9)
 
 Each runner holds one pass slot for the whole process (`ExportRunner._slots`, `MAX_CONCURRENT_PASSES = 1`), so a long Notion
-pass would hold back the Notion exports of every other project. A pass therefore **writes at most 120 rows**
-(`MAX_ROWS_PER_PASS`). When rows are left (`counts.deferred`), the pass calls `start(project_id, "plan_run")` on its runner
-before it ends: the start merges (sets `dirty`) and `ExportRunner._drain` runs one more pass after the slot was released.
+pass would hold back the Notion exports of every other project. A pass therefore spends at most `REQUEST_BUDGET` (240)
+requests on rows: a create costs 1, an update, a removal or a comment about 3, a refused or vanished row 1. When rows are
+left, or Notion's rate limit stops a pass after it wrote something (`counts.deferred`), the pass calls
+`start(project_id, "plan_run")` on its runner before it ends; a pass that wrote nothing (created, updated, commented and
+removed all 0) never restarts. The start the start merges (sets `dirty`) and `ExportRunner._drain` runs one more pass after the slot was released.
 There is no new trigger value (`NOTION_PLAN_TRIGGERS = plan_run, settings, recovery`) and `api/exports/runner.py` does not
 change. With 180 requests a minute a 300-item first export takes about three passes.
 
@@ -106,13 +115,13 @@ The plus of the Plan stage lists **Notion** next to Jira and GitHub Projects; it
 the card says "Set up first". The form asks for a **parent page link**. **Check access** runs as the member Notion is
 connected by (an unbound project or an expired connection comes back as `{result: failed, reason: notion_not_connected |
 notion_reconnect_required}`, not as an error; the save answers them with 409); **Add destination** saves it turned on and the pass runs in the background. The node is named
-`Notion · <parent page title>`, waits for the plan, counts the rows made (`sync.counts.created`), and while `sync.status` is `running`
+after the parent page title ("Notion" without one; its accessible label is "Notion <title>: <state>"), waits for the plan, counts the rows made (`sync.counts.created`), and while `sync.status` is `running`
 the canvas reads `GET` every 3 seconds. It stops only for what the API reports: `notion_not_connected`,
-`notion_reconnect_required` or `notion_permissions_missing` offer Reconnect Notion; any other closed code says what it is.
+`notion_reconnect_required` or `notion_permissions_missing` offer Reconnect Notion; any other closed code says what it is. A link longer than 2048 characters, or a `422 validation_failed`, reads "This is not a link to a Notion page." The node dialog has **Open the Notion database**, shown only for an `https` database URL of `notion.so` or `notion.com`.
 
 ## Limits
 
-- A pass writes at most 120 rows (above); the request budget is shared with imports ([oauth.md](oauth.md#request-budget)).
+- A pass spends at most 240 requests on rows (above); the request budget is shared with imports ([oauth.md](oauth.md#request-budget)).
 - A pass waits at most 60 s in all for the request limit; a wait that does not fit ends it `notion_rate_limited`.
 - Properties a person adds to the database are not touched; a person who renames or deletes a Graphico property makes the
   next write of it fail with `notion_item_invalid` for that row.

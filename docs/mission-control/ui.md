@@ -44,7 +44,7 @@ on the server is a disabled "Not on this server" card. **Set up** opens one dial
 Every step a person does outside Graphico has a **Show me how** control: a closed disclosure that opens the steps inline (Slack, Atlassian, GitHub,
 Google Drive, from `docs/slack`, `docs/github`, `docs/jira-sync`, `docs/sources`), or, on the canvas MCP dialog, a link to the MCP dialog here.
 A code box (`CopyRow`) has a copy icon inside it on the right; a check shows for about 2 s after a copy.
-**Manage** disconnects (the member who connected it, or the owner, AC6); what uses it stops (D2).
+**Manage** disconnects (the member who connected it, or the owner, AC6); what uses it stops (D2). Notion: **Forget your Notion account?** always says "Your Notion account is removed from Graphico. Every project that uses this account stops reading and writing Notion until someone reconnects."; a project whose own connection expired shows **Reconnect Notion** ("Notion access ended. Reconnect Notion first."); **Add pages in Notion** shows for a member who may manage the integration and has a Notion connection.
 
 ## The canvas
 
@@ -88,7 +88,7 @@ before adding, and a changed input is a new check.
 | `jira_gap` | Gap | Atlassian | Send gaps to Jira; space key, grouping, Check access, Add channel | `Jira · <space> gaps`, "N posted · M answered" (AC52, AC53) |
 | `jira` | Plan | Atlassian | Send the plan to Jira; space and epic keys, Check access, Add destination | `Jira · <epic>`, syncing, synced |
 | `github_plan` | Plan | GitHub | Send the plan to GitHub Projects; repository, project picked or created, Check access, Add destination (AC61) | `GitHub · <project>`, "N issues · GitHub" |
-| `notion_plan` | Plan | Notion | Send the plan to Notion; the link of a parent page, Check access, Add destination (the plan database is made under it by the first pass) | `Notion · <page>`, "N rows created", "In sync" |
+| `notion_plan` | Plan | Notion | Send the plan to Notion; the link of a parent page, Check access, Add destination (the plan database is made under it by the first pass) | the parent page title ("Notion" without one), "N rows created", "In sync"; the dialog has **Open the Notion database** once the database exists |
 | `mcp` | none | | Coding agents over MCP (not listed in plus): the stage's notice, Show me how (a link to the Integrations MCP dialog), then the stage's tools, each with one sentence of what it does | "Automatic" |
 
 Every check says what to fix in words from the API's closed codes (another site, not found, not allowed, not connected, needs a reconnect);
