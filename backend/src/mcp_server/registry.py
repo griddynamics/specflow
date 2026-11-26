@@ -62,6 +62,10 @@ from agent_contracts import (
     JiraSyncReport,
     JiraSyncStatus,
     JiraSyncStatusArgs,
+    LinearSyncArgs,
+    LinearSyncReport,
+    LinearSyncStatus,
+    LinearSyncStatusArgs,
     ListAreasArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
@@ -114,8 +118,8 @@ READ_ONLY: Final = ToolAnnotations(
 WRITE: Final = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
 )
-# ``sync_to_jira`` writes to Jira, outside Specflow: not read-only, not destructive (nothing is deleted or moved
-# through the Jira workflow), idempotent (repeats converge Jira to the same
+# ``sync_to_jira`` and ``sync_to_linear`` write to Jira or Linear, outside Specflow: not read-only, not destructive
+# (nothing is deleted or moved through their workflows), idempotent (repeats converge them to the same
 # state; repeats during a pass merge into one more pass), open-world (D27).
 WRITE_OPEN_WORLD: Final = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
@@ -416,6 +420,26 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         arguments=JiraSyncStatusArgs,
         output=JiraSyncReport,
         route=AGENT_ROUTES["jira_sync_status"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="sync_to_linear",
+        summary="Pushes the project's plan to its Linear project now; Backlog and Todo issues are updated, others "
+        "get a comment.",
+        description=descriptions.SYNC_TO_LINEAR_DESCRIPTION,
+        arguments=LinearSyncArgs,
+        output=LinearSyncStatus,
+        route=AGENT_ROUTES["sync_to_linear"],
+        project_scoped=True,
+        annotations=WRITE_OPEN_WORLD,
+    ),
+    ToolDeclaration(
+        name="linear_sync_status",
+        summary="Shows the last Linear sync: status, counts, errors and the Linear identifier of each story and task.",
+        description=descriptions.LINEAR_SYNC_STATUS_DESCRIPTION,
+        arguments=LinearSyncStatusArgs,
+        output=LinearSyncReport,
+        route=AGENT_ROUTES["linear_sync_status"],
         project_scoped=True,
     ),
 )

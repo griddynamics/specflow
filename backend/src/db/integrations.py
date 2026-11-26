@@ -1,7 +1,7 @@
 """Application-role data access for the project integrations (migration ``0008_project_integrations``).
 
-A row binds a member's per-user connection (Atlassian, GitHub, Notion) or Slack channel binding to a project: the
-member is the account every use of the app in the project acts as, and the row names the project's one workspace
+A row binds a member's per-user connection (Atlassian, GitHub, Linear, Notion) or Slack channel binding to a project:
+the member is the account every use of the app in the project acts as, and the row names the project's one workspace
 (Atlassian site, GitHub account, Slack workspace). The acting account the runners read stays where it was
 (``jira_targets`` ``connected_user_id``, ``project_repositories`` ``added_by``): ``point_*`` copies the bound member
 there.
@@ -25,13 +25,14 @@ from db.models import (
     AtlassianConnection,
     GitHubConnection,
     JiraTarget,
+    LinearConnection,
     NotionConnection,
     ProjectIntegration,
     ProjectRepository,
     User,
 )
 
-ATLASSIAN, GITHUB, SLACK, NOTION = "atlassian", "github", "slack", "notion"
+ATLASSIAN, GITHUB, SLACK, LINEAR, NOTION = "atlassian", "github", "slack", "linear", "notion"
 
 
 class WorkspaceMismatchError(Exception):
@@ -85,6 +86,8 @@ async def _holds(session: AsyncSession, app: str, user_id: uuid.UUID) -> bool:
         probe = exists().where(AtlassianConnection.user_id == user_id, AtlassianConnection.status == "active")
     elif app == GITHUB:
         probe = exists().where(GitHubConnection.user_id == user_id, GitHubConnection.status == "active")
+    elif app == LINEAR:
+        probe = exists().where(LinearConnection.user_id == user_id, LinearConnection.status == "active")
     elif app == NOTION:
         probe = exists().where(NotionConnection.user_id == user_id, NotionConnection.status == "active")
     else:

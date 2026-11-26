@@ -116,12 +116,13 @@ export function parseGuideTopic(topic: string): GuideTopic | null {
 }
 
 /**
- * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?notion=`), the app whose set-up opens at once (`?setup=`) and
+ * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?linear=`, `?notion=`), the app whose set-up opens at once (`?setup=`) and
  * the same-site `next` path the page returns to after a connect (the canvas form that asked). Anything else is null.
  */
 export function parseIntegrationsQuery(q: URLSearchParams): {
   github: string | null;
   atlassian: string | null;
+  linear: string | null;
   notion: string | null;
   setup: IntegrationCardId | null;
   next: string | null;
@@ -131,6 +132,7 @@ export function parseIntegrationsQuery(q: URLSearchParams): {
   return {
     github: q.get("github"),
     atlassian: q.get("atlassian"),
+    linear: q.get("linear"),
     notion: q.get("notion"),
     setup,
     next: isSameSitePath(next) ? next : null,

@@ -104,6 +104,32 @@ env:
         name: specflow-api
         key: GITHUB_TOKEN_KEY
         optional: true
+  # Linear integration (optional, off by default): the client ID turns it on and needs the secret, a Fernet key and
+  # PUBLIC_URL; the webhook secret is optional.
+  - name: LINEAR_OAUTH_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: LINEAR_OAUTH_CLIENT_ID
+        optional: true
+  - name: LINEAR_OAUTH_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: LINEAR_OAUTH_CLIENT_SECRET
+        optional: true
+  - name: LINEAR_TOKEN_KEY
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: LINEAR_TOKEN_KEY
+        optional: true
+  - name: LINEAR_WEBHOOK_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: LINEAR_WEBHOOK_SECRET
+        optional: true
   - name: AUTH_API_AUDIENCE
     valueFrom:
       secretKeyRef:

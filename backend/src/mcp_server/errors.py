@@ -40,7 +40,7 @@ from agent_contracts import (
     ErrorCode,
     ErrorDetails,
 )
-from agent_contracts.errors import JIRA_NOT_CONFIGURED, JIRA_UNAVAILABLE
+from agent_contracts.errors import JIRA_NOT_CONFIGURED, JIRA_UNAVAILABLE, LINEAR_NOT_CONFIGURED, LINEAR_UNAVAILABLE
 from mcp_server.api_client import API_PROTOCOL_ERROR, ApiResult
 
 MESSAGES: Final[Mapping[ErrorCode, str]] = {
@@ -73,6 +73,13 @@ MESSAGES: Final[Mapping[ErrorCode, str]] = {
     ),
     JIRA_NOT_CONFIGURED: (
         "This project does not sync to Jira. Its owner sets the Jira target in the project Settings, tab Jira."
+    ),
+    LINEAR_UNAVAILABLE: (
+        "Linear is not set up on this Specflow server. Ask an administrator to enable the Linear integration."
+    ),
+    LINEAR_NOT_CONFIGURED: (
+        "This project does not sync to Linear. A member sets the Linear target on the project canvas, "
+        "in the Linear plan node."
     ),
 }
 

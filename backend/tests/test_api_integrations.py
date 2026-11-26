@@ -103,20 +103,26 @@ def apps(response: httpx.Response) -> dict[str, dict[str, Any]]:
 # GET ------------------------------------------------------------------------------------------------------------------
 
 
-async def test_a_project_without_connections_lists_the_four_apps_with_nothing_acting(rig) -> None:
+async def test_a_project_without_connections_lists_the_five_apps_with_nothing_acting(rig) -> None:
     answer = await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN)
 
-    assert [item["app"] for item in answer.json()["integrations"]] == ["atlassian", "github", "slack", "notion"]
+    assert [item["app"] for item in answer.json()["integrations"]] == [
+        "atlassian",
+        "github",
+        "slack",
+        "linear",
+        "notion",
+    ]
     assert list(apps(answer).values()) == [
         {
             "app": app,
-            "available": True,
+            "available": app != "linear",  # Linear is off until its connections exist (stream S1)
             "connected_by": None,
             "workspace": None,
             "connected_at": None,
             "health": "none",
         }
-        for app in ("atlassian", "github", "slack", "notion")
+        for app in ("atlassian", "github", "slack", "linear", "notion")
     ]
 
 
@@ -139,10 +145,11 @@ async def test_a_connected_app_names_the_member_its_workspace_and_the_health_of_
     assert listed["slack"]["workspace"] == {"id": "T1", "name": "Shop"}
     assert listed["notion"]["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
     assert listed["notion"]["workspace"] == {"id": "ws-1", "name": "Sample Workspace"}
-    assert {app: item["health"] for app, item in listed.items()} == dict.fromkeys(
-        ("atlassian", "github", "slack", "notion"), "active"
-    )
-    assert all(item["connected_at"] is not None for item in listed.values())
+    assert {app: item["health"] for app, item in listed.items()} == {
+        **dict.fromkeys(("atlassian", "github", "slack", "notion"), "active"),
+        "linear": "none",
+    }
+    assert all(item["connected_at"] is not None for app, item in listed.items() if app != "linear")
 
 
 async def test_an_expired_connection_asks_to_reconnect_and_a_missing_one_or_member_acts_as_nothing(rig) -> None:
@@ -168,7 +175,7 @@ async def test_an_app_the_server_does_not_run_is_unavailable(rig) -> None:
     listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))
 
     assert {app: item["available"] for app, item in listed.items()} == dict.fromkeys(
-        ("atlassian", "github", "slack", "notion"), False
+        ("atlassian", "github", "slack", "linear", "notion"), False
     )
 
 
@@ -280,6 +287,12 @@ async def test_the_apps_the_server_does_not_run_refuse_a_connect(rig) -> None:
     assert error_of(atlassian) == (503, "atlassian_oauth_unavailable")
 
 
+async def test_linear_is_off_and_refuses_a_connect_until_its_connections_exist(rig) -> None:
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/linear")
+
+    assert error_of(refused) == (503, "linear_unavailable")
+
+
 async def test_slack_is_connected_by_its_command_not_by_put(rig) -> None:
     answer = await call(rig, "PUT", f"projects/{ALPHA}/integrations/slack")
 
@@ -333,7 +346,11 @@ async def test_removing_what_is_not_connected_is_404_and_an_unknown_app_is_422(r
         404,
         "integration_not_found",
     )
-    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/linear")) == (422, "validation_failed")
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/linear")) == (
+        404,
+        "integration_not_found",
+    )
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/asana")) == (422, "validation_failed")
 
 
 async def test_removing_slack_unbinds_its_channel(rig) -> None:

@@ -2,6 +2,7 @@
 // What a card shows from the API's answer (health words come from the API), who may disconnect, and what a failed call means.
 import { atlassianToast } from "@/components/settings/jira-logic";
 import { githubToast } from "@/components/settings/github-logic";
+import { LINEAR_FAILURE, linearToast } from "./linear-logic";
 import { isDataError } from "@/lib/domain/errors";
 import type { BindableApp, Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { IntegrationState } from "@graphico/ui";
@@ -39,8 +40,9 @@ export function notionToast(code: string): { title: string; tone: "success" | "d
   return code === "connected" ? { title: V2_COPY.connectedToast, tone: "success" } : { title: notionReturnWord(code), tone: "danger" };
 }
 
-/** The toast of `?github=`, `?atlassian=` or `?notion=` on the way back from an app. */
+/** The toast of `?github=`, `?atlassian=`, `?linear=` or `?notion=` on the way back from an app. */
 export function returnToast(app: BindableApp, code: string): { title: string; tone: "success" | "danger" } {
+  if (app === "linear") return linearToast(code);
   if (app === "notion") return notionToast(code);
   return app === "github" ? githubToast(code) : atlassianToast(code);
 }
@@ -58,6 +60,7 @@ const FAILURE: Record<string, string> = {
   integration_already_connected: V2_COPY.alreadyConnected,
   integration_forbidden: V2_COPY.notAllowedToRemove,
   slack_unavailable: V2_COPY.slackNotOnServer,
+  ...LINEAR_FAILURE,
 };
 
 /** What a failed connect or disconnect says; `gone` = the project is not the caller's any more (the page goes home). */

@@ -9,6 +9,7 @@ import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
 import { CONFLUENCE_WORDS } from "./confluence-logic";
 import { JIRA_EPIC_WORDS } from "./jira-epic-logic";
+import { LINEAR_SOURCE_WORDS } from "./linear-source-logic";
 import { NOTION_IMPORT_WORDS } from "./notion-logic";
 import type { NodeMapper, NodeView, Stages } from "./canvas-types";
 
@@ -17,13 +18,21 @@ const APP_NAME: Partial<Record<SourceKind, string>> = {
   gdrive: "Google Drive",
   confluence: "Confluence",
   jira_epic: "Jira",
+  linear_project: "Linear",
   notion: "Notion",
 };
 
-const MARK = { upload: "upload", gdrive: "gdrive", confluence: "confluence", jira_epic: "jira", notion: "notion" } as const;
+const MARK = {
+  upload: "upload",
+  gdrive: "gdrive",
+  confluence: "confluence",
+  jira_epic: "jira",
+  linear_project: "linear",
+  notion: "notion",
+} as const;
 
 /** The integration whose reconnect a stopped node of an imported kind offers. */
-const IMPORT_APP = { confluence: "atlassian", jira_epic: "atlassian", notion: "notion" } as const;
+const IMPORT_APP = { confluence: "atlassian", jira_epic: "atlassian", linear_project: "linear", notion: "notion" } as const;
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 
@@ -42,7 +51,7 @@ export function uploadName(s: Pick<Source, "addedAt" | "nameSuffix" | "name">, n
   return `Upload ${sameDay ? clock(s.addedAt) : DAY.format(added)}${suffix}`;
 }
 
-const UNIT: Partial<Record<SourceKind, string>> = { confluence: "page", jira_epic: "issue", notion: "page" };
+const UNIT: Partial<Record<SourceKind, string>> = { confluence: "page", jira_epic: "issue", linear_project: "issue", notion: "page" };
 
 /** A Confluence source counts pages and a Jira epic issues where the others count files. */
 export const unitText = (kind: SourceKind, text: string): string => {
@@ -54,6 +63,7 @@ export const unitText = (kind: SourceKind, text: string): string => {
 const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess: string; failedMeta: string; failed: string }>> = {
   confluence: CONFLUENCE_WORDS,
   jira_epic: JIRA_EPIC_WORDS,
+  linear_project: LINEAR_SOURCE_WORDS,
   notion: NOTION_IMPORT_WORDS,
 };
 
@@ -130,7 +140,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "notion"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "notion"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
@@ -138,4 +148,5 @@ export const uploadNodes: NodeMapper = sourcesOf("upload");
 export const driveNodes: NodeMapper = sourcesOf("gdrive");
 export const confluenceNodes: NodeMapper = sourcesOf("confluence");
 export const jiraEpicNodes: NodeMapper = sourcesOf("jira_epic");
+export const linearProjectNodes: NodeMapper = sourcesOf("linear_project");
 export const notionNodes: NodeMapper = sourcesOf("notion");

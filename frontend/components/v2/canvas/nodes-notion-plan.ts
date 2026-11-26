@@ -4,25 +4,27 @@
 import type { NotionPlan } from "@/lib/domain/notion-plan";
 import { V2_COPY } from "../v2-copy";
 import type { CanvasInput, NodeMapper, NodeView, Stages } from "./canvas-types";
-import { connectedByOf, restingViews, stoppedIntegration } from "./nodes-shared";
+import { CANVAS_COPY } from "./canvas-copy";
+import { connectedByOf, nodeStates, stoppedIntegration } from "./nodes-shared";
 import { notionCountsText, notionDatabaseLink, notionPassNote, notionPassText, NOTION_RECONNECT } from "./notion-plan-logic";
 
 function planNode(n: NotionPlan, input: CanvasInput, stages: Stages): NodeView {
   const name = n.parentPageTitle ?? "Notion";
-  const base = {
-    id: "notion-plan",
-    kind: "notion_plan",
-    zone: "plan",
-    mark: "notion",
-    name,
-    addedAt: "",
-    listing: false,
-    progress: null,
+  const href = notionDatabaseLink(n.databaseUrl);
+  const link = href === null ? {} : { link: { href, label: CANVAS_COPY.notionOpenDatabase } };
+  const detail = {
+    app: "Notion",
+    by: connectedByOf(input, "notion", V2_COPY.connectedBy),
+    remove: null,
+    reconnect: null,
+    ...link,
   } as const;
-  const detail = { app: "Notion", by: connectedByOf(input, "notion", V2_COPY.connectedBy), remove: null, reconnect: null } as const;
   const title = name === "Notion" ? name : `Notion ${name}`;
-  const label = (meta: string) => `${title}: ${meta}`;
-  const { stopped, quiet } = restingViews("notion", base, detail, label);
+  const { stopped, quiet, busy, on } = nodeStates(
+    { id: "notion-plan", kind: "notion_plan", zone: "plan", mark: "notion", name },
+    detail,
+    (meta) => `${title}: ${meta}`,
+  );
   const sync = n.sync;
   const code = sync?.errorCode ?? null;
   const failed = sync?.status === "failed" && code !== null;
@@ -32,34 +34,12 @@ function planNode(n: NotionPlan, input: CanvasInput, stages: Stages): NodeView {
   if (!n.enabled) return quiet(V2_COPY.notionPlanOff);
   if (sync?.status === "skipped" && code !== null) return quiet(notionPassText(code));
   if (!stages.planOn) return quiet(V2_COPY.waitsForPlan);
-  if (sync?.status === "running") {
-    return {
-      ...base,
-      meta: V2_COPY.syncing,
-      state: "busy",
-      badge: "spin",
-      label: label(V2_COPY.syncing),
-      wire: "flow",
-      detail: { ...detail, text: V2_COPY.syncing },
-    };
-  }
+  if (sync?.status === "running") return busy(V2_COPY.syncing);
   const counts = sync?.counts ?? null;
   const never = sync === null || sync.status === "idle" || counts === null;
   const meta = never ? V2_COPY.notSyncedYet : notionCountsText(counts);
   const note = never ? "" : notionPassNote(sync.status, counts);
-  return {
-    ...base,
-    meta,
-    state: "on",
-    badge: never ? null : "ok",
-    label: label(meta),
-    wire: "on",
-    detail: {
-      ...detail,
-      text: note === "" ? V2_COPY.notionPlanExports : `${V2_COPY.notionPlanExports} ${note}`,
-      link: notionDatabaseLink(n.databaseUrl),
-    },
-  };
+  return on(meta, note === "" ? V2_COPY.notionPlanExports : `${V2_COPY.notionPlanExports} ${note}`, never ? null : "ok", "on");
 }
 
 export const notionPlanNodes: NodeMapper = (input, stages) =>

@@ -49,7 +49,7 @@ test("the name is the parent page title (Notion when it has none); Notion is onl
 });
 
 test("the dialog links the plan database only when it is an https Notion link", () => {
-  const open = (databaseUrl: string | null) => nodeOf({ databaseUrl }).detail.link ?? null;
+  const open = (databaseUrl: string | null) => nodeOf({ databaseUrl }).detail.link?.href ?? null;
   assert.equal(open("https://www.notion.so/Plan-db-1"), "https://www.notion.so/Plan-db-1");
   assert.equal(open("https://acme.notion.site/x"), null);
   assert.equal(open(null), null);

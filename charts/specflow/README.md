@@ -222,6 +222,8 @@ Common optional pass-through settings are grouped below. They are ordinary
   The worker-agent example also sets `TMPDIR=/var/tmp/specflow` on a 4Gi disk
   `emptyDir` (`clones`): a clone check needs room for one repository (1 GiB cap)
   and its `tar.gz` at once, and `/tmp` stays a small volume.
+- Linear integration (the API only, optional): `LINEAR_OAUTH_CLIENT_ID`, `LINEAR_OAUTH_CLIENT_SECRET`,
+  `LINEAR_TOKEN_KEY`, `PUBLIC_URL` and, for gap answers, `LINEAR_WEBHOOK_SECRET`.
 - Graph store: `GRAPH_STORE`, `GRAPH_STORE_NAME`, `GRAPH_STORE_ADMIN_URI`,
   `GRAPH_STORE_POOL_SIZE`.
 - Authentication: `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE`,

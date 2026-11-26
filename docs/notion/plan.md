@@ -23,7 +23,7 @@ connection (ticked in the page picker). Anyone on the project may save the desti
 
 ## Target
 
-One row per project in `notion_plan_targets` (migration `0011_notion`): the parent page (`parent_page_id`,
+One row per project in `notion_plan_targets` (migration `0012_notion`): the parent page (`parent_page_id`,
 `parent_page_title`, `parent_page_url`), the database once the first pass made it (`database_id`, `data_source_id`,
 `database_url`; null before), `enabled`, the run columns (`last_*`, as `github_project_targets`). Saving a different parent
 page clears the database columns and deletes the map first; the next pass makes a new database under the new page (the old

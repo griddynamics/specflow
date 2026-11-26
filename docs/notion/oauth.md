@@ -129,7 +129,7 @@ the workspace of the project is the caller's `workspace_id`, one workspace per p
 
 ## Data
 
-`notion_connections` (migration `0011_notion`): `user_id` (primary key, cascade with the user), `workspace_id`,
+`notion_connections` (migration `0012_notion`): `user_id` (primary key, cascade with the user), `workspace_id`,
 `workspace_name`, `bot_id`, `refresh_token` (Fernet ciphertext), `access_token` (Fernet ciphertext, nullable: only for a grant with no refresh token), `refresh_expires_at`, `status` (`active`, `expired`),
 `connected_at`, `last_used_at`, `expired_at`. Row-level security is on with no policy and no grant: the agent role reads
 nothing of it. The migration also widens the check constraints of `project_integrations.app` and `connections.kind` with

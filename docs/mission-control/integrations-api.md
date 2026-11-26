@@ -357,7 +357,7 @@ has a connection, and a `github` row from the first adder of every project's rep
 connection; Slack bindings live in a file of the graph state folder, so the api fills the `slack` rows from it at
 its start (the member who ran the connect, while they are a member).
 
-The Notion tables (migration `0011_notion`; columns in [../notion/oauth.md](../notion/oauth.md#data) and [../notion/plan.md](../notion/plan.md)):
+The Notion tables (migration `0012_notion`; columns in [../notion/oauth.md](../notion/oauth.md#data) and [../notion/plan.md](../notion/plan.md)):
 `notion_connections` (one row per user: workspace, bot, encrypted refresh token, `status`), `notion_plan_targets` (one per project: the parent
 page, the database and its data source once made, `enabled`, the last pass) and `notion_plan_items` (the map of plan nodes to rows,
 `kind` `story|task`). All three have row-level security on and no grant; the two plan tables carry the policy `agent_project_scope`, `notion_connections` none (not project-scoped). The migration also widens the checks of

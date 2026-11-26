@@ -143,7 +143,7 @@ async def test_a_database_id_on_a_page_route_is_not_a_page_and_a_page_id_on_the_
 
 
 def test_the_run_statuses_of_the_model_are_the_migrations_and_the_hosts_include_notion_com() -> None:
-    text = (Path(__file__).resolve().parent.parent / "migrations" / "versions" / "0011_notion.py").read_text("utf-8")
+    text = (Path(__file__).resolve().parent.parent / "migrations" / "versions" / "0012_notion.py").read_text("utf-8")
     declared = re.search(r"RUN_STATUSES = \(([^)]*)\)", text)
 
     assert declared is not None

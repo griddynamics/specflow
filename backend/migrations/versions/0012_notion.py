@@ -1,28 +1,27 @@
 """Notion: the users' Notion connections, the plan destination's target and map, the new app and source kind.
 
-Adds, on top of revision 0010_github_projects, the tables notion_connections (one row per Specflow user: the Notion
-workspace, the connection's bot, the Fernet refresh token and, for a grant with no refresh token only, the Fernet access
-token), notion_plan_targets (one row per project: the parent
-page the plan database is created under, the database and its data source once the first pass made them, the run
-columns) and notion_plan_items (one row per plan node: the row's page, the applied content and its hash), as in
-docs/notion/oauth.md, docs/notion/plan.md. It widens ck_project_integrations_app to ``atlassian, github, slack, notion``
-and ck_connections_kind to ``gdrive, upload, confluence, jira_epic, notion`` (a Notion link is a source imported by the
-API). Row-level security everywhere; notion_connections has no policy and no grant (not project-scoped: the agent role
-reads none of it); the two plan tables get the policy ``agent_project_scope`` and no grant, as every project table (the
-statements of 0003 are reused).
+Adds, on top of revision 0011_linear, the tables notion_connections (one row per Specflow user: the Notion workspace,
+the connection's bot, the Fernet refresh token and, for a grant with no refresh token only, the Fernet access token),
+notion_plan_targets (one row per project: the parent page the plan database is created under, the database and its data
+source once the first pass made them, the run columns) and notion_plan_items (one row per plan node: the row's page, the
+applied content and its hash), as in docs/notion/oauth.md, docs/notion/plan.md. It widens ck_project_integrations_app to
+``atlassian, github, slack, linear, notion`` and ck_connections_kind to ``gdrive, upload, confluence, jira_epic,
+linear_project, notion`` (a Notion link is a source imported by the API). Row-level security everywhere;
+notion_connections has no policy and no grant (not project-scoped: the agent role reads none of it); the two plan tables
+get the policy ``agent_project_scope`` and no grant, as every project table (the statements of 0003 are reused).
 
 Locks: the first online statement of upgrade() and downgrade() is ``SET LOCAL lock_timeout = '10s'``. The foreign keys
 take a lock on ``users`` and ``projects`` and the constraint swaps one on ``project_integrations`` and ``connections``;
 if a lock is not granted in time the statement fails and the WHOLE transaction (one per run) is rolled back, so nothing
 is half applied; the next start of the api retries the revision.
 
-downgrade() returns to the 0010_github_projects schema exactly: it DROPS the three tables (every Notion connection,
+downgrade() returns to the 0011_linear schema exactly: it DROPS the three tables (every Notion connection,
 plan target and plan-to-page map is lost; the pages and databases on Notion stay), DELETES every ``notion`` binding of
 project_integrations and every ``notion`` source of connections with its connection_items and the documents they hold
 (their objects stay in object storage until removed by hand), and restores both check constraints.
 
-Revision ID: 0011_notion
-Revises: 0010_github_projects
+Revision ID: 0012_notion
+Revises: 0011_linear
 """
 
 from __future__ import annotations
@@ -38,8 +37,8 @@ from sqlalchemy.dialects import postgresql
 from db.migration_helpers import agent_role, set_lock_timeout
 
 # revision identifiers, used by Alembic.
-revision: str = "0011_notion"
-down_revision: str | Sequence[str] | None = "0010_github_projects"
+revision: str = "0012_notion"
+down_revision: str | Sequence[str] | None = "0011_linear"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -60,8 +59,8 @@ CREATE_POLICY = "0003_create_policy.sql"
 # The table and the role the statements above name; replaced with each table and the agent role.
 TABLE_PLACEHOLDER = "gap_option"
 POLICY_ROLE_PLACEHOLDER = "agent_role"
-OLD_APPS = ("atlassian", "github", "slack")
-OLD_KINDS = ("gdrive", "upload", "confluence", "jira_epic")
+OLD_APPS = ("atlassian", "github", "slack", "linear")
+OLD_KINDS = ("gdrive", "upload", "confluence", "jira_epic", "linear_project")
 STATUSES = ("active", "expired")
 RUN_STATUSES = ("running", "succeeded", "partial", "failed", "skipped")
 TRIGGERS = ("plan_run", "settings", "recovery")
@@ -168,7 +167,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema to 0010_github_projects; every Notion connection, binding, plan target and map, and every
+    """Downgrade schema to 0011_linear; every Notion connection, binding, plan target and map, and every
     ``notion`` source is lost."""
 
     set_lock_timeout(read_migration_sql(LOCK_TIMEOUT))

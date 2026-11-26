@@ -6,6 +6,8 @@ import type { ProjectRepositories } from "@/lib/domain/github";
 import type { JiraSettings } from "@/lib/domain/jira";
 import type { GitHubProjects } from "@/lib/domain/github-projects";
 import type { JiraGaps } from "@/lib/domain/jira-gaps";
+import type { LinearGaps } from "@/lib/domain/linear-gaps";
+import type { LinearPlan } from "@/lib/domain/linear-plan";
 import type { NotionPlan } from "@/lib/domain/notion-plan";
 import type { SlackSettings } from "@/lib/domain/slack";
 import type { Integration, IntegrationApp } from "@/lib/domain/integrations";
@@ -28,7 +30,10 @@ export type ConnectorKind =
   | "jira"
   | "github_plan"
   | "notion_plan"
-  | "mcp";
+  | "mcp"
+  | "linear_project"
+  | "linear_gaps"
+  | "linear_plan";
 
 /** What the open gaps say, from `gaps.check` and the first page of `gaps.list` (`more`: the page was full, so the counts are "at least"). */
 export interface GapsSummary {
@@ -75,6 +80,10 @@ export interface CanvasInput {
   jiraGaps: JiraGaps | null;
   /** The Slack channel of the project. */
   slack: SlackSettings | null;
+  /** The Linear plan destination of the project. */
+  linearPlan: LinearPlan | null;
+  /** The Linear gap channel of the project. */
+  linearGaps: LinearGaps | null;
 }
 
 /** What the stages before a node say, so a mapper can tell "waits for the stage before it" from "working". */
@@ -94,12 +103,12 @@ export interface NodeDetail {
   by: string | null;
   /** The state in a sentence. */
   text: string;
+  /** A link to the object in the app (the Linear project, the Notion database of the plan), shown under the state. */
+  link?: { href: string; label: string };
   /** Remove is offered for a source or a repository: which port removes it. */
   remove: "source" | "repository" | null;
   /** A stopped node offers to reconnect this app on the Integrations page. */
   reconnect: IntegrationApp | null;
-  /** An https link to open the thing in its app (the Notion plan database); absent when there is none. */
-  link?: string | null;
 }
 
 export interface NodeView {

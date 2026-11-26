@@ -117,6 +117,8 @@ export const input = (over: Partial<CanvasInput> = {}): CanvasInput => ({
   notionPlan: null,
   jiraGaps: null,
   slack: null,
+  linearPlan: null,
+  linearGaps: null,
   ...over,
 });
 

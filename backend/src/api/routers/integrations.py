@@ -2,8 +2,8 @@
 
 An integration binds one member's per-user connection to the project: every use of the app in the project (a Jira
 target, a repository, a Slack channel) acts as that member, and the card says so. A member reads them; any member
-connects Atlassian, GitHub or Notion with their own active connection (one workspace per app per project); the member
-who connected an app, or the owner, removes it. Slack is bound by its own command in the channel, not here. No
+connects Atlassian, GitHub, Linear or Notion with their own active connection (one workspace per app per project); the
+member who connected an app, or the owner, removes it. Slack is bound by its own command in the channel, not here. No
 transaction is open across a call to an app; events carry ids and codes only.
 """
 
@@ -21,6 +21,7 @@ from api.contained import Contained
 from api.deps import MemberDep, RuntimeDep, UserDep
 from api.errors import ApiError
 from api.github import github_connections, github_error
+from api.linear.errors import linear_not_connected, linear_unavailable
 from api.notion import notion_connections, notion_error
 from api.project_integrations import (
     atlassian_not_connected,
@@ -31,7 +32,16 @@ from api.project_integrations import (
 )
 from api.runtime import Runtime
 from db import integrations as integrations_db
-from db.integrations import ATLASSIAN, GITHUB, NOTION, SLACK, BindingHeldError, IntegrationView, WorkspaceMismatchError
+from db.integrations import (
+    ATLASSIAN,
+    GITHUB,
+    LINEAR,
+    NOTION,
+    SLACK,
+    BindingHeldError,
+    IntegrationView,
+    WorkspaceMismatchError,
+)
 from github.codes import GitHubCode, GitHubError
 from logger.logger import INFO, WARNING, get_logger, log_event
 from notion.reasons import NotionCode, NotionError
@@ -39,10 +49,10 @@ from notion.reasons import NotionCode, NotionError
 logger = get_logger("api.routers.integrations")
 router = APIRouter(prefix="/projects/{pid}/integrations", tags=["integrations"])
 
-AppName = Literal["atlassian", "github", "slack", "notion"]
-BindableApp = Literal["atlassian", "github", "notion"]  # Slack is bound by ``/specflow connect`` in the channel
+AppName = Literal["atlassian", "github", "slack", "linear", "notion"]
+BindableApp = Literal["atlassian", "github", "linear", "notion"]  # Slack is bound by ``/specflow connect``, not here
 Health = Literal["active", "reconnect_required", "none"]
-APPS: Final[tuple[AppName, ...]] = ("atlassian", "github", "slack", "notion")
+APPS: Final[tuple[AppName, ...]] = ("atlassian", "github", "slack", "linear", "notion")
 
 
 class IntegrationMemberOut(BaseModel):
@@ -84,6 +94,8 @@ def _available(runtime: Runtime, app: str) -> bool:
         return runtime.jira is not None and runtime.jira.connections is not None
     if app == GITHUB:
         return runtime.github is not None
+    if app == LINEAR:
+        return runtime.linear is not None
     if app == NOTION:  # C1: the Notion branch of the card
         return runtime.notion is not None
     return runtime.slack is not None
@@ -99,6 +111,8 @@ async def _health(runtime: Runtime, pid: uuid.UUID, row: IntegrationView | None)
         found = None if atlassian is None else await atlassian.get(row.user_id)
     elif row.app == GITHUB:
         found = None if runtime.github is None else await runtime.github.get(row.user_id)
+    elif row.app == LINEAR:
+        found = None if runtime.linear is None else await runtime.linear.get(row.user_id)
     elif row.app == NOTION:  # C1: the Notion branch of the card
         found = None if runtime.notion is None else await runtime.notion.get(row.user_id)
     else:
@@ -153,6 +167,13 @@ async def _own_workspace(runtime: Runtime, user_id: uuid.UUID, app: BindableApp)
         if mine is None or mine.status != "active":
             raise atlassian_not_connected()
         return mine.cloud_id, _atlassian_site(runtime) or mine.cloud_id
+    if app == LINEAR:
+        if runtime.linear is None:
+            raise linear_unavailable()
+        linear = await runtime.linear.get(user_id)
+        if linear is None or linear.status != "active":
+            raise linear_not_connected()
+        return linear.organization_id, linear.organization_name
     if app == NOTION:  # C1: the Notion branch of the own workspace
         notion = await notion_connections(runtime).get(user_id)
         if notion is None or notion.status != "active":
@@ -190,7 +211,7 @@ async def put_project_integration(
             if app == ATLASSIAN:
                 await integrations_db.point_jira_target(session, pid, user.id)
             elif app == GITHUB:
-                await integrations_db.point_repositories(session, pid, user.id)
+                await integrations_db.point_repositories(session, pid, user.id)  # Linear is read from the row each use
             # C1: Notion has no acting-account column to point; its uses read the binding on every call (R1)
     except WorkspaceMismatchError:
         log_event(logger, INFO, "api.integrations.refused", project_id=str(pid), app=app, user_id=str(user.id))

@@ -20,11 +20,15 @@ from api.gap.runner import GapRunner
 from api.github_projects.runner import GitHubProjectsRunner
 from api.graph_build.runner import GraphBuildRunner
 from api.imports import ImportRunner
+from api.imports import linear_wiring as linear_import_wiring
 from api.jira.connections import AtlassianConnections
 from api.jira.runner import JiraSyncRunner
 from api.jira_gaps import JiraGaps
 from api.jira_gaps.poller import JiraGapPoller
 from api.jira_gaps.poster import JiraGapPoster
+from api.linear import wiring as linear_wiring
+from api.linear_gaps import wiring as linear_gaps_wiring
+from api.linear_plan import wiring as linear_plan_wiring
 from api.notion_plan.runner import NotionPlanRunner
 from api.plan.runner import GraphPlanRunner
 from api.plan_destinations import PlanDestinations
@@ -114,9 +118,16 @@ class Runtime:
     jira_gaps: Any = None
     # api.github_projects.runner.GitHubProjectsRunner: the GitHub Projects plan destination; None when GitHub is off
     github_projects: Any = None
+    # api.linear.port.LinearConnectionsPort (stream S1); None = the Linear integration is off (503); set by
+    # api.linear.wiring when LINEAR_OAUTH_CLIENT_ID is
+    linear: Any = None
+    # api.linear_plan.wiring (stream S3): the Linear plan destination; None until it is built (needs ``linear``)
+    linear_plan: Any = None
+    # api.linear_gaps.wiring (stream S5): the Linear gap channel; None until it is built (needs ``linear``)
+    linear_gaps: Any = None
     # api.notion_plan.runner.NotionPlanRunner: the Notion plan destination; None when Notion is off
     notion_plan: Any = None
-    # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics)
+    # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics, Linear projects)
     imports: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
@@ -259,6 +270,7 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             log_event(logger, INFO, "api.github.mode", mode="on")
             runtime.github = GitHubConnections(settings.github, store=connection_store(runtime.transaction))
             stack.push_async_callback(runtime.github.aclose)
+        linear_wiring.add_linear(runtime, settings.linear, stack)  # LINEAR S1
         if settings.notion is not None:
             log_event(logger, INFO, "api.notion.mode", mode="on")
             runtime.notion = NotionConnections(settings.notion, store=notion_connection_store(runtime.transaction))
@@ -266,6 +278,7 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
         runtime.imports = ImportRunner(transaction=runtime.transaction, store=store)
         stack.push_async_callback(runtime.imports.aclose)
         await runtime.imports.start_recovery()
+        linear_import_wiring.add_linear_importer(runtime, stack)  # LINEAR S4
         if settings.graph_build is None:
             # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
             log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))
@@ -329,6 +342,7 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
         runtime.gaps.use_builds(runtime.graph_builds)
         runtime.gaps.start_recovery()  # applies a restart left behind (their update builds)
         _add_jira_gaps(runtime, stack)
+        linear_gaps_wiring.add_linear_gaps(runtime, stack)  # LINEAR S5
     destinations = PlanDestinations()
     if runtime.jira is not None:
         destinations.register(runtime.jira)
@@ -339,6 +353,7 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
         stack.push_async_callback(runtime.github_projects.aclose)
         runtime.github_projects.start_recovery()
         destinations.register(runtime.github_projects)
+    linear_plan_wiring.add_linear_plan(runtime, destinations, stack)  # LINEAR S3
     if runtime.notion is not None:
         runtime.notion_plan = NotionPlanRunner(
             runtime.notion, transaction=runtime.transaction, graph_store=runtime.graph_store
