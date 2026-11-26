@@ -2,8 +2,9 @@
 
 Rules to implement: ``Notion-Version: 2026-03-11`` and the member's bearer token on every request (``token`` is called
 per request, so a refresh is seen); every request takes a place from the bot's ``RateLimiter`` first; ``429`` and
-``529`` are retried always (``Retry-After`` through ``RateLimiter.hold``), ``5xx`` for ``GET`` only, five attempts
-with exponential backoff and jitter; ``401`` is ``notion_auth_failed`` and is NEVER retried here (the refreshing
+``529`` are retried always (``Retry-After`` through ``RateLimiter.hold``), ``5xx`` for ``GET`` only,
+``409`` ``conflict_error`` on any method, five attempts with exponential backoff and jitter; ``401`` is
+``notion_auth_failed`` and is NEVER retried here (the refreshing
 wrapper of ``NotionConnections.gateway`` owns the refresh and the one retry); a ``404`` is ``notion_not_shared``; a
 ``400`` ``validation_error`` on ``GET`` page or markdown is confirmed with one ``database(id)`` call (found: raise
 ``notion_parent_not_a_page``), and on ``GET`` database with one ``page(id)`` call (found: ``notion_link_invalid``):
@@ -52,6 +53,7 @@ TIMEOUT_SECONDS: Final = 30
 MAX_FOLLOW_UPS: Final = 25  # ``unknown_block_ids`` subtrees read for one page
 UNREADABLE: Final = frozenset({NotionCode.NOT_SHARED, NotionCode.PERMISSIONS_MISSING})  # 404, 403
 RETRIED_ALWAYS: Final = frozenset({httpx.codes.TOO_MANY_REQUESTS, 529})  # 529: Notion's "overloaded"
+CONFLICT: Final = "conflict_error"  # a 409 Notion documents as retryable: the write was refused, never applied
 
 
 class _ValidationError(NotionError):
@@ -310,6 +312,9 @@ class HttpNotionGateway:
                 log_event(logger, WARNING, "notion.http.retry", status=status, attempt=attempt)
                 continue
             if not last and status >= httpx.codes.INTERNAL_SERVER_ERROR and repeatable:
+                await self._backoff(attempt, str(status))
+                continue
+            if not last and status == httpx.codes.CONFLICT and _error_code(response) == CONFLICT:
                 await self._backoff(attempt, str(status))
                 continue
             raise _refusal(response)

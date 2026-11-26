@@ -145,15 +145,22 @@ async def save_target(
     return TargetSaved(destination_changed=changed, turned_on=turned_on, keys_changed=changed or no_database)
 
 
-async def target_unchanged(session: AsyncSession, project_id: uuid.UUID, *, parent_page_id: str) -> bool:
-    """Lock the target row ``FOR SHARE``; true when it exists with this parent page."""
+async def target_unchanged(
+    session: AsyncSession, project_id: uuid.UUID, *, parent_page_id: str, database_id: str | None
+) -> bool:
+    """Lock the target row ``FOR SHARE``; true when it exists with this parent page and this database (None: no
+    database yet). A pass that started on another database (the stored one was lost and a new one made) is stale."""
 
     statement = (
-        select(NotionPlanTarget.parent_page_id)
-        .where(NotionPlanTarget.project_id == project_id)
+        select(NotionPlanTarget.project_id)
+        .where(
+            NotionPlanTarget.project_id == project_id,
+            NotionPlanTarget.parent_page_id == parent_page_id,
+            NotionPlanTarget.database_id.is_not_distinct_from(database_id),
+        )
         .with_for_update(read=True)
     )
-    return (await session.execute(statement)).scalar_one_or_none() == parent_page_id
+    return (await session.execute(statement)).first() is not None
 
 
 async def update_target(session: AsyncSession, project_id: uuid.UUID, *, parent_page_id: str, **columns: Any) -> bool:
@@ -165,6 +172,34 @@ async def update_target(session: AsyncSession, project_id: uuid.UUID, *, parent_
         update(NotionPlanTarget)
         .where(NotionPlanTarget.project_id == project_id, NotionPlanTarget.parent_page_id == parent_page_id)
         .values(columns)
+        .returning(NotionPlanTarget.project_id)
+    )
+    return (await session.execute(statement)).first() is not None
+
+
+async def save_database(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    parent_page_id: str,
+    held_database_id: str | None,
+    database_id: str,
+    data_source_id: str,
+    database_url: str,
+) -> bool:
+    """Store the database a pass made (``held_database_id`` None) or the data source it resolved for the stored one
+    (``held_database_id`` is that database), in one conditional UPDATE: it matches only while the target has the same
+    parent page and still the database the pass started with. False when it matched nothing: the target changed, or a
+    concurrent pass stored its own database first (the caller's database is then an orphan)."""
+
+    statement = (
+        update(NotionPlanTarget)
+        .where(
+            NotionPlanTarget.project_id == project_id,
+            NotionPlanTarget.parent_page_id == parent_page_id,
+            NotionPlanTarget.database_id.is_not_distinct_from(held_database_id),
+        )
+        .values(database_id=database_id, data_source_id=data_source_id, database_url=database_url)
         .returning(NotionPlanTarget.project_id)
     )
     return (await session.execute(statement)).first() is not None

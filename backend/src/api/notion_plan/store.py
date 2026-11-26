@@ -1,6 +1,6 @@
 """The rows of the Notion plan pass behind one small port: each call opens its own transaction (no Notion call ever runs
-inside one) and every write first checks that the target still has the parent page the pass started with. Stream E1 owns
-this file; it is final and complete (the shape of ``api.github_projects.store``)."""
+inside one) and every write first checks that the target still has the parent page and the database the pass started
+with. Stream E1 owns this file; it is final and complete (the shape of ``api.github_projects.store``)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,10 @@ class PlanStore(Protocol):
 
     async def save_database(
         self, target: PlanTargetView, *, database_id: str, data_source_id: str, database_url: str
-    ) -> None: ...
+    ) -> bool:
+        """Store the database; false when the target no longer has the parent page and database the pass started with
+        (changed, or another pass stored its database first): nothing is written."""
+        ...
 
     async def reset_database(self, target: PlanTargetView) -> None: ...
 
@@ -52,18 +55,21 @@ class DbStore:
             return await plan_db.list_items(session, project_id)
 
     async def _guard(self, session: Any, target: PlanTargetView) -> None:
-        if not await plan_db.target_unchanged(session, target.project_id, parent_page_id=target.parent_page_id):
+        unchanged = await plan_db.target_unchanged(
+            session, target.project_id, parent_page_id=target.parent_page_id, database_id=target.database_id
+        )
+        if not unchanged:
             raise TargetChangedError
 
     async def save_database(
         self, target: PlanTargetView, *, database_id: str, data_source_id: str, database_url: str
-    ) -> None:
+    ) -> bool:
         async with self._transaction() as session:
-            await self._guard(session, target)
-            await plan_db.update_target(
+            return await plan_db.save_database(
                 session,
                 target.project_id,
                 parent_page_id=target.parent_page_id,
+                held_database_id=target.database_id,
                 database_id=database_id,
                 data_source_id=data_source_id,
                 database_url=database_url,

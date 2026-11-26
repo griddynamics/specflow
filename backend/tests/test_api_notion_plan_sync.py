@@ -1,6 +1,6 @@
 """One Notion plan pass (docs/notion/plan.md "Rules of a pass"): the database and its relations, the creates, the
-to-do rule, comments, removed items, idempotence, the row cap, crash repair and the closed run codes. Notion is the
-fake gateway of ``notion_plan_support``; the rows are in memory."""
+to-do rule, comments, removed items, idempotence, the request budget, crash repair and the closed run codes. Notion is
+the fake gateway of ``notion_plan_support``; the rows are in memory."""
 
 from __future__ import annotations
 
@@ -9,12 +9,14 @@ from dataclasses import replace
 import pytest
 
 from api.notion_plan.sync import (
-    MAX_ROWS_PER_PASS,
+    CREATE_COST,
     NO_PLAN,
     NOT_CONFIGURED,
     PLAN_APPLYING,
+    REQUEST_BUDGET,
     TARGET_CHANGED,
     UNEXPECTED_ERROR,
+    UPDATE_COST,
     PushCounts,
     push_once,
     row_body,
@@ -242,35 +244,105 @@ def many_stories(count: int):
     return make_plan([story(f"STORY::M::{i:03d}") for i in range(count)], [])
 
 
-async def test_a_pass_writes_at_most_the_row_cap_and_asks_for_one_more() -> None:
-    harness = Harness(many_stories(MAX_ROWS_PER_PASS + 10))
+CREATES = REQUEST_BUDGET // CREATE_COST
+UPDATES = REQUEST_BUDGET // UPDATE_COST
+
+
+async def test_a_pass_creates_rows_while_the_request_budget_lasts_and_asks_for_one_more() -> None:
+    harness = Harness(many_stories(CREATES + 10))
 
     first = await harness.push()
 
-    assert (first.status, first.counts.created, first.counts.deferred) == ("succeeded", MAX_ROWS_PER_PASS, 10)
+    assert (first.status, first.counts.created, first.counts.deferred) == ("succeeded", CREATES, 10)
     assert harness.restarts == [str(harness.project_id)]
     second = await harness.push()
-    assert (second.counts.created, second.counts.deferred, second.counts.unchanged) == (10, 0, MAX_ROWS_PER_PASS)
+    assert (second.counts.created, second.counts.deferred, second.counts.unchanged) == (10, 0, CREATES)
     assert harness.restarts == [str(harness.project_id)]  # no more rows: no more restarts
-    assert len(harness.gateway.called("create_page")) == MAX_ROWS_PER_PASS + 10
+    assert len(harness.gateway.called("create_page")) == CREATES + 10
 
 
-async def test_updates_and_comments_count_towards_the_cap_too() -> None:
-    plan = many_stories(MAX_ROWS_PER_PASS + 5)
+async def test_updates_cost_more_requests_than_creates_so_fewer_rows_fit_a_pass() -> None:
+    plan = many_stories(UPDATES + 5)
     harness = Harness(plan)
-    await harness.push()
-    await harness.push()
+    while (await harness.push()).counts.deferred:
+        pass
     for node in list(harness.store.items):
         harness.gateway.set_status(node, NOT_STARTED)
-    for index in range(MAX_ROWS_PER_PASS + 5):
+    for index in range(UPDATES + 5):
         plan = edit_story(plan, f"STORY::M::{index:03d}", summary=f"Changed {index}")
     harness.plan = plan
     harness.restarts.clear()
+    mark = len(harness.gateway.calls)
 
     result = await harness.push()
 
-    assert (result.counts.updated, result.counts.deferred) == (MAX_ROWS_PER_PASS, 5)
+    assert (result.counts.updated, result.counts.deferred) == (UPDATES, 5)
+    assert len(harness.gateway.writes()[len(harness.gateway.writes()) - 3 * UPDATES :]) == 3 * UPDATES
+    assert len(harness.gateway.calls) - mark <= REQUEST_BUDGET + 5 * 3 + 10  # bounded by the budget, not by rows
     assert harness.restarts == [str(harness.project_id)]
+
+
+async def test_refused_rows_use_one_request_each_and_a_pass_that_wrote_nothing_does_not_restart() -> None:
+    harness = Harness(many_stories(CREATES + 10))
+    harness.gateway.fail("create_page", NotionCode.ITEM_INVALID, times=CREATES + 10)
+
+    result = await harness.push()
+
+    assert (result.status, result.counts.created, result.counts.failed) == ("partial", 0, CREATES)
+    assert result.counts.deferred == 10
+    assert harness.restarts == []  # nothing written: a new pass would refuse the same rows again
+
+
+async def test_a_row_purged_in_notion_is_settled_as_gone_while_the_database_is_there() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    harness.plan = edit_task(harness.plan, "TASK::A::4", title="Renamed")
+    harness.gateway.purge("TASK::A::4")
+    harness.plan = edit_task(harness.plan, "TASK::A::3", title="Also renamed")
+    harness.gateway.set_status("TASK::A::3", NOT_STARTED)
+
+    first = await harness.push()
+    second = await harness.push()
+
+    assert (first.status, first.error_code) == ("succeeded", None)
+    assert (first.counts.removed, first.counts.updated, first.counts.failed) == (1, 1, 0)
+    assert harness.store.items["TASK::A::4"].error_code == NotionCode.PAGE_GONE.value
+    assert harness.store.resets == 0 and harness.store.target.database_id
+    assert second.counts == counts(unchanged=7) and harness.restarts == []
+
+
+async def test_several_purged_rows_are_all_settled_in_one_pass_and_none_fails() -> None:
+    harness = Harness(many_stories(5))
+    await first_pass(harness)
+    plan = harness.plan
+    for index in range(5):
+        plan = edit_story(plan, f"STORY::M::{index:03d}", summary=f"Changed {index}")
+        harness.gateway.purge(f"STORY::M::{index:03d}")
+    harness.plan = plan
+
+    result = await harness.push()
+
+    assert (result.status, result.counts.removed, result.counts.failed, result.counts.deferred) == (
+        "succeeded",
+        5,
+        0,
+        0,
+    )
+    assert harness.restarts == []
+
+
+async def test_a_rate_limit_after_rows_were_written_stores_them_and_restarts_instead_of_failing() -> None:
+    harness = Harness(many_stories(6))
+    harness.gateway.fail_after("create_page", 3, NotionCode.RATE_LIMITED)
+
+    first = await harness.push()
+
+    assert (first.status, first.error_code) == ("succeeded", None)
+    assert (first.counts.created, first.counts.deferred) == (3, 3)
+    assert harness.restarts == [str(harness.project_id)]
+    assert sum(1 for item in harness.store.items.values() if item.page_id) == 3
+    second = await harness.push()
+    assert (second.status, second.counts.created, second.counts.deferred) == ("succeeded", 3, 0)
 
 
 # Crash repair ------------------------------------------------------------------------------------------------------
@@ -372,6 +444,37 @@ async def test_a_write_that_finds_nothing_in_a_database_that_is_there_is_a_share
 def trash_database(harness: Harness) -> None:
     database = harness.gateway.databases[str(harness.store.target.database_id)]
     harness.gateway.databases[database.id] = replace(database, in_trash=True)
+
+
+async def test_a_database_that_is_unshared_when_a_row_write_finds_nothing_is_lost_like_at_the_pass_start() -> None:
+    harness = Harness()
+    await first_pass(harness)
+    harness.plan = edit_task(harness.plan, "TASK::A::3", title="Renamed")
+    harness.gateway.fail("page", NotionCode.NOT_SHARED)
+    harness.gateway.fail_after("database", 1, NotionCode.NOT_SHARED)  # the pass start sees it, the row write does not
+
+    result = await harness.push()
+
+    assert (result.status, result.error_code) == ("failed", "notion_database_gone")
+    assert harness.store.target.database_id is None and harness.store.resets == 1
+
+
+async def test_a_pass_that_lost_the_race_for_the_database_stops_without_writing_rows() -> None:
+    harness = Harness()
+    original = harness.store.save_database
+
+    async def lost(target, **ids) -> bool:  # another pass stored its database first
+        harness.store.target = replace(harness.store.target, database_id="db-other")
+        return await original(target, **ids)
+
+    harness.store.save_database = lost
+
+    result = await harness.push()
+
+    assert (result.status, result.error_code) == ("skipped", TARGET_CHANGED)
+    assert len(harness.gateway.called("create_database")) == 1  # the orphan is the one in the log
+    assert harness.gateway.called("create_page") == [] and harness.store.saved == []
+    assert harness.store.target.database_id == "db-other"
 
 
 @pytest.mark.parametrize("how", ["trashed", "unshared"])
@@ -542,3 +645,26 @@ def test_the_body_lists_the_brief_and_ends_with_the_plan_item() -> None:
         "Why.\n\n**Release:** R1\n\n**Done when**\n- [ ] a\n- [ ] b\n\n**Implements:** Spec one (S1)"
         "\n\n_Plan item `TASK::A::1`, kept up to date by Graphico._"
     )
+
+
+def test_the_untrusted_texts_of_a_row_cannot_start_a_tag_a_mention_or_math() -> None:
+    values = {
+        "text": 'Hi <mention-user url="user://1"/> and <page url="x">a</page> costs $$x$$ [me](user://abc)',
+        "release": "R<1>",
+        "phase": None,
+        "done_when": ['<synced_block url="u">', "kept `code` and **bold**"],
+        "specs": [{"id": "S1", "name": '<embed url="e">'}],
+    }
+
+    body = row_body(values, "TASK::A::1")
+
+    assert "<" not in body.replace("\\<", "") and "$" not in body.replace("\\$", "")
+    assert "user://" not in body and "user:\u200b//" in body
+    assert "Hi \\<mention-user" in body and "costs \\$\\$x\\$\\$" in body
+    assert "- [ ] kept `code` and **bold**" in body  # plain Markdown stays readable
+
+
+def test_an_escape_of_the_author_cannot_undo_the_escape_of_a_tag() -> None:
+    body = row_body({"text": "a \\<b> c", "release": None, "phase": None}, "N")
+
+    assert body.startswith("a \\\\\\<b\\>")

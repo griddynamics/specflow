@@ -278,7 +278,6 @@ def wrong_kind_answer(request: httpx.Request, message: str) -> httpx.Response:
         (400, "validation_error", NotionCode.ITEM_INVALID),
         (400, "invalid_request", NotionCode.UNREACHABLE),
         (400, "invalid_json", NotionCode.UNREACHABLE),
-        (409, "conflict_error", NotionCode.UNREACHABLE),
         (418, "teapot", NotionCode.UNREACHABLE),
     ],
 )
@@ -393,6 +392,24 @@ async def test_five_attempts_then_the_status_decides_the_code() -> None:
     assert await code_of(rig.gateway.page("p")) is NotionCode.UNREACHABLE
     assert len(rig.requests) == notion_http.MAX_ATTEMPTS
     assert rig.clock.sleeps == [1.0, 2.0, 4.0, 8.0]
+
+
+async def test_a_409_conflict_on_a_write_is_retried_and_then_decided_by_its_status() -> None:
+    rig = make_rig(sequence(error(409, "conflict_error"), error(409, "conflict_error"), reply(200, {})))
+
+    await rig.gateway.create_comment("p", "hi")
+
+    assert len(rig.requests) == 3 and rig.clock.sleeps == [1.0, 2.0]
+    rig = make_rig(lambda _r: error(409, "conflict_error"))
+    assert await code_of(rig.gateway.update_page("p", properties={})) is NotionCode.UNREACHABLE
+    assert len(rig.requests) == notion_http.MAX_ATTEMPTS
+
+
+async def test_a_409_that_is_not_a_conflict_error_is_not_retried() -> None:
+    rig = make_rig(lambda _r: error(409, "other"))
+
+    assert await code_of(rig.gateway.update_page("p", properties={})) is NotionCode.UNREACHABLE
+    assert len(rig.requests) == 1
 
 
 async def test_a_retry_after_that_does_not_fit_the_budget_is_rate_limited_without_waiting() -> None:

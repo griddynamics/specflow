@@ -153,11 +153,35 @@ async def test_the_guard_locks_the_target_and_is_true_only_for_its_parent_page(f
     await save(factory, project)
 
     async with factory() as session, session.begin():
-        same = await plan_db.target_unchanged(session, project, parent_page_id="page-1")
-        other = await plan_db.target_unchanged(session, project, parent_page_id="page-2")
-        none = await plan_db.target_unchanged(session, uuid.uuid4(), parent_page_id="page-1")
+        same = await plan_db.target_unchanged(session, project, parent_page_id="page-1", database_id=None)
+        other = await plan_db.target_unchanged(session, project, parent_page_id="page-2", database_id=None)
+        other_database = await plan_db.target_unchanged(session, project, parent_page_id="page-1", database_id="db")
+        none = await plan_db.target_unchanged(session, uuid.uuid4(), parent_page_id="page-1", database_id=None)
 
-    assert (same, other, none) == (True, False, False)
+    assert (same, other, other_database, none) == (True, False, False, False)
+
+
+async def test_save_database_matches_only_the_parent_page_and_the_database_the_pass_started_with(factory) -> None:
+    ana = await new_user(factory, "Ana")
+    project = await new_project(factory, ana)
+    await save(factory, project)
+    ids = {"database_id": "db-a", "data_source_id": "ds-a", "database_url": "u"}
+
+    async with factory() as session, session.begin():
+        wrong_parent = await plan_db.save_database(
+            session, project, parent_page_id="page-9", held_database_id=None, **ids
+        )
+        first = await plan_db.save_database(session, project, parent_page_id="page-1", held_database_id=None, **ids)
+        lost_race = await plan_db.save_database(
+            session, project, parent_page_id="page-1", held_database_id=None, **{**ids, "database_id": "db-b"}
+        )
+        stale_guard = await plan_db.target_unchanged(session, project, parent_page_id="page-1", database_id=None)
+        fresh_guard = await plan_db.target_unchanged(session, project, parent_page_id="page-1", database_id="db-a")
+    async with factory() as session:
+        target = await plan_db.get_target(session, project)
+
+    assert (wrong_parent, first, lost_race, stale_guard, fresh_guard) == (False, True, False, False, True)
+    assert target is not None and target.database_id == "db-a"
 
 
 async def test_the_run_columns_record_the_start_and_the_end_and_recovery_finds_a_running_target(factory) -> None:

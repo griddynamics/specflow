@@ -3,11 +3,14 @@
 The plan's stories and tasks become rows of one database "Graphico plan - <project>" created under the target's parent
 page on the first pass (N11); the desired set is ``api.jira.desired.build`` with a placeholder epic (N7). A row's
 owned fields are overwritten only while its Status is in the ``to_do`` group, otherwise one comment lists the changes;
-a row that leaves the plan gets ``Removed`` checked and a comment, never a delete (N8). A pass writes at most
-``MAX_ROWS_PER_PASS`` rows; when rows are left it calls ``start(project_id, "plan_run")`` on its runner before it ends
-so one more pass follows (N9, no change to ``api.exports.runner``). Notion calls never run inside a transaction; every
-row write checks that the destination is unchanged. A crash between a create and its row is repaired by a query on
-``Graphico ID``, and only when the map holds a pending row of the node (a create that never got its page id).
+a row that leaves the plan gets ``Removed`` checked and a comment, never a delete (N8). A pass spends at most
+``REQUEST_BUDGET`` requests on rows (a create costs 1, an update, a removal and a comment about 3); when rows are left,
+or Notion's rate limit stops a pass that already wrote something, it calls ``start(project_id, "plan_run")`` on its
+runner before it ends so one more pass follows (N9, no change to ``api.exports.runner``). A pass that wrote nothing
+never restarts: rows Notion refuses or a person deleted do not count as written. Notion calls never run inside a
+transaction; every row write checks that the destination is unchanged. A crash between a create and its row is repaired
+by a query on ``Graphico ID``, and only when the map holds a pending row of the node (a create that never got its
+page id).
 
 Probed live (2026-11-25, API 2026-03-11): the API creates a ``status`` property (``{"status": {}}``) with the options
 Not started, In progress, Done in the groups To-do, In progress, Complete and the default option Not started, so no
@@ -17,6 +20,7 @@ Not started, In progress, Done in the groups To-do, In progress, Complete and th
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -43,7 +47,10 @@ logger = get_logger(__name__)
 NOT_CONFIGURED: Final = "notion_plan_not_configured"
 NO_PLAN, PLAN_APPLYING = "no_plan", "plan_applying"
 TARGET_CHANGED, UNEXPECTED_ERROR = "target_changed", "unexpected_error"
-MAX_ROWS_PER_PASS: Final = 120  # rows written (created, updated, commented) by one pass; the rest follow in a new pass
+# Requests the row steps of one pass may spend (the limiter's 150 a minute plus the 60 s a pass may wait fit about
+# 300); the rest follow in a new pass.
+REQUEST_BUDGET: Final = 240
+CREATE_COST, UPDATE_COST, FLAG_COST, REFUSED_COST = 1, 3, 3, 1  # requests of a create, an update, a removal, a refusal
 _NO_PARENT: Final = "-"  # the epic placeholder of the shared builder: a story has no parent row
 _REMOVED_LINE: Final = "This item was removed from the Graphico plan."
 _RETURNED_LINE: Final = "This item is back in the Graphico plan."
@@ -156,20 +163,37 @@ def row_properties(values: Mapping[str, Any], node_id: str, blocked_pages: Seque
     }
 
 
-def row_body(values: Mapping[str, Any], node_id: str) -> str:
-    """The brief as the row's Markdown body."""
+_MARKUP: Final = re.compile(r"(\\*)([<>$])")  # a tag, a mention or display math starts with one of these
+_MENTION_URL: Final = re.compile(r"user://", re.IGNORECASE)
 
-    parts: list[str] = [str(values["text"])] if values.get("text") else []
+
+def _plain(text: object) -> str:
+    """Untrusted text for Notion's enhanced Markdown: ``<``, ``>`` and ``$`` are escaped (no tag, mention or math can
+    start; backslashes in front of them are doubled so an escape of the author cannot undo ours) and a ``user://``
+    address gets a zero-width space, so it never resolves to a person. Other Markdown stays as written."""
+
+    escaped = _MARKUP.sub(lambda found: found[1] * 2 + "\\" + found[2], str(text))
+    return _MENTION_URL.sub(lambda found: found[0][:5] + "\u200b" + found[0][5:], escaped)
+
+
+def row_body(values: Mapping[str, Any], node_id: str) -> str:
+    """The brief as the row's Markdown body; every text of the plan is escaped by ``_plain``."""
+
+    parts: list[str] = [_plain(values["text"])] if values.get("text") else []
     facts = [
-        f"**{label}:** {values[key]}" for key, label in (("release", "Release"), ("phase", "Phase")) if values[key]
+        f"**{label}:** {_plain(values[key])}"
+        for key, label in (("release", "Release"), ("phase", "Phase"))
+        if values[key]
     ]
     if facts:
         parts.append("\n".join(facts))
-    done = [f"- [ ] {entry}" for entry in values.get("done_when") or []]
+    done = [f"- [ ] {_plain(entry)}" for entry in values.get("done_when") or []]
     if done:
         parts.append("\n".join(["**Done when**", *done]))
     if values.get("specs"):
-        parts.append("**Implements:** " + ", ".join(f"{s['name']} ({s['id']})" for s in values["specs"]))
+        parts.append(
+            "**Implements:** " + ", ".join(f"{_plain(s['name'])} ({_plain(s['id'])})" for s in values["specs"])
+        )
     parts.append(f"_Plan item `{node_id}`, kept up to date by Graphico._")
     return "\n\n".join(parts)
 
@@ -236,7 +260,8 @@ class _Pass:
         self.fresh: set[str] = set()  # made in this pass: their own, still to-do
         self.failed: set[str] = set()
         self.deferred: set[str] = set()
-        self.written = 0
+        self.spent = 0  # requests charged to the row budget
+        self.limited = False  # Notion's rate limit stopped the row steps after some rows were written
         self._schema: NotionDataSource | None = None
 
     # The pass --------------------------------------------------------------------------------------------------------
@@ -270,14 +295,14 @@ class _Pass:
             return SUCCEEDED, None
         self.gateway = await self.deps.gateway_for(self.pid)
         await self._database(repair=not any(item.page_id for item in self.ids.values()))
-        await self._each(creates, self._create)
+        await self._each(creates, self._create, CREATE_COST)
         self.desired = self._build()
-        await self._each(self.desired.removed, self._leave)
-        await self._each(self.desired.revived, self._return)
+        await self._each(self.desired.removed, self._leave, FLAG_COST)
+        await self._each(self.desired.revived, self._return, FLAG_COST)
         self.desired = self._build()
-        await self._each(self._diff()[1], self._update)
+        await self._each(self._diff()[1], self._update, UPDATE_COST)
         self.counts.deferred = len(self.deferred)
-        if self.deferred:
+        if self.deferred and self._progress():
             await self.deps.restart(self.project_id)
         return (PARTIAL if self.counts.failed else SUCCEEDED), None
 
@@ -327,9 +352,18 @@ class _Pass:
         await self._relations(source_id, None)
 
     async def _remember(self, database_id: str, source_id: str, url: str) -> None:
-        await self.deps.store.save_database(
+        saved = await self.deps.store.save_database(
             self.target, database_id=database_id, data_source_id=source_id, database_url=url
         )
+        if not saved:  # the target changed, or a concurrent pass stored its own database first
+            log_event(
+                logger,
+                WARNING,
+                "api.notion_plan.sync.database_not_saved",
+                project_id=self.project_id,
+                database_id=database_id,
+            )
+            raise TargetChangedError
         self.target = replace(self.target, database_id=database_id, data_source_id=source_id, database_url=url)
 
     async def _live_source(self, database_id: str) -> str:
@@ -376,19 +410,35 @@ class _Pass:
 
     # Rows ------------------------------------------------------------------------------------------------------------
 
-    async def _each(self, nodes: Sequence[str], action: Callable[[str], Awaitable[bool]]) -> None:
-        """Run ``action`` for each node while the pass has room; the nodes left are deferred. An action answers false
-        when it wrote nothing (the row waits for something else)."""
+    def _progress(self) -> int:
+        """Rows this pass really wrote; refused and vanished rows are not progress that makes a new pass worth it."""
 
-        for node in nodes:
-            if self.written >= MAX_ROWS_PER_PASS:
+        counts = self.counts
+        return counts.created + counts.updated + counts.commented + counts.removed
+
+    async def _each(self, nodes: Sequence[str], action: Callable[[str], Awaitable[bool]], cost: int) -> None:
+        """Run ``action`` for each node while the pass has request budget; the nodes left are deferred. An action
+        answers false when it wrote nothing (the row waits, or was refused or settled as gone) and costs one request. A
+        rate limit after some rows were written ends the row steps and defers the rest; with nothing written it fails
+        the pass."""
+
+        for index, node in enumerate(nodes):
+            if self.limited or self.spent + cost > REQUEST_BUDGET:
                 self.deferred.add(node)
                 continue
-            if await self._guard(node, action(node)):
-                self.written += 1
+            try:
+                done = await self._guard(node, action(node))
+            except NotionError as error:
+                if error.code is not NotionCode.RATE_LIMITED or not self._progress():
+                    raise
+                self.limited = True
+                self.deferred.update(nodes[index:])
+                continue
+            self.spent += cost if done else REFUSED_COST
 
     async def _guard(self, node: str, call: Awaitable[bool]) -> bool:
-        """Item errors end the item, not the pass: Notion's 400 fails it and a trashed row means a person removed it."""
+        """Item errors end the item, not the pass: Notion's 400 fails it, a trashed row means a person removed it, and a
+        row that is not found while its database is there was purged. Only an action that wrote answers true."""
 
         try:
             return await call
@@ -398,18 +448,28 @@ class _Pass:
             elif error.code is NotionCode.PAGE_GONE:
                 await self._gone(node)
             elif error.code is NotionCode.NOT_SHARED:
+                item = self.ids.get(node)
+                if item is None or item.page_id is None:
+                    await self._unshared()  # a create found nothing: the database is what is not there
+                    raise
                 await self._unshared()
+                await self._gone(node)
             else:
                 raise
-        return True
+        return False
 
     async def _unshared(self) -> None:
-        """A write found nothing: when the database is in the trash say so, else it is a share that was taken back."""
+        """A write found nothing: when the database is in the trash or no longer shared say so (as the pass start does),
+        else the database is there and the answer is about the row."""
 
-        database = await self.gateway.database(str(self.target.database_id))
+        try:
+            database = await self.gateway.database(str(self.target.database_id))
+        except NotionError as error:
+            if error.code is NotionCode.NOT_SHARED:
+                await self._lost()
+            raise
         if database.in_trash:
             await self._lost()
-        raise NotionError(NotionCode.NOT_SHARED)
 
     async def _store(self, node: str, **columns: Any) -> None:
         await self.deps.store.update_item(self.target, node, **columns)
@@ -496,7 +556,7 @@ class _Pass:
         page_id = str(self.ids[node].page_id)
         if (await self.gateway.page(page_id)).in_trash:
             await self._gone(node)  # a trashed row is settled once, not failed in every pass
-            return True
+            return False
         await self.gateway.update_page(page_id, properties={"Removed": {"checkbox": removed}})
         await self.gateway.create_comment(page_id, _REMOVED_LINE if removed else _RETURNED_LINE)
         now = self.deps.now()
@@ -521,7 +581,7 @@ class _Pass:
         page = await self.gateway.page(page_id)
         if page.in_trash:
             await self._gone(node)
-            return True
+            return False
         if await self._is_to_do(page.properties.get("Status")):
             await self._overwrite(node, page_id, values)
             self.counts.updated += 1

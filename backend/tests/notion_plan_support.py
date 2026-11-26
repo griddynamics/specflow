@@ -21,7 +21,7 @@ from graph.plan.reader import LoadedPlan
 from jira_sync_support import T0, basic_plan
 from notion.fake import ROOT_PAGE_ID, FakeNotionGateway, normal
 from notion.model import NotionDataSource, NotionPage
-from notion.reasons import NotionError
+from notion.reasons import NotionCode, NotionError
 
 PARENT_ID = ROOT_PAGE_ID
 PARENT_URL = "https://www.notion.so/Specflow-Notion-Lab-423ed33606458"
@@ -64,6 +64,19 @@ class PlanNotion(FakeNotionGateway):
     def __init__(self) -> None:
         super().__init__()
         self.synced: list[str] = []
+        self._after: dict[str, tuple[int, NotionCode]] = {}
+
+    def fail_after(self, method: str, calls: int, code: NotionCode) -> None:
+        """The call of ``method`` after ``calls`` calls that went through raises ``NotionError(code)`` once."""
+
+        self._after[method] = (calls, code)
+
+    def _enter(self, method: str, *args: Any, **kwargs: Any) -> None:
+        super()._enter(method, *args, **kwargs)
+        rule = self._after.get(method)
+        if rule is not None and len(self.called(method)) > rule[0]:
+            del self._after[method]
+            raise NotionError(rule[1])
 
     async def create_database(self, parent_page_id: str, title: str, properties: Mapping[str, Any]) -> Any:
         database = await super().create_database(parent_page_id, title, properties)
@@ -123,6 +136,8 @@ class PlanNotion(FakeNotionGateway):
         """The row whose ``Graphico ID`` is ``node_id``."""
 
         for page_id in self.rows[self.source().id]:
+            if normal(page_id) not in self.pages:  # purged
+                continue
             page = self.pages[normal(page_id)]
             text = "".join(p.get("plain_text", "") for p in page.properties["Graphico ID"].get("rich_text") or [])
             if text == node_id:
@@ -133,6 +148,12 @@ class PlanNotion(FakeNotionGateway):
         page = self.row(node_id)
         status = {"id": "Status", "type": "status", "status": {"id": option, "name": OPTIONS[option]}}
         self.pages[page.id] = replace(page, properties={**page.properties, "Status": status})
+
+    def purge(self, node_id: str) -> None:
+        """The row was deleted for good: Notion no longer finds its page."""
+
+        page = self.row(node_id)
+        del self.pages[page.id]
 
     def trash(self, node_id: str) -> None:
         page = self.row(node_id)
@@ -174,13 +195,18 @@ class FakeStore:
 
     async def save_database(
         self, target: PlanTargetView, *, database_id: str, data_source_id: str, database_url: str
-    ) -> None:
+    ) -> bool:
+        """The conditional update of ``DbStore``: only while the stored database is the one the pass started with."""
+
         if self.changed or self.target is None or target.project_id != self.target.project_id:
-            raise TargetChangedError
+            return False
+        if self.target.database_id != target.database_id:
+            return False
         self.saved.append({"database_id": database_id, "data_source_id": data_source_id})
         self.target = replace(
             self.target, database_id=database_id, data_source_id=data_source_id, database_url=database_url
         )
+        return True
 
     async def reset_database(self, target: PlanTargetView) -> None:
         if self.changed or self.target is None or target.project_id != self.target.project_id:
