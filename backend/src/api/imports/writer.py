@@ -15,7 +15,10 @@ import hashlib
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
+from datetime import datetime
 from typing import Any, Literal
+
+from sqlalchemy.exc import IntegrityError
 
 from api.contained import Contained
 from api.imports.model import ImportJob, OriginalTooLargeError, SourceGoneError
@@ -63,8 +66,18 @@ class ImportWriter:
         self._start_parse = start_parse
         self._parser = f"{job.kind}-convert"
 
-    async def declare(self, external_id: str, name: str, *, media_type: str = MARKDOWN_MEDIA_TYPE) -> None:
-        """List an item the importer is going to read (``pending``), so progress shows its total early."""
+    async def declare(
+        self,
+        external_id: str,
+        name: str,
+        *,
+        media_type: str = MARKDOWN_MEDIA_TYPE,
+        size_bytes: int | None = None,
+        modified_time: datetime | None = None,
+    ) -> None:
+        """List an item the importer is going to read (``pending``), so progress shows its total early.
+        ``size_bytes`` and ``modified_time`` are what the provider listed; they stay on the item for the re-add skip
+        (``link_stored``)."""
 
         async with self._transaction() as session:
             if await sources_db.lock_importing_connection(session, self._job.project_id, self._job.source_id) is None:
@@ -76,7 +89,41 @@ class ImportWriter:
                 external_id=external_id,
                 name=name,
                 mime_type=media_type,
+                size_bytes=size_bytes,
+                modified_time=modified_time,
             )
+
+    async def link_stored(self, external_id: str, name: str, *, size_bytes: int, modified_time: datetime) -> bool:
+        """The re-add skip (Dropbox, decision DB12): when an item of this project with the same ``external_id``,
+        ``modified_time`` and ``size_bytes`` still links a document, end this item ``duplicate`` linking that document
+        and return ``True`` (nothing is downloaded); ``False`` leaves the item as it is. A document (or the source that
+        held it) removed between the find and the link is an integrity error: the transaction is rolled back and this
+        returns ``False``, so the file is downloaded. ``SourceGoneError`` when this import's source is gone."""
+
+        project_id = self._job.project_id
+        try:
+            async with self._transaction() as session:
+                if await sources_db.lock_importing_connection(session, project_id, self._job.source_id) is None:
+                    raise SourceGoneError
+                document_id = await imports_db.find_stored_document(
+                    session, project_id, external_id=external_id, modified_time=modified_time, size_bytes=size_bytes
+                )
+                if document_id is None:
+                    return False
+                item_id = await imports_db.declare_item(
+                    session,
+                    project_id,
+                    self._job.source_id,
+                    external_id=external_id,
+                    name=name,
+                    mime_type=MARKDOWN_MEDIA_TYPE,
+                    size_bytes=size_bytes,
+                    modified_time=modified_time,
+                )
+                await sources_db.finish_item(session, item_id, "duplicate", document_id=document_id)
+        except IntegrityError:
+            return False
+        return True
 
     async def add(
         self,

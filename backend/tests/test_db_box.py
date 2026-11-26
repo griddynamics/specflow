@@ -4,47 +4,13 @@ and the transaction ``connection_store`` opens. No database; the live behaviour 
 
 from __future__ import annotations
 
-import uuid
-from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from typing import Any, cast
-
-from sqlalchemy.dialects import postgresql
 
 from box.client import BoxUser
 from box.connections import StoredConnection
 from db.box import ConnectionRows, connection_store
 from db.models import BoxConnection
-
-USER = uuid.UUID(int=1)
-NOW = datetime(2026, 1, 1, tzinfo=UTC)
-LATER = datetime(2026, 3, 1, tzinfo=UTC)
-
-
-class Result:
-    def __init__(self, row: object | None) -> None:
-        self._row = row
-
-    def scalar_one_or_none(self) -> object | None:
-        return self._row
-
-    def first(self) -> object | None:
-        return self._row
-
-
-class Session:
-    """Records each statement compiled for Postgres (with its literal parameters) and answers with ``row``."""
-
-    def __init__(self, row: object | None = None) -> None:
-        self.row = row
-        self.sql: list[str] = []
-        self.params: list[dict[str, Any]] = []
-
-    async def execute(self, statement: Any) -> Result:
-        compiled = statement.compile(dialect=postgresql.asyncpg.dialect())
-        self.sql.append(str(compiled))
-        self.params.append(dict(compiled.params))
-        return Result(self.row)
+from db_connection_support import LATER, NOW, USER, Session, check_connection_store, check_expire_and_delete
 
 
 def rows(session: Session) -> ConnectionRows:
@@ -100,26 +66,10 @@ async def test_rotate_expire_and_delete_each_filter_on_the_user() -> None:
     session = Session(model())
 
     await rows(session).rotate(USER, refresh_token=b"new", refresh_expires_at=LATER, now=LATER)
-    await rows(session).expire(USER, now=LATER)
-    assert await rows(session).delete(USER) is True
+    await check_expire_and_delete(rows, session, "box_connections")
 
-    assert [text.split(" ", 1)[0] for text in session.sql] == ["UPDATE", "UPDATE", "DELETE"]
-    assert all("box_connections.user_id = $" in text for text in session.sql)
     assert "refresh_token" in session.sql[0] and "status" in session.sql[1] and "RETURNING" in session.sql[2]
-    assert await rows(Session()).delete(USER) is False
 
 
 async def test_connection_store_yields_the_rows_of_the_transaction_session() -> None:
-    session = Session()
-    opened: list[str] = []
-
-    @asynccontextmanager
-    async def transaction() -> Any:
-        opened.append("begin")
-        yield session
-        opened.append("commit")
-
-    async with connection_store(transaction)() as store:
-        assert isinstance(store, ConnectionRows) and opened == ["begin"]
-
-    assert opened == ["begin", "commit"]
+    await check_connection_store(connection_store, ConnectionRows)

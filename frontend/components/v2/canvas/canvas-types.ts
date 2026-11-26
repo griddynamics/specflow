@@ -31,7 +31,8 @@ export type ConnectorKind =
   | "linear_project"
   | "linear_gaps"
   | "linear_plan"
-  | "box";
+  | "box"
+  | "dropbox";
 
 /** What the open gaps say, from `gaps.check` and the first page of `gaps.list` (`more`: the page was full, so the counts are "at least"). */
 export interface GapsSummary {

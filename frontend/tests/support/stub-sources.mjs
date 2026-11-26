@@ -316,7 +316,7 @@ export function createSourcesModel({ docs, sourcesOf }) {
     removed.set(pid, (removed.get(pid) ?? 0) + n);
   }
 
-  /** spec: {kind:"gdrive"|"upload"|"box"|"confluence"|"jira_epic", link? (not an upload), name? (an upload batch's own name too), listing?, failure_reason?, open?, expected?, files:[{name,state,reason?,category?,holder?}]}. Returns the id. */
+  /** spec: {kind:"gdrive"|"upload"|"box"|"dropbox"|"confluence"|"jira_epic", link? (not an upload), name? (an upload batch's own name too), listing?, failure_reason?, open?, expected?, files:[{name,state,reason?,category?,holder?}]}. Returns the id. */
   function seed(pid, spec) {
     const files = (spec.files ?? []).map((f) => ({
       id: crypto.randomUUID(),
@@ -348,7 +348,8 @@ export function createSourcesModel({ docs, sourcesOf }) {
       return b.id;
     }
     const finished = files.filter((f) => f.state !== "waiting" && f.state !== "processing").length;
-    const kind = spec.kind === "box" || spec.kind === "confluence" || spec.kind === "jira_epic" ? spec.kind : "gdrive";
+    const kind =
+      spec.kind === "box" || spec.kind === "dropbox" || spec.kind === "confluence" || spec.kind === "jira_epic" ? spec.kind : "gdrive";
     const row = stamp({
       id: crypto.randomUUID(),
       kind,

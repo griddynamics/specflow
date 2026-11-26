@@ -4,7 +4,7 @@
 // states go to the folder in `BOX_SCREENS` when it is set (never inside the repository).
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { ADD, bodiesOf, canvas, dialog, nodes, STATE, unique } from "./canvas-support";
+import { ADD, canvas, checkPickAndAdd, dialog, nodes, STATE, unique } from "./canvas-support";
 import {
   allowConsoleErrors,
   allowOrigin,
@@ -202,47 +202,15 @@ test.describe("Box: the card, the Box link form and the node", { tag: "@producti
       await expect(form.getByRole("alert")).toContainText(words);
       await page.unroute(`**/api/backend/projects/${pid}/sources/box/check`);
     }
-    await link.fill(FOLDER);
-    await form.getByRole("button", { name: CHECK_LINK }).click();
-    await expect(form.getByText("Folder Project files · 12 files (1.2 MB), 3 skipped (other types), 2 folders.")).toBeVisible();
-    await expect(form.getByRole("alert")).toHaveCount(0);
-    const list = form.getByRole("group", { name: "Files to add" });
-    await expect(list.getByRole("checkbox")).toHaveCount(12);
-    await expect(list.getByRole("checkbox", { checked: true })).toHaveCount(12);
-    await shot(page, "box-form-checked");
-    await link.fill(`${FOLDER}/`); // a different link is a new check
-    await expect(form.getByRole("button", { name: CHECK_LINK })).toBeVisible();
-    await link.fill("https://app.box.com/folder/9999");
-    await form.getByRole("button", { name: CHECK_LINK }).click();
-    await expect(form.getByText(/Folder Big archive · 1000 files \(.*\), 20 skipped \(other types\), 300 folders\./)).toBeVisible();
-    await expect(form.getByText(/more files than one import takes/)).toBeVisible();
-    await shot(page, "box-form-capped");
-    await link.fill(FOLDER);
-    await form.getByRole("button", { name: CHECK_LINK }).click();
-    await expect(form.getByText(/^Folder Project files · 12 files/)).toBeVisible();
-    await list.getByRole("checkbox", { name: /File 2\.docx/ }).uncheck();
-    await list.getByRole("checkbox", { name: /File 5\.html/ }).uncheck();
-    await expect(form.getByText("10 of 12 files")).toBeVisible();
-    await shot(page, "box-form-unchecked");
-    await form.getByRole("button", { name: "Select none" }).click();
-    await expect(form.getByText("No files")).toBeVisible();
-    await expect(form.getByRole("button", { name: "Add source" })).toBeDisabled(); // nothing to add
-    await form.getByRole("button", { name: "Select all" }).click();
-    await list.getByRole("checkbox", { name: /File 2\.docx/ }).uncheck();
-    await list.getByRole("checkbox", { name: /File 5\.html/ }).uncheck();
-    await form.getByRole("button", { name: "Add source" }).click();
-    await expect(form).toBeHidden();
-    const node = nodes(page).filter({ hasText: "Project files" });
-    await expect(node).toHaveAttribute(STATE, "busy");
-    await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
-    await expect(node).toContainText("13 files · Box"); // 12 listed - 2 left out + 3 skipped
-    const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/box`);
-    expect(bodiesOf(adds)).toEqual([{ link: FOLDER, exclude: ["1002", "1005"] }]);
-    await node.getByRole("button").click();
-    const detail = dialog(page, "Project files");
-    await expect(detail.getByText(/^13 files\. Imported when it was added/)).toBeVisible();
-    await expect(detail.getByRole("link", { name: "Open in Box" })).toHaveAttribute("href", FOLDER);
-    await expect(detail.getByRole("button", { name: "Remove" })).toBeVisible();
+    await checkPickAndAdd(page, form, requests, pid, {
+      app: "box",
+      name: "Box",
+      folder: FOLDER,
+      big: "https://app.box.com/folder/9999",
+      exclude: ["1002", "1005"],
+      href: FOLDER,
+      shot,
+    });
   });
 
   test("the node: importing counts files, done opens the Box link, and no access offers Reconnect Box", async ({ page }) => {

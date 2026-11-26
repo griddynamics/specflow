@@ -244,6 +244,16 @@
       "path": "/projects/{pid}/sources/box"
     },
     {
+      "id": "check_dropbox_link_api_v1_projects__pid__sources_dropbox_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/dropbox/check"
+    },
+    {
+      "id": "add_dropbox_source_api_v1_projects__pid__sources_dropbox_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/dropbox"
+    },
+    {
       "id": "start_upload_batch_api_v1_projects__pid__sources_uploads_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/uploads"
@@ -512,6 +522,26 @@
       "id": "disconnect_box_api_v1_integrations_box_delete",
       "method": "DELETE",
       "path": "/integrations/box"
+    },
+    {
+      "id": "get_dropbox_connection_api_v1_integrations_dropbox_get",
+      "method": "GET",
+      "path": "/integrations/dropbox"
+    },
+    {
+      "id": "authorize_dropbox_api_v1_integrations_dropbox_authorize_post",
+      "method": "POST",
+      "path": "/integrations/dropbox/authorize"
+    },
+    {
+      "id": "dropbox_callback_api_v1_integrations_dropbox_callback_post",
+      "method": "POST",
+      "path": "/integrations/dropbox/callback"
+    },
+    {
+      "id": "disconnect_dropbox_api_v1_integrations_dropbox_delete",
+      "method": "DELETE",
+      "path": "/integrations/dropbox"
     },
     {
       "id": "list_project_repositories_api_v1_projects__pid__repositories_get",

@@ -19,6 +19,7 @@ const LOGO = {
   jira_epic: "jira",
   linear_project: "linear",
   box: "box",
+  dropbox: "dropbox",
 } as const;
 
 export function SourceLogo({ kind }: Readonly<{ kind: Source["kind"] }>) {

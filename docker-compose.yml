@@ -474,6 +474,10 @@ services:
       BOX_OAUTH_CLIENT_ID: "${BOX_OAUTH_CLIENT_ID:-}"
       BOX_OAUTH_CLIENT_SECRET: "${BOX_OAUTH_CLIENT_SECRET:-}"
       BOX_TOKEN_KEY: "${BOX_TOKEN_KEY:-}"
+      # Dropbox integration: the app key turns it on (docs/configuration.md "Dropbox integration").
+      DROPBOX_OAUTH_CLIENT_ID: "${DROPBOX_OAUTH_CLIENT_ID:-}"
+      DROPBOX_OAUTH_CLIENT_SECRET: "${DROPBOX_OAUTH_CLIENT_SECRET:-}"
+      DROPBOX_TOKEN_KEY: "${DROPBOX_TOKEN_KEY:-}"
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     volumes:

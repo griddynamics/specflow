@@ -75,6 +75,10 @@ export const CANVAS_COPY = {
   boxSelectAll: "Select all",
   boxSelectNone: "Select none",
   boxCapped: "The folder has more files than one import takes. Only the first ones are listed and imported.",
+  // Dropbox link
+  dropboxLink: "Dropbox link",
+  dropboxLinkHint: "A shared link, or the address of a folder or file in your Dropbox",
+  openDropbox: "Open in Dropbox",
   // Jira epic
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",
@@ -152,6 +156,11 @@ export const CANVAS_COPY = {
     "Sign in to Box and allow Graphico.",
     "If Box says the app is disabled, ask your Box admin to enable it. Graphico brings you back here.",
   ],
+  howDropbox: [
+    "Press Connect your Dropbox account.",
+    "Sign in to Dropbox and allow Graphico to view your files.",
+    "Graphico brings you back here.",
+  ],
   // Dialogs
   close: "Cancel",
   remove: "Remove",
@@ -166,7 +175,15 @@ export const CANVAS_COPY = {
   app: "App",
   removeFailed: "It could not be removed. Try again.",
   // The files inside a source, and renaming an upload
-  filesTitle: { upload: "Files", gdrive: "Files", confluence: "Pages", jira_epic: "Issues", linear_project: "Issues", box: "Files" },
+  filesTitle: {
+    upload: "Files",
+    gdrive: "Files",
+    confluence: "Pages",
+    jira_epic: "Issues",
+    linear_project: "Issues",
+    box: "Files",
+    dropbox: "Files",
+  },
   filesLabel: "Files in this source",
   filesNone: "Nothing in this source yet.",
   filesFailed: "The files could not be read.",

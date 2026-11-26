@@ -11,28 +11,36 @@
 //   /s/password                  422 box_link_password
 //   /s/<token>, /v/<name>        a shared folder "Shared folder", 5 files
 //   another host, http, a path   422 box_link_invalid
-import { StubError } from "./stub-members.mjs";
+import { createConnectionModel } from "./stub-oauth.mjs";
 
 export const AUTHORIZE_URL = "https://account.box.com/api/oauth2/authorize";
-const STATE_SIGNATURE = "stub-signature";
-const ROUTE_STATUS = { box_state_invalid: 400, box_code_invalid: 400, box_unreachable: 502, box_unavailable: 503 };
 const MAX_FILES = 1000;
 
-const CATEGORIES = ["pdf", "word", "powerpoint", "excel", "html", "markdown", "csv", "text", "note"];
-const listing = (count, skipped, folders, { capped = false } = {}) => {
-  const files = Array.from({ length: count }, (_, i) => ({
-    id: String(1000 + i + 1),
-    name: `File ${String(i + 1)}.${["pdf", "docx", "pptx", "xlsx", "html", "md", "csv", "txt", "boxnote"][i % 9]}`,
-    path: i % 3 === 2 ? "design" : "",
-    category: CATEGORIES[i % 9],
-  }));
-  return { files, files_capped: capped, skipped, folders, bytes: count * 102400, capped };
-};
+const FILE_TYPES = [
+  ["pdf", "pdf"],
+  ["docx", "word"],
+  ["pptx", "powerpoint"],
+  ["xlsx", "excel"],
+  ["html", "html"],
+  ["md", "markdown"],
+  ["csv", "csv"],
+  ["txt", "text"],
+];
 
-const validation = (loc) => new StubError(422, "validation_failed", { errors: [{ loc, type: "value_error" }] });
-const only = (body, keys) =>
-  typeof body === "object" && body !== null && !Array.isArray(body) && Object.keys(body).every((k) => keys.includes(k));
-const sameSite = (r) => typeof r === "string" && r.startsWith("/") && !r.startsWith("//") && !/[\\\s]/.test(r) && r.length <= 2048;
+/** The listing body of a check (Box, Dropbox): `count` files, every ninth one the app's own kind (`native`: [extension, category]), every third in "design". */
+export const fileListing =
+  (idOf, native) =>
+  (count, skipped, folders, { capped = false } = {}) => {
+    const types = [...FILE_TYPES, native];
+    const files = Array.from({ length: count }, (_, i) => ({
+      id: idOf(i + 1),
+      name: `File ${String(i + 1)}.${types[i % 9][0]}`,
+      path: i % 3 === 2 ? "design" : "",
+      category: types[i % 9][1],
+    }));
+    return { files, files_capped: capped, skipped, folders, bytes: count * 102400, capped };
+  };
+const listing = fileListing((n) => String(1000 + n), ["boxnote", "note"]);
 
 /** @returns {{status: number, code: string} | {status: 200, body: object}} */
 export function checkBox(link) {
@@ -72,81 +80,12 @@ export function checkBox(link) {
   return { status: 422, code: "box_link_invalid" };
 }
 
-/** The caller's Box connection. `roleOf` is accepted for symmetry with the other models; no route here needs a role. */
-export function createBoxModel() {
-  /** @type {{enabled: boolean, connection: {status: string, name: string, enterprise_name: string | null, connected_at?: string, last_used_at?: string} | null,
-   *   callbackError: string | null}} */
-  const state = {
-    enabled: true,
-    connection: null, // null or {status: "active" | "expired", name, enterprise_name, connected_at?}
-    callbackError: null,
-  };
-
-  function connection() {
-    const mine = state.enabled ? state.connection : null;
-    return {
-      enabled: state.enabled,
-      connected: mine !== null,
-      status: mine?.status ?? null,
-      name: mine?.name ?? null,
-      enterprise_name: mine?.enterprise_name ?? null,
-      connected_at: mine === null ? null : (mine.connected_at ?? "2026-11-20T09:30:00Z"),
-      last_used_at: mine === null ? null : (mine.last_used_at ?? null),
-    };
-  }
-
-  const asEnabled = () => {
-    if (!state.enabled) throw new StubError(503, "box_unavailable");
-  };
-
-  function authorize(body) {
-    if (!only(body, ["return_to"]) || !sameSite(body.return_to)) throw validation(["body", "return_to"]);
-    asEnabled();
-    const payload = Buffer.from(
-      JSON.stringify({ u: "u1", r: body.return_to, p: "authorize", e: Math.floor(Date.now() / 1000) + 600 }),
-    ).toString("base64url");
-    const url = new URL(AUTHORIZE_URL);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("client_id", "stub-client");
-    url.searchParams.set("scope", "root_readwrite");
-    url.searchParams.set("state", `nonce.${payload}.${STATE_SIGNATURE}`);
-    return { url: url.href };
-  }
-
-  function stateOf(raw) {
-    const [, payload, signature] = String(raw).split(".");
-    if (signature !== STATE_SIGNATURE) throw new StubError(400, "box_state_invalid");
-    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    if (parsed.p !== undefined && parsed.p !== "authorize") throw new StubError(400, "box_state_invalid");
-    return parsed.r;
-  }
-
-  function callback(body) {
-    if (!only(body, ["code", "state"]) || typeof body.code !== "string" || typeof body.state !== "string" || body.code === "")
-      throw validation(["body"]);
-    asEnabled();
-    if (state.callbackError !== null) throw new StubError(ROUTE_STATUS[state.callbackError] ?? 400, state.callbackError);
-    const r = stateOf(body.state);
-    state.connection = { status: "active", name: "Dana Example", enterprise_name: "Acme Corp", connected_at: new Date().toISOString() };
-    return { connection: connection(), return_to: r };
-  }
-
-  function disconnect() {
-    asEnabled();
-    state.connection = null;
-  }
-
-  /** Test seam (`POST /seed-box`): `reset`, `enabled`, `connection` (null or {status, name?, enterprise_name?}), `callbackError`. */
-  /** @param {{reset?: boolean, enabled?: boolean, connection?: {status: string, name?: string, enterprise_name?: string | null} | null, callbackError?: string | null}} spec */
-  function seed({ reset, enabled, connection: next, callbackError }) {
-    if (reset === true) Object.assign(state, { enabled: true, connection: null, callbackError: null });
-    if (enabled !== undefined) state.enabled = enabled;
-    if (callbackError !== undefined) state.callbackError = callbackError;
-    if (next !== undefined) {
-      state.connection =
-        next === null ? null : { name: "Dana Example", enterprise_name: "Acme Corp", connected_at: "2026-11-20T09:30:00Z", ...next };
-    }
-  }
-
-  return { state, connection, authorize, callback, disconnect, seed };
-}
+/** The caller's Box connection (see `createConnectionModel`; the seam is `POST /seed-box`). */
+export const createBoxModel = () =>
+  createConnectionModel({
+    app: "box",
+    authorizeUrl: AUTHORIZE_URL,
+    params: { scope: "root_readwrite" },
+    workspaceKey: "enterprise_name",
+    workspaceName: "Acme Corp",
+  });

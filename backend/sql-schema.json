@@ -323,6 +323,41 @@
         "source_id"
       ]
     },
+    "dropbox_connections": {
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "account_id": {
+          "type": "text"
+        },
+        "name": {
+          "type": "text"
+        },
+        "team_id": {
+          "type": "text"
+        },
+        "team_name": {
+          "type": "text"
+        },
+        "refresh_token": {
+          "type": "bytes"
+        },
+        "status": {
+          "type": "text"
+        },
+        "connected_at": {
+          "type": "timestamp"
+        },
+        "last_used_at": {
+          "type": "timestamp"
+        },
+        "expired_at": {
+          "type": "timestamp"
+        }
+      }
+    },
     "edge": {
       "columns": {
         "id": {

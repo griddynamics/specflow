@@ -23,11 +23,12 @@ import pytest_asyncio
 from api.imports import box as box_module
 from api.imports.box import BoxImporter
 from api.schemas import BOX_EXCLUDE_MAX
-from atlassian_import_support import SOURCE_ID, FakeImports, source_card
+from atlassian_import_support import SOURCE_ID, FakeImports
 from box_import_support import MEMBER, BoxWriter, FakeConnections, NoteBox, as_writer, file_entry, folder_entry
 from box_support import ENTERPRISE_ID, SHARED_ITEM_FOLDER, SHARED_LINK_CANARY
 from db import source_files
 from integrations_db_fakes import FakeIntegrationsDb
+from source_rig_support import wire_source_rig
 from specflow_api_agent_support import ALPHA, agent_env, log_haystack, serve_agent
 from test_api_atlassian_routes import call, error_of
 
@@ -46,28 +47,14 @@ async def rig(monkeypatch, valid_env):
         box.items["2002"] = [file_entry("3", "b.docx")]
         box.content["1"] = b"%PDF-1.7"
         box.shared[SHARED_LINK] = {**SHARED_ITEM_FOLDER, "name": CANARY}
-        runtime, repo = served.runtime, served.repo
+        runtime = served.runtime
         connections, integrations, imports = FakeConnections(box), FakeIntegrationsDb(), FakeImports()
         integrations.install(monkeypatch)
         integrations.put(uuid.UUID(ALPHA), "box", MEMBER, workspace_id=ENTERPRISE_ID)
         runtime.box = connections
         runtime.imports = imports
 
-        async def source_summary(_session: Any, _project: uuid.UUID, source_id: uuid.UUID) -> Any:
-            added = imports.added[-1] if imports.added else {"name": "", "link": ""}
-            card = source_card("box", served.users["alice"].id, added["name"], added["link"])
-            return card if source_id == SOURCE_ID else None
-
-        monkeypatch.setattr(source_files, "source_summary", source_summary)
-        ben = await repo.upsert_user(
-            None, SimpleNamespace(subject="user:ben@example.com", email="ben@example.com", name=None)
-        )
-        await repo.upsert_user(
-            None, SimpleNamespace(subject="user:carol@example.com", email="carol@example.com", name=None)
-        )
-        alpha = uuid.UUID(ALPHA)
-        repo.members.add((alpha, ben.id))
-        repo.roles[(alpha, ben.id)] = "collaborator"
+        alpha, ben = await wire_source_rig(monkeypatch, served, "box", imports)
         yield SimpleNamespace(
             http=served.client,
             runtime=runtime,

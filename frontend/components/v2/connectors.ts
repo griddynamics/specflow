@@ -2,8 +2,17 @@
 // V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
 // link (08), the Jira epic (09), the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), Linear: project source, gap issues, plan destination (LINEAR). To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
-import { boxNodes, confluenceNodes, driveNodes, jiraEpicNodes, linearProjectNodes, uploadNodes } from "./canvas/nodes-sources";
+import {
+  boxNodes,
+  confluenceNodes,
+  driveNodes,
+  dropboxNodes,
+  jiraEpicNodes,
+  linearProjectNodes,
+  uploadNodes,
+} from "./canvas/nodes-sources";
 import { BoxForm } from "./canvas/BoxForm";
+import { DropboxForm } from "./canvas/DropboxForm";
 import { githubNodes } from "./canvas/nodes-github";
 import { ConfluenceForm } from "./canvas/ConfluenceForm";
 import { JiraEpicForm } from "./canvas/JiraEpicForm";
@@ -114,6 +123,18 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
     Form: BoxForm,
     nodes: boxNodes,
+  },
+  {
+    kind: "dropbox",
+    zone: "graph",
+    name: "Dropbox link",
+    line: "A folder, a file or a shared link",
+    mark: "dropbox",
+    app: "dropbox",
+    title: "Add a Dropbox link",
+    check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
+    Form: DropboxForm,
+    nodes: dropboxNodes,
   },
   // The Slack channel IS the project's Slack integration (it is bound from inside Slack), so the form needs no app first.
   {

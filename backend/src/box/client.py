@@ -24,6 +24,7 @@ from pydantic import SecretStr
 
 from box.codes import BoxCode, BoxError
 from integrations.oauth_client import OAuthHttpClient
+from integrations.pacing import BACKOFF_SECONDS, WAIT_BUDGET_SECONDS, WaitBudget, retry_after
 
 AUTHORIZE_URL: Final = "https://account.box.com/api/oauth2/authorize"
 GRANT_URL: Final = "https://api.box.com/oauth2/token"
@@ -34,9 +35,7 @@ MANAGE_URL: Final = "https://app.box.com/account/security"  # where a user lists
 TIMEOUT_SECONDS: Final = 30
 REFRESH_TIMEOUT_SECONDS: Final = 10  # shorter: a refresh holds the row lock and a use waits on it
 REFRESH_VALID_SECONDS: Final = 60 * 24 * 3600  # a refresh token lives 60 days (or one use)
-WAIT_BUDGET_SECONDS: Final = 60  # the most one pass (one ``WaitBudget``) waits for throttling and ``202`` in all
 MAX_ATTEMPTS: Final = 4  # tries of one read: the first and up to three after a 429, 5xx or 202
-BACKOFF_SECONDS: Final = (1.0, 2.0, 4.0)  # waited when Box sends no ``Retry-After``
 GRANT_DEAD: Final = "invalid_grant"  # Box's ``error`` for a used, expired, revoked or unknown code or refresh token
 _REDIRECTS: Final = frozenset({301, 302, 303, 307, 308})
 _OAUTH_POSTS: Final = frozenset({GRANT_URL, REVOKE_URL})
@@ -67,22 +66,6 @@ class BoxUser:
     @override
     def __repr__(self) -> str:
         return f"{type(self).__name__}(...)"
-
-
-class WaitBudget:
-    """The seconds a pass may still wait for ``Retry-After`` answers, in all: one throttled import must not hold its
-    slot for long. A wait that does not fit is not made (the read ends ``BoxCode.UNREACHABLE`` or ``NOT_READY``)."""
-
-    def __init__(self, seconds: float = WAIT_BUDGET_SECONDS) -> None:
-        self.left = seconds
-
-    def take(self, wanted: float) -> float | None:
-        """``wanted`` seconds when they fit in what is left (and spends them), else ``None``."""
-
-        if wanted > self.left:
-            return None
-        self.left -= wanted
-        return wanted
 
 
 Response = httpx.Response  # the type of an answer, for ``box.content`` (HTTP stays in this module)
@@ -116,15 +99,6 @@ def body_of(response: httpx.Response) -> dict[str, Any]:
     return body if isinstance(body, dict) else {}
 
 
-def _retry_after(response: httpx.Response) -> float | None:
-    """The seconds a ``Retry-After`` header asks to wait; ``None`` when it is absent or not a number of seconds."""
-
-    try:
-        return max(0.0, float(response.headers["retry-after"]))
-    except (KeyError, ValueError):
-        return None
-
-
 def _bearer(token: SecretStr) -> dict[str, str]:
     return {"Authorization": f"Bearer {token.get_secret_value()}"}
 
@@ -154,6 +128,10 @@ def content_url_ok(url: str) -> bool:
         and parts.path.startswith(_CONTENT_PATH)
         and ".." not in parts.path.split("/")
     )
+
+
+# ``WaitBudget`` and the backoff live in ``integrations.pacing`` (shared with Dropbox, DB18); re-exported here.
+__all__ = ["BACKOFF_SECONDS", "WAIT_BUDGET_SECONDS", "BoxClient", "BoxUser", "TokenGrant", "WaitBudget"]
 
 
 class BoxClient(OAuthHttpClient):
@@ -255,7 +233,7 @@ class BoxClient(OAuthHttpClient):
 
         if attempt >= MAX_ATTEMPTS - 1:
             raise BoxError(give_up)
-        wanted = _retry_after(response)
+        wanted = retry_after(response)
         granted = budget.take(BACKOFF_SECONDS[attempt] if wanted is None else wanted)
         if granted is None:
             raise BoxError(give_up)
