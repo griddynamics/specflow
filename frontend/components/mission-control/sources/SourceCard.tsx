@@ -12,7 +12,7 @@ import { cardView, ringProgress } from "./source-logic";
 import { SourceRing } from "./SourceRing";
 import { truthy } from "@/components/ui/utils";
 
-const LOGO = { gdrive: "googledrive", github: "github", confluence: "confluence", jira_epic: "jira" } as const;
+const LOGO = { gdrive: "googledrive", github: "github", confluence: "confluence", jira_epic: "jira", linear_project: "linear" } as const;
 
 export function SourceLogo({ kind }: Readonly<{ kind: Source["kind"] }>) {
   if (kind === "upload") return <Icon name="upload-simple" size={24} />;

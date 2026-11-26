@@ -9,6 +9,7 @@ import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
 import { CONFLUENCE_WORDS } from "./confluence-logic";
 import { JIRA_EPIC_WORDS } from "./jira-epic-logic";
+import { LINEAR_SOURCE_WORDS } from "./linear-source-logic";
 import type { NodeMapper, NodeView, Stages } from "./canvas-types";
 
 const APP_NAME: Partial<Record<SourceKind, string>> = {
@@ -16,9 +17,10 @@ const APP_NAME: Partial<Record<SourceKind, string>> = {
   gdrive: "Google Drive",
   confluence: "Confluence",
   jira_epic: "Jira",
+  linear_project: "Linear",
 };
 
-const MARK = { upload: "upload", gdrive: "gdrive", confluence: "confluence", jira_epic: "jira" } as const;
+const MARK = { upload: "upload", gdrive: "gdrive", confluence: "confluence", jira_epic: "jira", linear_project: "linear" } as const;
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 
@@ -37,7 +39,7 @@ export function uploadName(s: Pick<Source, "addedAt" | "nameSuffix" | "name">, n
   return `Upload ${sameDay ? clock(s.addedAt) : DAY.format(added)}${suffix}`;
 }
 
-const UNIT: Partial<Record<SourceKind, string>> = { confluence: "page", jira_epic: "issue" };
+const UNIT: Partial<Record<SourceKind, string>> = { confluence: "page", jira_epic: "issue", linear_project: "issue" };
 
 /** A Confluence source counts pages and a Jira epic issues where the others count files. */
 export const unitText = (kind: SourceKind, text: string): string => {
@@ -49,6 +51,7 @@ export const unitText = (kind: SourceKind, text: string): string => {
 const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess: string; failedMeta: string; failed: string }>> = {
   confluence: CONFLUENCE_WORDS,
   jira_epic: JIRA_EPIC_WORDS,
+  linear_project: LINEAR_SOURCE_WORDS,
 };
 
 /** A node of a Jira epic is named by its key ("NWO-12: Checkout redesign" is its full name, in the label and the dialog). */
@@ -92,6 +95,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
   }
   if (state === "failed") {
     const { meta, text } = stoppedWords(s, kind);
+    const reconnectApp = kind === "linear_project" ? "linear" : "atlassian";
     return {
       ...base,
       meta,
@@ -101,7 +105,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
       listing: false,
       label: `${named}: ${meta}`,
       wire: "off",
-      detail: { ...detail, text, reconnect: IMPORT_WORDS[kind] !== undefined && s.failure === "no_access" ? "atlassian" : null },
+      detail: { ...detail, text, reconnect: IMPORT_WORDS[kind] !== undefined && s.failure === "no_access" ? reconnectApp : null },
     };
   }
   const count = unitText(kind, card.countLine);
@@ -120,7 +124,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive" | "confluence" | "jira_epic"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
@@ -128,3 +132,4 @@ export const uploadNodes: NodeMapper = sourcesOf("upload");
 export const driveNodes: NodeMapper = sourcesOf("gdrive");
 export const confluenceNodes: NodeMapper = sourcesOf("confluence");
 export const jiraEpicNodes: NodeMapper = sourcesOf("jira_epic");
+export const linearProjectNodes: NodeMapper = sourcesOf("linear_project");

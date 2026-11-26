@@ -53,6 +53,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | api | The one Atlassian account of the [Jira sync](#jira-sync) (`token` mode). Set both with `ATLASSIAN_SITE_URL`, or none. Not read when `ATLASSIAN_OAUTH_CLIENT_ID` is set. |
 | `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](#jira-sync) (`oauth` mode, which wins over the one account). The client ID turns it on and then needs the secret, a Fernet key, `ATLASSIAN_SITE_URL` and `PUBLIC_URL`. |
 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_TOKEN_KEY` | api, worker-agents | The GitHub App of the [GitHub integration](#github-integration). The client ID turns it on and then needs the secret, the app slug, a Fernet key and `PUBLIC_URL`. |
+| `LINEAR_OAUTH_CLIENT_ID`, `LINEAR_OAUTH_CLIENT_SECRET`, `LINEAR_TOKEN_KEY`, `LINEAR_WEBHOOK_SECRET` | api | The Linear OAuth app of the [Linear integration](#linear-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. The webhook secret is optional. |
 
 ## Settings with a default (D)
 
@@ -681,6 +682,49 @@ private key: Specflow does not use one. On the local stack the URLs start with `
 
 The api and the worker must reach `github.com` and `api.github.com` directly: their clients ignore `HTTPS_PROXY` and
 the other proxy variables (and `.netrc`).
+
+## Linear integration
+
+The Linear integration lets each user connect their own Linear account (OAuth 2.0, actor `user`: every write is made as the
+connected member). A project can then export its plan to a Linear team, import a Linear project as a source and post its
+open questions in Linear. It is off until `LINEAR_OAUTH_CLIENT_ID` is set. The api is the only role that reads these names.
+
+| Name | Rule |
+|---|---|
+| `LINEAR_OAUTH_CLIENT_ID` | The client ID of the Linear OAuth app. A non-blank value turns the integration on. |
+| `LINEAR_OAUTH_CLIENT_SECRET` | The client secret of the app. A secret: keep it in the cluster's secret store. |
+| `LINEAR_TOKEN_KEY` | A Fernet key that encrypts the users' access and refresh tokens and signs the OAuth `state`. Own key: rotating it expires only the Linear connections (each user connects again). |
+| `LINEAR_WEBHOOK_SECRET` | Optional. The signing secret of the app's webhook; it verifies `Linear-Signature` on `POST /api/v1/integrations/linear/webhook`. Unset: that route answers 503 and answers to gap questions are not read back. |
+| `PUBLIC_URL` | The web app's public address. The callback URL is `{PUBLIC_URL}/api/integrations/linear/callback`. |
+
+With the client ID unset the integration is off: the Linear routes answer 503 `linear_unavailable` and the connect card says
+so. A partial set stops the api at start and names the missing variables. The api logs `api.linear.mode` (`mode` `on`)
+at start. Make the key with
+`python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`. Only the api reads these
+names; compose passes them to it. Design: [Linear integration](linear/INDEX.md).
+
+The api must reach `linear.app` and `api.linear.app` directly: its Linear client ignores `HTTPS_PROXY` and the other
+proxy variables (and `.netrc`).
+
+### Register the Linear OAuth app
+
+Register one app per deployment (local, each shared environment): a Linear app has one webhook URL. Only an **admin** of
+the Linear workspace that should own the app can create it. On linear.app: Settings, API, OAuth applications, New.
+
+| Field | Value |
+|---|---|
+| Application name | for example `Graphico (local)` |
+| Callback URL | `{PUBLIC_URL}/api/integrations/linear/callback` |
+| Public | on, so members of other workspaces can connect (a private app installs in the owning workspace only) |
+| Scopes | `read` and `write`. Graphico asks for no `admin` scope. |
+| Webhook URL | `{api public URL}/api/v1/integrations/linear/webhook`: the public https address of the **api**, not the web app's `PUBLIC_URL` (on a local stack, a tunnel to the api port 8000) |
+| Webhook events | Comments (answers to gap questions) and OAuth app authorization events (revocations). Issues is not needed. |
+
+After you create it: copy the client ID to `LINEAR_OAUTH_CLIENT_ID`, the client secret to `LINEAR_OAUTH_CLIENT_SECRET` and
+the webhook signing secret to `LINEAR_WEBHOOK_SECRET`. A workspace can require an admin to approve third-party apps; its
+members cannot connect until an admin approves. Without `LINEAR_WEBHOOK_SECRET` the webhook route answers 503
+`linear_webhook_unavailable` and answers to gap questions in Linear are not read back (the api still reads them when the
+gap target is saved and at start).
 
 ## Document parsing
 

@@ -36,6 +36,8 @@ from agent_contracts import (
     GetTaskPathArgs,
     JiraSyncArgs,
     JiraSyncStatusArgs,
+    LinearSyncArgs,
+    LinearSyncStatusArgs,
     ListAreasArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
@@ -57,6 +59,7 @@ from api.routers import (
     agent,
     agent_gaps,
     agent_jira,
+    agent_linear,
     agent_spec,
     agent_stories,
     agent_writes,
@@ -71,6 +74,10 @@ from api.routers import (
     integrations,
     jira,
     jira_gaps,
+    linear,
+    linear_gaps,
+    linear_plan,
+    linear_webhook,
     me,
     members,
     plan,
@@ -80,6 +87,7 @@ from api.routers import (
     source_batches,
     source_confluence,
     source_jira_epic,
+    source_linear,
     source_removal,
     sources,
     users,
@@ -118,6 +126,8 @@ TOOL_ARGUMENTS: dict[str, Any] = {
     "complete_story": CompleteStoryArgs,
     "sync_to_jira": JiraSyncArgs,
     "jira_sync_status": JiraSyncStatusArgs,
+    "sync_to_linear": LinearSyncArgs,
+    "linear_sync_status": LinearSyncStatusArgs,
 }
 WRITE_TOOLS = (  # POST
     "claim_story",
@@ -127,6 +137,7 @@ WRITE_TOOLS = (  # POST
     "complete_story",
     "answer_gap",
     "sync_to_jira",
+    "sync_to_linear",
 )
 # A tool's second route: answer_gap reads the gap's card (GET) before its dialog, then writes on its own route.
 READ_ROUTES = {GAP_CARD_ROUTE: "answer_gap"}
@@ -148,6 +159,7 @@ WRITE_BODIES = {
     AGENT_ROUTES["report_task"]: {"task_id": "TASK::A::API_LOGIC", "claim_token": "t", "progress": "done"},
     AGENT_ROUTES["complete_story"]: {"story_id": "STORY::A::API", "claim_token": "t", "merge_commit": "a" * 40},
     AGENT_ROUTES["sync_to_jira"]: {},
+    AGENT_ROUTES["sync_to_linear"]: {},
     AGENT_ROUTES["answer_gap"]: {"gap_id": "GAP::X", "option_rank": 1, "updated_at": "2026-11-18T09:00:00+00:00"},
 }
 
@@ -164,14 +176,19 @@ ROUTER_MODULES = (
     agent_writes,
     agent_gaps,
     agent_jira,
+    agent_linear,
     projects,
     members,
     jira,
     jira_gaps,
     github_projects,
+    linear_plan,
+    linear_gaps,
     integrations,
     atlassian,
     github,
+    linear,
+    linear_webhook,
     repositories,
     users,
     documents,
@@ -184,6 +201,7 @@ ROUTER_MODULES = (
     source_batches,
     source_confluence,
     source_jira_epic,
+    source_linear,
     source_removal,
     slack,
 )

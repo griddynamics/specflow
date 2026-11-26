@@ -356,6 +356,21 @@
       }
     }
   },
+  "invalid_cursor:linear_sync_status": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_cursor\",\"message\":\"The cursor is invalid. Start again without a cursor.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_cursor",
+        "message": "The cursor is invalid. Start again without a cursor."
+      }
+    }
+  },
   "jira_not_configured": {
     "content": [
       {
@@ -413,6 +428,66 @@
       "error": {
         "code": "jira_unavailable",
         "message": "Jira sync is not set up on this Specflow server. Ask an administrator to connect an Atlassian account."
+      }
+    }
+  },
+  "linear_not_configured": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"linear_not_configured\",\"message\":\"This project does not sync to Linear. A member sets the Linear target on the project canvas, in the Linear plan node.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "linear_not_configured",
+        "message": "This project does not sync to Linear. A member sets the Linear target on the project canvas, in the Linear plan node."
+      }
+    }
+  },
+  "linear_not_configured:linear_sync_status": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"linear_not_configured\",\"message\":\"This project does not sync to Linear. A member sets the Linear target on the project canvas, in the Linear plan node.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "linear_not_configured",
+        "message": "This project does not sync to Linear. A member sets the Linear target on the project canvas, in the Linear plan node."
+      }
+    }
+  },
+  "linear_unavailable": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"linear_unavailable\",\"message\":\"Linear is not set up on this Specflow server. Ask an administrator to enable the Linear integration.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "linear_unavailable",
+        "message": "Linear is not set up on this Specflow server. Ask an administrator to enable the Linear integration."
+      }
+    }
+  },
+  "linear_unavailable:linear_sync_status": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"linear_unavailable\",\"message\":\"Linear is not set up on this Specflow server. Ask an administrator to enable the Linear integration.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "linear_unavailable",
+        "message": "Linear is not set up on this Specflow server. Ask an administrator to enable the Linear integration."
       }
     }
   },

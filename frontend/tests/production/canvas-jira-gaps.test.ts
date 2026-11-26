@@ -13,6 +13,7 @@ import { COPY } from "@/lib/copy";
 import { defined } from "../support/defined";
 import { formProps, html, noop } from "./canvas-form-support";
 import { BUILT, GAPS, integration } from "./canvas-fixtures";
+import { gapWaitTests } from "./canvas-node-support";
 
 const TARGET: JiraGaps = {
   available: true,
@@ -45,26 +46,7 @@ test("the node counts the questions posted and answered, under Gaps, with the Ji
   assert.equal(nodeOf({ storyKey: null }).detail.text.includes("Story NWO"), false);
 });
 
-test("the wire moves only while a gap run goes on", () => {
-  assert.equal(nodeOf({}, { gaps: { ...GAPS, phase: "done" } }).wire, "on");
-  // A running run has not found its gaps yet: the node waits, dashed.
-  const waiting = nodeOf({}, { gaps: { ...GAPS, phase: "running" } });
-  assert.deepEqual([waiting.state, waiting.wire, waiting.meta], ["wait", "off", "Waits for gaps"]);
-});
-
-test("it waits while posting is off or the gaps are not found; nothing is set up means no node", () => {
-  assert.deepEqual([nodeOf({ enabled: false }).state, nodeOf({ enabled: false }).meta], ["wait", "Posting is off"]);
-  assert.equal(nodeOf({}, { gaps: null }).meta, "Waits for gaps");
-  const none = buildCanvasModel(BUILT({ gaps: GAPS, jiraGaps: { ...TARGET, jiraProject: null } }), NODE_MAPPERS);
-  assert.equal(
-    none.zones.gap.nodes.some((n) => n.kind === "jira_gap"),
-    false,
-  );
-  assert.equal(
-    buildCanvasModel(BUILT({ gaps: GAPS }), NODE_MAPPERS).zones.gap.nodes.some((n) => n.kind === "jira_gap"),
-    false,
-  );
-});
+gapWaitTests({ kind: "jira_gap", nodeOf, unset: { jiraGaps: { ...TARGET, jiraProject: null } } });
 
 test("it stops only for what the API reports: a lost Atlassian connection offers Reconnect, another closed code says what it is", () => {
   for (const code of ["jira_not_connected", "jira_reconnect_required"]) {

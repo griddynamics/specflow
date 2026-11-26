@@ -9,23 +9,13 @@ import type {
   GitHubProjectsAccess,
   GitHubProjectsField,
   GitHubProjectsPort,
-  GitHubProjectSync,
   GitHubSyncStatus,
 } from "@/lib/domain/github-projects";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
+import { count, textOrNull, toSync } from "./plan-sync";
 
 const STATUSES: readonly GitHubSyncStatus[] = ["idle", "running", "succeeded", "partial", "failed", "skipped"];
 const FIELDS: readonly GitHubProjectsField[] = ["repository", "project"];
-
-const textOrNull = (v: unknown): string | null => {
-  expectShape(v === null || v === undefined || isString(v));
-  return v ?? null;
-};
-
-const count = (v: unknown): number => {
-  expectShape(typeof v === "number" && Number.isSafeInteger(v) && v >= 0);
-  return v;
-};
 
 function toCounts(v: unknown): GitHubProjectCounts | null {
   if (v === null || v === undefined) return null;
@@ -41,16 +31,6 @@ function toCounts(v: unknown): GitHubProjectCounts | null {
   };
 }
 
-function toSync(v: unknown): GitHubProjectSync | null {
-  if (v === null || v === undefined) return null;
-  expectShape(isRecord(v) && typeof v.queued === "boolean");
-  const status = STATUSES.find((s) => s === v.status);
-  expectShape(status !== undefined);
-  const finishedAt = textOrNull(v.finished_at);
-  expectShape(finishedAt === null || !Number.isNaN(Date.parse(finishedAt)));
-  return { status, queued: v.queued, finishedAt, errorCode: textOrNull(v.error_code), counts: toCounts(v.counts) };
-}
-
 export function toGitHubProjects(v: unknown): GitHubProjects {
   expectShape(isRecord(v) && typeof v.available === "boolean" && typeof v.enabled === "boolean" && typeof v.connected_by_me === "boolean");
   return {
@@ -63,7 +43,7 @@ export function toGitHubProjects(v: unknown): GitHubProjects {
     enabled: v.enabled,
     connectedByName: textOrNull(v.connected_by_name),
     connectedByMe: v.connected_by_me,
-    sync: toSync(v.sync),
+    sync: toSync(v.sync, STATUSES, toCounts),
   };
 }
 

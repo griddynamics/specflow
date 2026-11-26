@@ -6,6 +6,10 @@ import type { GapsPort } from "@/lib/domain/gaps";
 import type { GitHubPort } from "@/lib/domain/github";
 import type { IntegrationsPort } from "@/lib/domain/integrations";
 import type { JiraPort } from "@/lib/domain/jira";
+import type { LinearPort } from "@/lib/domain/linear";
+import type { LinearGapsPort } from "@/lib/domain/linear-gaps";
+import type { LinearPlanPort } from "@/lib/domain/linear-plan";
+import type { LinearSourcePort } from "@/lib/domain/linear-source";
 import type { CreateProjectPort } from "@/lib/domain/create-project";
 import type { MembersPort } from "@/lib/domain/members";
 import type { PeoplePort } from "@/lib/domain/people";
@@ -21,6 +25,10 @@ import { createHttpGaps } from "./gaps";
 import { createHttpGitHub } from "./github";
 import { createHttpIntegrations } from "./integrations";
 import { createHttpJira } from "./jira";
+import { createHttpLinear } from "./linear";
+import { createHttpLinearGaps } from "./linear-gaps";
+import { createHttpLinearPlan } from "./linear-plan";
+import { createHttpLinearSource } from "./linear-source";
 import { createHttpKnowledge } from "./knowledge";
 import { createHttpMembers } from "./members";
 import { createHttpPeople } from "./me";
@@ -50,6 +58,10 @@ export interface HttpPorts {
   slack: SlackPort;
   github: GitHubPort;
   integrations: IntegrationsPort;
+  linear: LinearPort; // LINEAR S1
+  linearPlan: LinearPlanPort; // LINEAR S3
+  linearSource: LinearSourcePort; // LINEAR S4
+  linearGaps: LinearGapsPort; // LINEAR S5
 }
 
 /** TECH-SPECS §3.1. `pollMs` and `idleMs` are constructor options for the stub-API tests; production uses the defaults. */
@@ -77,5 +89,9 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     slack: createHttpSlack(),
     github: createHttpGitHub(),
     integrations: createHttpIntegrations(),
+    linear: createHttpLinear(), // LINEAR S1
+    linearPlan: createHttpLinearPlan(), // LINEAR S3
+    linearSource: createHttpLinearSource(), // LINEAR S4
+    linearGaps: createHttpLinearGaps(), // LINEAR S5
   };
 }

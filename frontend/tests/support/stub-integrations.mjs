@@ -6,10 +6,10 @@
 import { StubError } from "./stub-members.mjs";
 
 const ME_ID = "u1";
-const APPS = ["atlassian", "github", "slack"];
-const BINDABLE = ["atlassian", "github"];
-const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected" };
-const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable" };
+const APPS = ["atlassian", "github", "slack", "linear"];
+const BINDABLE = ["atlassian", "github", "linear"];
+const NOT_CONNECTED = { atlassian: "atlassian_not_connected", github: "github_not_connected", linear: "linear_not_connected" };
+const UNAVAILABLE = { atlassian: "atlassian_oauth_unavailable", github: "github_unavailable", linear: "linear_unavailable" };
 const TEST_STATUS = { slack_not_connected: 409, slack_not_in_channel: 409, slack_unreachable: 502, slack_unavailable: 503 };
 const validation = (...errors) => new StubError(422, "validation_failed", { errors });
 
@@ -17,17 +17,30 @@ const validation = (...errors) => new StubError(422, "validation_failed", { erro
  * `roleOf(pid)` is the caller's role ("owner" or "collaborator"; throws 404 for a non-member). `jira` and `github` are the stub models whose
  * `state.connection` is the caller's own connection. `displayName` is the caller's name.
  */
-export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
+export function createIntegrationsModel({ roleOf, jira, github, linear, displayName }) {
   const state = { slackAvailable: true, slackTest: "ok" };
   const projects = new Map(); // pid -> {atlassian, github, slack: row | null, channel: {id, name, private} | null}
   const mine = (pid) => {
-    if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, channel: null });
+    if (!projects.has(pid)) projects.set(pid, { atlassian: null, github: null, slack: null, linear: null, channel: null });
     return projects.get(pid);
   };
 
   const availableOf = (app) =>
-    app === "atlassian" ? jira.state.mode === "oauth" : app === "github" ? github.state.enabled : state.slackAvailable;
-  const callerConnection = (app) => (app === "atlassian" ? jira.state.connection : github.state.connection);
+    app === "atlassian"
+      ? jira.state.mode === "oauth"
+      : app === "github"
+        ? github.state.enabled
+        : app === "linear"
+          ? linear.state.available
+          : state.slackAvailable;
+  const callerConnection = (app) =>
+    app === "atlassian"
+      ? jira.state.connection
+      : app === "github"
+        ? github.state.connection
+        : app === "linear"
+          ? linear.state.connection
+          : null;
 
   function healthOf(app, row) {
     if (row === null) return "none";
@@ -62,7 +75,11 @@ export function createIntegrationsModel({ roleOf, jira, github, displayName }) {
     if (!availableOf(app)) throw new StubError(503, UNAVAILABLE[app]);
     const own = callerConnection(app);
     if (own === null || own.status !== "active") throw new StubError(409, NOT_CONNECTED[app]);
-    const workspace = app === "atlassian" ? { id: "cloud-stub", name: "example.atlassian.net" } : { id: own.login, name: own.login };
+    const workspaces = {
+      atlassian: { id: "cloud-stub", name: "example.atlassian.net" },
+      linear: { id: own.workspace?.id, name: own.workspace?.name },
+    };
+    const workspace = workspaces[app] ?? { id: own.login, name: own.login };
     const p = mine(pid);
     const current = p[app];
     if (current !== null && current.user_id !== null && current.workspace.id !== workspace.id)

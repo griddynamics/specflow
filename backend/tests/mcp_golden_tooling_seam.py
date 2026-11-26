@@ -11,7 +11,8 @@ over the shop gap corpus after a gap run and the mini plan of ``gap_agent_suppor
 ``list_gaps``, the rows of ``browse_gaps`` and the card of ``open_gap``, which link
 to the web app at ``https://app.example.test``); ``jira`` (the shop API with a real ``JiraSyncRunner`` over the fake
 Jira, the fake Jira tables and a stub ``sync_once`` that never ends: Alpha has an enabled target and one finished pass
-with six items, Beta has no target) and ``jira_off`` (``runtime.jira`` is ``None``).
+with six items, Beta has no target) and ``jira_off`` (``runtime.jira`` is ``None``); ``linear`` and ``linear_off`` are
+their Linear twins (``LinearPlanRunner`` with five items; ``runtime.linear_plan`` is ``None``).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import asyncio
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -30,12 +31,16 @@ from mcp.server.mcpserver import MCPServer
 
 from api.jira.runner import JiraRunnerDependencies, JiraSyncRunner
 from api.jira.sync import SyncResult
+from api.linear_plan.runner import LinearPlanRunner
+from api.linear_plan.sync import PushResult
 from db.jira import JiraTargetView
-from db.models import JiraIssue
+from db.models import JiraIssue, LinearIssue
 from gap_agent_support import serve_gaps
 from graph.core import ConfigurationError, InfrastructureUnavailableError
 from jira_db_fakes import FakeJiraDb
 from jira_fake_support import FakeJiraGateway
+from linear.fake import FakeLinear
+from linear_plan_support import FakePlanDb, target_view
 from mcp_golden_seam import ALPHA, UNKNOWN_PROJECT
 from mcp_server.registry import install
 from mcp_support import MCP_URL, build_app, mcp_env, serving
@@ -56,6 +61,15 @@ JIRA_ITEMS = (  # node id, kind, Jira key, removed, error code
     ("TASK::WEB_SHOP::UI_CHECKOUT", "subtask", None, False, None),
 )
 
+LINEAR_INSTANT = datetime(2026, 11, 25, 10, 0, tzinfo=UTC)
+LINEAR_ITEMS = (  # node id, kind, identifier, removed, error code
+    ("STORY::PAYMENTS_SERVICE::CARD_PAYMENT", "story", "ENG-1", False, None),
+    ("STORY::WEB_SHOP::CHECKOUT", "story", "ENG-2", False, "linear_invalid"),
+    ("TASK::WEB_SHOP::CONTRACT_CHECKOUT", "subtask", "ENG-3", False, None),
+    ("TASK::WEB_SHOP::LOGIC_CHECKOUT", "subtask", "ENG-4", True, None),
+    ("TASK::WEB_SHOP::UI_CHECKOUT", "subtask", None, False, None),
+)
+
 SCENARIOS = (
     "ok",
     "no_plan",
@@ -69,6 +83,8 @@ SCENARIOS = (
     "gaps",
     "jira",
     "jira_off",
+    "linear",
+    "linear_off",
 )
 FAILURES: dict[str, Exception] = {
     "graph_down": InfrastructureUnavailableError("neo4j_unreachable"),
@@ -115,6 +131,14 @@ def tooling_double(monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str]) -
                         yield client
                 finally:
                     await runner.aclose()
+                return
+            if scenario == "linear":
+                linear = _linear_runner(spec.rig.runtime, monkeypatch)
+                try:
+                    async with serving(_mcp_app(valid_env, spec.rig.app)) as client:
+                        yield client
+                finally:
+                    await linear.aclose()
                 return
             if scenario == "database_down":  # after the rig installed its FakeRepo, which it would replace
                 refuse_database(monkeypatch)
@@ -180,4 +204,52 @@ def _jira_runner(runtime: Any, monkeypatch: pytest.MonkeyPatch) -> JiraSyncRunne
         dependencies=JiraRunnerDependencies(sync_once=never_ends, now=lambda: JIRA_INSTANT),
     )
     runtime.jira = runner
+    return runner
+
+
+def _linear_runner(runtime: Any, monkeypatch: pytest.MonkeyPatch) -> LinearPlanRunner:
+    """Alpha: an enabled target in team ``ENG`` and one finished pass with the five ``LINEAR_ITEMS``; a pass started now
+    never ends (the stub waits), so the answer of ``sync_to_linear`` is the same every run. Beta has no target."""
+
+    project_id = uuid.UUID(ALPHA)
+    db = FakePlanDb()
+    db.install(monkeypatch)
+    fake = FakeLinear()
+    team = fake.add_team("ENG")
+    db.targets[project_id] = replace(
+        target_view(
+            project_id, team, "9d4b2a64-0000-4000-8000-000000000001", url="https://linear.app/acme/project/alpha-1"
+        ),
+        linear_project_name="Alpha",
+        last_status="succeeded",
+        last_trigger="plan_run",
+        last_started_at=LINEAR_INSTANT,
+        last_finished_at=LINEAR_INSTANT,
+        last_counts={"created": 5, "relations_added": 2},
+    )
+    db.items[project_id] = [
+        LinearIssue(
+            project_id=project_id,
+            node_id=node_id,
+            kind=kind,
+            identifier=identifier,
+            requested_at=LINEAR_INSTANT,
+            removed_at=LINEAR_INSTANT if removed else None,
+            error_code=error_code,
+        )
+        for node_id, kind, identifier, removed, error_code in LINEAR_ITEMS
+    ]
+
+    async def never_ends(_project_id: str, _deps: Any) -> PushResult:
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    @asynccontextmanager
+    async def gateway(_user_id: uuid.UUID) -> AsyncIterator[FakeLinear]:
+        yield fake
+
+    runner = LinearPlanRunner(
+        gateway, transaction=runtime.transaction, graph_store=None, push=never_ends, now=lambda: LINEAR_INSTANT
+    )
+    runtime.linear_plan = runner
     return runner

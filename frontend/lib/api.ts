@@ -199,6 +199,19 @@ export const putJiraGaps = (pid: string, jiraProject: string, grouping: string, 
 export const checkJiraGapsAccess = (pid: string, jiraProject: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/jira-gaps/access-check`, json({ jira_project: jiraProject })).then((r) => r.body);
 
+// The Linear gap channel of a project (docs/linear/gaps.md). Bodies stay `unknown`; lib/data/http/linear-gaps.ts checks them.
+export const getLinearGaps = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/linear-gaps`).then((r) => r.body);
+export const putLinearGaps = (pid: string, teamKey: string, linearProject: string | null, grouping: string, enabled: boolean) =>
+  httpPut(
+    `/projects/${encodeURIComponent(pid)}/linear-gaps`,
+    json({ team_key: teamKey, linear_project: linearProject, grouping, enabled }),
+  ).then((r) => r.body);
+export const checkLinearGapsAccess = (pid: string, teamKey: string, linearProject: string | null) =>
+  httpPost(
+    `/projects/${encodeURIComponent(pid)}/linear-gaps/access-check`,
+    json({ team_key: teamKey, linear_project: linearProject }),
+  ).then((r) => r.body);
+
 // The GitHub Projects plan destination of a project (docs/github/projects.md). Bodies stay `unknown`; lib/data/http/github-projects.ts checks them.
 /** The project is named by `nodeId` (an existing one) or `newTitle` (created in the organization at save): the body names exactly one. */
 const projectBody = (pick: { nodeId: string } | { newTitle: string }) =>
@@ -219,6 +232,23 @@ export const checkGitHubProjectsAccess = (pid: string, repositoryId: string, pic
     json({ repository_id: repositoryId, ...projectBody(pick) }),
   ).then((r) => r.body);
 
+// The Linear plan destination of a project (plans/LINEAR/LINEAR-PLAN.md). Bodies stay `unknown`; lib/data/http/linear-plan.ts checks them.
+/** `projectId` null: no Linear project is named, Graphico creates one (the body leaves `project_id` out). */
+const linearTargetBody = (teamId: string, projectId: string | null) => ({
+  team_id: teamId,
+  ...(projectId === null ? {} : { project_id: projectId }),
+});
+export const getLinearPlan = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/linear-plan`).then((r) => r.body);
+export const listLinearTeams = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/linear-plan/teams`).then((r) => r.body);
+export const listLinearProjects = (pid: string, teamId: string) =>
+  httpGet(`/projects/${encodeURIComponent(pid)}/linear-plan/projects?team_id=${encodeURIComponent(teamId)}`).then((r) => r.body);
+export const putLinearPlan = (pid: string, teamId: string, projectId: string | null, enabled: boolean) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/linear-plan`, json({ ...linearTargetBody(teamId, projectId), enabled })).then(
+    (r) => r.body,
+  );
+export const checkLinearPlanAccess = (pid: string, teamId: string, projectId: string | null) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/linear-plan/access-check`, json(linearTargetBody(teamId, projectId))).then((r) => r.body);
+
 // The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
 // app/api/integrations/atlassian/callback calls the API on the server.
 export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);
@@ -226,6 +256,14 @@ export const authorizeAtlassian = (returnTo: string) =>
   httpPost("/integrations/atlassian/authorize", json({ return_to: returnTo })).then((r) => r.body);
 /** 204: resolves with the HTTP status. */
 export const disconnectAtlassian = () => httpDelete("/integrations/atlassian").then((r) => r.status);
+
+// Linear (plans/LINEAR, stream S1): the caller's connection. Bodies stay `unknown`; the Linear port (lib/data/http/linear.ts) checks their shape. The
+// OAuth callback is not here: the route handler app/api/integrations/linear/callback calls the API on the server.
+export const getLinearConnection = () => httpGet("/integrations/linear").then((r) => r.body);
+export const authorizeLinear = (returnTo: string) =>
+  httpPost("/integrations/linear/authorize", json({ return_to: returnTo })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const disconnectLinear = () => httpDelete("/integrations/linear").then((r) => r.status);
 
 // GitHub (docs/github/api.md): the caller's connection, the repositories it can read and the repositories of a
 // project. Bodies stay `unknown`; the GitHub port (lib/data/http/github.ts) checks their shape. The OAuth callback and the setup return
@@ -295,6 +333,12 @@ export const addJiraEpicSource = (pid: string, keyOrLink: string, exclude: reado
     `/projects/${encodeURIComponent(pid)}/sources/jira-epic`,
     json(exclude.length === 0 ? { key_or_link: keyOrLink } : { key_or_link: keyOrLink, exclude }),
   ).then((r) => r.body);
+export const checkLinearSourceLink = (pid: string, link: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/linear/check`, json({ link })).then((r) => r.body);
+export const addLinearSourceLink = (pid: string, link: string, exclude: readonly string[] = []) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/linear`, json(exclude.length === 0 ? { link } : { link, exclude })).then(
+    (r) => r.body,
+  );
 // Knowledge build (`/graph_build`): the GET is the build state, the POST starts a build. Bodies stay `unknown`; the knowledge port
 // (lib/data/http/knowledge.ts) checks their shape. The reasoning level is an integer 1..5 (the backend only logs it).
 export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);

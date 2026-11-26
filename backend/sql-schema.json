@@ -884,6 +884,211 @@
         }
       }
     },
+    "linear_connections": {
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "linear_user_id": {
+          "type": "text"
+        },
+        "linear_user_name": {
+          "type": "text"
+        },
+        "organization_id": {
+          "type": "text"
+        },
+        "organization_name": {
+          "type": "text"
+        },
+        "organization_url_key": {
+          "type": "text"
+        },
+        "scopes": {
+          "type": "text"
+        },
+        "access_token": {
+          "type": "bytes"
+        },
+        "refresh_token": {
+          "type": "bytes"
+        },
+        "expires_at": {
+          "type": "timestamp"
+        },
+        "status": {
+          "type": "text"
+        },
+        "connected_at": {
+          "type": "timestamp"
+        },
+        "last_used_at": {
+          "type": "timestamp"
+        },
+        "expired_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "linear_gap_issues": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "gap_id": {
+          "type": "text"
+        },
+        "issue_id": {
+          "type": "uuid"
+        },
+        "identifier": {
+          "type": "text"
+        },
+        "area": {
+          "type": "text"
+        },
+        "number": {
+          "type": "int"
+        },
+        "posted_at": {
+          "type": "timestamp"
+        },
+        "answered_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "linear_gap_targets": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "team_id": {
+          "type": "text"
+        },
+        "team_key": {
+          "type": "text"
+        },
+        "linear_project_id": {
+          "type": "text"
+        },
+        "grouping": {
+          "type": "text"
+        },
+        "parent_issue_id": {
+          "type": "uuid"
+        },
+        "parent_issue_identifier": {
+          "type": "text"
+        },
+        "enabled": {
+          "type": "bool"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        },
+        "last_error_code": {
+          "type": "text"
+        }
+      }
+    },
+    "linear_issues": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "node_id": {
+          "type": "text"
+        },
+        "kind": {
+          "type": "text"
+        },
+        "issue_id": {
+          "type": "uuid"
+        },
+        "identifier": {
+          "type": "text"
+        },
+        "requested_at": {
+          "type": "timestamp"
+        },
+        "content": {
+          "type": "json"
+        },
+        "content_hash": {
+          "type": "text"
+        },
+        "position": {
+          "type": "int"
+        },
+        "mirrored_state": {
+          "type": "text"
+        },
+        "removed_at": {
+          "type": "timestamp"
+        },
+        "error_code": {
+          "type": "text"
+        },
+        "synced_at": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "linear_targets": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "team_id": {
+          "type": "text"
+        },
+        "team_key": {
+          "type": "text"
+        },
+        "linear_project_id": {
+          "type": "text"
+        },
+        "linear_project_name": {
+          "type": "text"
+        },
+        "linear_project_url": {
+          "type": "text"
+        },
+        "created_by_graphico": {
+          "type": "bool"
+        },
+        "enabled": {
+          "type": "bool"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        },
+        "last_status": {
+          "type": "text"
+        },
+        "last_trigger": {
+          "type": "text"
+        },
+        "last_started_at": {
+          "type": "timestamp"
+        },
+        "last_finished_at": {
+          "type": "timestamp"
+        },
+        "last_error_code": {
+          "type": "text"
+        },
+        "last_counts": {
+          "type": "json"
+        }
+      }
+    },
     "meta": {
       "columns": {
         "meta_key": {

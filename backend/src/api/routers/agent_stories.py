@@ -33,9 +33,10 @@ from api.agent_reads import AgentReads, agent_reads, finding_severities
 from api.agent_views import holders_of
 from api.deps import AgentProjectDep, AgentUserDep, RuntimeDep
 from api.errors import ApiError, not_available, partly_claimed, story_claimed
+from api.linear_plan.mirror import TaskChange
 from api.routers.agent import AgentRoute, cursor_within_limit
 from api.runtime import Runtime
-from api.write_support import plan_read, printable, write_refusal, written
+from api.write_support import mirror_to_linear, plan_read, printable, write_refusal, written
 from db.models import Project, User
 from graph.plan.arguments import check_branch, check_label
 from graph.plan.errors import PlanReadError, TaskStateError
@@ -143,7 +144,13 @@ async def claim_story(
             raise await _claim_refusal(runtime, reads, project, user, story_id=body.story_id, error=error) from None
         return views.claim_view(graph_id, body.story_id, claimed), claimed.repeat
 
-    return await written("story-claim", graph_id, user, {"story_id": body.story_id}, claim)
+    claimed = await written("story-claim", graph_id, user, {"story_id": body.story_id}, claim)
+    mirror_to_linear(
+        runtime,
+        graph_id,
+        (TaskChange(item.task_id, "in_progress") for item in claimed.items if item.status == "in_progress"),
+    )
+    return claimed
 
 
 async def _hold_blockers(reads: AgentReads, graph_id: str, story_id: str) -> None:

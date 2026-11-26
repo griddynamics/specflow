@@ -112,6 +112,23 @@ codes = [
     { code = "jira_epic_not_an_epic", http = 422 },
     { code = "jira_epic_not_found", http = 409 },
     { code = "jira_epic_forbidden", http = 409 },
+    { code = "linear_unavailable", http = 503 },
+    { code = "linear_not_connected", http = 409 },
+    { code = "linear_reconnect_required", http = 409 },
+    { code = "linear_state_invalid", http = 400 },
+    { code = "linear_code_invalid", http = 400 },
+    { code = "linear_unreachable", http = 502 },
+    { code = "linear_auth_failed", http = 502 },
+    { code = "linear_forbidden", http = 409 },
+    { code = "linear_not_found", http = 409 },
+    { code = "linear_rate_limited", http = 429 },
+    { code = "linear_invalid", http = 422 },
+    { code = "linear_team_not_found", http = 404 },
+    { code = "linear_project_not_found", http = 404 },
+    { code = "linear_link_invalid", http = 422 },
+    { code = "linear_not_configured", http = 409 },
+    { code = "linear_webhook_signature_invalid", http = 401 },
+    { code = "linear_webhook_unavailable", http = 503 },
     { code = "internal_error", http = 500 },
     { code = "http_error", http = 400 },
 ]
@@ -204,6 +221,23 @@ probes = [
     { name = "probe-80", class = "api.errors:ApiError", args = [422, "github_not_an_organization", "The repository belongs to a user, not to an organization."] },
     { name = "probe-81", class = "api.errors:ApiError", args = [422, "github_repo_read_only", "Your GitHub account cannot create issues in this repository."] },
     { name = "probe-82", class = "api.errors:ApiError", args = [409, "integration_already_connected", "Another member's active connection is the project's connection to this app. They or the owner must remove it first."] },
+    { name = "probe-83", class = "api.errors:ApiError", args = [503, "linear_unavailable", "The Linear integration is not configured on this server."] },
+    { name = "probe-84", class = "api.errors:ApiError", args = [409, "linear_not_connected", "Connect your Linear account first."] },
+    { name = "probe-85", class = "api.errors:ApiError", args = [409, "linear_reconnect_required", "Your Linear connection expired. Connect Linear again."] },
+    { name = "probe-86", class = "api.errors:ApiError", args = [400, "linear_state_invalid", "The sign-in to Linear expired or belongs to another session. Try again."] },
+    { name = "probe-87", class = "api.errors:ApiError", args = [400, "linear_code_invalid", "Linear did not accept the sign-in. Try again."] },
+    { name = "probe-88", class = "api.errors:ApiError", args = [502, "linear_unreachable", "Linear could not be reached. Try again later."] },
+    { name = "probe-89", class = "api.errors:ApiError", args = [502, "linear_auth_failed", "Linear refused the request of this server."] },
+    { name = "probe-90", class = "api.errors:ApiError", args = [409, "linear_forbidden", "Your Linear account is not allowed to do this in Linear."] },
+    { name = "probe-91", class = "api.errors:ApiError", args = [409, "linear_not_found", "The Linear object does not exist or is not visible to the member."] },
+    { name = "probe-92", class = "api.errors:ApiError", args = [429, "linear_rate_limited", "Linear is limiting requests. Try again in a moment."] },
+    { name = "probe-93", class = "api.errors:ApiError", args = [422, "linear_invalid", "Linear did not accept the input."] },
+    { name = "probe-94", class = "api.errors:ApiError", args = [404, "linear_team_not_found", "The Linear team does not exist or your account cannot see it."] },
+    { name = "probe-95", class = "api.errors:ApiError", args = [404, "linear_project_not_found", "The Linear project does not exist or your account cannot see it."] },
+    { name = "probe-96", class = "api.errors:ApiError", args = [422, "linear_link_invalid", "Enter a Linear project or issue link, or an issue identifier such as ENG-12."] },
+    { name = "probe-97", class = "api.errors:ApiError", args = [409, "linear_not_configured", "The project has no enabled Linear target."] },
+    { name = "probe-98", class = "api.errors:ApiError", args = [401, "linear_webhook_signature_invalid", "The webhook signature is missing, wrong or too old."] },
+    { name = "probe-99", class = "api.errors:ApiError", args = [503, "linear_webhook_unavailable", "The Linear webhook is not configured on this server."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 
@@ -219,7 +253,7 @@ method_not_allowed = "DELETE /api/v1/me"
 unauthenticated_path = "/api/v1/me"
 
 [route_contract]
-public_operations = ["GET /healthz", "GET /readyz"]
+public_operations = ["GET /healthz", "GET /readyz", "POST /api/v1/integrations/linear/webhook"]
 create_operation_prefix = "create_"
 
 [openapi_snapshot]
