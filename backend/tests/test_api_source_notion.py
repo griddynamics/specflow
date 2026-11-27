@@ -1,7 +1,8 @@
-"""``POST /projects/{pid}/sources/notion[/check]`` over the REST app: any member (D6), the acting account is the member
-the project's Notion is bound to (R1), the closed ``notion_*`` codes of a link, a missing or expired binding and a
-refused read, and the import handed to ``runtime.imports`` with the bound member as the reader and the caller as the
-one who added it. The converter of stream B is replaced by the stand-in of ``test_api_import_notion``.
+"""``GET .../shared`` and ``POST /projects/{pid}/sources/notion[/check]`` over the REST app: any member (D6), the
+acting account is the member the project's Notion is bound to (R1), the closed ``notion_*`` codes of a link, a missing
+or expired binding and a refused read, the picked links added as one source, and the import handed to
+``runtime.imports`` with the bound member as the reader and the caller as the one who added it. The converter of
+stream B is replaced by the stand-in of ``test_api_import_notion``.
 
 Standings as in test_api_confluence routes: alice owns ``Alpha``, ben is its collaborator, carol is no member.
 
@@ -61,6 +62,12 @@ async def rig(monkeypatch, valid_env):
 
 def path(rig: Any, tail: str = "") -> str:
     return f"projects/{rig.alpha}/sources/notion{tail}"
+
+
+def body_of(tail: str, link: str) -> dict[str, Any]:
+    """The body of the check (one link) or of the add (the picked links)."""
+
+    return {"link": link} if tail == "/check" else {"links": [link]}
 
 
 async def test_any_member_lists_what_the_bound_member_shared_for_the_pickers(rig) -> None:
@@ -124,10 +131,10 @@ async def test_the_check_is_a_probe_and_the_add_only_opens_the_link(rig) -> None
     await call(rig, "POST", path(rig, "/check"), ALICE, {"link": WIKI_LINK})
     checked = [c.method for c in rig.fake.calls]
     rig.fake.calls.clear()
-    await call(rig, "POST", path(rig), ALICE, {"link": WIKI_LINK})
+    await call(rig, "POST", path(rig), ALICE, {"links": [WIKI_LINK]})
     added = [c.method for c in rig.fake.calls]
     rig.fake.calls.clear()
-    await call(rig, "POST", path(rig), ALICE, {"link": link_of(REQUIREMENTS_DATABASE_ID, "v1")})
+    await call(rig, "POST", path(rig), ALICE, {"links": [link_of(REQUIREMENTS_DATABASE_ID, "v1")]})
 
     assert checked == ["page", "page_markdown"] and added == ["page"]
     assert [c.method for c in rig.fake.calls] == ["page", "database"]
@@ -151,7 +158,7 @@ async def test_a_non_member_is_a_stranger_to_the_project(rig) -> None:
 )
 async def test_a_link_that_is_not_a_notion_page_or_database_is_refused_before_any_read(rig, link) -> None:
     for tail in ("/check", ""):
-        response = await call(rig, "POST", path(rig, tail), ALICE, {"link": link})
+        response = await call(rig, "POST", path(rig, tail), ALICE, body_of(tail, link))
 
         assert error_of(response) == (422, "notion_link_invalid")
     assert rig.fake.calls == [] and rig.imports.added == []
@@ -163,7 +170,7 @@ async def test_a_page_or_database_nobody_shared_is_not_shared(rig) -> None:
 
     for link in (PRD_LINK, link_of(REQUIREMENTS_DATABASE_ID, "v1"), unknown):
         for tail in ("/check", ""):
-            assert error_of(await call(rig, "POST", path(rig, tail), ALICE, {"link": link})) == (
+            assert error_of(await call(rig, "POST", path(rig, tail), ALICE, body_of(tail, link))) == (
                 409,
                 "notion_not_shared",
             )
@@ -197,22 +204,30 @@ async def test_a_failure_in_the_middle_of_the_check_is_a_closed_code(rig) -> Non
 
 
 async def test_without_a_binding_an_expired_connection_or_the_integration_nothing_is_read(rig) -> None:
-    body = {"link": PRD_LINK}
     rig.connections.expire(ACTING)
     for tail in ("/check", ""):
-        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, body)) == (409, "notion_reconnect_required")
+        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, body_of(tail, PRD_LINK))) == (
+            409,
+            "notion_reconnect_required",
+        )
     rig.connections.users[ACTING] = "active"
     rig.integrations.release(rig.alpha, ACTING)
     for tail in ("/check", ""):
-        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, body)) == (409, "notion_not_connected")
+        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, body_of(tail, PRD_LINK))) == (
+            409,
+            "notion_not_connected",
+        )
     rig.runtime.notion = None
     for tail in ("/check", ""):
-        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, body)) == (503, "notion_unavailable")
+        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, body_of(tail, PRD_LINK))) == (
+            503,
+            "notion_unavailable",
+        )
     assert rig.fake.calls == [] and rig.imports.added == []
 
 
 async def test_adding_a_link_creates_the_source_for_the_caller_and_reads_as_the_bound_member(rig) -> None:
-    response = await call(rig, "POST", path(rig), BEN, {"link": f"  {WIKI_LINK}  "})
+    response = await call(rig, "POST", path(rig), BEN, {"links": [f"  {WIKI_LINK}  "]})
 
     assert response.status_code == 201
     source = response.json()["source"]
@@ -237,15 +252,44 @@ async def test_adding_a_link_creates_the_source_for_the_caller_and_reads_as_the_
     assert len(writer.added) == 4 and writer.failed == []
 
 
+async def test_the_picked_pages_and_databases_are_one_source_named_after_the_first(rig) -> None:
+    picked = [WIKI_LINK, PRD_LINK, link_of(REQUIREMENTS_DATABASE_ID), WIKI_LINK]
+
+    response = await call(rig, "POST", path(rig), ALICE, {"links": picked})
+
+    assert response.status_code == 201 and response.json()["source"]["link"] == WIKI_LINK
+    (added,) = rig.imports.added
+    assert added["name"] == "Engineering Wiki + 2 more" and len(rig.imports.started) == 1
+    job, importer = rig.imports.started[0]
+    writer = RecordingWriter()
+    await importer(job, as_writer(writer))
+    assert len(writer.added) == 4 + 1 + 3 and writer.failed == []
+
+
+async def test_one_picked_page_that_is_not_shared_any_more_refuses_the_whole_add(rig) -> None:
+    rig.fake.unshare(PRD_PAGE_ID)
+
+    response = await call(rig, "POST", path(rig), ALICE, {"links": [WIKI_LINK, PRD_LINK]})
+
+    assert error_of(response) == (409, "notion_not_shared") and rig.imports.added == []
+
+
+@pytest.mark.parametrize("links", [[], [WIKI_LINK] * 101, ["x" * 2049]])
+async def test_the_add_takes_one_to_a_hundred_links(rig, links) -> None:
+    response = await call(rig, "POST", path(rig), ALICE, {"links": links})
+
+    assert response.status_code == 422 and rig.imports.added == []
+
+
 async def test_adding_a_database_names_the_source_by_the_database_title(rig) -> None:
-    response = await call(rig, "POST", path(rig), ALICE, {"link": link_of(REQUIREMENTS_DATABASE_ID, "v1")})
+    response = await call(rig, "POST", path(rig), ALICE, {"links": [link_of(REQUIREMENTS_DATABASE_ID, "v1")]})
 
     assert response.status_code == 201 and rig.imports.added[0]["name"] == "Requirements DB"
 
 
 async def test_adding_the_same_link_twice_makes_two_sources_and_the_writer_links_duplicate_content(rig) -> None:
     for _ in range(2):
-        assert (await call(rig, "POST", path(rig), ALICE, {"link": PRD_LINK})).status_code == 201
+        assert (await call(rig, "POST", path(rig), ALICE, {"links": [PRD_LINK]})).status_code == 201
 
     assert [a["link"] for a in rig.imports.added] == [PRD_LINK, PRD_LINK] and len(rig.imports.started) == 2
 
@@ -256,7 +300,7 @@ async def test_a_source_removed_before_it_is_read_back_is_not_found(rig, monkeyp
 
     monkeypatch.setattr(source_files, "source_summary", gone)
 
-    response = await call(rig, "POST", path(rig), ALICE, {"link": PRD_LINK})
+    response = await call(rig, "POST", path(rig), ALICE, {"links": [PRD_LINK]})
 
     assert error_of(response) == (404, "source_not_found")
 
@@ -265,7 +309,7 @@ async def test_the_request_body_is_closed_and_no_title_or_link_reaches_a_log(rig
     assert (await call(rig, "POST", path(rig, "/check"), ALICE, {"link": PRD_LINK, "extra": 1})).status_code == 422
     assert (await call(rig, "POST", path(rig), ALICE, {})).status_code == 422
 
-    await call(rig, "POST", path(rig), ALICE, {"link": PRD_LINK})
+    await call(rig, "POST", path(rig), ALICE, {"links": [PRD_LINK]})
 
     haystack = log_haystack(caplog)
     assert "PRD - Checkout Loyalty Points" not in haystack and PRD_PAGE_ID.replace("-", "") not in haystack
@@ -276,7 +320,7 @@ async def test_a_member_who_reconnected_into_another_workspace_is_asked_to_recon
     rig.connections.workspace_id = "ws-other"  # the binding still names the first workspace
 
     for tail in ("/check", ""):
-        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, {"link": PRD_LINK})) == (
+        assert error_of(await call(rig, "POST", path(rig, tail), ALICE, body_of(tail, PRD_LINK))) == (
             409,
             "notion_reconnect_required",
         )

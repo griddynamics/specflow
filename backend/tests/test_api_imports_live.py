@@ -418,7 +418,7 @@ async def test_a_notion_import_is_the_corpus_with_slim_originals_and_a_skipped_p
     connections = FakeNotionConnections()
     connections.users = {user: "active"}
     connections.fake.unshare(ONBOARDING)
-    importer = NotionImporter(connections, NotionImport(NotionLink(WIKI_PAGE_ID)), FAKE_CONVERTER)
+    importer = NotionImporter(connections, NotionImport((NotionLink(WIKI_PAGE_ID),)), FAKE_CONVERTER)
 
     job = await run(runner, project, user, kind="notion", name="Engineering Wiki", importer=importer)
 
@@ -457,7 +457,7 @@ async def test_a_notion_import_of_an_unshared_link_fails_the_source_with_no_acce
         user,
         kind="notion",
         name="PRD",
-        importer=NotionImporter(connections, NotionImport(NotionLink(PRD_PAGE_ID)), FAKE_CONVERTER),
+        importer=NotionImporter(connections, NotionImport((NotionLink(PRD_PAGE_ID),)), FAKE_CONVERTER),
     )
 
     assert await scalar(factory, "SELECT state FROM connections WHERE id = :i", i=job.source_id) == "failed"

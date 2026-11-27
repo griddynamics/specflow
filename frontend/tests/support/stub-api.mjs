@@ -16,7 +16,7 @@ import { createLinearPlanModel } from "./stub-linear-plan.mjs";
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
 import { createLinearGapsModel } from "./stub-linear-gaps.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
-import { bindingRefusal, checkNotion, createNotionModel, createNotionPlanModel, sharedNotion } from "./stub-notion.mjs";
+import { addNotion, bindingRefusal, checkNotion, createNotionModel, createNotionPlanModel, sharedNotion } from "./stub-notion.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
@@ -1020,14 +1020,14 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       }
       if (did === "notion" && req.method === "POST" && (action === undefined || action === "check")) {
         const body = await readJson();
-        const checked =
-          typeof body?.link === "string"
-            ? (bindingRefusal(integrations.notionHealth(pid)) ?? checkNotion(body.link))
-            : { status: 422, code: "validation_failed" };
+        const shape = action === "check" ? typeof body?.link === "string" : Array.isArray(body?.links);
+        const read = action === "check" ? () => checkNotion(body.link) : () => addNotion(body.links);
+        const checked = shape ? (bindingRefusal(integrations.notionHealth(pid)) ?? read()) : { status: 422, code: "validation_failed" };
         if (!("body" in checked)) return err(res, checked.status, checked.code);
         if (action === "check") return json(res, 200, checked.body);
+        const link = body.links[0].trim();
         return json(res, 201, {
-          source: importedSource(pid, { kind: "notion", name: checked.body.title, link: body.link, pages: checked.body.pages }),
+          source: importedSource(pid, { kind: "notion", name: checked.body.title, link, pages: checked.body.pages }),
         });
       }
       if (did === "jira-epic" && req.method === "POST" && (action === undefined || action === "check")) {

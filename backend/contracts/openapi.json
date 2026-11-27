@@ -8853,6 +8853,27 @@
         "title": "NotionLinkIn",
         "type": "object"
       },
+      "NotionLinksIn": {
+        "additionalProperties": false,
+        "description": "The pages and databases picked from the shared list, added as one source (N2); at most ``MAX_PAGES``.",
+        "properties": {
+          "links": {
+            "items": {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "links"
+        ],
+        "title": "NotionLinksIn",
+        "type": "object"
+      },
       "NotionPlanAccessFailed": {
         "properties": {
           "reason": {
@@ -21728,7 +21749,7 @@
     },
     "/api/v1/projects/{pid}/sources/notion": {
       "post": {
-        "description": "Check the link as above, create the source for the caller and start the import (``start_import`` of\n``api.source_imports`` with ``NotionImporter``, reading as the member the project is bound to).",
+        "description": "Check every link as above, create one source for the caller and start its import (``start_import`` of\n``api.source_imports`` with ``NotionImporter``, reading as the member the project is bound to). The source is named\nafter the first link (\"Engineering Wiki + 2 more\") and links to it.",
         "operationId": "add_notion_source_api_v1_projects__pid__sources_notion_post",
         "parameters": [
           {
@@ -21745,7 +21766,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NotionLinkIn"
+                "$ref": "#/components/schemas/NotionLinksIn"
               }
             }
           },

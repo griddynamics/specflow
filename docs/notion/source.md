@@ -1,21 +1,22 @@
 ---
 type: Design
 title: "Notion as a project source"
-description: "A Notion page or database picked from what the member shared, imported once as documents: picker, check, import, Markdown conversion, caps, failures, routes"
+description: "Notion pages and databases picked from what the member shared, imported once as the documents of one source: picker, check, import, Markdown conversion, caps, failures, routes"
 status: draft
 tags: [notion, sources]
 ---
 # source.md: a Notion page or database as a project source
 
-A member ticks Notion pages and databases in a checklist of what they shared with Graphico, and **Add selected** imports each
-one as its own source, once (decision D7 of Mission Control: no live sync). The import runs in the api process through the importer seam
+A member ticks Notion pages and databases in a checklist of what they shared with Graphico, and **Add selected** imports them
+as one source, once (decision D7 of Mission Control: no live sync): a project's Notion is often tens of pages linked as
+sub-pages, and one node on the canvas stands for the pack. The import runs in the api process through the importer seam
 ([../sources/importers.md](../sources/importers.md)) as the member the project's Notion is connected by (rule R1), the same
 shape as a Confluence link. Decisions: N2 to N6.
 
 ## Link and check
 
 - The form offers a checklist (N2), not a text field: nobody types or pastes a link, so a mistyped link cannot happen.
-  See "Picking a page" below. The routes still take a link: the form posts the link of each item ticked. The form has no
+  See "Picking a page" below. The routes still take links: the form posts the links of the items ticked. The form has no
   check step; the check route stays for API callers.
   `notion.links.parse_link` accepts `https` links of `notion.so`, `www.notion.so`, `notion.com`, `www.notion.com`, `app.notion.com` and `*.notion.site`; the
   object id is the last 32 hex digits of the path; `?v=` marks a database. Anything else is `notion_link_invalid`.
@@ -23,8 +24,11 @@ shape as a Confluence link. Decisions: N2 to N6.
   `{kind: page | database, title, pages, capped}`: `pages` is at least the count of the page and the pages and databases it names, or of the
   first page of the database's rows, at most the cap; `capped` is true when there may be more. A page or database that does not exist or was not ticked in the
   picker is `409 notion_not_shared`.
-- `POST /projects/{pid}/sources/notion` `{link}` creates the source for the caller (`connected_by`),
-  opens the link (add does not check again) and starts the import, which walks once, and answers the source card. `external_id` is a fresh uuid, `link` as pasted. Any member may call both
+- `POST /projects/{pid}/sources/notion` `{links}` (1 to 100 links; the same object twice is one) creates one source for the
+  caller (`connected_by`), opens every link (add does not check again; the first refused one refuses the add, and nothing
+  is created) and starts the import, which walks all of them together, once, and answers the source card. The source is
+  named after the first link, "Engineering Wiki + 2 more" when there are more; `link` is the first link as posted and
+  `external_id` a fresh uuid. Any member may call both
   (D6). `409 notion_not_connected` when the project has no Notion binding, `409 notion_reconnect_required` when the
   bound member's connection expired.
 
@@ -42,9 +46,9 @@ shape as a Confluence link. Decisions: N2 to N6.
 - Any member may read it. Its refusals are those of the check: `409 notion_not_connected`, `409 notion_reconnect_required`,
   a refused search as its closed code, `503 notion_unavailable`.
 - The source form is a checklist like the GitHub repositories and the Box files: pages first (with "in <parent>"), then
-  databases, nothing ticked, Select all and Select none, a count, and **Add selected**. Each item is added in turn
-  (`POST .../sources/notion`); when one is refused, the items before it are in and leave the list, the refused one is
-  named ("Old notes: ...") and stays ticked with the rest. The plan form picks one parent page from a dropdown of the
+  databases, nothing ticked, Select all and Select none, a count, and **Add selected**, which posts the ticked links once
+  (`POST .../sources/notion`). A refused add adds nothing: the form says so, reads the list again (a page no longer
+  shared drops out of it) and keeps the ticks. The plan form picks one parent page from a dropdown of the
   pages only. When nothing is shared, the form says to connect Notion again and tick the pages. A page shared then
   unshared since is `notion_not_shared`.
 
@@ -77,8 +81,9 @@ A page nested too deeply is `MarkupTooDeepError`.
 
 ## Caps (N4)
 
-`MAX_PAGES = 100` per import, pages and rows together, as Confluence. A hit cap is logged with counts
-(`api.imports.page_cap_reached`) and the check says `capped`; the rest of a big wiki is added as a narrower link.
+`MAX_PAGES = 100` per import (all the ticked items together), pages and rows together, as Confluence. A hit cap is logged
+with counts (`api.imports.page_cap_reached`) and the check says `capped`; the rest of a big wiki is added as another source
+of narrower picks.
 
 ## Originals (N5)
 

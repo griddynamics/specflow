@@ -1,5 +1,5 @@
-"""The Notion link source (docs/notion/source.md "Routes"): check a page or database link, then import it. Stream D1
-owns this file.
+"""The Notion source (docs/notion/source.md "Routes"): list what the member shared, check a page or database link, and
+add the picked pages and databases as one source. Stream D1 owns this file.
 
 Any member may do both (D6). The import reads as the member the project's Notion is connected by (R1) and runs in this
 process (``runtime.imports``). The title of the source is read from Notion and lives in the source row and its documents
@@ -13,10 +13,10 @@ import uuid
 from fastapi import APIRouter
 
 from api.deps import MemberDep, RuntimeDep, UserDep
-from api.imports.notion import NotionImport, NotionImporter, inspect, open_link
+from api.imports.notion import NotionImport, NotionImporter, inspect, open_links, source_title
 from api.notion import notion_connections, notion_error
 from api.runtime import Runtime
-from api.schemas import BatchSourceOut, NotionCheckOut, NotionLinkIn, NotionSharedItem, NotionSharedOut
+from api.schemas import BatchSourceOut, NotionCheckOut, NotionLinkIn, NotionLinksIn, NotionSharedItem, NotionSharedOut
 from api.source_imports import StartedImport, start_import
 from db import integrations as integrations_db
 from db.integrations import NOTION
@@ -33,17 +33,17 @@ KIND = "notion"
 
 
 async def _reader(
-    runtime: Runtime, project_id: uuid.UUID, link: str
+    runtime: Runtime, project_id: uuid.UUID, links: list[str]
 ) -> tuple[NotionConnections, uuid.UUID, NotionImport, NotionGateway]:
-    """The link parsed and the gateway of the member the project's Notion is bound to; every refusal is an
-    ``ApiError`` of ``api.notion``."""
+    """The links parsed (the same page twice is one) and the gateway of the member the project's Notion is bound to;
+    every refusal is an ``ApiError`` of ``api.notion``."""
 
     try:
-        source = NotionImport(parse_link(link))
+        parsed = {link.id: link for link in map(parse_link, links)}
     except NotionError as error:
         raise notion_error(error) from None
     connections, member, gateway = await _bound(runtime, project_id)
-    return connections, member, source, gateway
+    return connections, member, NotionImport(tuple(parsed.values())), gateway
 
 
 async def _bound(runtime: Runtime, project_id: uuid.UUID) -> tuple[NotionConnections, uuid.UUID, NotionGateway]:
@@ -88,7 +88,7 @@ async def check_notion_link(body: NotionLinkIn, runtime: RuntimeDep, access: Mem
     """What the link would import, read as the member the project's Notion is bound to; ``422 notion_link_invalid``,
     ``409 notion_not_shared``, ``409 notion_not_connected``, ``409 notion_reconnect_required``."""
 
-    *_, source, gateway = await _reader(runtime, access.project.id, body.link)
+    *_, source, gateway = await _reader(runtime, access.project.id, [body.link])
     try:
         found = await inspect(gateway, source)
     except NotionError as error:
@@ -98,15 +98,16 @@ async def check_notion_link(body: NotionLinkIn, runtime: RuntimeDep, access: Mem
 
 @router.post("", status_code=201, response_model=BatchSourceOut)
 async def add_notion_source(
-    body: NotionLinkIn, runtime: RuntimeDep, user: UserDep, access: MemberDep
+    body: NotionLinksIn, runtime: RuntimeDep, user: UserDep, access: MemberDep
 ) -> BatchSourceOut:
-    """Check the link as above, create the source for the caller and start the import (``start_import`` of
-    ``api.source_imports`` with ``NotionImporter``, reading as the member the project is bound to)."""
+    """Check every link as above, create one source for the caller and start its import (``start_import`` of
+    ``api.source_imports`` with ``NotionImporter``, reading as the member the project is bound to). The source is named
+    after the first link ("Engineering Wiki + 2 more") and links to it."""
 
     pid = access.project.id
-    connections, member, source, gateway = await _reader(runtime, pid, body.link)
+    connections, member, source, gateway = await _reader(runtime, pid, body.links)
     try:
-        _kind, title = await open_link(gateway, source)  # the import walks the tree, once
+        titles = await open_links(gateway, source)  # the import walks the trees, once
     except NotionError as error:
         raise notion_error(error) from None
     created = await start_import(
@@ -114,8 +115,10 @@ async def add_notion_source(
         pid,
         user.id,
         started=StartedImport(KIND, NotionImporter(connections, source), member),
-        title=title or "Untitled",
-        link=body.link,
+        title=source_title(titles),
+        link=body.links[0],
     )
-    log_event(logger, INFO, "api.imports.added", user_id=str(user.id), project_id=str(pid), kind=KIND)
+    log_event(
+        logger, INFO, "api.imports.added", user_id=str(user.id), project_id=str(pid), kind=KIND, links=len(source.links)
+    )
     return created

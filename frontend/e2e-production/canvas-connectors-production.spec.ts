@@ -695,7 +695,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(wire(page, "github-plan")).toHaveAttribute(MOTION, "on");
   });
 
-  test("Notion pages: no Notion on the project says Set up first and comes back with the form open; shared pages and databases are ticked and each becomes a source, a refused one is named and stays ticked", async ({
+  test("Notion pages: no Notion on the project says Set up first and comes back with the form open; the ticked pages and databases become one source, and a refused add adds nothing and reads the list again", async ({
     page,
     requests,
   }) => {
@@ -715,22 +715,25 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(addSelected).toBeDisabled();
     for (const name of [new RegExp(`^${WIKI}`), /^Old notes/, /^Requirements/]) await form.getByLabel(name).check();
     await expect(form.getByText("3 picked")).toBeVisible();
-    await addSelected.click(); // Engineering Wiki gets in; Old notes was unshared since Notion was connected
-    await expect(form.getByRole("alert")).toContainText(/^Old notes: .*no longer shared with Graphico/);
-    await expect(form.getByRole("checkbox")).toHaveCount(5);
+    await addSelected.click(); // Old notes was unshared since Notion was connected: nothing is added
+    await expect(form.getByRole("alert")).toContainText(/^Nothing was added: one of the picked pages is no longer shared with Graphico/);
     await expect(form.getByLabel(/^Old notes/)).toBeChecked();
     await form.getByLabel(/^Old notes/).uncheck();
     await addSelected.click();
     await expect(form).toBeHidden();
-    for (const name of [WIKI, "Requirements"]) {
-      const node = nodes(page).filter({ hasText: name });
-      await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
-      await expect(node).toContainText("Notion");
-    }
+    const node = nodes(page).filter({ hasText: `${WIKI} + 1 more` });
+    await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
+    await expect(node).toContainText("Notion");
+    await expect(nodes(page).filter({ hasText: /^Requirements/ })).toHaveCount(0);
     const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/notion`);
-    expect(bodiesOf(adds)).toEqual([{ link: NOTION_WIKI }, { link: NOTION_OLD_NOTES }, { link: NOTION_REQUIREMENTS }]);
-    await nodes(page).filter({ hasText: WIKI }).getByRole("button").click();
-    await expect(dialog(page, WIKI).getByRole("button", { name: "Remove" })).toBeVisible();
+    expect(bodiesOf(adds)).toEqual([
+      { links: [NOTION_WIKI, NOTION_OLD_NOTES, NOTION_REQUIREMENTS] },
+      { links: [NOTION_WIKI, NOTION_REQUIREMENTS] },
+    ]);
+    const reads = requests.filter((r) => r.method === "GET" && r.path === `/api/backend/projects/${pid}/sources/notion/shared`);
+    expect(reads.length).toBeGreaterThanOrEqual(2); // read again after the refused add
+    await node.getByRole("button").click();
+    await expect(dialog(page, `${WIKI} + 1 more`).getByRole("button", { name: "Remove" })).toBeVisible();
   });
 
   test("Notion plan: no Notion on the project says Set up first; the parent page is picked and checked (the closed codes in words), Add destination saves it and the node shows the pass", async ({

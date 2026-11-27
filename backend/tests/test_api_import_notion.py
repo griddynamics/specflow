@@ -84,7 +84,7 @@ FAKE_CONVERTER = Converter(to_markdown, render_row, scrub_original)
 
 
 def importer(connections: FakeNotionConnections, link: NotionLink) -> NotionImporter:
-    return NotionImporter(connections, NotionImport(link), FAKE_CONVERTER)
+    return NotionImporter(connections, NotionImport((link,)), FAKE_CONVERTER)
 
 
 async def run(link: str, connections: FakeNotionConnections | None = None, **kwargs: Any) -> RecordingWriter:
@@ -125,6 +125,28 @@ async def test_a_page_tree_declares_what_it_finds_and_stores_each_page_with_its_
     assert name == "Engineering Wiki"
     assert markdown.startswith("# Engineering Wiki\n\n[converted] Root of a nested wiki.")
     assert "<page" not in markdown and writer.failed == []
+
+
+async def test_the_picked_pages_and_databases_are_walked_together_and_a_page_picked_with_its_parent_is_read_once() -> (
+    None
+):
+    fake = FakeNotionConnections()
+    picked = (
+        NotionLink(RUNBOOKS),
+        NotionLink(WIKI_PAGE_ID),
+        NotionLink(REQUIREMENTS_DATABASE_ID),
+        NotionLink(WIKI_PAGE_ID),
+    )
+    writer = RecordingWriter()
+
+    await NotionImporter(fake, NotionImport(picked), FAKE_CONVERTER)(notion_job(uuid.UUID(int=1)), as_writer(writer))
+
+    pages = [f"page:{p}" for p in (RUNBOOKS, WIKI_PAGE_ID, ONBOARDING, RUNBOOK)]
+    assert set(pages) <= set(writer.added) and len(writer.added) == 4 + 3 and writer.failed == []
+    declared = [external for external, _name in writer.declared]
+    assert len(declared) == len(set(declared)) and f"page:{RUNBOOKS}" not in declared
+    read = [c.args[0] for c in fake.fake.calls if c.method == "page_markdown"]
+    assert len(read) == len(set(read))
 
 
 async def test_the_original_of_a_page_is_slim_json_with_the_page_fields_and_the_scrubbed_markdown() -> None:
@@ -297,7 +319,7 @@ async def test_an_original_the_scrub_cannot_handle_is_a_convert_failure_of_that_
 
     writer = RecordingWriter()
     converter = Converter(to_markdown, render_row, refuse)
-    await NotionImporter(FakeNotionConnections(), NotionImport(NotionLink(PRD_PAGE_ID)), converter)(
+    await NotionImporter(FakeNotionConnections(), NotionImport((NotionLink(PRD_PAGE_ID),)), converter)(
         notion_job(uuid.UUID(int=1)), as_writer(writer)
     )
 
@@ -416,7 +438,7 @@ async def test_inspect_probes_a_page_with_one_page_read_and_one_markdown_read(mo
     monkeypatch.setattr("api.imports.notion.default_converter", lambda: FAKE_CONVERTER)
     gateway = FakeNotionConnections().fake
 
-    found = await inspect(gateway, NotionImport(NotionLink(WIKI_PAGE_ID)))
+    found = await inspect(gateway, NotionImport((NotionLink(WIKI_PAGE_ID),)))
 
     assert (found.kind, found.title, found.pages, found.capped) == ("page", "Engineering Wiki", 3, False)
     assert [c.method for c in gateway.calls] == ["page", "page_markdown"]
@@ -426,7 +448,7 @@ async def test_inspect_probes_a_database_with_one_page_of_rows(monkeypatch) -> N
     monkeypatch.setattr("api.imports.notion.default_converter", lambda: FAKE_CONVERTER)
     gateway = FakeNotionConnections().fake
 
-    found = await inspect(gateway, NotionImport(NotionLink(REQUIREMENTS_DATABASE_ID)))
+    found = await inspect(gateway, NotionImport((NotionLink(REQUIREMENTS_DATABASE_ID),)))
 
     assert (found.kind, found.title, found.pages, found.capped) == ("database", "Requirements DB", 3, False)
     assert [c.method for c in gateway.calls] == ["page", "database", "query_data_source"]
@@ -437,12 +459,12 @@ async def test_inspect_says_capped_for_a_database_line_a_next_cursor_and_more_th
     fake = FakeNotionConnections()
     line = f'<database url="https://app.notion.com/p/x" data-source-url="collection://{REQUIREMENTS_DATA_SOURCE_ID}">\nD\n</database>'
     fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(f"{page_line(ONBOARDING, 'Onboarding')}\n{line}")
-    with_database = await inspect(fake.fake, NotionImport(NotionLink(WIKI_PAGE_ID)))
+    with_database = await inspect(fake.fake, NotionImport((NotionLink(WIKI_PAGE_ID),)))
     monkeypatch.setattr(notion_module, "MAX_PAGES", 2)
-    over = await inspect(FakeNotionConnections().fake, NotionImport(NotionLink(WIKI_PAGE_ID)))
+    over = await inspect(FakeNotionConnections().fake, NotionImport((NotionLink(WIKI_PAGE_ID),)))
     fake.fake.rows[REQUIREMENTS_DATA_SOURCE_ID] = [add_page(fake.fake, pid(n), f"R{n}", "x") for n in range(130)]
     monkeypatch.setattr(notion_module, "MAX_PAGES", 500)
-    rows = await inspect(fake.fake, NotionImport(NotionLink(REQUIREMENTS_DATABASE_ID)))
+    rows = await inspect(fake.fake, NotionImport((NotionLink(REQUIREMENTS_DATABASE_ID),)))
 
     assert (with_database.pages, with_database.capped) == (3, True)
     assert (over.pages, over.capped) == (2, True)
@@ -456,12 +478,12 @@ async def test_inspect_of_a_page_too_deep_to_convert_counts_the_page_only_and_re
     fake = FakeNotionConnections()
     fake.fake.markdown[WIKI_PAGE_ID] = PageMarkdown(TOO_DEEP)
 
-    found = await inspect(fake.fake, NotionImport(NotionLink(WIKI_PAGE_ID)))
+    found = await inspect(fake.fake, NotionImport((NotionLink(WIKI_PAGE_ID),)))
     fake.fake.unshare(PRD_PAGE_ID)
 
     assert found.pages == 1
     with pytest.raises(NotionError, match="notion_not_shared"):
-        await inspect(fake.fake, NotionImport(NotionLink(PRD_PAGE_ID)))
+        await inspect(fake.fake, NotionImport((NotionLink(PRD_PAGE_ID),)))
 
 
 async def test_a_database_line_without_a_data_source_url_reads_the_database_for_its_data_sources() -> None:
@@ -507,7 +529,7 @@ USER_ID = re.compile(r"user://[^\s\"'<>)\]\\]")
 @pytest.mark.parametrize("target", [ROOT_PAGE_ID, WIKI_PAGE_ID, PRD_PAGE_ID, REQUIREMENTS_DATABASE_ID])
 async def test_the_real_converter_over_the_sandbox_fixtures_leaves_no_nfm_tag_email_or_user_id(target) -> None:
     writer = RecordingWriter()
-    await NotionImporter(FakeNotionConnections(), NotionImport(NotionLink(target)))(
+    await NotionImporter(FakeNotionConnections(), NotionImport((NotionLink(target),)))(
         notion_job(uuid.UUID(int=1)), as_writer(writer)
     )
 
@@ -545,9 +567,9 @@ async def test_a_title_with_an_e_mail_address_is_scrubbed_in_the_heading_the_nam
 
     writer = await run(WIKI_PAGE_ID, fake)
     link = NotionLink(WIKI_PAGE_ID)
-    kind, title = await notion_module.open_link(fake.fake, NotionImport(link))
+    [title] = await notion_module.open_links(fake.fake, NotionImport((link,)))
 
-    assert (kind, title) == ("page", "Notes of (e-mail hidden)")
+    assert title == "Notes of (e-mail hidden)"
     assert all(address not in name for _id, name in writer.declared)
     assert all(
         address not in name and address not in markdown.split("\n")[0] for name, markdown, _o in writer.added.values()

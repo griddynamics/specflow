@@ -356,8 +356,8 @@ export const addLinearSourceLink = (pid: string, link: string, exclude: readonly
 export const listNotionShared = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/sources/notion/shared`).then((r) => r.body);
 export const checkNotionLink = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/notion/check`, json({ link })).then((r) => r.body);
-export const addNotionSource = (pid: string, link: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/sources/notion`, json({ link })).then((r) => r.body);
+export const addNotionSource = (pid: string, links: readonly string[]) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/notion`, json({ links })).then((r) => r.body);
 // Knowledge build (`/graph_build`): the GET is the build state, the POST starts a build. Bodies stay `unknown`; the knowledge port
 // (lib/data/http/knowledge.ts) checks their shape. The reasoning level is an integer 1..5 (the backend only logs it).
 export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);

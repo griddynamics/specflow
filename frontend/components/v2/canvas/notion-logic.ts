@@ -22,6 +22,7 @@ export const NOTION_PICKER_WORDS = {
   nothing: "Nothing is shared with Graphico yet. In Integrations, connect Notion again and tick the pages it may read.",
   noPages: "No page is shared with Graphico yet. In Integrations, connect Notion again and tick the pages it may read.",
   capped: "Only the first 300 pages and databases are listed.",
+  gone: "Nothing was added: one of the picked pages is no longer shared with Graphico. The list is read again; check what you picked.",
 } as const;
 
 /** One option of the parent page picker: the title, and the parent page when there is one ("Onboarding · in Engineering Wiki"). */
@@ -32,8 +33,11 @@ export function notionOptionLabel(item: NotionSharedItem): string {
 /** The count under the checklist: "2 picked". */
 export const notionPickedText = (n: number): string => `${String(n)} picked`;
 
-/** A failed add of one picked item, named: "Engineering Wiki: Connect Notion in Integrations first." The items before it are in. */
-export const notionAddFailureText = (title: string, e: unknown): string => `${title}: ${notionFailureText(e)}`;
+/** What a failed add of the picked items says. Nothing was added; a page no longer shared drops out of the list, which is read again. */
+export function notionAddFailureText(e: unknown): string {
+  const gone = isDataError(e) && e.detail?.apiCode === "notion_not_shared";
+  return gone ? NOTION_PICKER_WORDS.gone : notionFailureText(e);
+}
 
 const FAILURE: Record<string, string> = {
   notion_not_connected: "Connect Notion in Integrations first.",

@@ -1,4 +1,5 @@
-"""The Notion importer (docs/notion/source.md): a page and its sub-pages, or a database and its rows, as documents.
+"""The Notion importer (docs/notion/source.md): the picked pages with their sub-pages and databases with their rows, as
+the documents of one source.
 Stream D1 fills ``inspect`` and ``NotionImporter.__call__``; the types and the caps are final.
 
 Runs in the API process as the member the project's Notion is connected by (``connections.gateway(job.user_id)``). A
@@ -67,9 +68,16 @@ class Connections(Protocol):
 
 @dataclass(frozen=True)
 class NotionImport:
-    """What to import: the object a pasted link names."""
+    """What to import: the pages and databases the member picked, one source for all of them (N2). A page and its
+    sub-page picked together are read once."""
 
-    link: NotionLink
+    links: tuple[NotionLink, ...]
+
+    @property
+    def link(self) -> NotionLink:
+        """The first one: what the check probes and what names the source."""
+
+        return self.links[0]
 
 
 @dataclass(frozen=True)
@@ -197,7 +205,7 @@ class _Walk:
         self._seen: set[str] = set()
         self._sources: set[str] = set()
         self.root_sources: tuple[str, ...] = ()  # data sources of a target database
-        self._root: str | None = None  # the target page: when it cannot be read the source fails
+        self._roots: set[str] = set()  # the picked pages: when one cannot be read the source fails
         self.capped = False
 
     @property
@@ -216,14 +224,14 @@ class _Walk:
         else:
             if page.in_trash:
                 raise NotionError(NotionCode.NOT_SHARED)
-            self._root = _key(page.id)
-            self._seen.add(self._root)
-            self._queue.append(page)
+            self._roots.add(_key(page.id))
+            if self._take(page.id):
+                self._queue.append(page)
             return "page", scrub_text(page.title)
         database = await self._gateway.database(link.id)
         if database.in_trash:
             raise NotionError(NotionCode.NOT_SHARED)
-        self.root_sources = tuple(source.id for source in database.data_sources)
+        self.root_sources += tuple(source.id for source in database.data_sources)
         for source in database.data_sources:
             if _key(source.id) not in self._sources:
                 self._sources.add(_key(source.id))
@@ -300,7 +308,7 @@ class _Walk:
         try:
             read = await self._gateway.page_markdown(page.id)
         except NotionError as error:
-            if error.code not in _ITEM_SKIPS or _key(page.id) == self._root:
+            if error.code not in _ITEM_SKIPS or _key(page.id) in self._roots:
                 raise
             yield _Skipped(external_id, title, _ITEM_SKIPS[error.code], READ_STEP)
             return
@@ -331,11 +339,19 @@ class _Walk:
                 self._queue.append(_Rows(database.data_source_id, database.title, root=False))
 
 
-async def open_link(gateway: NotionGateway, source: NotionImport) -> tuple[Literal["page", "database"], str]:
-    """What the link names and its title, from one read (two for a database): a page first, then a database.
-    ``NotionError`` when it cannot be read."""
+async def open_links(gateway: NotionGateway, source: NotionImport) -> list[str]:
+    """The titles of what every link names, in order (one read each, two for a database); ``NotionError`` at the first
+    one that cannot be read."""
 
-    return await _Walk(gateway, default_converter()).open(source.link)
+    walk = _Walk(gateway, default_converter())
+    return [(await walk.open(link))[1] for link in source.links]
+
+
+def source_title(titles: list[str]) -> str:
+    """The name of a source of the picked pages: the first title, and how many more ("Engineering Wiki + 2 more")."""
+
+    first = titles[0] if titles and titles[0] else UNTITLED
+    return first if len(titles) <= 1 else f"{first} + {len(titles) - 1} more"
 
 
 async def inspect(gateway: NotionGateway, source: NotionImport) -> Inspection:
@@ -364,7 +380,7 @@ async def inspect(gateway: NotionGateway, source: NotionImport) -> Inspection:
 
 
 class NotionImporter:
-    """An ``Importer`` (``api.imports.runner``) of one Notion link."""
+    """An ``Importer`` (``api.imports.runner``) of the picked Notion pages and databases, walked together."""
 
     def __init__(self, connections: Connections, source: NotionImport, converter: Converter | None = None) -> None:
         self._connections = connections
@@ -374,7 +390,8 @@ class NotionImporter:
     async def __call__(self, job: ImportJob, writer: ImportWriter) -> None:
         try:
             walk = _Walk(await self._connections.gateway(job.user_id), self._converter)
-            await walk.open(self._source.link)
+            for link in self._source.links:
+                await walk.open(link)
             async for event in walk.events():
                 await self._store(writer, event)
         except NotionError as error:

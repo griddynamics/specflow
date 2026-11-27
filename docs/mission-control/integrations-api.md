@@ -312,7 +312,7 @@ connection has no login, so its workspace name is the Notion workspace.
 | `DELETE /integrations/notion` | | 204 | 503 `notion_unavailable` |
 | `GET /projects/{pid}/sources/notion/shared` | | 200 `{items: [{kind, title, link, parent_title}], capped}` (what the bound member shared, for the pickers) | 404 `project_not_found`; 409 `notion_not_connected`, `notion_reconnect_required`; 502; 503 |
 | `POST /projects/{pid}/sources/notion/check` | `{link}` | 200 `{kind, title, pages, capped}` | 404 `project_not_found`; 409 `notion_not_connected`, `notion_reconnect_required`, `notion_not_shared`; 422 `notion_link_invalid`; 502; 503 |
-| `POST /projects/{pid}/sources/notion` | `{link}` | 201 the source card | as the check |
+| `POST /projects/{pid}/sources/notion` | `{links}` (1 to 100) | 201 the source card (one source for all of them) | as the check; nothing is added when one is refused |
 | `GET /projects/{pid}/notion-plan` | | 200 `NotionPlanOut` | 404 `project_not_found` |
 | `PUT /projects/{pid}/notion-plan` | `{link, enabled}` | 200 `NotionPlanOut` | 409 `notion_not_connected`, `notion_reconnect_required`, `notion_not_shared`, `notion_permissions_missing`; 422 `validation_failed`, `notion_link_invalid`, `notion_parent_not_a_page`; 502; 503 `notion_unavailable` |
 | `POST /projects/{pid}/notion-plan/access-check` | `{link}` | 200 `{result: ok, parent_page_title}` or `{result: failed, reason}` (a closed `notion_*` reason; an unbound project or an expired connection is a `failed` result, not an error) | 404; 503 |

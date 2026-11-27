@@ -81,6 +81,23 @@ export function sharedNotion() {
   };
 }
 
+/** The add of the picked links (`POST .../sources/notion`, body `{links}`, 1 to 100): one source named after the first ("Engineering Wiki + 2
+ * more", titles from the shared list, else the check's), its pages summed; the first refused link refuses the whole add.
+ * @returns {{status: number, code: string} | {status: 200, body: {title: string, pages: number}}} */
+export function addNotion(links) {
+  if (!Array.isArray(links) || links.length === 0 || links.length > MAX_PAGES || !links.every((l) => typeof l === "string"))
+    return { status: 422, code: "validation_failed" };
+  const titles = new Map(sharedNotion().items.map((i) => [i.link, i.title]));
+  const found = [];
+  for (const link of new Set(links.map((l) => l.trim()))) {
+    const checked = checkNotion(link);
+    if (!("body" in checked)) return checked;
+    found.push({ title: titles.get(link) ?? checked.body.title, pages: checked.body.pages });
+  }
+  const more = found.length > 1 ? ` + ${String(found.length - 1)} more` : "";
+  return { status: 200, body: { title: found[0].title + more, pages: found.reduce((n, f) => n + f.pages, 0) } };
+}
+
 /**
  * The caller's connection: `state.connection` is null or {status: "active" | "expired", workspace_name, connected_at?}. `callbackError` is an
  * API code the callback answers with.

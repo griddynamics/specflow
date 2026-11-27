@@ -3,7 +3,7 @@
 // check text, so a test sees what a member would.
 import { createElement } from "react";
 import { NotionForm } from "@/components/v2/canvas/NotionForm";
-import { notionCheckText, notionFailureText } from "@/components/v2/canvas/notion-logic";
+import { notionAddFailureText, notionCheckText, notionFailureText } from "@/components/v2/canvas/notion-logic";
 import { createHttpProjects } from "@/lib/data/http/projects";
 import { createHttpSources } from "@/lib/data/http/sources";
 import { serveStub } from "../support/stub-fetch";
@@ -35,9 +35,9 @@ export function notionFormRig(port: number) {
     async checkSays(pid: string, link: string): Promise<string> {
       return sources.checkNotion(pid, link).then(notionCheckText, notionFailureText);
     },
-    /** The line the form shows when Add source is refused for this link; "added" when it was not. */
-    async addSays(pid: string, link: string): Promise<string> {
-      return sources.addNotion(pid, link).then(() => "added", notionFailureText);
+    /** The line the form shows when Add selected is refused for these links; "added" when it was not. */
+    async addSays(pid: string, ...links: string[]): Promise<string> {
+      return sources.addNotion(pid, links).then(() => "added", notionAddFailureText);
     },
   };
 }

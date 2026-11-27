@@ -336,9 +336,9 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
     async checkNotion(projectId, link) {
       return toNotionCheck(await guard(() => checkNotionLink(projectId, link)));
     },
-    async addNotion(projectId, link) {
+    async addNotion(projectId, links) {
       try {
-        await guard(() => addNotionSource(projectId, link));
+        await guard(() => addNotionSource(projectId, links));
       } finally {
         opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
       }

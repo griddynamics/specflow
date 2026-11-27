@@ -28,11 +28,11 @@ test("the registry has Notion pages in Graph, needing Notion, with no check step
   assert.equal(spec.check, null);
 });
 
-test("the form first reads what is shared, says each pick is its own source, and Add selected is off until something is ticked", () => {
+test("the form first reads what is shared, says what is picked is one source, and Add selected is off until something is ticked", () => {
   const view = emptyForm();
   assert.match(view, /Reading your shared Notion pages…/);
   assert.doesNotMatch(view, /<input|<select/);
-  assert.match(view, /Each one becomes its own source/);
+  assert.match(view, /What you pick is added as one source/);
   assert.match(view, /disabled=""[^>]*>Add selected<\/button>/);
   assert.doesNotMatch(view, /role="alert"/);
 });
@@ -102,7 +102,7 @@ test("against the stub: a bad link and a page nobody shared are said in words by
   assert.equal(await rig.checkSays(pid, "https://example.com/x-423ed33606458137b924dd97aa16e0a9"), failure("notion_link_invalid"));
   assert.equal(await rig.checkSays(pid, "not a link"), failure("notion_link_invalid"));
   assert.equal(await rig.checkSays(pid, NOT_SHARED), failure("notion_not_shared"));
-  assert.equal(await rig.addSays(pid, NOT_SHARED), failure("notion_not_shared"));
+  assert.match(await rig.addSays(pid, PAGE, NOT_SHARED), /^Nothing was added: one of the picked pages is no longer shared/);
 });
 
 test("against the stub: a project without a Notion binding, or with an expired one, is refused by the check and by the add", async () => {
@@ -114,13 +114,13 @@ test("against the stub: a project without a Notion binding, or with an expired o
   assert.equal(await rig.addSays(expired, PAGE), failure("notion_reconnect_required"));
 });
 
-test("against the stub: an add posts the link and nothing else", async () => {
+test("against the stub: the picked links are posted once, as one source named after the first", async () => {
   const pid = await rig.project();
   rig.ctx.sent.length = 0;
-  assert.equal(await rig.addSays(pid, PAGE), "added");
+  assert.equal(await rig.addSays(pid, PAGE, CHILD_PAGE, DATABASE), "added");
   assert.deepEqual(
     rig.ctx.sent.map((s) => [s.method, s.path, s.body]),
-    [["POST", `/api/backend/projects/${pid}/sources/notion`, JSON.stringify({ link: PAGE })]],
+    [["POST", `/api/backend/projects/${pid}/sources/notion`, JSON.stringify({ links: [PAGE, CHILD_PAGE, DATABASE] })]],
   );
 });
 
@@ -164,7 +164,6 @@ const view = (over: Partial<Parameters<typeof NotionFormView>[0]>) =>
   html(
     createElement(NotionFormView, {
       shared: ready(),
-      added: new Set<string>(),
       picked: new Set<string>(),
       busy: false,
       problem: null,
@@ -195,17 +194,30 @@ test("ticked items are counted and enable Add selected; while the adds run the l
   assert.match(busy, /aria-busy="true"[^>]*>Adding…<\/button>/);
 });
 
-test("items added by an earlier click leave the list, and a failed add is named in words", () => {
-  const after = view({
-    added: new Set([PAGE]),
-    picked: new Set([DATABASE]),
-    problem: "Requirements: Connect Notion in Integrations first.",
+test("Add selected hands over the picked links in the list's order, without one that left the list; a failed add is said in words", () => {
+  let sent: readonly string[] = [];
+  const form = NotionFormView({
+    shared: ready(),
+    picked: new Set([DATABASE, PAGE, NOT_SHARED]),
+    busy: false,
+    problem: null,
+    onPick: () => undefined,
+    onBack: () => undefined,
+    onAdd: (links) => {
+      sent = links;
+    },
   });
-  assert.equal(after.match(/type="checkbox"/g)?.length, 2);
-  assert.match(after, /role="alert"[^>]*>Requirements: Connect Notion in Integrations first\./);
-  assert.equal(
-    notionAddFailureText("Requirements", new DataError("conflict", false, { apiCode: "notion_not_connected" })),
-    "Requirements: Connect Notion in Integrations first.",
+  const button = (form.props as { action: { props: { onClick: () => void } } }).action;
+  button.props.onClick();
+  assert.deepEqual(sent, [PAGE, DATABASE]);
+  const failed = view({
+    picked: new Set([DATABASE]),
+    problem: notionAddFailureText(new DataError("conflict", false, { apiCode: "notion_not_connected" })),
+  });
+  assert.match(failed, /role="alert"[^>]*>Connect Notion in Integrations first\./);
+  assert.match(
+    notionAddFailureText(new DataError("conflict", false, { apiCode: "notion_not_shared" })),
+    /^Nothing was added: one of the picked pages is no longer shared with Graphico\. The list is read again/,
   );
 });
 

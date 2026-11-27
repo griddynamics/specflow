@@ -68,7 +68,8 @@ export const CANVAS_COPY = {
   confluenceAdding: "Adding…",
   // Notion link and plan destination
   notionLink: "Page or database",
-  notionNote: "Each one becomes its own source: a page with its sub-pages, a database with its rows, read once when it is added.",
+  notionNote:
+    "What you pick is added as one source: each page with its sub-pages, each database with its rows, read once when it is added.",
   notionPlanParent: "Parent page",
   notionOpenDatabase: "Open the Notion database",
   // Jira epic

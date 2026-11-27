@@ -11,8 +11,8 @@ import { NOTION_PICKER_WORDS, notionFailureText, notionOptionLabel } from "./not
 
 export type NotionSharedRead = { kind: "loading" } | { kind: "failed"; text: string } | { kind: "ready"; shared: NotionShared };
 
-/** What `sources.listNotion` says for the project: the shared pages and databases, or why they cannot be read. */
-export function useNotionShared(projectId: string): NotionSharedRead {
+/** What `sources.listNotion` says for the project: the shared pages and databases, or why they cannot be read. A new `round` reads it again. */
+export function useNotionShared(projectId: string, round = 0): NotionSharedRead {
   const { sources } = useV2Ports();
   const [read, setRead] = useState<NotionSharedRead>({ kind: "loading" });
   useEffect(() => {
@@ -28,7 +28,7 @@ export function useNotionShared(projectId: string): NotionSharedRead {
     return () => {
       alive = false;
     };
-  }, [sources, projectId]);
+  }, [sources, projectId, round]);
   return read;
 }
 

@@ -57,9 +57,13 @@ test("a refused link rejects with the closed code of the API", async () => {
 test("adding a link starts the import and tells the knowledge port the sources changed", async () => {
   const pid = await project();
 
-  await sources.addNotion(pid, PAGE);
+  await sources.addNotion(pid, [PAGE]);
 
-  assert.deepEqual(last(), { method: "POST", path: `/api/backend/projects/${pid}/sources/notion`, body: JSON.stringify({ link: PAGE }) });
+  assert.deepEqual(last(), {
+    method: "POST",
+    path: `/api/backend/projects/${pid}/sources/notion`,
+    body: JSON.stringify({ links: [PAGE] }),
+  });
   assert.deepEqual(changed, [pid]);
 });
 
@@ -98,7 +102,7 @@ test("an expired Notion connection: the source and the save are 409 notion_recon
   ctx.api.integrations.seed({ pid, notion: { health: "reconnect_required" } });
 
   await rejects(sources.checkNotion(pid, PAGE), "conflict", "notion_reconnect_required");
-  await rejects(sources.addNotion(pid, PAGE), "conflict", "notion_reconnect_required");
+  await rejects(sources.addNotion(pid, [PAGE]), "conflict", "notion_reconnect_required");
   await rejects(plan.save(pid, { link: PAGE, enabled: true }), "conflict", "notion_reconnect_required");
   assert.deepEqual(await plan.checkAccess(pid, PAGE), { result: "failed", reason: "notion_reconnect_required" });
 });

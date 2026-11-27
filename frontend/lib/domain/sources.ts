@@ -352,8 +352,9 @@ export interface SourcesPort {
   checkNotion(projectId: string, link: string): Promise<NotionCheck>;
   /** The pages and databases the member the project's Notion is connected by shared with Graphico, for the pickers. Rejects like the check. */
   listNotion(projectId: string): Promise<NotionShared>;
-  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
-  addNotion(projectId: string, link: string): Promise<void>;
+  /** Adds the picked pages and databases (their links, 1 to 100) as one source and starts its import, once (D7); the card is in the next status.
+   * Rejects like the check: `notion_not_shared` when one of them is no longer shared, and then nothing is added. */
+  addNotion(projectId: string, links: readonly string[]): Promise<void>;
 }
 
 /** The source-aware Mission Control port (D9, D11): project status and knowledge builds. */

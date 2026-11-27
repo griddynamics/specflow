@@ -1,15 +1,14 @@
 "use client";
 // Notion pages: the pages and databases the member the project's Notion is connected by shared with Graphico (`sources.listNotion`), as a
-// checklist like the GitHub repositories and the Box files. Each one picked is added as its own source (one source per page or database, D5)
-// and imported once (D7); a page brings its sub-pages, a database its rows. The acting account is the project's Notion integration, so a project
-// without it is sent to Integrations from the plus dialog ("Set up first"); a binding lost since then comes back from the list or the add as a
-// 409 and is said in words. The list is off while the adds run.
+// checklist like the GitHub repositories and the Box files. What is picked is added as one source (docs/notion/source.md "Picking a page") and
+// imported once (D7): each page with its sub-pages, each database with its rows, a page picked with its parent read once. The acting account is
+// the project's Notion integration, so a project without it is sent to Integrations from the plus dialog ("Set up first"); a binding lost since
+// then comes back from the list or the add as a 409 and is said in words. A refused add adds nothing and reads the list again. The list is off
+// while the add runs.
 import { useState } from "react";
 import { Button, Notice, PickList, PickRow } from "@graphico/ui";
-import type { NotionSharedItem } from "@/lib/domain/sources";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";
-import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";
 import { ConnectFrame } from "./ConnectFrame";
 import { NOTION_PICKER_WORDS, notionAddFailureText, notionPickedText } from "./notion-logic";
@@ -17,45 +16,35 @@ import { type NotionSharedRead, useNotionShared } from "./NotionPicker";
 
 export function NotionForm({ projectId, reload, onBack, onClose }: Readonly<FormProps>) {
   const { sources } = useV2Ports();
-  const shared = useNotionShared(projectId);
-  const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
+  const [round, setRound] = useState(0);
+  const shared = useNotionShared(projectId, round);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
-  const add = async (items: readonly NotionSharedItem[]) => {
+  const add = async (links: readonly string[]) => {
     setBusy(true);
     setProblem(null);
-    const done = new Set<string>();
-    let current: NotionSharedItem | null = null;
     try {
-      for (const item of items.filter((i) => picked.has(i.link))) {
-        current = item;
-        await sources.addNotion(projectId, item.link);
-        done.add(item.link);
-      }
+      await sources.addNotion(projectId, links);
       reload.current();
       onClose();
     } catch (e) {
-      // Some may be in: read the canvas again, and leave only the ones that are not.
-      reload.current();
       setBusy(false);
-      setAdded((now) => new Set([...now, ...done]));
-      setPicked((now) => new Set([...now].filter((link) => !done.has(link))));
-      setProblem(current === null ? V2_COPY.actionFailed : notionAddFailureText(current.title, e));
+      setRound((n) => n + 1);
+      setProblem(notionAddFailureText(e));
     }
   };
 
   return (
     <NotionFormView
       shared={shared}
-      added={added}
       picked={picked}
       busy={busy}
       problem={problem}
       onPick={setPicked}
       onBack={onBack}
-      onAdd={(items) => void add(items)}
+      onAdd={(links) => void add(links)}
     />
   );
 }
@@ -64,20 +53,20 @@ export function NotionForm({ projectId, reload, onBack, onClose }: Readonly<Form
 export function NotionFormView(
   props: Readonly<{
     shared: NotionSharedRead;
-    /** Links added by an earlier click of this form (a failed batch): they leave the list. */
-    added: ReadonlySet<string>;
     picked: ReadonlySet<string>;
     busy: boolean;
     problem: string | null;
     onPick: (picked: ReadonlySet<string>) => void;
     onBack: () => void;
-    onAdd: (items: readonly NotionSharedItem[]) => void;
+    /** The links picked that are still in the list, in its order. */
+    onAdd: (links: readonly string[]) => void;
   }>,
 ) {
   const { shared, picked, busy } = props;
-  const all = shared.kind === "ready" ? shared.shared.items.filter((i) => !props.added.has(i.link)) : [];
+  const all = shared.kind === "ready" ? shared.shared.items : [];
   const items = [...all.filter((i) => i.kind === "page"), ...all.filter((i) => i.kind === "database")];
-  const count = items.filter((i) => picked.has(i.link)).length;
+  const chosen = items.filter((i) => picked.has(i.link)).map((i) => i.link);
+  const count = chosen.length;
   let body;
   if (shared.kind === "loading") body = <Notice>{NOTION_PICKER_WORDS.loading}</Notice>;
   else if (shared.kind === "failed") body = <Notice role="alert">{shared.text}</Notice>;
@@ -130,7 +119,7 @@ export function NotionFormView(
           disabled={busy || count === 0}
           aria-busy={busy || undefined}
           onClick={() => {
-            props.onAdd(items);
+            props.onAdd(chosen);
           }}
         >
           {busy ? CANVAS_COPY.githubAdding : CANVAS_COPY.githubAdd}

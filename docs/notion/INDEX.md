@@ -26,7 +26,7 @@ member's account. The decisions behind it are N1 to N13 in the table below; each
 | # | Decision |
 |---|---|
 | N1 | OAuth only: one public connection, one connection per user, the refresh token encrypted; no internal-token mode in the product |
-| N2 | Sources are ticked in a checklist of what the member shared (not a typed link), then Add selected: one source per page or database; the plan's parent page is one pick from the same list |
+| N2 | Sources are ticked in a checklist of what the member shared (not a typed link), then Add selected: what is ticked is one source (a page picked with its parent is read once); the plan's parent page is one pick from the same list |
 | N3 | Pages are read as Markdown, never as a block tree; sub-pages and database rows are followed; a row is a properties table plus its body |
 | N4 | One import takes at most 100 pages and rows together; depth is bounded by that cap and a visited set |
 | N5 | The stored original has e-mail addresses removed from user mentions; the converted Markdown goes to the document |

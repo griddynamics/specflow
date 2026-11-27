@@ -348,6 +348,9 @@ class PlanPreview(BaseModel):
 # Sources: Google Drive (INT-GDUI-0001..0004) -------------------------------
 
 LINK_MAX = 2048
+NOTION_LINKS_MAX = (
+    100  # the picked Notion pages of one source: the page cap of an import (api.imports.notion.MAX_PAGES)
+)
 ISSUE_KEY_MAX = 64
 DRIVE_FILES_LIST_MAX = (
     1000  # = temporal.sources.models.DRIVE_EXCLUDE_MAX (asserted in the tests); the import has no cap
@@ -1110,6 +1113,14 @@ class NotionLinkIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     link: str = Field(max_length=LINK_MAX)
+
+
+class NotionLinksIn(BaseModel):
+    """The pages and databases picked from the shared list, added as one source (N2); at most ``MAX_PAGES``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    links: list[Annotated[str, Field(max_length=LINK_MAX)]] = Field(min_length=1, max_length=NOTION_LINKS_MAX)
 
 
 class NotionSharedItem(BaseModel):

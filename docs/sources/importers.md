@@ -20,6 +20,7 @@ Rules shared by every importer:
   ([../jira-sync/oauth.md](../jira-sync/oauth.md)). The site is the deployment's one site (`ATLASSIAN_SITE_URL`); a link
   on another host is `atlassian_site_mismatch`.
 - **One source per link.** `kind` is `confluence`, `jira_epic` or `notion`; `external_id` is a fresh uuid, `link` the link as pasted.
+  A Notion source holds the pages and databases ticked together: `link` is the first of them ([../notion/source.md](../notion/source.md)).
 - **Originals and Markdown.** Each item is stored twice: the API's answer as JSON (`original.json` in object storage) and
   a Markdown document (`origin = connection`, `status = parsed`, `parser = <kind>-convert`). The document starts with the
   title as its heading; the graph reads it like any other (`doc:<document id>` lineage, path `<source name>/<item name>`).
