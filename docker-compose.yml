@@ -470,6 +470,10 @@ services:
       LINEAR_OAUTH_CLIENT_SECRET: "${LINEAR_OAUTH_CLIENT_SECRET:-}"
       LINEAR_TOKEN_KEY: "${LINEAR_TOKEN_KEY:-}"
       LINEAR_WEBHOOK_SECRET: "${LINEAR_WEBHOOK_SECRET:-}"
+      # Box integration: the client ID turns it on (docs/configuration.md "Box integration").
+      BOX_OAUTH_CLIENT_ID: "${BOX_OAUTH_CLIENT_ID:-}"
+      BOX_OAUTH_CLIENT_SECRET: "${BOX_OAUTH_CLIENT_SECRET:-}"
+      BOX_TOKEN_KEY: "${BOX_TOKEN_KEY:-}"
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     volumes:

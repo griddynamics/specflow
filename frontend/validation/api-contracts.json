@@ -234,6 +234,16 @@
       "path": "/projects/{pid}/sources/linear/check"
     },
     {
+      "id": "check_box_link_api_v1_projects__pid__sources_box_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/box/check"
+    },
+    {
+      "id": "add_box_source_api_v1_projects__pid__sources_box_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/box"
+    },
+    {
       "id": "start_upload_batch_api_v1_projects__pid__sources_uploads_post",
       "method": "POST",
       "path": "/projects/{pid}/sources/uploads"
@@ -482,6 +492,26 @@
       "id": "disconnect_linear_api_v1_integrations_linear_delete",
       "method": "DELETE",
       "path": "/integrations/linear"
+    },
+    {
+      "id": "get_box_connection_api_v1_integrations_box_get",
+      "method": "GET",
+      "path": "/integrations/box"
+    },
+    {
+      "id": "authorize_box_api_v1_integrations_box_authorize_post",
+      "method": "POST",
+      "path": "/integrations/box/authorize"
+    },
+    {
+      "id": "box_callback_api_v1_integrations_box_callback_post",
+      "method": "POST",
+      "path": "/integrations/box/callback"
+    },
+    {
+      "id": "disconnect_box_api_v1_integrations_box_delete",
+      "method": "DELETE",
+      "path": "/integrations/box"
     },
     {
       "id": "list_project_repositories_api_v1_projects__pid__repositories_get",

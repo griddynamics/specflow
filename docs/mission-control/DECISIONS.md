@@ -32,6 +32,7 @@ prototype follows them; `README.md` describes the prototype itself.
 | Telegram | Add the Graphico bot | Gap: a group, connected like a Slack channel, with the same test message | New |
 | Notion | Connect the Notion workspace (OAuth; pages are shared with the connection in Notion) | Graph: a page or database with its sub-pages, one node each | New |
 | Linear | Connect the Linear workspace (OAuth) | Plan: a team and project; stories and tasks become issues, kept up to date like the Jira export | New |
+| Box | Connect your Box account (OAuth; Graphico reads the folders and files you can open in Box) | Graph: a Box folder, file or shared link, one source node (its files are the documents) | New (Box integration PR) |
 | Upload, Google Drive, Obsidian | Not integrations: sources only, added per project with the plus | Graph: one node per upload, folder or vault. An Obsidian vault is uploaded from this computer as a folder or a zip of its Markdown notes, its [[links]] kept. No cloud option: Obsidian Sync is end-to-end encrypted and has no public API | Upload and Drive built; Obsidian new |
 | MCP | Not an integration: always on | Added to the canvas by itself when the gaps are found and when the plan is built | Built |
 

@@ -34,7 +34,7 @@ from api.imports.model import (
     NotImportedKindError,
     SourceGoneError,
 )
-from api.imports.writer import ImportWriter
+from api.imports.writer import ImportWriter, ParseStarter
 from db import imports as imports_db
 from db import sources as sources_db
 from logger.logger import INFO, WARNING, get_logger, log_event
@@ -71,6 +71,13 @@ class ImportRunner:
         self._tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
         self._recovery: asyncio.Task[None] | None = None
         self._closed = False
+        self._start_parse: ParseStarter | None = None
+
+    def use_parse_starter(self, start_parse: ParseStarter) -> None:
+        """The parse start the writers of imports that store binary originals use (``ImportWriter.add_file``); set once
+        by the app's lifespan, because the start needs the whole runtime."""
+
+        self._start_parse = start_parse
 
     async def add_source(
         self, project_id: uuid.UUID, user_id: uuid.UUID, *, kind: str, name: str, link: str
@@ -98,7 +105,7 @@ class ImportRunner:
             raise ImportRunnerClosedError
         if job.source_id in self._tasks:
             return
-        writer = ImportWriter(job, transaction=self._transaction, store=self._store)
+        writer = ImportWriter(job, transaction=self._transaction, store=self._store, start_parse=self._start_parse)
         task = asyncio.create_task(self._run(job, importer, writer), name=f"import-{job.source_id}")
         self._tasks[job.source_id] = task
         task.add_done_callback(lambda _done: self._tasks.pop(job.source_id, None))
