@@ -76,9 +76,11 @@ export function NodeDialog({
       <Notice>{detail.text}</Notice>
       {detail.by === null ? null : <Notice>{detail.by}</Notice>}
       {detail.link === undefined ? null : (
-        <a href={detail.link.href} target="_blank" rel="noreferrer">
-          {detail.link.label}
-        </a>
+        <Row>
+          <ButtonLink variant="ghost" size="sm" href={detail.link.href} target="_blank" rel="noopener noreferrer">
+            {detail.link.label}
+          </ButtonLink>
+        </Row>
       )}
       {detail.open === undefined ? null : (
         <div>

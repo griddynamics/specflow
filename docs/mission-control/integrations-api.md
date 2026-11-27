@@ -1,7 +1,7 @@
 ---
 type: API
 title: "Project integrations API"
-description: "The project integration routes (who each app is connected by, connect, remove), member roles on integrations, the importer seam, plan destinations, the Jira answer channel and the GitHub Projects destination: shapes, codes and rules"
+description: "The project integration routes (who each app is connected by, connect, remove), member roles on integrations, the importer seam, plan destinations, the Jira answer channel, the GitHub Projects destination and the Notion routes: shapes, codes and rules"
 status: draft
 tags: [mission-control, integrations, api]
 ---
@@ -14,15 +14,15 @@ acts as that member. The card says "by *member*".
 
 The screens that call these routes: [ui.md](ui.md). The connector docs: [../sources/importers.md](../sources/importers.md) (Confluence, Jira epic),
 [../slack/gap-answering.md](../slack/gap-answering.md) (Slack channel), [../jira-sync/gaps.md](../jira-sync/gaps.md) (Jira gap channel),
-[../jira-sync/INDEX.md](../jira-sync/INDEX.md) (Jira plan destination), [../github/INDEX.md](../github/INDEX.md) (repositories, GitHub Projects).
+[../jira-sync/INDEX.md](../jira-sync/INDEX.md) (Jira plan destination), [../github/INDEX.md](../github/INDEX.md) (repositories, GitHub Projects), [../notion/INDEX.md](../notion/INDEX.md) (Notion connection, page source, plan destination).
 
 ## Routes
 
 | Method, path | Who | Success | Errors |
 |---|---|---|---|
 | `GET /projects/{pid}/integrations` | member | 200 `ProjectIntegrationsOut` | 404 `project_not_found` |
-| `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github`, `box` or `dropbox`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected` / `box_not_connected` / `dropbox_not_connected`; 409 `box_reconnect_required` / `dropbox_reconnect_required`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable` / `box_unavailable` / `dropbox_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
-| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github`, `box`, `dropbox` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
+| `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github`, `box`, `dropbox` or `notion`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected` / `box_not_connected` / `dropbox_not_connected` / `notion_not_connected`; 409 `box_reconnect_required` / `dropbox_reconnect_required`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable` / `box_unavailable` / `dropbox_unavailable` / `notion_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
+| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github`, `box`, `dropbox`, `notion` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
 
 **Slack in the UI:** `DELETE /projects/{pid}/slack` (the route of the Settings tab) and `/specflow disconnect` follow the same rule as
 `DELETE /projects/{pid}/integrations/slack`: the member who connected the channel, or the owner (`403 integration_forbidden` for any
@@ -31,28 +31,28 @@ another member still holds with an active connection is `409 integration_already
 left, lost the connection or removed the integration).
 
 Slack is bound by its own command in the channel (`/specflow connect <project id>`, [../slack/gap-answering.md](../slack/gap-answering.md)),
-which records the caller as the project's Slack member; there is no `PUT` for it. The caller connects Atlassian and
-GitHub, Box or Dropbox to their own account first, with the per-user routes (`/integrations/atlassian/*`,
-`/integrations/github/*`, `/integrations/box/*`, [../box/oauth.md](../box/oauth.md#routes), `/integrations/dropbox/*`, [../dropbox/oauth.md](../dropbox/oauth.md#routes)); `PUT` then binds that connection to the project.
+which records the caller as the project's Slack member; there is no `PUT` for it. The caller connects Atlassian,
+GitHub, Box, Dropbox or Notion to their own account first, with the per-user routes (`/integrations/atlassian/*`,
+`/integrations/github/*`, `/integrations/box/*`, [../box/oauth.md](../box/oauth.md#routes), `/integrations/dropbox/*`, [../dropbox/oauth.md](../dropbox/oauth.md#routes), `/integrations/notion/*`); `PUT` then binds that connection to the project.
 
 ### Shapes
 
-`ProjectIntegrationsOut` is `{integrations: ProjectIntegrationOut[]}`: always five entries, in the order `atlassian`,
-`github`, `slack`, `box`, `dropbox`.
+`ProjectIntegrationsOut` is `{integrations: ProjectIntegrationOut[]}`: always seven entries, in the order `atlassian`,
+`github`, `slack`, `linear`, `box`, `dropbox`, `notion`.
 
 | Model | Fields |
 |---|---|
-| `ProjectIntegrationOut` | `app`, `available` (the server runs the app: Atlassian `oauth` mode, GitHub on, Slack on, Box on, Dropbox on), `connected_by` (`{user_id, name}` or null), `workspace` (`{id, name}` or null), `connected_at` (or null), `health` |
-| `health` | `active`: the bound member's connection works (Slack: the channel is bound); `reconnect_required`: their Atlassian, GitHub, Box or Dropbox connection expired; `none`: nothing acts (no row, the member left, or their connection is gone) |
+| `ProjectIntegrationOut` | `app`, `available` (the server runs the app: Atlassian `oauth` mode, GitHub on, Slack on, Box on, Dropbox on, Notion on: `NOTION_OAUTH_CLIENT_ID` set), `connected_by` (`{user_id, name}` or null), `workspace` (`{id, name}` or null), `connected_at` (or null), `health` |
+| `health` | `active`: the bound member's connection works (Slack: the channel is bound); `reconnect_required`: their Atlassian, GitHub, Box, Dropbox or Notion connection expired (Notion: or it is in another Notion workspace than the binding, no Notion call is made); `none`: nothing acts (no row, the member left, or their connection is gone) |
 
 `connected_by.name` is the member's display name (their email when they have no name). `connected_by` is null and
 `workspace` stays when the member left: another member connects it again (D2). The Atlassian workspace name is the host
-of the configured site; the GitHub one is the account login; the Slack one the workspace name; the Box one is the enterprise name (id = the enterprise id), or the user's name (id `user:<box user id>`) for a personal account; the Dropbox one is the team name (id `team:<team_id>`) for a Business member, or the display name (id `user:<account_id>`) for a personal account (DB5).
+of the configured site; the GitHub one is the account login; the Slack one the workspace name; the Box one is the enterprise name (id = the enterprise id), or the user's name (id `user:<box user id>`) for a personal account; the Dropbox one is the team name (id `team:<team_id>`) for a Business member, or the display name (id `user:<account_id>`) for a personal account (DB5); the Notion one the name of the Notion workspace the member connected.
 
 ### Rules
 
 - **Connect** (`PUT`): the caller's own connection must be `active` (else `409 <app>_not_connected`). The project has
-  one workspace per app (D3): the Atlassian site, the GitHub account (login), the Box enterprise (or the personal account), the Dropbox team (or the personal account) or the Slack workspace of that connection.
+  one workspace per app (D3): the Atlassian site, the GitHub account (login), the Box enterprise (or the personal account), the Dropbox team (or the personal account), the Notion workspace or the Slack workspace of that connection.
   A different workspace is `409 integration_workspace_mismatch` (for GitHub the workspace is the login of the connecting
   account, so a second member who connected GitHub under another login gets it until the binding is removed), unless
   nobody acts on the earlier one (its member left), which any member then replaces. The same workspace is taken over by the caller: the row names them, and
@@ -106,10 +106,10 @@ Unchanged (members could already): sources, uploads, Drive, source removal, grap
 
 ## Importer seam
 
-For sources the API reads itself (Confluence pages, Jira epics, Box links, Dropbox links; each source session adds its importer). Nothing in
+For sources the API reads itself (Confluence pages, Jira epics, Box links, Dropbox links, Notion pages; each source session adds its importer). Nothing in
 the graph build changes: an importer writes `parsed` documents the build already reads.
 
-- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence`, `jira_epic`, `box` or `dropbox` (`SourceKindName` too).
+- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence`, `jira_epic`, `box`, `dropbox` or `notion` (`SourceKindName` too).
   `external_id` of an imported source is `str(uuid)`, as a Local files batch has; `connected_by` is the importing member.
 - `api.imports.ImportRunner` (`Runtime.imports`) holds the imports of the process: one asyncio task per source, at most
   two at once (`MAX_CONCURRENT_IMPORTS`). `add_source` creates the source (`listing`); `start(job, importer)` runs it:
@@ -154,7 +154,7 @@ space). Pages that "follow links" would add are not counted. The check reads Con
 stored. Adding does not repeat a source for the same link: every add is a new source (D7).
 
 **Progress and status.** The new source is a card of `GET /projects/{pid}/sources?batches=1` like any other: `kind`
-`confluence` or `jira_epic`, `name` (the title), `link` (as pasted), `added_by` (the caller), `counts` per file state,
+`confluence`, `jira_epic` or `notion`, `name` (the title), `link` (as pasted), `added_by` (the caller), `counts` per file state,
 `total`, `listing_finished` (false while `listing`), `open` false and, when the import failed, `failure_reason` (`no_access`
 or `unknown_error`). Items appear as pages are declared and finish as they are stored, so `total` grows while the import
 runs; a page the bound member cannot see is a file in a problem state (`access_lost`). `GET /projects/{pid}/sources`
@@ -355,17 +355,50 @@ Organization projects (until then: `github_permissions_missing`).
 - Sync `error_code` values: `github_projects_not_configured`, `no_plan`, `plan_applying`, `target_changed` (skipped), and the closed
   GitHub codes above plus `github_refused`, `github_item_invalid`, `github_issue_gone`.
 
+## Notion
+
+What the Integrations card, the canvas forms and the nodes call. Any member (D6). Everything about Notion (the public connection,
+the page source, the plan database, rules and limits) is in [../notion/INDEX.md](../notion/INDEX.md); the codes are closed in
+[../notion/codes.md](../notion/codes.md). Every read and write acts as the member the project's Notion is connected by (R1); a Notion
+connection has no login, so its workspace name is the Notion workspace.
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `GET /integrations/notion` | | 200 the caller's connection (`enabled`, `connected`, `status`, `workspace_name`, `connected_at`, `last_used_at`) | |
+| `POST /integrations/notion/authorize` | `{return_to}` | 200 `{url}` (Notion's consent page) | 422 `validation_failed`; 503 `notion_unavailable` |
+| `POST /integrations/notion/callback` | `{code, state}` | 200 `{connection, return_to}` | 400 `notion_state_invalid`, `notion_code_invalid`; 502 `notion_unreachable`, `notion_auth_failed`; 503 `notion_unavailable` |
+| `DELETE /integrations/notion` | | 204 | 503 `notion_unavailable` |
+| `GET /projects/{pid}/sources/notion/shared` | | 200 `{items: [{kind, title, link, parent_title}], capped}` (what the bound member shared, for the pickers) | 404 `project_not_found`; 409 `notion_not_connected`, `notion_reconnect_required`; 502; 503 |
+| `POST /projects/{pid}/sources/notion/check` | `{link}` | 200 `{kind, title, pages, capped}` | 404 `project_not_found`; 409 `notion_not_connected`, `notion_reconnect_required`, `notion_not_shared`; 422 `notion_link_invalid`; 502; 503 |
+| `POST /projects/{pid}/sources/notion` | `{links}` (1 to 100) | 201 the source card (one source for all of them) | as the check; nothing is added when one is refused |
+| `GET /projects/{pid}/notion-plan` | | 200 `NotionPlanOut` | 404 `project_not_found` |
+| `PUT /projects/{pid}/notion-plan` | `{link, enabled}` | 200 `NotionPlanOut` | 409 `notion_not_connected`, `notion_reconnect_required`, `notion_not_shared`, `notion_permissions_missing`; 422 `validation_failed`, `notion_link_invalid`, `notion_parent_not_a_page`; 502; 503 `notion_unavailable` |
+| `POST /projects/{pid}/notion-plan/access-check` | `{link}` | 200 `{result: ok, parent_page_title}` or `{result: failed, reason}` (a closed `notion_*` reason; an unbound project or an expired connection is a `failed` result, not an error) | 404; 503 |
+
+- `NotionPlanOut`: `available` (false when Notion is off on this server: the other fields are empty), `parent_page_id`,
+  `parent_page_title`, `parent_page_url`, `database_url` (set once the first pass made the database), `enabled`,
+  `connected_by_name` (the Notion workspace name), `connected_by_me`, `sync` (`project_id`, `enabled`, `status` `idle|running|succeeded|partial|failed|skipped`,
+  `queued`, `trigger`, `started_at`, `finished_at`, `error_code`, `counts{created, updated, commented, removed, unchanged, failed,
+  deferred}`, `parent_page_title`; null without a target).
+- A source's `kind` is `notion`; an import never shows a `notion_*` code (closed failure reasons of sources, N6); the check does.
+- `PUT` never waits for a pass; the plan fan-out (`Runtime.plan_destinations`) also starts one after every plan run.
+
 ## Codes
 
 | Code | HTTP | When |
 |---|---|---|
 | `atlassian_not_connected` | 409 | `PUT` Atlassian: the caller has no active Atlassian connection |
+| `notion_not_connected`, `notion_reconnect_required` | 409 | `PUT` Notion: the caller has no active Notion connection; the Notion check, add, save and access-check: the project has no Notion binding, or the bound member's connection expired or is in another Notion workspace than the binding (no Notion call is made) |
+| `notion_state_invalid`, `notion_code_invalid` | 400 | the Notion callback: the sign-in `state` is not valid, or Notion refused the code |
+| `notion_link_invalid`, `notion_not_shared`, `notion_parent_not_a_page`, `notion_permissions_missing` | 422, 409, 422, 409 | the Notion check, add and save: not a link to a page or database; nothing shared at the link; a database where a page is needed; the connection may not write |
+| `notion_unreachable`, `notion_auth_failed` | 502 | Notion did not answer, or refused this server's credentials |
+| `notion_rate_limited` | 503 | the wait for Notion's request limit did not fit its budget |
 | `github_not_connected` | 409 | `PUT` GitHub: the caller has no active GitHub connection; adding a repository: the project has no GitHub connection bound to a member |
 | `integration_already_connected` | 409 | `PUT`: another member's connection to the app is still active, so the binding is not taken over (they or the owner remove it first) |
-| `integration_workspace_mismatch` | 409 | `PUT`: the project is connected to another Atlassian site, GitHub account or Slack workspace |
+| `integration_workspace_mismatch` | 409 | `PUT`: the project is connected to another Atlassian site, GitHub account, Notion workspace or Slack workspace |
 | `integration_not_found` | 404 | `DELETE`: the project has no connection to that app |
 | `integration_forbidden` | 403 | `DELETE`: the caller neither connected the app nor owns the project |
-| `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable`, `box_unavailable`, `dropbox_unavailable` | 503 | the app is not configured on this server |
+| `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable`, `box_unavailable`, `dropbox_unavailable`, `notion_unavailable` | 503 | the app is not configured on this server |
 | `box_not_connected` | 409 | `PUT` Box: the caller has no active Box connection; the Box source routes: the project has none bound to a member |
 | `dropbox_not_connected` | 409 | `PUT` Dropbox: the caller has no active Dropbox connection; the Dropbox source routes: the project has none bound to a member |
 | `slack_link_invalid` | 400 | `POST /integrations/slack/link`: the nonce expired or was used |
@@ -378,9 +411,15 @@ Organization projects (until then: `github_permissions_missing`).
 ## Data
 
 `project_integrations` (migration `0008_project_integrations`): primary key (`project_id`, `app`), `app` one of
-`atlassian`, `github`, `slack`, `linear` (migration `0011_linear`), `box` (migration `0012_box`), `dropbox` (migration `0013_dropbox`), `user_id` (null once the member left; foreign
+`atlassian`, `github`, `slack`, `linear` (migration `0011_linear`), `box` (migration `0012_box`), `dropbox` (migration `0013_dropbox`), `notion` (migration `0014_notion`), `user_id` (null once the member left; foreign
 key `users.id` on delete set null), `workspace_id`, `workspace_name`, `connected_at`. Row-level security on, policy
 `agent_project_scope`, no grant. The migration fills an `atlassian` row from every Jira target whose acting account
 has a connection, and a `github` row from the first adder of every project's repositories whose adder has a GitHub
 connection; Slack bindings live in a file of the graph state folder, so the api fills the `slack` rows from it at
 its start (the member who ran the connect, while they are a member).
+
+The Notion tables (migration `0014_notion`; columns in [../notion/oauth.md](../notion/oauth.md#data) and [../notion/plan.md](../notion/plan.md)):
+`notion_connections` (one row per user: workspace, bot, encrypted refresh token, `status`), `notion_plan_targets` (one per project: the parent
+page, the database and its data source once made, `enabled`, the last pass) and `notion_plan_items` (the map of plan nodes to rows,
+`kind` `story|task`). All three have row-level security on and no grant; the two plan tables carry the policy `agent_project_scope`, `notion_connections` none (not project-scoped). The migration also widens the checks of
+`project_integrations.app` and `connections.kind` with `notion`.

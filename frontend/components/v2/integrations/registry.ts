@@ -8,6 +8,7 @@ import { BoxSetup } from "./BoxSetup";
 import { DropboxSetup } from "./DropboxSetup";
 import { GitHubSetup } from "./GitHubSetup";
 import { LinearSetup } from "./LinearSetup";
+import { NotionSetup } from "./NotionSetup";
 import { SlackSetup } from "./SlackSetup";
 import type { SetupProps } from "./setup-props";
 
@@ -25,4 +26,5 @@ export const INTEGRATION_CARDS: readonly CardSpec[] = [
   { app: "linear", marks: ["linear"], Setup: LinearSetup },
   { app: "box", marks: ["box"], Setup: BoxSetup },
   { app: "dropbox", marks: ["dropbox"], Setup: DropboxSetup },
+  { app: "notion", marks: ["notion"], Setup: NotionSetup },
 ];

@@ -130,24 +130,26 @@ test("the plus list shows its own stage first, the others dashed under 'Connecti
       "Linear project",
       "Box link",
       "Dropbox link",
+      "Notion pages",
       "Slack channel",
       "Jira sub-tasks",
       "Linear issues",
       "Jira",
       "GitHub Projects",
       "Linear",
+      "Notion",
     ],
     "its own stage first, then the others",
   );
-  assert.equal(count(view.graph, "Available"), 8);
+  assert.equal(count(view.graph, "Available"), 9);
   assert.equal(count(view.graph, "MCP"), 0);
   assert.match(view.gap, /<b>Slack channel<\/b>/);
   assert.doesNotMatch(view.gap, /Nothing can be added/);
   assert.match(view.none, /Nothing can be added to this stage yet/);
   assert.match(view.gap, /Connections for the other stages<\/summary>/);
-  assert.equal(count(view.gap, 'aria-disabled="true"'), 11);
-  assert.equal(count(view.gap, "For Graph"), 8);
-  assert.equal(count(view.gap, "For Plan"), 3);
+  assert.equal(count(view.gap, 'aria-disabled="true"'), 13);
+  assert.equal(count(view.gap, "For Graph"), 9);
+  assert.equal(count(view.gap, "For Plan"), 4);
 });
 
 test("a connection whose app is not connected says 'Set up first' and names the app", () => {

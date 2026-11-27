@@ -15,6 +15,8 @@ const ctx = serveStub(PORT, (api) => {
   api.linear.reset();
   api.box.seed({ reset: true });
   api.dropbox.seed({ reset: true });
+  api.notion.state.enabled = true;
+  api.notion.state.connection = null;
   api.jira.state.mode = "oauth";
   api.jira.state.connection = null;
   api.integrations.seed({ reset: true });
@@ -64,13 +66,18 @@ test("an integration keeps the member, the workspace and the health word of the 
 
 test("any other shape is invalid_response", () => {
   invalid(() => toIntegration(null));
-  invalid(() => toIntegration(wire({ app: "notion" })));
+  invalid(() => toIntegration(wire({ app: "trello" })));
   invalid(() => toIntegration(wire({ health: "fine" })));
   invalid(() => toIntegration(wire({ available: "yes" })));
   invalid(() => toIntegration(wire({ connected_by: { user_id: "u1" } })));
   invalid(() => toIntegration(wire({ connected_at: "yesterday" })));
   invalid(() => toIntegrations({ integrations: [wire({ app: "atlassian" })] }));
-  invalid(() => toIntegrations({ integrations: [wire({ app: "github" }), wire({ app: "atlassian" }), wire({ app: "slack" })] }));
+  invalid(() =>
+    toIntegrations({
+      integrations: [wire({ app: "github" }), wire({ app: "atlassian" }), wire({ app: "slack" }), wire({ app: "notion" })],
+    }),
+  );
+  invalid(() => toIntegrations({ integrations: [wire({ app: "atlassian" }), wire({ app: "github" }), wire({ app: "slack" })] }));
   invalid(() => toIntegrations({}));
 });
 
@@ -85,7 +92,7 @@ test("the Slack test answer needs posted true and a channel", () => {
 
 // ---- Layer P ----
 
-test("GET lists the six apps in order; nothing is connected on a fresh project", async () => {
+test("GET lists the seven apps in order; nothing is connected on a fresh project", async () => {
   const pid = await ownerProject();
   const rows = await integrations.list(pid);
   assert.deepEqual(
@@ -97,6 +104,7 @@ test("GET lists the six apps in order; nothing is connected on a fresh project",
       ["linear", null, "none"],
       ["box", null, "none"],
       ["dropbox", null, "none"],
+      ["notion", null, "none"],
     ],
   );
   assert.deepEqual(last(), { method: "GET", path: `/api/backend/projects/${pid}/integrations`, body: null });
@@ -119,7 +127,7 @@ test("PUT binds the caller's own connection: Atlassian by the cloud site, GitHub
   assert.deepEqual(github.workspace, { id: "octo", name: "octo" });
   assert.deepEqual(
     (await integrations.list(pid)).map((r) => r.health),
-    ["active", "active", "none", "none", "none", "none"],
+    ["active", "active", "none", "none", "none", "none", "none"],
   );
 });
 
@@ -147,6 +155,18 @@ test("PUT binds the caller's own Dropbox connection by the team (a personal acco
   await rejects(integrations.connect(pid, "dropbox"), "unavailable", "dropbox_unavailable");
 });
 
+test("PUT binds the caller's own Notion connection by its workspace; without one it is notion_not_connected", async () => {
+  const pid = await ownerProject();
+  await rejects(integrations.connect(pid, "notion"), "conflict", "notion_not_connected");
+  ctx.api.notion.state.connection = { status: "active", workspace_name: "Sample Workspace" };
+  const notion = await integrations.connect(pid, "notion");
+  assert.deepEqual(last(), { method: "PUT", path: `/api/backend/projects/${pid}/integrations/notion`, body: null });
+  assert.deepEqual(notion.workspace, { id: "notion-stub", name: "Sample Workspace" });
+  assert.equal(notion.health, "active");
+  ctx.api.notion.state.enabled = false;
+  await rejects(integrations.connect(pid, "notion"), "unavailable", "notion_unavailable");
+});
+
 test("PUT needs the caller's own active connection and the app on the server", async () => {
   const pid = await ownerProject();
   await rejects(integrations.connect(pid, "github"), "conflict", "github_not_connected");
@@ -163,7 +183,7 @@ test("PUT needs the caller's own active connection and the app on the server", a
   ctx.api.linear.state.available = false;
   await rejects(integrations.connect(pid, "linear"), "unavailable", "linear_unavailable");
   assert.equal(
-    (await integrations.list(pid)).every((r) => !r.available || r.app === "slack"),
+    (await integrations.list(pid)).every((r) => !r.available || r.app === "slack" || r.app === "notion"),
     true,
   );
 });

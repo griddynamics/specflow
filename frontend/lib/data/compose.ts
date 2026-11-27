@@ -26,6 +26,8 @@ export function composeProductionPorts(http: HttpPorts): DataPorts {
     members: http.members, // members, invites, leave and suggestions (/projects/{pid}/members*, /invites*, /leave, /users/suggestions)
     jira: http.jira, // the Jira target, access check and sync status (/projects/{pid}/jira*)
     githubProjects: http.githubProjects, // the GitHub Projects destination (/projects/{pid}/github-projects*)
+    notionPlan: http.notionPlan, // the Notion plan destination (/projects/{pid}/notion-plan*)
+    notionConnection: http.notionConnection, // the caller's Notion connection (/integrations/notion)
     jiraGaps: http.jiraGaps, // the Jira gap channel (/projects/{pid}/jira-gaps*)
     slack: http.slack, // the Slack channel of a project (/projects/{pid}/slack)
     github: http.github, // the caller's GitHub connection and the project repositories (/integrations/github*, /projects/{pid}/repositories*)

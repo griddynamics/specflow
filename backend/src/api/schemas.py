@@ -348,6 +348,9 @@ class PlanPreview(BaseModel):
 # Sources: Google Drive (INT-GDUI-0001..0004) -------------------------------
 
 LINK_MAX = 2048
+NOTION_LINKS_MAX = (
+    100  # the picked Notion pages of one source: the page cap of an import (api.imports.notion.MAX_PAGES)
+)
 ISSUE_KEY_MAX = 64
 DRIVE_FILES_LIST_MAX = (
     1000  # = temporal.sources.models.DRIVE_EXCLUDE_MAX (asserted in the tests); the import has no cap
@@ -463,7 +466,7 @@ FileStateName = Literal[
     "failed",
     "already_in_project",
 ]
-SourceKindName = Literal["gdrive", "upload", "confluence", "jira_epic", "linear_project", "box", "dropbox"]
+SourceKindName = Literal["gdrive", "upload", "confluence", "jira_epic", "linear_project", "box", "dropbox", "notion"]
 BatchOutcomeName = Literal["added", "already_in_project", "read_again", "duplicate"]
 MAX_EXPECTED_FILES = 10_000
 
@@ -1056,6 +1059,177 @@ class ProjectRepositoryOut(BaseModel):
     checked_at: datetime | None
     cloned_at: datetime | None
     created_at: datetime
+
+
+# --- Notion integration (docs/notion/oauth.md "Routes") ---------------------------------------------------------------
+
+
+class NotionConnectionOut(BaseModel):
+    """The caller's Notion connection; ``enabled`` is whether the server has the Notion connection configured."""
+
+    enabled: bool
+    connected: bool
+    status: Literal["active", "expired"] | None
+    workspace_name: str | None
+    connected_at: datetime | None
+    last_used_at: datetime | None
+
+
+class NotionReturnToIn(BaseModel):
+    """Where the browser returns after Notion: a path of this site (the Atlassian rule)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    return_to: str = Field(min_length=1, max_length=RETURN_TO_MAX)
+
+    @field_validator("return_to")
+    @classmethod
+    def _same_origin_path(cls, value: str) -> str:
+        return same_site_path(value)
+
+
+class NotionUrlOut(BaseModel):
+    url: str
+
+
+class NotionCallbackIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=4096)
+    state: str = Field(min_length=1, max_length=4096)
+
+
+class NotionCallbackOut(BaseModel):
+    connection: NotionConnectionOut
+    return_to: str
+
+
+# --- Notion source (docs/notion/source.md "Routes") ----------------------------------------------------------------
+
+
+class NotionLinkIn(BaseModel):
+    """A Notion page or database link (``notion.so``, ``app.notion.com``, ``*.notion.site``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    link: str = Field(max_length=LINK_MAX)
+
+
+class NotionLinksIn(BaseModel):
+    """The pages and databases picked from the shared list, added as one source (N2); at most ``MAX_PAGES``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    links: list[Annotated[str, Field(max_length=LINK_MAX)]] = Field(min_length=1, max_length=NOTION_LINKS_MAX)
+
+
+class NotionSharedItem(BaseModel):
+    """A page or database the bound member shared with Graphico; ``link`` is what the check and the add take, and
+    ``parent_title`` the title of its parent page when that page is shared too."""
+
+    kind: Literal["page", "database"]
+    title: str
+    link: str
+    parent_title: str | None
+
+
+class NotionSharedOut(BaseModel):
+    """What the pickers offer, sorted by title; ``capped`` when there is more than the list holds."""
+
+    items: list[NotionSharedItem]
+    capped: bool
+
+
+class NotionCheckOut(BaseModel):
+    """What the link would import: a page with its sub-pages, or a database with its rows; ``pages`` is the count (at
+    most the page cap, ``capped`` when there are more)."""
+
+    kind: Literal["page", "database"]
+    title: str
+    pages: int
+    capped: bool
+
+
+# --- Notion plan destination (docs/notion/plan.md "Routes") --------------------------------------------------------
+
+NotionPlanState = Literal["idle", "running", "succeeded", "partial", "failed", "skipped"]
+
+
+class NotionPlanCounts(BaseModel):
+    created: int = 0
+    updated: int = 0
+    commented: int = 0
+    removed: int = 0
+    unchanged: int = 0
+    failed: int = 0
+    deferred: int = Field(default=0, description="Rows left for the next pass (a pass writes at most 120 rows).")
+
+
+class NotionPlanStatus(BaseModel):
+    """The last export pass of the destination (``error_code`` is one closed code, never Notion text)."""
+
+    project_id: str
+    enabled: bool
+    status: NotionPlanState
+    queued: bool
+    trigger: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_code: str | None
+    counts: NotionPlanCounts | None
+    parent_page_title: str
+
+
+class NotionPlanAccessIn(BaseModel):
+    """The typed destination before it is saved: a link to the page the plan database is created under."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    link: str = Field(max_length=LINK_MAX)
+
+
+class NotionPlanIn(NotionPlanAccessIn):
+    enabled: StrictBool
+
+
+class NotionPlanOut(BaseModel):
+    """The Notion plan destination of a project: null fields while there is none. ``available`` is false when the
+    Notion integration is off on this server; ``database_url`` is null until the first pass made the database."""
+
+    available: bool
+    parent_page_id: str | None
+    parent_page_title: str | None
+    parent_page_url: str | None
+    database_url: str | None
+    enabled: bool
+    sync: NotionPlanStatus | None
+    connected_by_name: str | None = Field(description="The Notion workspace the export acts in, or null.")
+    connected_by_me: bool
+
+
+NotionPlanAccessReason = Literal[
+    "notion_not_connected",
+    "notion_reconnect_required",
+    "notion_unreachable",
+    "notion_auth_failed",
+    "notion_link_invalid",
+    "notion_not_shared",
+    "notion_parent_not_a_page",
+    "notion_permissions_missing",
+]
+
+
+class NotionPlanAccessOk(BaseModel):
+    result: Literal["ok"] = "ok"
+    parent_page_title: str
+
+
+class NotionPlanAccessFailed(BaseModel):
+    result: Literal["failed"] = "failed"
+    reason: NotionPlanAccessReason
+
+
+NotionPlanAccessResult = Annotated[NotionPlanAccessOk | NotionPlanAccessFailed, Field(discriminator="result")]
 
 
 class ProjectRepositoriesOut(BaseModel):

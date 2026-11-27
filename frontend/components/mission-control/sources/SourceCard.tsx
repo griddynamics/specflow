@@ -20,6 +20,7 @@ const LOGO = {
   linear_project: "linear",
   box: "box",
   dropbox: "dropbox",
+  notion: "notion",
 } as const;
 
 export function SourceLogo({ kind }: Readonly<{ kind: Source["kind"] }>) {

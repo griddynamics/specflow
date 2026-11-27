@@ -215,6 +215,8 @@ Common optional pass-through settings are grouped below. They are ordinary
   `ATLASSIAN_API_TOKEN` (one account), or `ATLASSIAN_OAUTH_CLIENT_ID`,
   `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` and `PUBLIC_URL`
   (per-user OAuth, which wins when the client ID is set).
+- Notion integration (the API only): `NOTION_OAUTH_CLIENT_ID`, `NOTION_OAUTH_CLIENT_SECRET`,
+  `NOTION_TOKEN_KEY` and `PUBLIC_URL`; `NOTION_REQUESTS_PER_MINUTE` is optional.
 - GitHub integration (the API and the agents worker): `GITHUB_APP_CLIENT_ID`,
   `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_TOKEN_KEY` and `PUBLIC_URL`.
   The worker-agent example also sets `TMPDIR=/var/tmp/specflow` on a 4Gi disk

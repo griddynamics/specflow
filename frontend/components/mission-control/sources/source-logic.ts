@@ -33,6 +33,7 @@ export const KIND_LINE: Record<Exclude<SourceKind, "upload">, string> = {
   linear_project: "Linear project",
   box: "Box",
   dropbox: "Dropbox",
+  notion: "Notion",
 };
 /** The small label above the name in the details modal. */
 export const KIND_LABEL = {
@@ -44,6 +45,7 @@ export const KIND_LABEL = {
   linear_project: "Linear project",
   box: "Box",
   dropbox: "Dropbox",
+  notion: "Notion",
 } as const satisfies Record<SourceKind, string>;
 
 // ---- The card (FR-SRC-0001..0004, NFR-USE-0003) ----

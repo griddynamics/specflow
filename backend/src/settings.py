@@ -1106,6 +1106,48 @@ class DropboxSettings(_MappedSettings):
         return f"{self.public_url}{DROPBOX_CALLBACK_PATH}"
 
 
+NOTION_CALLBACK_PATH: Final = "/api/integrations/notion/callback"
+NOTION_REQUESTS_PER_MINUTE: Final = 150  # under the 180 requests/minute of a Free or Plus workspace
+
+
+class NotionSettings(_MappedSettings):
+    """The public Notion connection of the Notion integration (docs/notion/oauth.md "Settings"; api role only): the
+    client ID turns it on and needs the secret, the token key and ``PUBLIC_URL``. ``NOTION_API_TOKEN`` is not a product
+    setting: the live tests read it from the environment to record and check fixtures."""
+
+    blank_is_unset: ClassVar[tuple[str, ...]] = ("NOTION_REQUESTS_PER_MINUTE",)
+
+    client_id: Text = Field(validation_alias="NOTION_OAUTH_CLIENT_ID")
+    client_secret: SecretStr = Field(validation_alias="NOTION_OAUTH_CLIENT_SECRET")
+    token_key: SecretStr = Field(validation_alias="NOTION_TOKEN_KEY")
+    requests_per_minute: int = Field(
+        default=NOTION_REQUESTS_PER_MINUTE, ge=1, le=600, validation_alias="NOTION_REQUESTS_PER_MINUTE"
+    )
+    public_url: InternalUrl = Field(validation_alias="PUBLIC_URL")
+
+    @field_validator("client_secret")
+    @classmethod
+    def _secret_not_blank(cls, value: SecretStr) -> SecretStr:
+        return _not_blank(value)
+
+    @field_validator("token_key")
+    @classmethod
+    def _key_is_fernet(cls, value: SecretStr) -> SecretStr:
+        return _fernet_key(value)
+
+    @classmethod
+    def configured_in(cls, env: Mapping[str, str]) -> bool:
+        """True when ``NOTION_OAUTH_CLIENT_ID`` is non-blank (a partial set is then refused by the build)."""
+
+        return bool(env.get("NOTION_OAUTH_CLIENT_ID", "").strip())
+
+    @property
+    def callback_url(self) -> str:
+        """The redirect URI registered on the Notion connection: ``{PUBLIC_URL}/api/integrations/notion/callback``."""
+
+        return f"{self.public_url}{NOTION_CALLBACK_PATH}"
+
+
 @dataclass(frozen=True)
 class RoleSettings:
     """The bindings one role needs; the others are ``None``."""
@@ -1131,6 +1173,7 @@ class RoleSettings:
     linear: LinearSettings | None = None  # api only; None = Linear off (``LINEAR_OAUTH_CLIENT_ID`` unset)
     box: BoxSettings | None = None  # api only; None = Box off (``BOX_OAUTH_CLIENT_ID`` unset)
     dropbox: DropboxSettings | None = None  # api only; None = Dropbox off (``DROPBOX_OAUTH_CLIENT_ID`` unset)
+    notion: NotionSettings | None = None  # api only; None = Notion off (``NOTION_OAUTH_CLIENT_ID`` unset)
 
 
 @dataclass(frozen=True)
@@ -1245,6 +1288,7 @@ class _Bindings:
     linear: LinearSettings | None = None
     box: BoxSettings | None = None
     dropbox: DropboxSettings | None = None
+    notion: NotionSettings | None = None
     mcp: McpSettings | None = None
     api_internal: ApiInternalSettings | None = None
 
@@ -1299,6 +1343,15 @@ def _build_dropbox(role: str, source: Mapping[str, str], bad: list[str]) -> Drop
     return _build(DropboxSettings, source, bad)
 
 
+def _build_notion(role: str, source: Mapping[str, str], bad: list[str]) -> NotionSettings | None:
+    """The public Notion connection of the api role; ``None`` when ``NOTION_OAUTH_CLIENT_ID`` is unset (the Notion
+    routes answer 503)."""
+
+    if role != "api" or not NotionSettings.configured_in(source):
+        return None
+    return _build(NotionSettings, source, bad)
+
+
 def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bindings:
     """Build every binding ``role`` needs, flagging each refused variable in ``bad``."""
 
@@ -1322,6 +1375,7 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
     found.linear = _build_linear(role, source, bad)
     found.box = _build_box(role, source, bad)
     found.dropbox = _build_dropbox(role, source, bad)
+    found.notion = _build_notion(role, source, bad)
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
         found.gap = _build_gap(source, bad)
@@ -1528,6 +1582,7 @@ def load_settings(
         linear=found.linear,
         box=found.box,
         dropbox=found.dropbox,
+        notion=found.notion,
     )
 
 

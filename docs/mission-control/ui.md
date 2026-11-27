@@ -44,7 +44,7 @@ on the server is a disabled "Not on this server" card. **Set up** opens one dial
 Every step a person does outside Graphico has a **Show me how** control: a closed disclosure that opens the steps inline (Slack, Atlassian, GitHub,
 Google Drive, from `docs/slack`, `docs/github`, `docs/jira-sync`, `docs/sources`), or, on the canvas MCP dialog, a link to the MCP dialog here.
 A code box (`CopyRow`) has a copy icon inside it on the right; a check shows for about 2 s after a copy.
-**Manage** disconnects (the member who connected it, or the owner, AC6); what uses it stops (D2).
+**Manage** disconnects (the member who connected it, or the owner, AC6); what uses it stops (D2). Notion: **Forget your Notion account?** always says "Your Notion account is removed from Graphico. Every project that uses this account stops reading and writing Notion until someone reconnects."; a project whose own connection expired shows **Reconnect Notion** ("Notion access ended. Reconnect Notion first."); **Add pages in Notion** shows for a member who may manage the integration and has a Notion connection.
 
 ## The canvas
 
@@ -82,11 +82,13 @@ before adding, and a changed input is a new check.
 | `gdrive` | Graph | | Connect a Google Drive folder; Test connection, then the folder summary and every file as a checked, flat list (name, then the folder path quietly; none for a root file; uncheck to leave one out; quiet Select all / Select none; the status line says "9 of 10 files" or "No files", which turns Add source off; files of a category the import skips are not listed), Add source sends the unchecked file ids as `exclude` | folder name, files done of total |
 | `github` | Graph | GitHub | Add repositories; picks from the account's readable repositories (AC45) | repository, clone state (not read by the build, D19) |
 | `confluence` | Graph | Atlassian | Add a Confluence link; Check link, Add source (AC50) | page or space, "N pages" while it imports |
+| `notion` | Graph | Notion | Add Notion pages; a checklist of the pages and databases the member shared, Add selected (one source for what is ticked); read once when added | the first title ("Engineering Wiki + 2 more"), "N pages" while it imports |
 | `jira_epic` | Graph | Atlassian | Add a Jira epic; Check epic, then every issue under it as a checked list (uncheck to leave one out; quiet Select all / Select none; the status line says "12 of 14 issues, and the epic" or "Only the epic"), Add source sends the unchecked keys as `exclude` | the epic key, "N issues" (AC51) |
 | `slack` | Gap | none (AC44) | Connect a Slack channel; invite, connect command, Test connection, Add channel (AC49) | `#channel`, "N found · M answered" |
 | `jira_gap` | Gap | Atlassian | Send gaps to Jira; space key, grouping, Check access, Add channel | `Jira · <space> gaps`, "N posted · M answered" (AC52, AC53) |
 | `jira` | Plan | Atlassian | Send the plan to Jira; space and epic keys, Check access, Add destination | `Jira · <epic>`, syncing, synced |
 | `github_plan` | Plan | GitHub | Send the plan to GitHub Projects; repository, project picked or created, Check access, Add destination (AC61) | `GitHub · <project>`, "N issues · GitHub" |
+| `notion_plan` | Plan | Notion | Send the plan to Notion; the link of a parent page, Check access, Add destination (the plan database is made under it by the first pass) | the parent page title ("Notion" without one), "N rows created", "In sync"; the dialog has **Open the Notion database** once the database exists |
 | `mcp` | none | | Coding agents over MCP (not listed in plus): the stage's notice, Show me how (a link to the Integrations MCP dialog), then the stage's tools, each with one sentence of what it does | "Automatic" |
 
 Every check says what to fix in words from the API's closed codes (another site, not found, not allowed, not connected, needs a reconnect);
@@ -97,7 +99,8 @@ Stopped nodes: a lost Atlassian or GitHub connection (reconnect), or the closed 
 
 | Prototype | Built | Why |
 |---|---|---|
-| Notion, Linear, Telegram, Obsidian | Not in V2 | D20: each comes as its own pull request |
+| Notion | Built as its own pull request: a card, a page or database source and the plan destination | D20 |
+| Linear, Telegram, Obsidian | Not in V2 | D20: each comes as its own pull request |
 | Integration state in localStorage | Project bindings from the API | D1, AC4 |
 | Slack `/graphico connect` | `/specflow connect <project id>` | Main wins (AC14) |
 | A Jira plus asks for space and epic keys only | Also Check access as the bound member | Same rules as the Jira tab on main |

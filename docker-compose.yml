@@ -478,6 +478,11 @@ services:
       DROPBOX_OAUTH_CLIENT_ID: "${DROPBOX_OAUTH_CLIENT_ID:-}"
       DROPBOX_OAUTH_CLIENT_SECRET: "${DROPBOX_OAUTH_CLIENT_SECRET:-}"
       DROPBOX_TOKEN_KEY: "${DROPBOX_TOKEN_KEY:-}"
+      # Notion integration: the client ID turns it on (docs/configuration.md "Notion integration"); the api only.
+      NOTION_OAUTH_CLIENT_ID: "${NOTION_OAUTH_CLIENT_ID:-}"
+      NOTION_OAUTH_CLIENT_SECRET: "${NOTION_OAUTH_CLIENT_SECRET:-}"
+      NOTION_TOKEN_KEY: "${NOTION_TOKEN_KEY:-}"
+      NOTION_REQUESTS_PER_MINUTE: "${NOTION_REQUESTS_PER_MINUTE:-}"
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     volumes:

@@ -20,6 +20,8 @@ import type { PlanPort } from "@/lib/domain/plan";
 import type { ProjectsPort } from "@/lib/domain/projects";
 import type { GitHubProjectsPort } from "@/lib/domain/github-projects";
 import type { JiraGapsPort } from "@/lib/domain/jira-gaps";
+import type { NotionConnectionPort } from "@/lib/domain/notion-connection";
+import type { NotionPlanPort } from "@/lib/domain/notion-plan";
 import type { SlackPort } from "@/lib/domain/slack";
 import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
@@ -40,6 +42,8 @@ import { createHttpPlan } from "./plan";
 import { createHttpProjects } from "./projects";
 import { createHttpGitHubProjects } from "./github-projects";
 import { createHttpJiraGaps } from "./jira-gaps";
+import { createHttpNotionConnection } from "./notion-connection";
+import { createHttpNotionPlan } from "./notion-plan";
 import { createHttpSlack } from "./slack";
 import { createHttpSources } from "./sources";
 import { createHttpWork } from "./work";
@@ -58,6 +62,8 @@ export interface HttpPorts {
   members: MembersPort;
   jira: JiraPort;
   githubProjects: GitHubProjectsPort;
+  notionPlan: NotionPlanPort;
+  notionConnection: NotionConnectionPort;
   jiraGaps: JiraGapsPort;
   slack: SlackPort;
   github: GitHubPort;
@@ -91,6 +97,8 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     members: createHttpMembers(),
     jira: createHttpJira(),
     githubProjects: createHttpGitHubProjects(),
+    notionPlan: createHttpNotionPlan(),
+    notionConnection: createHttpNotionConnection(),
     jiraGaps: createHttpJiraGaps(),
     slack: createHttpSlack(),
     github: createHttpGitHub(),

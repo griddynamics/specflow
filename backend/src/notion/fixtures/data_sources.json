@@ -1,0 +1,502 @@
+{
+ "423ed336-0645-8162-9b9a-000bbce2d0e4": {
+  "object": "data_source",
+  "id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+  "cover": null,
+  "icon": null,
+  "created_time": "2026-11-25T19:41:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_time": "2026-11-25T19:41:00.000Z",
+  "title": [
+   {
+    "type": "text",
+    "text": {
+     "content": "Specflow Plan (trial)",
+     "link": null
+    },
+    "annotations": {
+     "bold": false,
+     "italic": false,
+     "strikethrough": false,
+     "underline": false,
+     "code": false,
+     "color": "default"
+    },
+    "plain_text": "Specflow Plan (trial)",
+    "href": null
+   }
+  ],
+  "description": [
+   {
+    "type": "text",
+    "text": {
+     "content": "Trial export of a Specflow plan: one row per feature, story and task.",
+     "link": null
+    },
+    "annotations": {
+     "bold": false,
+     "italic": false,
+     "strikethrough": false,
+     "underline": false,
+     "code": false,
+     "color": "default"
+    },
+    "plain_text": "Trial export of a Specflow plan: one row per feature, story and task.",
+    "href": null
+   }
+  ],
+  "is_inline": false,
+  "database_type": null,
+  "properties": {
+   "Blocks": {
+    "id": "%3BtrP",
+    "name": "Blocks",
+    "description": null,
+    "type": "relation",
+    "relation": {
+     "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab",
+     "data_source_id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+     "limit": null,
+     "type": "dual_property",
+     "dual_property": {
+      "synced_property_name": "Blocked by",
+      "synced_property_id": "ZI%7B%7B"
+     }
+    }
+   },
+   "Children": {
+    "id": "FGNX",
+    "name": "Children",
+    "description": null,
+    "type": "relation",
+    "relation": {
+     "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab",
+     "data_source_id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+     "limit": null,
+     "type": "dual_property",
+     "dual_property": {
+      "synced_property_name": "Parent",
+      "synced_property_id": "%60Cgb"
+     }
+    }
+   },
+   "Synced at": {
+    "id": "PG%60J",
+    "name": "Synced at",
+    "description": null,
+    "type": "date",
+    "date": {}
+   },
+   "Work area": {
+    "id": "Pe%40%7D",
+    "name": "Work area",
+    "description": null,
+    "type": "select",
+    "select": {
+     "options": [
+      {
+       "id": "d624829e-c269-4174-a1f9-23d84eafe4e9",
+       "name": "backend",
+       "color": "blue",
+       "description": null
+      },
+      {
+       "id": "a874d6c0-1b30-4ab7-8173-b4245c7c08dc",
+       "name": "frontend",
+       "color": "pink",
+       "description": null
+      },
+      {
+       "id": "db1a57d3-e384-41ad-a119-35b251b9b740",
+       "name": "infra",
+       "color": "brown",
+       "description": null
+      }
+     ]
+    }
+   },
+   "Blocked by": {
+    "id": "ZI%7B%7B",
+    "name": "Blocked by",
+    "description": null,
+    "type": "relation",
+    "relation": {
+     "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab",
+     "data_source_id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+     "limit": null,
+     "type": "dual_property",
+     "dual_property": {
+      "synced_property_name": "Blocks",
+      "synced_property_id": "%3BtrP"
+     }
+    }
+   },
+   "Parent": {
+    "id": "%60Cgb",
+    "name": "Parent",
+    "description": null,
+    "type": "relation",
+    "relation": {
+     "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab",
+     "data_source_id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+     "limit": null,
+     "type": "dual_property",
+     "dual_property": {
+      "synced_property_name": "Children",
+      "synced_property_id": "FGNX"
+     }
+    }
+   },
+   "Points": {
+    "id": "q%5BsT",
+    "name": "Points",
+    "description": null,
+    "type": "number",
+    "number": {
+     "format": "number"
+    }
+   },
+   "Type": {
+    "id": "twHt",
+    "name": "Type",
+    "description": null,
+    "type": "select",
+    "select": {
+     "options": [
+      {
+       "id": "9687f6af-7c77-4ef4-a89b-efb8de643936",
+       "name": "Feature",
+       "color": "purple",
+       "description": null
+      },
+      {
+       "id": "186d34f6-7d79-406f-927c-405e0d990198",
+       "name": "Story",
+       "color": "blue",
+       "description": null
+      },
+      {
+       "id": "f694eeaa-9dd6-48f0-8921-3aa05156dc11",
+       "name": "Task",
+       "color": "gray",
+       "description": null
+      }
+     ]
+    }
+   },
+   "Specflow ID": {
+    "id": "w_RA",
+    "name": "Specflow ID",
+    "description": null,
+    "type": "rich_text",
+    "rich_text": {}
+   },
+   "Status": {
+    "id": "%7DfrA",
+    "name": "Status",
+    "description": null,
+    "type": "status",
+    "status": {
+     "options": [
+      {
+       "id": "a2a35b5b-ff90-45a1-8974-6b9fd4a1568a",
+       "name": "To do",
+       "color": "gray",
+       "description": null
+      },
+      {
+       "id": "54a17a3e-34ac-48ea-845e-a6820cda674e",
+       "name": "In progress",
+       "color": "blue",
+       "description": null
+      },
+      {
+       "id": "7964a0b4-6ed9-416e-a78f-d514b8ae0c69",
+       "name": "Done",
+       "color": "green",
+       "description": null
+      }
+     ],
+     "groups": [
+      {
+       "id": "bc2bcbbd-6cfb-4844-905c-737801c62fd3",
+       "name": "To-do",
+       "color": "gray",
+       "option_ids": [
+        "a2a35b5b-ff90-45a1-8974-6b9fd4a1568a"
+       ]
+      },
+      {
+       "id": "d0ff7790-abcd-48e9-9a61-833f1061e7b5",
+       "name": "In progress",
+       "color": "blue",
+       "option_ids": [
+        "54a17a3e-34ac-48ea-845e-a6820cda674e"
+       ]
+      },
+      {
+       "id": "26611e6e-aebf-400b-be74-ff6ea67a0d30",
+       "name": "Complete",
+       "color": "green",
+       "option_ids": [
+        "7964a0b4-6ed9-416e-a78f-d514b8ae0c69"
+       ]
+      }
+     ],
+     "default_option": "To do"
+    }
+   },
+   "Name": {
+    "id": "title",
+    "name": "Name",
+    "description": null,
+    "type": "title",
+    "title": {}
+   }
+  },
+  "parent": {
+   "type": "database_id",
+   "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab"
+  },
+  "database_parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-81f3-b5ea-ff40471c93e5"
+  },
+  "url": "https://app.notion.com/p/423ed33606458136a09fe7d3e03939ab",
+  "public_url": null,
+  "in_trash": false
+ },
+ "423ed336-0645-819d-aec9-000b2cecb51b": {
+  "object": "data_source",
+  "id": "423ed336-0645-819d-aec9-000b2cecb51b",
+  "cover": null,
+  "icon": null,
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "title": [
+   {
+    "type": "text",
+    "text": {
+     "content": "Requirements DB",
+     "link": null
+    },
+    "annotations": {
+     "bold": false,
+     "italic": false,
+     "strikethrough": false,
+     "underline": false,
+     "code": false,
+     "color": "default"
+    },
+    "plain_text": "Requirements DB",
+    "href": null
+   }
+  ],
+  "description": [
+   {
+    "type": "text",
+    "text": {
+     "content": "Requirement rows with properties and page bodies, to test database-as-source.",
+     "link": null
+    },
+    "annotations": {
+     "bold": false,
+     "italic": false,
+     "strikethrough": false,
+     "underline": false,
+     "code": false,
+     "color": "default"
+    },
+    "plain_text": "Requirement rows with properties and page bodies, to test database-as-source.",
+    "href": null
+   }
+  ],
+  "is_inline": false,
+  "database_type": null,
+  "properties": {
+   "Priority": {
+    "id": "G_S%3D",
+    "name": "Priority",
+    "description": null,
+    "type": "select",
+    "select": {
+     "options": [
+      {
+       "id": "5cf70c2f-54cd-427d-ba1c-85f86d2fa8a8",
+       "name": "Must",
+       "color": "red",
+       "description": null
+      },
+      {
+       "id": "64b65133-f882-4f07-bd75-c822f9ed1e0d",
+       "name": "Should",
+       "color": "yellow",
+       "description": null
+      },
+      {
+       "id": "21a174ab-499b-4140-a7a4-7b8f948ea6e7",
+       "name": "Could",
+       "color": "gray",
+       "description": null
+      }
+     ]
+    }
+   },
+   "Estimate": {
+    "id": "XnAR",
+    "name": "Estimate",
+    "description": null,
+    "type": "number",
+    "number": {
+     "format": "number"
+    }
+   },
+   "Status": {
+    "id": "Z%3F%5DR",
+    "name": "Status",
+    "description": null,
+    "type": "status",
+    "status": {
+     "options": [
+      {
+       "id": "bf5d8f75-7aa8-4186-b5d4-080e9525cb18",
+       "name": "Draft",
+       "color": "gray",
+       "description": null
+      },
+      {
+       "id": "9be0a530-7342-4d3a-b21b-d5449d40b97b",
+       "name": "Review",
+       "color": "blue",
+       "description": null
+      },
+      {
+       "id": "76191b0f-edcc-4792-863f-f011140865d2",
+       "name": "Approved",
+       "color": "green",
+       "description": null
+      }
+     ],
+     "groups": [
+      {
+       "id": "25f502b1-04e7-4706-ae2b-f4db0ebd5928",
+       "name": "To-do",
+       "color": "gray",
+       "option_ids": [
+        "bf5d8f75-7aa8-4186-b5d4-080e9525cb18"
+       ]
+      },
+      {
+       "id": "d172f7f9-fdd1-4dca-ba2f-940ed10d410d",
+       "name": "In progress",
+       "color": "blue",
+       "option_ids": [
+        "9be0a530-7342-4d3a-b21b-d5449d40b97b"
+       ]
+      },
+      {
+       "id": "51f5e4a3-a7d0-41dd-8f4a-e636fb662dc0",
+       "name": "Complete",
+       "color": "green",
+       "option_ids": [
+        "76191b0f-edcc-4792-863f-f011140865d2"
+       ]
+      }
+     ],
+     "default_option": "Draft"
+    }
+   },
+   "Area": {
+    "id": "aCNB",
+    "name": "Area",
+    "description": null,
+    "type": "multi_select",
+    "multi_select": {
+     "options": [
+      {
+       "id": "2696c21d-be2c-4e63-bffd-302638ef025d",
+       "name": "checkout",
+       "color": "blue",
+       "description": null
+      },
+      {
+       "id": "7875c932-8c53-48d1-bc11-a2e08cb6ec58",
+       "name": "loyalty",
+       "color": "green",
+       "description": null
+      },
+      {
+       "id": "12158e7f-30ec-4d58-b27c-5fd8dcedcea5",
+       "name": "crm",
+       "color": "purple",
+       "description": null
+      }
+     ]
+    }
+   },
+   "Due": {
+    "id": "ckMj",
+    "name": "Due",
+    "description": null,
+    "type": "date",
+    "date": {}
+   },
+   "Owner": {
+    "id": "ogXc",
+    "name": "Owner",
+    "description": null,
+    "type": "people",
+    "people": {}
+   },
+   "Spec link": {
+    "id": "qMrn",
+    "name": "Spec link",
+    "description": null,
+    "type": "url",
+    "url": {}
+   },
+   "Req ID": {
+    "id": "u%7DeA",
+    "name": "Req ID",
+    "description": null,
+    "type": "unique_id",
+    "unique_id": {
+     "prefix": "LOYREQ"
+    }
+   },
+   "Requirement": {
+    "id": "title",
+    "name": "Requirement",
+    "description": null,
+    "type": "title",
+    "title": {}
+   }
+  },
+  "parent": {
+   "type": "database_id",
+   "database_id": "423ed336-0645-819b-8a30-d73a847eb5e6"
+  },
+  "database_parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-81f3-b5ea-ff40471c93e5"
+  },
+  "url": "https://app.notion.com/p/423ed3360645819b8a30d73a847eb5e6",
+  "public_url": null,
+  "in_trash": false
+ }
+}

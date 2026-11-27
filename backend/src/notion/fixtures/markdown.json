@@ -1,0 +1,100 @@
+{
+ "423ed336-0645-81f3-b5ea-ff40471c93e5": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-81f3-b5ea-ff40471c93e5",
+  "markdown": "Sandbox for the Specflow Notion integration discovery (2026-11-25). Child pages cover the block and page types a project Source can contain, and a trial Plan export. Safe to delete after the discovery.\n\n<table-of-contents />\n\n<page url=\"https://app.notion.com/p/423ed33606458163a8dde12275fc660d\">\nPRD - Checkout Loyalty Points\n</page>\n\n<page url=\"https://app.notion.com/p/423ed3360645816aaff4ffe7862445e1\">\nADR-007 Use event sourcing for points ledger\n</page>\n\n<page url=\"https://app.notion.com/p/423ed33606458137b924dd97aa16e0a9\">\nEngineering Wiki\n</page>\n\n<database url=\"https://app.notion.com/p/423ed3360645819b8a30d73a847eb5e6\" data-source-url=\"collection://423ed336-0645-819d-aec9-000b2cecb51b\" inline=\"false\">\nRequirements DB\n</database>\n\n<database url=\"https://app.notion.com/p/423ed33606458136a09fe7d3e03939ab\" data-source-url=\"collection://423ed336-0645-8162-9b9a-000bbce2d0e4\" inline=\"false\">\nSpecflow Plan (trial)\n</database>",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-8138-9d24-d7f3c76b496d": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-8138-9d24-d7f3c76b496d",
+  "markdown": "Brief: call the estimate endpoint and render \"You earn N points\" under the total.",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-8145-9d7d-f38842545c99": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-8145-9d7d-f38842545c99",
+  "markdown": "Brief: add <code>GET /points/estimate?total=&tier=</code>. Return an integer. Unit tests for Gold and default tiers.",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-8104-88a4-f83c41585cc1": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-8104-88a4-f83c41585cc1",
+  "markdown": "## Acceptance criteria\n\n- Given a returning shopper with a 130 EUR cart, the summary shows 130 points.\n- Given a Gold shopper, the summary shows double points.",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-812b-bd9a-e9be6ec3cfa1": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-812b-bd9a-e9be6ec3cfa1",
+  "markdown": "Goal: show and credit loyalty points at checkout.\n\nSource: PRD - Checkout Loyalty Points.",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-81d7-96ef-e0d042cb7f97": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-81d7-96ef-e0d042cb7f97",
+  "markdown": "## Acceptance criteria\n\n- Given a returning shopper with a cart of 130 EUR, when the summary loads, then it shows \"You earn 130 points\".\n- Given a Gold shopper, the summary shows double points.",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-81dc-893f-cc140e89d124": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-81dc-893f-cc140e89d124",
+  "markdown": "Points are credited by the <code>PaymentCaptured</code> event consumer. See the ADR on event sourcing.",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-81ec-b3ae-e35ee7c4de54": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-81ec-b3ae-e35ee7c4de54",
+  "markdown": "",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-81b9-83b2-f33eaa8f36e5": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-81b9-83b2-f33eaa8f36e5",
+  "markdown": "1. Pause the <code>points-consumer</code> deployment.\n2. Run <code>make backfill FROM=2026-01-01</code>.\n3. Check the projection lag dashboard.\n\n<callout icon=\"🚨\">\nNever run the backfill during the Black Friday freeze.\n</callout>",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-8143-b422-d74e5eb9926c": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-8143-b422-d74e5eb9926c",
+  "markdown": "",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-8159-9753-d8419c8ae458": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-8159-9753-d8419c8ae458",
+  "markdown": "<page url=\"https://app.notion.com/p/423ed336064581b983b2f33eaa8f36e5\">\nRunbook - Points backfill\n</page>",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-8137-b924-dd97aa16e0a9": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-8137-b924-dd97aa16e0a9",
+  "markdown": "Root of a nested wiki. Children follow.\n\n<page url=\"https://app.notion.com/p/423ed33606458143b422d74e5eb9926c\">\nOnboarding\n</page>\n\n<page url=\"https://app.notion.com/p/423ed336064581599753d8419c8ae458\">\nRunbooks\n</page>",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-8163-a8dd-e12275fc660d": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-8163-a8dd-e12275fc660d",
+  "markdown": "<callout icon=\"💡\" color=\"yellow_bg\">\nStatus: Draft. Owner: <mention url=\"user://00000000-0000-4000-8000-0000000000a1/person@example.com\">Sample Author</mention>. Target release <date start=\"2027-02-15\" />.\n</callout>\n\n## 1. Problem\n\nShoppers abandon the cart when the total is <b>above 120 EUR</b>. We want to give <i>loyalty points</i> at checkout so that a returning shopper sees value before paying. See [Baymard abandonment study](https://baymard.com/lists/cart-abandonment-rate).\n\n## 2. Goals\n\n1. Raise checkout conversion for returning shoppers by 3%.\n2. Show earned points before payment.\n3. Keep checkout latency p95 under 800 ms.\n\n## 3. Non-goals\n\n- Points redemption (phase 2).\n- Partner points (airlines, hotels).\n\n## 4. Requirements\n\n| ID | Requirement | Priority |\n| --- | --- | --- |\n| FR-1 | The system shows earned points on the checkout summary | Must |\n| FR-2 | The system credits points after the payment is captured | Must |\n| FR-3 | The shopper can see a points history page | Should |\n| NFR-1 | Points service answers in 150 ms p95 | Must |\n\n### 4.1 Points formula\n\nPoints are one per full euro, doubled for Gold tier:\n\n$$\npoints = \\lfloor total \\rfloor \\times (tier = Gold ? 2 : 1)\n$$\n\n### 4.2 Acceptance checklist\n\n- [x] Formula agreed with Finance\n- [ ] Tier source agreed with CRM team\n- [ ] Fraud rule for refunded orders\n\n<toggle heading=\"h3\">\nOpen questions\n\n- Do refunds remove points immediately or after 30 days?\n- Does a guest checkout earn points?\n</toggle>\n\n<toggle>\nLegacy note (plain toggle)\n\nThe old program used stamps.\n</toggle>\n\n## 5. API sketch\n\n```py\ndef earned_points(total_eur: float, tier: str) -> int:\n    base = int(total_eur)\n    return base * 2 if tier == \"Gold\" else base\n```\n\n> Quote: \"Give value before the shopper pays.\" - Head of Product\n\n<columns>\n<column ratio=\"50\">\n<b>Option A - compute in cart service</b>\n\n- Fast\n- Couples cart to loyalty\n</column>\n<column ratio=\"50\">\n<b>Option B - loyalty service call</b>\n\n- Clean boundary\n- Extra network hop\n</column>\n</columns>\n\n---\n\n<callout icon=\"⚠️\" color=\"red_bg\">\nRisk: the CRM tier field is not reliable for 4% of accounts.\n</callout>\n\n<span color=\"blue\">Inline colored text</span>, <s>struck text</s>, <u>underlined</u>, inline code <code>points_v2</code>, inline math $x^2$.\n\n<bookmark source=\"https://developers.notion.com/reference/intro\">\nNotion API reference\n</bookmark>\n\n<embed source=\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\">\nDemo video\n</embed>\n\n![Architecture sketch](https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Placeholder_view_vector.svg/640px-Placeholder_view_vector.svg.png)",
+  "truncated": false,
+  "unknown_block_ids": []
+ },
+ "423ed336-0645-816a-aff4-ffe7862445e1": {
+  "object": "page_markdown",
+  "id": "423ed336-0645-816a-aff4-ffe7862445e1",
+  "markdown": "<tabs>\n<tab icon=\"📌\">\nContext\n\nThe points ledger must be auditable. Finance asks for a full history of every credit and debit.\n</tab>\n<tab icon=\"✅\">\nDecision\n\nWe store points as an append-only event stream in PostgreSQL. A projection keeps the balance.\n</tab>\n<tab icon=\"⚖️\">\nConsequences\n\n- Rebuild of a projection takes up to 10 minutes.\n- Every consumer must be idempotent.\n</tab>\n</tabs>\n\n<synced-block url=\"https://app.notion.com/p/423ed3360645816aaff4ffe7862445e1#423ed3360645819e9655c1e5e5cbe315\">\nGlossary: <b>Ledger</b> - the append-only list of point events. <b>Projection</b> - the current balance per shopper.\n</synced-block>\n\nDecided on <date start=\"2026-11-20\" /> by <mention url=\"user://00000000-0000-4000-8000-0000000000a1/person@example.com\">Sample Author</mention>.\n\n$$\nbalance = \\sum_{e \\in events} e.delta\n$$",
+  "truncated": false,
+  "unknown_block_ids": []
+ }
+}

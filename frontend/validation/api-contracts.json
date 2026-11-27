@@ -404,6 +404,56 @@
       "path": "/projects/{pid}/linear-plan/access-check"
     },
     {
+      "id": "authorize_notion_api_v1_integrations_notion_authorize_post",
+      "method": "POST",
+      "path": "/integrations/notion/authorize"
+    },
+    {
+      "id": "notion_callback_api_v1_integrations_notion_callback_post",
+      "method": "POST",
+      "path": "/integrations/notion/callback"
+    },
+    {
+      "id": "get_notion_connection_api_v1_integrations_notion_get",
+      "method": "GET",
+      "path": "/integrations/notion"
+    },
+    {
+      "id": "disconnect_notion_api_v1_integrations_notion_delete",
+      "method": "DELETE",
+      "path": "/integrations/notion"
+    },
+    {
+      "id": "get_notion_plan_api_v1_projects__pid__notion_plan_get",
+      "method": "GET",
+      "path": "/projects/{pid}/notion-plan"
+    },
+    {
+      "id": "put_notion_plan_api_v1_projects__pid__notion_plan_put",
+      "method": "PUT",
+      "path": "/projects/{pid}/notion-plan"
+    },
+    {
+      "id": "check_notion_plan_access_api_v1_projects__pid__notion_plan_access_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/notion-plan/access-check"
+    },
+    {
+      "id": "list_shared_notion_api_v1_projects__pid__sources_notion_shared_get",
+      "method": "GET",
+      "path": "/projects/{pid}/sources/notion/shared"
+    },
+    {
+      "id": "check_notion_link_api_v1_projects__pid__sources_notion_check_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/notion/check"
+    },
+    {
+      "id": "add_notion_source_api_v1_projects__pid__sources_notion_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/notion"
+    },
+    {
       "id": "get_atlassian_connection_api_v1_integrations_atlassian_get",
       "method": "GET",
       "path": "/integrations/atlassian"

@@ -116,6 +116,7 @@ export const input = (over: Partial<CanvasInput> = {}): CanvasInput => ({
   github: null,
   jira: null,
   githubProjects: null,
+  notionPlan: null,
   jiraGaps: null,
   slack: null,
   linearPlan: null,

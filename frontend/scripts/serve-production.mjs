@@ -39,6 +39,10 @@
 //                                          POST /seed-dropbox ({reset?, enabled?, connection?, callbackError?}: the caller's own Dropbox connection and the
 //                                            Dropbox knobs: `enabled` false = 503 dropbox_unavailable, `connection` null or {status, name?, team_name?},
 //                                            `callbackError` a callback route code; the Dropbox link check answers by the reserved links of stub-dropbox.mjs)
+//                                          POST /seed-notion ({reset?, enabled?, connection?, callbackError?, pid?, available?, target?, access?}: the
+//                                            Notion stub. `connection` null or {status: "active" | "expired", workspace_name}; `enabled` false = 503
+//                                            notion_unavailable; with `pid` the plan destination (`target` as notionPlan.seed, `access` "ok" or
+//                                            {reason}); `reset: true` puts every knob back first; see stub-notion.mjs)
 //                                          POST /seed-integrations ({pid?, reset?, slackAvailable?, slackTest?, atlassian?, github?, slack?}: the V2
 //                                            Integrations page. `atlassian`, `github`, `box` and `dropbox` are null (not connected) or {by?, workspace?, health?};
 //                                            `slack` null or {channel, by?}; `by: null` = the member left; `slackTest` is "ok" or the API code the
@@ -188,6 +192,21 @@ const control = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     api.dropbox.seed(JSON.parse(Buffer.concat(chunks).toString() || "{}"));
+    return send(200, { ok: true });
+  }
+  if (req.method === "POST" && req.url === "/seed-notion") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let spec;
+    try {
+      spec = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    } catch {
+      return send(400, { error: "bad_json" });
+    }
+    const { reset, enabled, connection, callbackError, ...plan } = spec;
+    if (reset === true) Object.assign(api.notion.state, { enabled: true, connection: null, callbackError: null });
+    for (const [k, v] of Object.entries({ enabled, connection, callbackError })) if (v !== undefined) api.notion.state[k] = v;
+    api.notionPlan.seed(reset === true ? { available: true, ...plan } : plan);
     return send(200, { ok: true });
   }
   if (req.method === "POST" && req.url === "/seed-integrations") {

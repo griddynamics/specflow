@@ -79,6 +79,12 @@ export const CANVAS_COPY = {
   dropboxLink: "Dropbox link",
   dropboxLinkHint: "A shared link, or the address of a folder or file in your Dropbox",
   openDropbox: "Open in Dropbox",
+  // Notion link and plan destination
+  notionLink: "Page or database",
+  notionNote:
+    "What you pick is added as one source: each page with its sub-pages, each database with its rows, read once when it is added.",
+  notionPlanParent: "Parent page",
+  notionOpenDatabase: "Open the Notion database",
   // Jira epic
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",
@@ -141,6 +147,10 @@ export const CANVAS_COPY = {
     "Press Choose repositories on GitHub. There, install the app on your account or organization and pick the repositories it may read.",
     "Return here and tick the repositories to add.",
   ],
+  howNotion: [
+    "Press Connect Notion and approve the access Graphico asks for with your own Notion account.",
+    "On Notion's page, tick the pages and databases Graphico may read and write. Graphico brings you back here.",
+  ],
   howAtlassian: [
     "Press Connect with Atlassian.",
     "Sign in to Atlassian and approve the access Graphico asks for.",
@@ -183,6 +193,7 @@ export const CANVAS_COPY = {
     linear_project: "Issues",
     box: "Files",
     dropbox: "Files",
+    notion: "Pages",
   },
   filesLabel: "Files in this source",
   filesNone: "Nothing in this source yet.",

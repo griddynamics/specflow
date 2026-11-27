@@ -8,6 +8,7 @@ import type { GitHubProjects } from "@/lib/domain/github-projects";
 import type { JiraGaps } from "@/lib/domain/jira-gaps";
 import type { LinearGaps } from "@/lib/domain/linear-gaps";
 import type { LinearPlan } from "@/lib/domain/linear-plan";
+import type { NotionPlan } from "@/lib/domain/notion-plan";
 import type { SlackSettings } from "@/lib/domain/slack";
 import type { Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { PlanState } from "@/lib/domain/plan";
@@ -23,10 +24,12 @@ export type ConnectorKind =
   | "github"
   | "confluence"
   | "jira_epic"
+  | "notion"
   | "slack"
   | "jira_gap"
   | "jira"
   | "github_plan"
+  | "notion_plan"
   | "mcp"
   | "linear_project"
   | "linear_gaps"
@@ -73,6 +76,8 @@ export interface CanvasInput {
   jira: JiraSettings | null;
   /** The GitHub Projects destination of the plan. */
   githubProjects: GitHubProjects | null;
+  /** The Notion destination of the plan. */
+  notionPlan: NotionPlan | null;
   /** The Jira gap channel of the project (sub-tasks of one Story). */
   jiraGaps: JiraGaps | null;
   /** The Slack channel of the project. */
@@ -100,7 +105,7 @@ export interface NodeDetail {
   by: string | null;
   /** The state in a sentence. */
   text: string;
-  /** A link to the object in the app (the Linear project of the plan), shown under the state. */
+  /** A link to the object in the app (the Linear project, the Notion database of the plan), shown under the state. */
   link?: { href: string; label: string };
   /** Remove is offered for a source or a repository: which port removes it. */
   remove: "source" | "repository" | null;

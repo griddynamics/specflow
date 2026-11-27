@@ -1,9 +1,9 @@
 ---
 type: Design
-title: "Importers: Confluence links, Jira epics, Box links and Dropbox links"
-description: "The sources the API reads itself from Atlassian, Box and Dropbox: what a Confluence link, a Jira epic, a Box link or a Dropbox link imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
+title: "Importers: Confluence links, Jira epics, Box links, Dropbox links and Notion"
+description: "The sources the API reads itself from Atlassian, Box, Dropbox and Notion: what a Confluence link, a Jira epic, a Box link or a Dropbox link imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
 status: draft
-tags: [sources, confluence, jira, box, dropbox, import]
+tags: [sources, confluence, jira, box, dropbox, notion, import]
 ---
 # importers.md: sources the API imports itself
 
@@ -14,15 +14,16 @@ importer seam of [../mission-control/integrations-api.md](../mission-control/int
 
 Rules shared by every importer:
 
-- **Acting account.** The import reads as the member the project's Atlassian is connected by (`project_integrations`, R1),
-  never as the caller. The caller is only `connections.connected_by` (who added the source). No new Atlassian scope is
+- **Acting account.** The import reads as the member the project's Atlassian (Notion: the project's Notion) is connected by
+  (`project_integrations`, R1), never as the caller. The caller is only `connections.connected_by` (who added the source). No new Atlassian scope is
   used: `read:page`, `read:hierarchical-content`, `read:space` (Confluence) and `read:jira-work` (Jira) were granted already
   ([../jira-sync/oauth.md](../jira-sync/oauth.md)). The site is the deployment's one site (`ATLASSIAN_SITE_URL`); a link
   on another host is `atlassian_site_mismatch`.
-- **One source per link.** `kind` is `confluence`, `jira_epic`, `box` or `dropbox` (the Box and Dropbox links follow the same rules
+- **One source per link.** `kind` is `confluence`, `jira_epic`, `box`, `dropbox` or `notion` (the Box and Dropbox links follow the same rules
   with their own account and parts, see "Box link" and "Dropbox link" below); `external_id` is a fresh uuid. `link` is the link as pasted for Confluence and Jira; for Box it is the canonical
   folder or file link of the resolved item, for Dropbox the `https://www.dropbox.com/home<path>` address of the resolved item (a
   shared link is never stored).
+  A Notion source holds the pages and databases ticked together: `link` is the first of them ([../notion/source.md](../notion/source.md)).
 - **Originals and Markdown.** Each item is stored twice: the API's answer as JSON (`original.json` in object storage) and
   a Markdown document (`origin = connection`, `status = parsed`, `parser = <kind>-convert`). The document starts with the
   title as its heading; the graph reads it like any other (`doc:<document id>` lineage, path `<source name>/<item name>`).
@@ -157,3 +158,9 @@ Caps: `MAX_FILES = 1000` importable files, `MAX_ENTRIES = 5000` listed entries, 
 the source. Failure reasons are the closed set above (no new reason). Links, lanes, failure mapping and follow-ups:
 [../dropbox/source.md](../dropbox/source.md); codes: [../dropbox/codes.md](../dropbox/codes.md); the connection:
 [../dropbox/oauth.md](../dropbox/oauth.md).
+
+## Notion page or database
+
+A Notion link is a source of kind `notion` through the same seam; it reads as the member the project's Notion is connected by,
+over that member's own Notion connection (not Atlassian). The link, the check, the Markdown conversion, the cap of 100 pages
+and rows, the e-mail scrub and the failure reasons are specified in [../notion/source.md](../notion/source.md).

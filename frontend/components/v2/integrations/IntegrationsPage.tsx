@@ -1,8 +1,8 @@
 "use client";
 // Mission Control V2, README "Integrations": one card per app, three to a row. It only connects: no switches, no list of uses, no page
 // title (the header names the page). A card is grey and dashed until a member connects the app, then ink; the health word comes from the
-// API. An OAuth return lands here with `?github=`, `?atlassian=`, `?linear=`, `?box=` or `?dropbox=`: the connection is bound to the project, and
-// `next` sends the browser back to the canvas form that asked.
+// API. An OAuth return lands here with `?github=`, `?atlassian=`, `?linear=`, `?box=`, `?dropbox=` or `?notion=`: the connection is bound to the
+// project, and `next` sends the browser back to the canvas form that asked.
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Dialog, Notice, Page } from "@graphico/ui";
@@ -32,11 +32,13 @@ function returnedAppOf(query: {
   linear: string | null;
   box: string | null;
   dropbox: string | null;
+  notion: string | null;
 }): BindableApp | null {
   if (query.github !== null) return "github";
   if (query.linear !== null) return "linear";
   if (query.box !== null) return "box";
   if (query.dropbox !== null) return "dropbox";
+  if (query.notion !== null) return "notion";
   return query.atlassian === null ? null : "atlassian";
 }
 
@@ -55,7 +57,7 @@ export function IntegrationsPage({ projectId, mcp }: Readonly<{ projectId: strin
   const next = query.next;
 
   // Back from an app's sign-in or install page: bind the account to the project, say what failed, then leave the code out of the URL.
-  const code = query.github ?? query.linear ?? query.box ?? query.dropbox ?? query.atlassian;
+  const code = query.github ?? query.linear ?? query.box ?? query.dropbox ?? query.notion ?? query.atlassian;
   const returnedApp = returnedAppOf(query);
   useEffect(() => {
     if (returnedApp === null || code === null || returned.current) return;
@@ -63,7 +65,7 @@ export function IntegrationsPage({ projectId, mcp }: Readonly<{ projectId: strin
     const clean = routes.integrations(projectId, { setup: returnedApp, next: next ?? undefined });
     if (isLinked(code)) {
       void connect(returnedApp).then((bound) => {
-        // GitHub still needs its repositories picked here; Atlassian, Linear, Box and Dropbox are done, so the form that asked comes back.
+        // GitHub still needs its repositories picked here; Atlassian, Linear, Box, Dropbox and Notion are done, so the form that asked comes back.
         if (bound && next !== null && returnedApp !== "github") router.replace(next);
         else router.replace(clean, { scroll: false });
       });
