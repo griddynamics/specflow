@@ -4,8 +4,6 @@ and a writer that records what an importer stores. Every name, text and id is ma
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import uuid
 from types import SimpleNamespace
 from typing import Any, cast
@@ -13,10 +11,11 @@ from typing import Any, cast
 import httpx
 from pydantic import SecretStr
 
-from api.imports import ImportJob, ImportWriter, OriginalTooLargeError
+from api.imports import ImportJob, ImportWriter
 from box.codes import BoxCode, BoxError
 from box.connections import BoxConnections
 from box_support import ENTERPRISE_ID, USERS_ME_ENTERPRISE, FakeBox
+from import_writer_support import StreamingFileWriter
 
 MEMBER = uuid.UUID(int=77)
 PROJECT, SOURCE = uuid.UUID(int=1), uuid.UUID(int=2)
@@ -132,7 +131,7 @@ class FakeConnections:
         return await request(SecretStr(BEARER))
 
 
-class BoxWriter:
+class BoxWriter(StreamingFileWriter):
     """What an importer stores, in order: ``declared``, ``skipped``, ``failed`` (external id, reason, step), ``files``
     (``add_file``: external id -> name, bytes, media type), ``notes`` (``add``: external id -> name, markdown, original)
     and the files whose parse started. Bytes already seen are ``duplicate``. ``peak`` is the most ``add_file`` calls
@@ -161,27 +160,6 @@ class BoxWriter:
 
     async def add(self, external_id: str, *, name: str, original: bytes, markdown: str, **_: Any) -> str:
         self.notes[external_id] = (name, markdown, original)
-        return "added"
-
-    async def add_file(self, external_id: str, *, name: str, chunks: Any, media_type: str, max_bytes: int) -> str:
-        self.open += 1
-        self.peak = max(self.peak, self.open)
-        try:
-            data = b""
-            async for chunk in chunks:
-                data += chunk
-                await asyncio.sleep(0)
-                if len(data) > max_bytes:
-                    raise OriginalTooLargeError
-        finally:
-            self.open -= 1
-        digest = hashlib.sha256(data).hexdigest()
-        if digest in self.hashes:
-            self.duplicates.append(external_id)
-            return "duplicate"
-        self.hashes.add(digest)
-        self.files[external_id] = (name, data, media_type)
-        self.parsed.append(external_id)
         return "added"
 
 

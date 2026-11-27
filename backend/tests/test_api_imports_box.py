@@ -19,6 +19,7 @@ import pytest
 
 from api.imports import ImportFailedError, SourceGoneError
 from api.imports import box as box_module
+from api.imports import files as files_module
 from api.imports.box import BoxImport, BoxImporter, CheckedFile, Inspection, inspect
 from api.uploads import MAX_BYTES
 from box import content as content_module
@@ -319,7 +320,7 @@ async def test_the_same_bytes_in_two_files_are_stored_once_and_the_other_is_a_du
 
 
 async def test_a_file_over_its_cap_while_streaming_is_convert_failed_in_the_download_step(monkeypatch) -> None:
-    monkeypatch.setattr(box_module, "MAX_TEXT_BYTES", 5)
+    monkeypatch.setattr(files_module, "MAX_TEXT_BYTES", 5)
     box, connections = rig([file_entry("1", "notes.txt", 3), file_entry("2", "ok.txt", 3)])
     box.content["1"], box.content["2"] = b"twelve bytes", b"ok"
 

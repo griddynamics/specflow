@@ -13,11 +13,12 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Connection, ConnectionItem
+from db.models import Connection, ConnectionItem, Document
 
 INTERRUPTED_REASON = "unknown_error"  # a closed reason of ``connections.failure_reason``
 ITEM_CATEGORY = "other_files"
 ITEM_PROCESSING_CLASS = "processed"
+DROPBOX_KIND = "dropbox"  # the only source kind of the re-add skip (``find_stored_document``)
 
 
 class ItemDeclareError(Exception):
@@ -32,8 +33,11 @@ async def declare_item(
     external_id: str,
     name: str,
     mime_type: str,
+    size_bytes: int | None = None,
+    modified_time: datetime | None = None,
 ) -> uuid.UUID:
-    """The id of the source's item ``external_id``: a new ``pending`` row, or the one it already has."""
+    """The id of the source's item ``external_id``: a new ``pending`` row, or the one it already has. ``size_bytes``
+    and ``modified_time`` are what the provider listed (the Dropbox re-add skip, ``find_stored_document``)."""
 
     inserted: uuid.UUID | None = await session.scalar(
         pg_insert(ConnectionItem)
@@ -44,6 +48,8 @@ async def declare_item(
             external_id=external_id,
             name=name,
             mime_type=mime_type,
+            size_bytes=size_bytes,
+            modified_time=modified_time,
             category=ITEM_CATEGORY,
             processing_class=ITEM_PROCESSING_CLASS,
         )
@@ -60,6 +66,41 @@ async def declare_item(
     if existing is None:
         raise ItemDeclareError
     return existing
+
+
+async def find_stored_document(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    external_id: str,
+    modified_time: datetime,
+    size_bytes: int,
+) -> uuid.UUID | None:
+    """The re-add skip of the Dropbox importer (decision DB12): the ``document_id`` of an item of this project (any
+    source of kind ``dropbox``: an ``external_id`` is only an id inside its provider) with the same ``external_id``
+    (``id:...``), ``modified_time`` (Dropbox ``server_modified``) and ``size_bytes`` that still links a document that
+    exists; ``None`` when there is none (the file is downloaded). One
+    query; the plain SHA-256 on insert stays the final dedup. A document whose parse failed is not reused."""
+
+    found: uuid.UUID | None = await session.scalar(
+        select(ConnectionItem.document_id)
+        .join(Connection, Connection.id == ConnectionItem.connection_id)
+        .join(Document, Document.id == ConnectionItem.document_id)
+        .where(
+            ConnectionItem.project_id == project_id,
+            Connection.project_id == project_id,
+            Connection.kind == DROPBOX_KIND,
+            ConnectionItem.external_id == external_id,
+            ConnectionItem.modified_time == modified_time,
+            ConnectionItem.size_bytes == size_bytes,
+            ConnectionItem.state.in_(("processed", "duplicate")),
+            Document.project_id == project_id,
+            Document.status != "failed",
+        )
+        .order_by(ConnectionItem.updated_at.desc())
+        .limit(1)
+    )
+    return found
 
 
 async def database_now(session: AsyncSession) -> datetime:

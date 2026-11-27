@@ -21,34 +21,34 @@ Tested in ``tests/test_api_imports_box.py``.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Final, Literal
+from typing import Final, Literal, override
 
 from pydantic import SecretStr
 
-from api.imports.model import ImportFailedError, ImportJob, OriginalTooLargeError, SourceGoneError
+from api.imports.files import MAX_OOXML_BYTES, MAX_PDF_BYTES, MAX_TEXT_BYTES
+from api.imports.files import classify as classify_file
+from api.imports.model import ImportFailedError, ImportJob, ImportRun, OriginalTooLargeError
 from api.imports.writer import ImportWriter
 from box.client import WaitBudget
 from box.codes import BoxCode, BoxError
 from box.connections import BoxConnections
 from box.content import BoxContent, BoxItem, ItemsPage
 from box.links import BoxTarget
-from file_parsers.formats import FORMATS, DocumentFormat
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("api.imports.box")
 
+# The per-format caps live in ``api.imports.files`` (shared with Dropbox); re-exported for the tests and the docs.
+__all__ = ["MAX_OOXML_BYTES", "MAX_PDF_BYTES", "MAX_TEXT_BYTES", "BoxImport", "BoxImporter", "Inspection", "inspect"]
+
 MAX_FILES: Final = 1000  # importable files of one import
 MAX_ENTRIES: Final = 5000  # entries (files and folders) one walk lists
 DOWNLOAD_SLOTS: Final = 4  # downloads at a time in one import
-MAX_PDF_BYTES: Final = 100 * 1024 * 1024  # a larger PDF (by its listed size) is skipped; the cap holds while streaming
-MAX_OOXML_BYTES: Final = 50 * 1024 * 1024  # DOCX, PPTX, XLSX
-MAX_TEXT_BYTES: Final = 10 * 1024 * 1024  # HTML, MD, CSV, TXT
 MAX_NOTE_BYTES: Final = 5 * 1024 * 1024  # the text of a Box Note
 NO_ACCESS: Final = "no_access"
 UNKNOWN_ERROR: Final = "unknown_error"
@@ -58,14 +58,6 @@ DOWNLOAD_STEP: Final = "download"
 CONVERT_STEP: Final = "convert"
 
 _NOTE: Final = "boxnote"
-_TEXT_MEDIA_TYPE: Final = "text/markdown"  # a ``.txt`` is stored as Markdown, as an upload of it is
-_FORMAT_CAPS: Final = {
-    DocumentFormat.PDF: MAX_PDF_BYTES,
-    DocumentFormat.DOCX: MAX_OOXML_BYTES,
-    DocumentFormat.PPTX: MAX_OOXML_BYTES,
-    DocumentFormat.XLSX: MAX_OOXML_BYTES,
-}
-_BY_EXTENSION: Final = {spec.extension.lstrip("."): spec for spec in FORMATS}
 # A connection that cannot be used ends the source ``no_access`` (and stops its other downloads at once).
 _NO_ACCESS_CODES: Final = frozenset(
     {
@@ -81,17 +73,9 @@ _NO_ACCESS_CODES: Final = frozenset(
 _ABORT_CODES: Final = _NO_ACCESS_CODES - {BoxCode.NO_ACCESS}
 
 Lane = Literal["original", "note", "skipped"]
-# The ``category`` of a listed file in the check (``BoxCheckOut.files``): its parser format, ``.txt`` is ``text``.
+# The ``category`` of a listed file in the check (``BoxCheckOut.files``): the shared file categories
+# (``api.imports.files.CATEGORIES``) or a Box Note.
 Category = Literal["pdf", "word", "powerpoint", "excel", "html", "markdown", "csv", "text", "note"]
-CATEGORIES: Final[dict[DocumentFormat, Category]] = {
-    DocumentFormat.PDF: "pdf",
-    DocumentFormat.DOCX: "word",
-    DocumentFormat.PPTX: "powerpoint",
-    DocumentFormat.XLSX: "excel",
-    DocumentFormat.HTML: "html",
-    DocumentFormat.MARKDOWN: "markdown",
-    DocumentFormat.CSV: "csv",
-}
 EXCLUDE_MAX: Final = MAX_FILES  # ``BoxLinkIn.exclude`` (asserted in the tests)
 
 
@@ -136,18 +120,10 @@ def classify(item: BoxItem, path: str) -> Found:
         return Found(item, path, "skipped")
     if extension == _NOTE:
         return Found(item, path, "note", "text/plain", MAX_NOTE_BYTES, "note")
-    category: Category = "text"
-    if extension == "txt":
-        media_type, cap = _TEXT_MEDIA_TYPE, MAX_TEXT_BYTES
-    else:
-        spec = _BY_EXTENSION.get(extension)
-        if spec is None:
-            return Found(item, path, "skipped")
-        media_type, cap = spec.media_type, _FORMAT_CAPS.get(spec.format, MAX_TEXT_BYTES)
-        category = CATEGORIES.get(spec.format, "text")
-    if item.size > cap:
+    lane = classify_file(extension, item.size)  # the shared lane table (api.imports.files, DB18)
+    if lane is None:
         return Found(item, path, "skipped")
-    return Found(item, path, "original", media_type, cap, category)
+    return Found(item, path, "original", lane.media_type, lane.cap, lane.category)
 
 
 class _Reader:
@@ -401,37 +377,12 @@ class BoxImporter:
         )
 
 
-class _Run:
+class _Run(ImportRun[_Reader, ImportWriter, Found]):
     """The files of one import: at most ``DOWNLOAD_SLOTS`` at a time, and what came of them."""
 
-    def __init__(self, reader: _Reader, writer: ImportWriter) -> None:
-        self._reader = reader
-        self._writer = writer
-        self.added = self.duplicates = self.failed = 0
+    slots = DOWNLOAD_SLOTS
 
-    async def import_all(self, files: list[Found]) -> None:
-        """Every file in its lane; the first error that ends the whole import (a connection that cannot be used, a
-        removed source) is raised after the files in flight stop."""
-
-        pending = iter(files)
-        stopped: list[ImportFailedError | SourceGoneError] = []
-
-        async def worker() -> None:
-            for found in pending:
-                if stopped:
-                    return
-                try:
-                    await self._one(found)
-                except (ImportFailedError, SourceGoneError) as error:
-                    stopped.append(error)
-                    return
-
-        async with asyncio.TaskGroup() as group:  # any other error cancels the files in flight
-            for _ in range(DOWNLOAD_SLOTS):
-                _task = group.create_task(worker())
-        if stopped:
-            raise stopped[0]
-
+    @override
     async def _one(self, found: Found) -> None:
         step = READ_STEP if found.lane == "note" else DOWNLOAD_STEP
         try:

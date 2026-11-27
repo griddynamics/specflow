@@ -8,6 +8,7 @@ import {
   siCircleci,
   siConfluence,
   siDatadog,
+  siDropbox,
   siFigma,
   siGithub,
   siGitlab,
@@ -28,6 +29,7 @@ export interface Mark {
 const MARKS: Record<string, Mark> = {
   github: siGithub,
   box: siBox,
+  dropbox: siDropbox,
   googledrive: siGoogledrive,
   jira: siJira,
   confluence: siConfluence,

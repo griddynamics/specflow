@@ -32,6 +32,7 @@ export const KIND_LINE: Record<Exclude<SourceKind, "upload">, string> = {
   jira_epic: "Jira epic",
   linear_project: "Linear project",
   box: "Box",
+  dropbox: "Dropbox",
 };
 /** The small label above the name in the details modal. */
 export const KIND_LABEL = {
@@ -42,6 +43,7 @@ export const KIND_LABEL = {
   jira_epic: "Jira epic",
   linear_project: "Linear project",
   box: "Box",
+  dropbox: "Dropbox",
 } as const satisfies Record<SourceKind, string>;
 
 // ---- The card (FR-SRC-0001..0004, NFR-USE-0003) ----

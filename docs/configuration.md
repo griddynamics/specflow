@@ -56,6 +56,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `LINEAR_OAUTH_CLIENT_ID`, `LINEAR_OAUTH_CLIENT_SECRET`, `LINEAR_TOKEN_KEY`, `LINEAR_WEBHOOK_SECRET` | api | The Linear OAuth app of the [Linear integration](#linear-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. The webhook secret is optional. |
 
 | `BOX_OAUTH_CLIENT_ID`, `BOX_OAUTH_CLIENT_SECRET`, `BOX_TOKEN_KEY` | api | The Box app of the [Box integration](#box-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. |
+| `DROPBOX_OAUTH_CLIENT_ID`, `DROPBOX_OAUTH_CLIENT_SECRET`, `DROPBOX_TOKEN_KEY` | api | The Dropbox app of the [Dropbox integration](#dropbox-integration). The app key turns it on and then needs the app secret, a Fernet key and `PUBLIC_URL`. |
 
 ## Settings with a default (D)
 
@@ -746,6 +747,26 @@ answer 503 `box_unavailable`. A partial set stops the role at start and names th
 `python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`. The api must reach
 `account.box.com`, `api.box.com` and `dl.boxcloud.com` directly: the Box clients ignore `HTTPS_PROXY` and the other
 proxy variables (and `.netrc`). How to register the app: [oauth.md](box/oauth.md#app-setup).
+
+## Dropbox integration
+
+The [Dropbox integration](dropbox/INDEX.md) lets each user connect their own Dropbox account and lets a member add a
+Dropbox folder or file link to a project as a source (Graph stage, plus, Dropbox link). Graphico acts with the user's
+Dropbox token of a scoped app (Full Dropbox, four read scopes) and only reads. The api imports the files in process;
+`worker-parse` gets file bytes, never Dropbox tokens.
+
+| Name | Rule |
+|---|---|
+| `DROPBOX_OAUTH_CLIENT_ID` | The App key of the Dropbox app (App Console, Settings). A non-blank value turns the integration on. |
+| `DROPBOX_OAUTH_CLIENT_SECRET` | The App secret of the app. A secret: keep it in the cluster's secret store. |
+| `DROPBOX_TOKEN_KEY` | A Fernet key that encrypts the users' refresh tokens and signs the OAuth `state`. Own key: rotating it expires only the Dropbox connections (each user connects again). |
+| `PUBLIC_URL` | The web app's public address. The redirect URI is `{PUBLIC_URL}/api/integrations/dropbox/callback`. |
+
+Only the api reads these names. With the app key unset the integration is off: the Dropbox card says so and the Dropbox
+routes answer 503 `dropbox_unavailable`. A partial set stops the role at start and names the missing variables. Make the
+key as for Box. The api must reach `api.dropboxapi.com` and `content.dropboxapi.com` directly (the browser alone opens
+`www.dropbox.com`): the Dropbox client ignores `HTTPS_PROXY` and the other proxy variables (and `.netrc`). How to
+register the app: [oauth.md](dropbox/oauth.md#app-setup).
 
 ## Document parsing
 

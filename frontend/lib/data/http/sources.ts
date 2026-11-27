@@ -10,9 +10,11 @@
 import {
   addBatchFile,
   addBoxSource,
+  addDropboxSource,
   addConfluenceSource,
   addJiraEpicSource,
   checkBoxLink,
+  checkDropboxLink,
   checkConfluenceLink,
   checkJiraEpicLink,
   endBatch,
@@ -40,6 +42,8 @@ import {
   type DriveTestResult,
   type BoxCheck,
   type BoxCheckFile,
+  type DropboxCheck,
+  type DropboxCheckFile,
   type ConfluenceCheck,
   type JiraEpicCheck,
   type JiraEpicChild,
@@ -328,6 +332,16 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
       }
     },
+    async checkDropbox(projectId, link) {
+      return toDropboxCheck(await guard(() => checkDropboxLink(projectId, link)));
+    },
+    async addDropbox(projectId, link, exclude = []) {
+      try {
+        await guard(() => addDropboxSource(projectId, link, exclude));
+      } finally {
+        opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
+      }
+    },
     async checkJiraEpic(projectId, keyOrLink) {
       return toJiraEpicCheck(await guard(() => checkJiraEpicLink(projectId, keyOrLink)));
     },
@@ -368,27 +382,22 @@ export function toJiraEpicCheck(body: unknown): JiraEpicCheck {
   };
 }
 
-const BOX_CATEGORIES: readonly BoxCheckFile["category"][] = [
-  "pdf",
-  "word",
-  "powerpoint",
-  "excel",
-  "html",
-  "markdown",
-  "csv",
-  "text",
-  "note",
-];
+const FILE_CATEGORIES = ["pdf", "word", "powerpoint", "excel", "html", "markdown", "csv", "text"] as const;
+const BOX_CATEGORIES: readonly BoxCheckFile["category"][] = [...FILE_CATEGORIES, "note"];
+const DROPBOX_CATEGORIES: readonly DropboxCheckFile["category"][] = [...FILE_CATEGORIES, "paper"];
 
-const toBoxFile = (f: unknown): BoxCheckFile => {
-  expectShape(isRecord(f) && isString(f.id) && f.id !== "" && isString(f.name) && isString(f.path));
-  const category = BOX_CATEGORIES.find((c) => c === f.category);
-  expectShape(category !== undefined);
-  return { id: f.id, name: f.name, path: f.path, category };
-};
+/** One listed file of a link check (Box, Dropbox), its `category` one of `categories`. */
+const toCheckFile =
+  <C extends string>(categories: readonly C[]) =>
+  (f: unknown): { id: string; name: string; path: string; category: C } => {
+    expectShape(isRecord(f) && isString(f.id) && f.id !== "" && isString(f.name) && isString(f.path));
+    const category = categories.find((c) => c === f.category);
+    expectShape(category !== undefined);
+    return { id: f.id, name: f.name, path: f.path, category };
+  };
 
-/** `POST .../sources/box/check` -> `BoxCheck`; any other shape is `invalid_response`. */
-export function toBoxCheck(body: unknown): BoxCheck {
+/** The answer of a link check that lists files (Box, Dropbox); any other shape is `invalid_response`. */
+function toFileCheck<F>(body: unknown, toFile: (f: unknown) => F): Omit<BoxCheck, "files"> & { files: F[] } {
   const count = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
   expectShape(
     isRecord(body) &&
@@ -404,7 +413,7 @@ export function toBoxCheck(body: unknown): BoxCheck {
   return {
     kind: body.kind,
     name: body.name,
-    files: (body.files as unknown[]).map(toBoxFile),
+    files: (body.files as unknown[]).map(toFile),
     filesCapped: body.files_capped,
     skipped: body.skipped,
     folders: body.folders,
@@ -412,6 +421,12 @@ export function toBoxCheck(body: unknown): BoxCheck {
     capped: body.capped,
   };
 }
+
+/** `POST .../sources/box/check` -> `BoxCheck`; any other shape is `invalid_response`. */
+export const toBoxCheck = (body: unknown): BoxCheck => toFileCheck(body, toCheckFile(BOX_CATEGORIES));
+
+/** `POST .../sources/dropbox/check` -> `DropboxCheck`; any other shape is `invalid_response`. */
+export const toDropboxCheck = (body: unknown): DropboxCheck => toFileCheck(body, toCheckFile(DROPBOX_CATEGORIES));
 
 /** `POST .../sources/confluence/check` -> `ConfluenceCheck`; any other shape is `invalid_response`. */
 export function toConfluenceCheck(body: unknown): ConfluenceCheck {

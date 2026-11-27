@@ -261,7 +261,15 @@ async def test_adopt_unheld_without_a_project_runs_the_unscoped_statements() -> 
 
 
 def test_the_vocabularies_know_the_new_kind_and_states() -> None:
-    assert models.CONNECTION_KINDS == ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box")
+    assert models.CONNECTION_KINDS == (
+        "gdrive",
+        "upload",
+        "confluence",
+        "jira_epic",
+        "linear_project",
+        "box",
+        "dropbox",
+    )
     assert {"processing", "duplicate"} <= set(models.ITEM_STATES)
     assert {
         "processed",
@@ -344,7 +352,7 @@ async def test_list_connections_filters_by_kind_only_when_asked() -> None:
     await sources.list_connections(plain, ID)
     await sources.list_connections(filtered, ID, "upload")
     with pytest.raises(ValueError, match="connection kind"):
-        await sources.list_connections(Recorder(), ID, "dropbox")
+        await sources.list_connections(Recorder(), ID, "onedrive")
 
     assert "connections.kind = $" not in plain.sql[0]
     assert "connections.kind = $" in filtered.sql[0]
@@ -374,7 +382,7 @@ def test_the_legacy_progress_statement_reads_drive_and_imported_sources_and_coun
     sql = str(sources._sources_progress_statement(ID).compile(dialect=postgresql.asyncpg.dialect()))
 
     assert "connections.kind IN (" in sql  # Drive and the importers of the API process, never an upload batch
-    assert sources.PROGRESS_KINDS == ("gdrive", "confluence", "jira_epic", "box")
+    assert sources.PROGRESS_KINDS == ("gdrive", "confluence", "jira_epic", "box", "dropbox")
     assert "connection_items.state IN (" in sql  # finished = the final set
     assert "connection_items.state != $" not in sql
     assert "documents.origin" in sql  # the uploads aggregate stays for old tabs

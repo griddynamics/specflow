@@ -34,7 +34,7 @@ test.describe("Mission Control V2: owner feedback, round one", { tag: "@producti
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const pid = await canvas(page, unique("MCP card"));
     await page.goto(integrations(pid));
-    await expect(page.getByRole("list", { name: "Integrations" }).getByRole("listitem")).toHaveCount(6); // Atlassian, GitHub, Slack, Linear, Box and MCP
+    await expect(page.getByRole("list", { name: "Integrations" }).getByRole("listitem")).toHaveCount(7); // Atlassian, GitHub, Slack, Linear, Box, Dropbox and MCP
     const mcp = card(page, "MCP");
     await expect(mcp).toContainText("Coding agents");
     await expect(mcp.getByRole("button", { name: "Connect" })).toBeVisible();

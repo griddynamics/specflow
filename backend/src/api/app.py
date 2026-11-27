@@ -27,6 +27,7 @@ from api.routers import (
     box,
     claims,
     documents,
+    dropbox,
     findings,
     gaps,
     github,
@@ -49,6 +50,7 @@ from api.routers import (
     source_batches,
     source_box,
     source_confluence,
+    source_dropbox,
     source_jira_epic,
     source_linear,
     source_removal,
@@ -174,7 +176,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
             raise
         await prime_storage(app.state.runtime)
         imports = getattr(app.state.runtime, "imports", None)
-        if imports is not None:  # the importers that store binary originals (Box) start the parse through this
+        if imports is not None:  # the importers that store binary originals (Box, Dropbox) start the parse through this
             imports.use_parse_starter(functools.partial(start_parse_or_mark_failed, app.state.runtime, None))
         await start_slack(
             app.state.runtime, settings.slack_app, settings.graph_build.state_dir if settings.graph_build else None
@@ -219,6 +221,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         linear.router,
         linear_webhook.router,
         box.router,
+        dropbox.router,
         repositories.router,
         users.router,
         documents.router,
@@ -233,6 +236,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         source_jira_epic.router,
         source_linear.router,
         source_box.router,
+        source_dropbox.router,
         source_removal.router,
         slack.router,
     ):
