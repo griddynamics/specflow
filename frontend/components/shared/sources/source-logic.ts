@@ -1,7 +1,7 @@
 // sources-ux (FR-SRC-0001..0004, 0008..0011, 0018..0020, 0025; DATA-SRC-0001, NFR-USE-0003): the pure texts of the source card, the
 // details modal, the file rows and the toasts. No React. The texts are the units'
 // texts word for word, except the product name: the app writes "Specflow" (SD12, brand rule), the units spell it differently.
-import type { IconName } from "@/components/ui/icon-map";
+import type { IconName } from "@/components/shared/ui/icon-map";
 import { finishedOf, fmtStamp, fullSourceName, isProblem, progressOf, sourceState } from "@/lib/domain/source-state";
 import {
   CATEGORY_LABEL,
@@ -18,7 +18,7 @@ import {
 } from "@/lib/domain/sources";
 import { driveReasonMessage, LISTING } from "./drive-logic";
 import { plural } from "./kb-logic";
-import { nonEmpty } from "@/components/ui/utils";
+import { nonEmpty } from "@/components/shared/ui/utils";
 import { ACCEPTED_EXTENSIONS, FORMAT_LABELS, formatOf, limitsText, sizeText } from "@/lib/domain/upload-formats";
 
 const files = (n: number): string => `${String(n)} ${n === 1 ? "file" : "files"}`;

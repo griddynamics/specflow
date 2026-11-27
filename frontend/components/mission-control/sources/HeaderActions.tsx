@@ -11,11 +11,11 @@
 //  - Dialogs (add link, build confirm, build error) live in the screen, outside the header row.
 import { useId, type Ref } from "react";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Menu } from "@/components/ui/Menu";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { ProjectSourcesStatus } from "@/lib/domain/sources";
-import { buildButtonView, LOCAL_FILES, type BuildButtonView } from "./kb-logic";
+import { buildButtonView, LOCAL_FILES, type BuildButtonView } from "@/components/shared/sources/kb-logic";
 
 /** The button's state for tests and styling: running, failed, ready (a click starts a build) or off. */
 const stateOf = (v: BuildButtonView): "running" | "failed" | "ready" | "off" => {

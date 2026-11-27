@@ -4,7 +4,7 @@
 // (`components/shell/use-sign-out.ts`, shared with the V2 shell).
 import { useMemo, type ReactNode } from "react";
 import { AppShell } from "@/components/shell/AppShell";
-import { useSignOut } from "@/components/shell/use-sign-out";
+import { useSignOut } from "@/components/shared/shell/use-sign-out";
 import type { MenuItem } from "@/components/ui/Menu";
 import { Spinner } from "@/components/ui/ProgressBar";
 

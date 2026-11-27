@@ -3,7 +3,7 @@
 import { sourceState } from "@/lib/domain/source-state";
 import type { BuildFailure, Connection, ProjectSourcesStatus, ReasoningLevel } from "@/lib/domain/sources";
 import { importLock } from "./drive-logic";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 export const plural = (n: number, one: string, many = `${one}s`): string => `${String(n)} ${n === 1 ? one : many}`;
 

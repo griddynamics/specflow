@@ -6,7 +6,7 @@ import { Avatar } from "./Avatar";
 import { Citations } from "./Citations";
 import { ToolSteps, type ToolStep } from "./ToolSteps";
 import { TypingIndicator } from "./TypingIndicator";
-import { cx, nonEmpty, truthy } from "./utils";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface ChatMessageProps {
   role: "user" | "assistant";

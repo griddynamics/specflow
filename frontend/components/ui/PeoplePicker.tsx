@@ -8,13 +8,13 @@
 // is not filtered again), `chipErrors`/`error` mark chips and the field. Without these props the picker behaves as before.
 import { useEffect, useId, useImperativeHandle, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { Avatar } from "./Avatar";
-import { GlassSurface } from "./GlassSurface";
-import { Icon } from "./Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import "./ui-gaps-app.css";
-import { commitTyped, filterPeople, type Person } from "./app-logic";
-import { useControlled } from "./use-controlled";
+import { commitTyped, filterPeople, type Person } from "@/components/shared/ui/app-logic";
+import { useControlled } from "@/components/shared/ui/use-controlled";
 import { useOutside } from "./use-outside";
-import { nonEmpty, truthy } from "./utils";
+import { nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface PeoplePickerProps {
   people: Person[];

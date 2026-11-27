@@ -3,7 +3,7 @@
 // wires them to the port. Design-system components only: TextField, Button, Switch, Tag; the account row and the dialog are account-parts.tsx.
 import { logoSrc } from "@/components/connections/logos";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Switch } from "@/components/ui/Switch";
 import { Tag } from "@/components/ui/Tag";
 import { TextField } from "@/components/ui/TextField";
@@ -25,10 +25,10 @@ import {
   type ConnectRow,
   type Outcome,
   type Phase,
-} from "./jira-logic";
+} from "@/components/shared/settings/jira-logic";
 import { AccountRow, ConfirmDialog, whenText } from "./account-parts";
 import { JiraProgress } from "./JiraProgress";
-import { SETTINGS_COPY } from "./settings-copy";
+import { SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
 import "./settings.css";
 
 const noop = () => undefined;

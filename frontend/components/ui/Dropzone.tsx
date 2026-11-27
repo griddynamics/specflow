@@ -4,8 +4,8 @@
 // same file can be chosen again.
 import { useRef, useState, type DragEvent } from "react";
 import { Button } from "./Button";
-import { Icon, type IconName } from "./Icon";
-import { cx, nonEmpty, truthy } from "./utils";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface DropzoneProps {
   onFiles?: (files: File[]) => void;

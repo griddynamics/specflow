@@ -4,10 +4,10 @@
 // Addition to bundle.js (GAPS P04): arrow keys, Home and End move the selection and the focus (roving tabindex), so
 // the control is usable by keyboard like a native radio group.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { GlassSurface } from "./GlassSurface";
-import { useControlled } from "./use-controlled";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { useControlled } from "@/components/shared/ui/use-controlled";
 import { focusedElement } from "./use-outside";
-import { truthy } from "./utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 export interface SegmentedControlProps {
   options: { value: string; label: string }[];

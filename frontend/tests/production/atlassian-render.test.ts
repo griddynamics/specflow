@@ -15,7 +15,7 @@ stubCss();
 async function load() {
   return {
     P: await import("../../components/settings/jira-parts"),
-    L: await import("../../components/settings/jira-logic"),
+    L: await import("@/components/shared/settings/jira-logic"),
     J: await import("../../components/plan/ready/JiraSyncLine"),
   };
 }

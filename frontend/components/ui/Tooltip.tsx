@@ -1,6 +1,6 @@
 // FE-DS-02 (R5): port of `Tooltip` in bundle.js. Pure CSS (`data-tip`): shows on hover and on keyboard focus inside.
 import type { ReactNode } from "react";
-import { cx } from "./utils";
+import { cx } from "@/components/shared/ui/utils";
 
 export interface TooltipProps {
   label: string;

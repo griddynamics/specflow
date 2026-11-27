@@ -1,7 +1,7 @@
 // docs/github/INDEX.md: the rules of the GitHub tab, free of React. The caller's connection row, who may add
 // repositories, the clone status of a repository (word, tone, facts, reason), the picker's list, the `?github=` toast and what a failed
 // call means for the screen.
-import { matchesQuery } from "@/components/ui/SearchField";
+import { matchesQuery } from "@/components/shared/ui/SearchField";
 import { COPY } from "@/lib/copy";
 import { isDataError } from "@/lib/domain/errors";
 import type { CloneState, GitHubConnection, GitHubRepository, ProjectRepositories, ProjectRepository } from "@/lib/domain/github";

@@ -8,7 +8,7 @@ import Markdown, { type Components } from "react-markdown";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { Prose } from "./Prose";
-import { truthy } from "./utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 export interface MarkdownProseProps {
   source: string;

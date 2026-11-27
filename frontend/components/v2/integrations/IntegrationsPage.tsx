@@ -6,7 +6,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Dialog, Notice, Page } from "@graphico/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { canDisconnect, type BindableApp, type IntegrationApp, type IntegrationCardId } from "@/lib/domain/integrations";
 import { parseIntegrationsQuery } from "@/lib/routes";
 import type { McpAddress } from "../connector-types";

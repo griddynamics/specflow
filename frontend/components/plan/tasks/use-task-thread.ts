@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PanelTarget } from "@/components/files/CommentPanel";
 import { threadHighlights, type Highlight } from "@/components/files/files-logic";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { usePorts } from "@/lib/data/provider";
 import type { TextAnchor, Thread } from "@/lib/domain/comments";
 import type { Person } from "@/lib/domain/people";

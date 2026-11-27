@@ -4,12 +4,12 @@
 import { useState, type Ref } from "react";
 import { Avatar } from "./Avatar";
 import { Button } from "./Button";
-import { GlassSurface } from "./GlassSurface";
-import { Icon } from "./Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import { MentionInput } from "./MentionInput";
 import { TypingIndicator } from "./TypingIndicator";
-import { splitMentions, type Person } from "./app-logic";
-import { cx, nonEmpty, truthy } from "./utils";
+import { splitMentions, type Person } from "@/components/shared/ui/app-logic";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface CommentItem {
   author: string;

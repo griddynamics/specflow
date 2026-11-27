@@ -2,7 +2,7 @@
 // The content is React children: document text goes through MarkdownProse, and the gallery writes its samples as elements
 // (bundle.js's `html` string prop is not ported: no markup is injected as raw HTML).
 import type { ReactNode, Ref } from "react";
-import { cx, truthy } from "./utils";
+import { cx, truthy } from "@/components/shared/ui/utils";
 
 export interface ProseProps {
   children?: ReactNode;

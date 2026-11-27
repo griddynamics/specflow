@@ -1,7 +1,7 @@
 // FE-DS-02 (R5): port of `Card` in bundle.js.
 import type { CSSProperties, ReactNode } from "react";
-import { GlassSurface } from "./GlassSurface";
-import { cx, truthy } from "./utils";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { cx, truthy } from "@/components/shared/ui/utils";
 
 export interface CardProps {
   variant?: "regular" | "strong";

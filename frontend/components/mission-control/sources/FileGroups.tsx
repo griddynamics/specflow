@@ -7,11 +7,11 @@
 // between them), so a long list never sits between the heading and the footer buttons; the focused row shows its whole name.
 import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import type { Source, SourceFile } from "@/lib/domain/sources";
-import { GROUPS, groupIdOf, groupTotals, heading, wantsMore, type GroupId } from "./source-logic";
+import { GROUPS, groupIdOf, groupTotals, heading, wantsMore, type GroupId } from "@/components/shared/sources/source-logic";
 import { SourceFileRow } from "./SourceFileRow";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 /** The row a navigation key moves to (Arrow Up/Down, Home, End), or null for any other key. */
 function moveTarget(key: string, at: number, count: number): number | null {

@@ -9,7 +9,7 @@ import { Dropzone } from "./Dropzone";
 import { FileRow } from "./FileRow";
 import { OptionCards, type OptionCardsProps } from "./OptionCards";
 import { TextField } from "./TextField";
-import { nonEmpty, truthy } from "./utils";
+import { nonEmpty, truthy } from "@/components/shared/ui/utils";
 import { COPY } from "@/lib/copy";
 
 export interface QuestionBlockProps {

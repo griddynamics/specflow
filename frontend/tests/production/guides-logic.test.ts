@@ -1,7 +1,7 @@
 // MCP-M10 (FR-MCP-UI-01, 05): the Guides routes, the sidebar rules, the `?agent=` parsing and the topic lookup.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SECTIONS, SIDEBAR_SECTIONS, sectionHref, sectionOf } from "../../components/shell/shell-logic";
+import { SECTIONS, SIDEBAR_SECTIONS, sectionHref, sectionOf } from "@/components/shared/shell/shell-logic";
 import { AGENTS, DEFAULT_AGENT, agentLabel, isTested, parseAgent } from "../../lib/guides/agent";
 import { FLOW_STEPS, TOPIC_CARDS, topicTitle } from "../../lib/guides/content";
 import { GUIDE_TOPICS, ROUTES, parseGuideTopic, routesFor } from "../../lib/routes";

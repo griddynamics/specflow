@@ -2,7 +2,7 @@
 // The lead and the three topic cards follow; each OPEN link goes to its topic.
 import { Card } from "@/components/ui/Card";
 import { ButtonLink } from "@/components/ui/ButtonLink";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Tag } from "@/components/ui/Tag";
 import { HUB, OPEN_LABEL, TOPIC_CARDS } from "@/lib/guides/content";
 import { routesFor } from "@/lib/routes";

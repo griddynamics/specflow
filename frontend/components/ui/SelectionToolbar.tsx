@@ -2,9 +2,9 @@
 // FE-FILES-03, FE-REV-01, FE-DS-02 (R5): port of `SelectionToolbar` in bundle.js. Floating glass toolbar above selected text.
 // mousedown is cancelled (preventDefault) so pressing a button does not collapse the selection.
 import type { CSSProperties } from "react";
-import { GlassSurface } from "./GlassSurface";
-import { Icon, type IconName } from "./Icon";
-import { cx, truthy } from "./utils";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
+import { cx, truthy } from "@/components/shared/ui/utils";
 
 export interface SelectionToolbarAction {
   id: string;

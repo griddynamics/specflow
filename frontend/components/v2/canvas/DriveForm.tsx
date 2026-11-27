@@ -9,8 +9,8 @@ import {
   GUIDE_STEPS,
   NOTHING_TO_IMPORT,
   SAVE_TOO_LONG,
-} from "@/components/mission-control/sources/drive-logic";
-import { useDriveFlow, type DrivePhase } from "@/components/mission-control/sources/use-drive-flow";
+} from "@/components/shared/sources/drive-logic";
+import { useDriveFlow, type DrivePhase } from "@/components/shared/sources/use-drive-flow";
 import type { CheckLabels, FormProps } from "../connector-types";
 import { HowTo } from "../HowTo";
 import { useV2Ports } from "../use-v2-data";

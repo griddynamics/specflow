@@ -1,7 +1,7 @@
 // FE-DS-02 (R5): port of `Breadcrumbs` in bundle.js. Earlier steps are buttons, the last one is the current page.
 import "./ui-gaps.css";
 import Link from "next/link";
-import { Icon } from "./Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 
 export interface BreadcrumbsProps {
   /** An earlier step is a link when it has `href` (server pages), else a button with `onClick`. */

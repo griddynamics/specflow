@@ -9,13 +9,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { useEmailSuggestions } from "@/components/members/use-email-suggestions";
-import { normaliseEmail } from "@/components/ui/app-logic";
+import { useEmailSuggestions } from "@/components/shared/members/use-email-suggestions";
+import { normaliseEmail } from "@/components/shared/ui/app-logic";
 import { PeoplePicker, type PickerCommit } from "@/components/ui/PeoplePicker";
 import { TextField } from "@/components/ui/TextField";
 import type { Person } from "@/lib/domain/people";
 import { usePorts, useRoutes } from "@/lib/data/provider";
-import { buildInput, COLLABORATOR_CHIPS_MAX, createFailure, initialForm, nameError, rejectText, type FormState } from "./form-logic";
+import { buildInput, COLLABORATOR_CHIPS_MAX, createFailure, initialForm, nameError, rejectText, type FormState } from "@/components/shared/create-project/form-logic";
 import "./cp-gaps.css";
 import { COPY } from "@/lib/copy";
 

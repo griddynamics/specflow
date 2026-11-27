@@ -6,7 +6,7 @@
 // Plan); picking a segment pushes the URL with the native history API, which Next.js syncs with `useSearchParams` (as Mission Control).
 // The Stage 1 -> 2 move cleans the URL (CreatingView), so a plan that has just been created opens on Plan. The slot props are fixed (P21-5).
 import { useMemo } from "react";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { ShellHeader } from "@/components/shell/ShellHeader";
 import { Button } from "@/components/ui/Button";
 import { usePlanPort } from "../use-plan-ports";

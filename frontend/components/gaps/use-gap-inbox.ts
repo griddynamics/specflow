@@ -6,7 +6,7 @@
 // answer older than a newer read is dropped. The rules live in `createInbox`, which has no React in it; the hook only wires it to state.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Gap, GapPage, GapQuery, GapsPort } from "@/lib/domain/gaps";
-import { failureOf, gapQuery, type GapFilters } from "./gaps-logic";
+import { failureOf, gapQuery, type GapFilters } from "@/components/shared/gaps/gaps-logic";
 
 /** The largest page `list_gaps` answers. */
 const MAX_LIMIT = 200;

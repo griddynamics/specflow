@@ -14,7 +14,7 @@ stubCss();
 async function load() {
   return {
     P: await import("../../components/settings/jira-parts"),
-    L: await import("../../components/settings/jira-logic"),
+    L: await import("@/components/shared/settings/jira-logic"),
   };
 }
 let P: Awaited<ReturnType<typeof load>>["P"];

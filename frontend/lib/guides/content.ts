@@ -1,6 +1,6 @@
 // MCP-M10: every word of the Guides pages (hub, SpecFlow 101, Best practices, MCP server). One module, no JSX, so the copy is easy to
 // review and to test. Snippet text is built in ./snippets.ts. Sentence case; UPPERCASE comes from the components' styles.
-import type { IconName } from "@/components/ui/icon-map";
+import type { IconName } from "@/components/shared/ui/icon-map";
 import type { GuideTopic } from "@/lib/routes";
 
 export interface TopicCard {

@@ -5,7 +5,7 @@
 //   notAvailable.from(err)                                // toasts only when `err` is a DataError "not_available" (a port method
 //                                                         // behind such a control, TECH-SPECS §3.2); returns whether it did
 import { useMemo } from "react";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { isDataError } from "@/lib/domain/errors";
 
 export const NOT_AVAILABLE_TITLE = "Not available yet";

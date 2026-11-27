@@ -5,12 +5,12 @@
 // available again. Cancel, Esc and the close control give the focus back to the details modal and remove nothing.
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import type { Source } from "@/lib/domain/sources";
-import { settle } from "./drive-logic";
-import { nameMatches, REMOVE_CUTOFF_MS, REMOVE_FAILED, REMOVE_TITLE, removeLabel, removeWarning } from "./source-logic";
+import { settle } from "@/components/shared/sources/drive-logic";
+import { nameMatches, REMOVE_CUTOFF_MS, REMOVE_FAILED, REMOVE_TITLE, removeLabel, removeWarning } from "@/components/shared/sources/source-logic";
 
 export function RemoveSourceDialog({
   source,

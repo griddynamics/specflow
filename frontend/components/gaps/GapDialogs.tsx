@@ -14,7 +14,7 @@ import { Select } from "@/components/ui/Select";
 import { TextField } from "@/components/ui/TextField";
 import { isDataError } from "@/lib/domain/errors";
 import { GAP_KINDS, GAP_SEVERITIES, type GapKind, type GapSeverity, type GapsPort } from "@/lib/domain/gaps";
-import { DISMISS_REASONS, KIND_LABEL, SEVERITY_LABEL, failureText } from "./gaps-logic";
+import { DISMISS_REASONS, KIND_LABEL, SEVERITY_LABEL, failureText } from "@/components/shared/gaps/gaps-logic";
 
 const MAX_REASON = 500;
 

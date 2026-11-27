@@ -1,6 +1,6 @@
 // FE-SPEC-03, FE-DS-02 (R5): `Citation` in bundle.js (a numbered source chip that opens the document) plus the row that holds
 // them under an answer. `Citations` numbers its chips 1..n.
-import { Icon } from "./Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 
 export interface CitationProps {
   label: string;

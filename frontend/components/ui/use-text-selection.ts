@@ -4,7 +4,7 @@
 // position:absolute inside the same positioned container lands above the selection. Updates on mouseup and keyup
 // (after a tick, when the browser has settled the selection). It never clears the selection itself; only `clear` does.
 import { useEffect, useState, type RefObject } from "react";
-import { selectionAnchor } from "./app-logic";
+import { selectionAnchor } from "@/components/shared/ui/app-logic";
 
 export interface TextSelection {
   text: string;

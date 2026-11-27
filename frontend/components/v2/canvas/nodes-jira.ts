@@ -1,6 +1,6 @@
 // Node mapper of the Jira plan destination: one target per project (`jira.get`). It waits for the plan, syncs while a pass runs (the wire
 // moves only then) and stops only for what the API reports: an Atlassian connection that expired or went, or a pass that failed (D2).
-import { statusWord, syncErrorText } from "@/components/settings/jira-logic";
+import { statusWord, syncErrorText } from "@/components/shared/settings/jira-logic";
 import type { JiraSettings } from "@/lib/domain/jira";
 import { V2_COPY } from "../v2-copy";
 import type { CanvasInput, NodeMapper, NodeView, Stages } from "./canvas-types";

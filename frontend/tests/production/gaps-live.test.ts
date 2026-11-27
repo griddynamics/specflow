@@ -3,7 +3,7 @@
 // "Show more", the quiet re-read of the loaded range (new gaps in place, no shown row or loaded page lost) and which answers count.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkPulse, isNewGap, newListedText } from "@/components/gaps/gaps-logic";
+import { checkPulse, isNewGap, newListedText } from "@/components/shared/gaps/gaps-logic";
 import { LOADING_LIST, createInbox, readRange, type InboxList } from "@/components/gaps/use-gap-inbox";
 import { DataError } from "@/lib/domain/errors";
 import type { Gap, GapCheck, GapPage, GapQuery } from "@/lib/domain/gaps";

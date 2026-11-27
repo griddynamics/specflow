@@ -3,10 +3,10 @@
 // button.gdg-tree__row). Addition (GAPS P05): WAI-ARIA tree keys with a roving tab stop: ArrowUp/Down/Home/End move, ArrowRight
 // opens a folder or enters it, ArrowLeft closes it or goes to the parent; Enter and Space activate like a click.
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Icon, type IconName } from "./Icon";
-import { isFolder, treeKeyMove, visibleTreeRows, type ExpandedMap, type FileTreeNode } from "./app-logic";
-import { useControlled } from "./use-controlled";
-import { cx, nonEmpty, truthy } from "./utils";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
+import { isFolder, treeKeyMove, visibleTreeRows, type ExpandedMap, type FileTreeNode } from "@/components/shared/ui/app-logic";
+import { useControlled } from "@/components/shared/ui/use-controlled";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export type { FileTreeNode };
 

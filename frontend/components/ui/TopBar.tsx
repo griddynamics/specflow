@@ -6,10 +6,10 @@
 import type { ComponentPropsWithRef, ReactNode } from "react";
 import { Avatar } from "./Avatar";
 import { Button } from "./Button";
-import { GlassSurface } from "./GlassSurface";
-import { Icon } from "./Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Menu, type MenuItem } from "./Menu";
-import { cx, nonEmpty, truthy } from "./utils";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 /** The title (`<h1>`) of a screen: the one primitive that renders it, so every screen keeps the same page-title role. */
 export function PageTitle(props: ComponentPropsWithRef<"h1">) {

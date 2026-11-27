@@ -7,7 +7,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { isDataError } from "@/lib/domain/errors";
 import { DisconnectDialog, JiraView } from "./jira-parts";
 import {
@@ -21,10 +21,10 @@ import {
   targetOf,
   type Busy,
   type Failure,
-} from "./jira-logic";
+} from "@/components/shared/settings/jira-logic";
 import { LoadFailed } from "./parts";
-import { SETTINGS_COPY } from "./settings-copy";
-import { useJiraPort, useSettingsRoutes } from "./use-settings-ports";
+import { SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
+import { useJiraPort, useSettingsRoutes } from "@/components/shared/settings/use-settings-ports";
 
 export function JiraTab({ projectId, projectName }: Readonly<{ projectId: string; projectName: string | null }>) {
   const jira = useJiraPort();

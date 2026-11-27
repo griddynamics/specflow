@@ -1,9 +1,9 @@
 // Node mappers of the sources the sources API reports: Upload (a Local files batch) and Google Drive (a folder). One node per object (D5);
 // the card line is the same text the V1 source card shows (`source-logic.ts cardView`). A source that failed is the one stopped state
 // here: the API reports it (D2). No resync: a source is read once, when it is added (D7).
-import { driveReasonMessage, LISTING } from "@/components/mission-control/sources/drive-logic";
-import { clock } from "@/components/mission-control/sources/kb-logic";
-import { cardView, failedCardLine } from "@/components/mission-control/sources/source-logic";
+import { driveReasonMessage, LISTING } from "@/components/shared/sources/drive-logic";
+import { clock } from "@/components/shared/sources/kb-logic";
+import { cardView, failedCardLine } from "@/components/shared/sources/source-logic";
 import { fullSourceName, progressOf, sourceState } from "@/lib/domain/source-state";
 import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";

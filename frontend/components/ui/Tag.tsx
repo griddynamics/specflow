@@ -1,6 +1,6 @@
 // FE-DS-02 (R5): port of `Tag` in bundle.js. `warning` and `pending` are in bundle.js and its preview but missing from index.d.ts (GAPS P04).
 import type { ReactNode } from "react";
-import { cx } from "./utils";
+import { cx } from "@/components/shared/ui/utils";
 
 export interface TagProps {
   tone?: "neutral" | "accent" | "info" | "success" | "danger" | "warning" | "pending";

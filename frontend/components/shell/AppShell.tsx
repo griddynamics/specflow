@@ -9,15 +9,15 @@ import { useParams, usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
 import { Sidebar, type SidebarEntry } from "@/components/ui/Sidebar";
 import { Spinner } from "@/components/ui/ProgressBar";
-import { ToastProvider } from "@/components/ui/Toast";
+import { ToastProvider } from "@/components/shared/ui/Toast";
 import { TopBar } from "@/components/ui/TopBar";
 import type { MenuItem } from "@/components/ui/Menu";
 import { CreateProjectSlot, CreateProjectSlotProvider, useCreateProjectSlot } from "./CreateProjectSlot";
 import { ShellHeaderProvider, ShellHeaderTarget } from "./ShellHeader";
-import { fallbackProjectId, sectionHref, sectionOf, SIDEBAR_SECTIONS, type SectionKey } from "./shell-logic";
-import { useMe, useProjectGate, useProjectList, useShellEnv } from "./use-shell-data";
+import { fallbackProjectId, sectionHref, sectionOf, SIDEBAR_SECTIONS, type SectionKey } from "@/components/shared/shell/shell-logic";
+import { useMe, useProjectGate, useProjectList, useShellEnv } from "@/components/shared/shell/use-shell-data";
 import "./shell-gaps.css";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 import { COPY } from "@/lib/copy";
 
 /**

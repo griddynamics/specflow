@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { DataTable } from "@/components/ui/DataTable";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { tabStop } from "@/components/ui/utils";
+import { tabStop } from "@/components/shared/ui/utils";
 import { agentLabel, isTested, type AgentId } from "@/lib/guides/agent";
 import { MCP_GUIDE } from "@/lib/guides/content";
 import manifest from "@/lib/guides/mcp-tools.json";

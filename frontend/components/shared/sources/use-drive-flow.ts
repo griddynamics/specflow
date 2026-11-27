@@ -3,7 +3,7 @@
 // connection check, the save, and the cutoffs the UI owns. It makes no layout decision: a view shows what this returns. The pasted link goes
 // only to `SourcesPort` (never fetched here, NFR-SEC-0001).
 import { useEffect, useRef, useState } from "react";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 import { parseDriveLink } from "@/lib/domain/logic/source-link";
 import type { DriveIdentity, DriveReason, DriveTestResult, SourcesPort } from "@/lib/domain/sources";
 import { driveReasonMessage, driveSummary, SAVE_DEADLINE_MS, settle, TEST_DEADLINE_MS } from "./drive-logic";

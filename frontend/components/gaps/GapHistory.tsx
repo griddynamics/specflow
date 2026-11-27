@@ -5,7 +5,7 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import type { GapHistory as History } from "@/lib/domain/gaps";
 import { GapLink } from "./GapLink";
-import { actorText, eventText, whenText } from "./gaps-logic";
+import { actorText, eventText, whenText } from "@/components/shared/gaps/gaps-logic";
 
 const FOLLOW_UP_REASON: Record<string, string> = {
   not_fixed: "the answer did not fix it",

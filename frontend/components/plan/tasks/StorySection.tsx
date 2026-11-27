@@ -3,10 +3,10 @@
 // FR-GWEB-04, "N open gaps" when its tasks have open gaps; the
 // task list stays mounted with `hidden`. The summary (written by the describe planner) sits above the tasks.
 import type { ReactNode } from "react";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Tag } from "@/components/ui/Tag";
 import type { StoryGroup } from "@/lib/domain/logic/plan";
-import { openGapsText } from "@/components/gaps/gaps-logic";
+import { openGapsText } from "@/components/shared/gaps/gaps-logic";
 import { doneProgress } from "./task-logic";
 
 export function StorySection({

@@ -4,7 +4,7 @@
 // failure texts are `components/create-project/form-logic.ts`. On success `onCreated` gets the new project's id (the caller opens its canvas).
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Button, Dialog, DialogFoot, Field, Notice, Stack, TextInput } from "@graphico/ui";
-import { buildInput, createFailure, initialForm, nameError } from "@/components/create-project/form-logic";
+import { buildInput, createFailure, initialForm, nameError } from "@/components/shared/create-project/form-logic";
 import { useV2Ports } from "../use-v2-data";
 import { V2_COPY } from "../v2-copy";
 

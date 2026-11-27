@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { OTHER_VALUE, OptionCards } from "@/components/ui/OptionCards";
 import type { AnswerResult, EditPlacement, EditPreview, Gap, GapAnswerChoice, GapsPort } from "@/lib/domain/gaps";
 import type { Member } from "@/lib/domain/members";
-import { PLACEMENT_LABEL, failureText, isStale, ownTextProblem, preselectedOption } from "./gaps-logic";
+import { PLACEMENT_LABEL, failureText, isStale, ownTextProblem, preselectedOption } from "@/components/shared/gaps/gaps-logic";
 
 /** What the card needs from the screen to write: the port, the project, and how to re-read the gap and refresh the lists. */
 export interface CardControl {

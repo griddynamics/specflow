@@ -1,6 +1,6 @@
 // docs/projects/ui.md#general-tab, #errors-shown: the rules of the General tab, free of React. Which error goes where, the name rule,
 // the rows of the list, and the actions that run through the ports.
-import { isEmailShape } from "@/components/ui/app-logic";
+import { isEmailShape } from "@/components/shared/ui/app-logic";
 import { COPY } from "@/lib/copy";
 import type { AddedPerson, ClaimsOutcome, Invite, Member, MembersPort, MembersState } from "@/lib/domain/members";
 import { PROJECT_NAME_MAX, type ProjectsPort } from "@/lib/domain/projects";

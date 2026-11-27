@@ -7,10 +7,10 @@
 import type { ReactNode } from "react";
 import "./ui-gaps.css";
 import { Avatar } from "./Avatar";
-import { Icon } from "./Icon";
-import { SeverityBadge, type SeverityBadgeProps } from "./SeverityBadge";
+import { Icon } from "@/components/shared/ui/Icon";
+import { SeverityBadge, type SeverityBadgeProps } from "@/components/shared/ui/SeverityBadge";
 import { Tag } from "./Tag";
-import { cx, truthy } from "./utils";
+import { cx, truthy } from "@/components/shared/ui/utils";
 
 export interface DecisionRowProps {
   title: string;

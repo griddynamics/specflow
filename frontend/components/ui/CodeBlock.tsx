@@ -5,9 +5,9 @@
 // MCP-M10: moved here from components/plan/develop so the Guides and Plan › Develop share it; behaviour unchanged.
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { TOAST_DURATION_MS, useToast } from "@/components/ui/Toast";
+import { TOAST_DURATION_MS, useToast } from "@/components/shared/ui/Toast";
 import { COPIED_LABEL, COPIED_MS, COPIED_TOAST, COPY_FALLBACK, COPY_LABEL } from "./code-block-labels";
-import { tabStop } from "@/components/ui/utils";
+import { tabStop } from "@/components/shared/ui/utils";
 import "./code-block.css";
 
 type CopyState = "idle" | "copied" | "refused";

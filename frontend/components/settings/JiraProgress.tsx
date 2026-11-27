@@ -2,7 +2,7 @@
 // the Plan. The bar is the design system's progress track (`gdg-progress`); `done` is clamped by `progressView` (the total can grow while
 // a step runs), and a total of 0 (nothing to do yet) shows the step text alone, with no count and no bar.
 import type { JiraSyncProgress } from "@/lib/domain/jira";
-import { progressView } from "./jira-logic";
+import { progressView } from "@/components/shared/settings/jira-logic";
 
 export function JiraProgress({ progress, testId = "jira-progress" }: Readonly<{ progress: JiraSyncProgress; testId?: string }>) {
   const v = progressView(progress);

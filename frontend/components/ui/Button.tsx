@@ -1,6 +1,6 @@
 // FE-DS-02 (R5): port of `Button` in bundle.js.
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
-import { cx, truthy } from "./utils";
+import { cx, truthy } from "@/components/shared/ui/utils";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** primary = yellow capsule (one per view); glass = secondary; plain = text with yellow underline. */

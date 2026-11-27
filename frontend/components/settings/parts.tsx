@@ -4,18 +4,18 @@
 import { useId, type KeyboardEvent, type ReactNode } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { GlassSurface } from "@/components/ui/GlassSurface";
-import { Icon } from "@/components/ui/Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
 import { Tag } from "@/components/ui/Tag";
 import { TextField } from "@/components/ui/TextField";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { cx, nonEmpty } from "@/components/ui/utils";
+import { cx, nonEmpty } from "@/components/shared/ui/utils";
 import { COPY } from "@/lib/copy";
 import type { MembersState, Suggestion } from "@/lib/domain/members";
-import { activeOf, handleAddRowKey, showsList } from "./add-row-keys";
-import { confirmText, rowsOf, type Confirm, type Row } from "./settings-logic";
-import { countText, SETTINGS_COPY } from "./settings-copy";
+import { activeOf, handleAddRowKey, showsList } from "@/components/shared/settings/add-row-keys";
+import { confirmText, rowsOf, type Confirm, type Row } from "@/components/shared/settings/settings-logic";
+import { countText, SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
 import "./settings.css";
 
 export function NameBlock({

@@ -7,7 +7,7 @@ import { ShellHeader } from "@/components/shell/ShellHeader";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { usePlanPort, usePlanRoutes } from "../use-plan-ports";
 import { PlanViewSwitch, usePlanView } from "../PlanViewSwitch";
 import { DevelopTab, type DevelopInfo } from "../develop/DevelopTab";
@@ -17,7 +17,7 @@ import { PlanFeatureTable } from "./PlanFeatureTable";
 import { createFailToast, createPress, tableView } from "./create-press";
 import { CREATE_PLAN_LABEL, NO_FEATURES_BODY, NO_FEATURES_TITLE, failureNote, previewSummary } from "./plan-text";
 import "./before.css";
-import { tabStop } from "@/components/ui/utils";
+import { tabStop } from "@/components/shared/ui/utils";
 
 /** The table slot: a skeleton while loading, the note with "Try again" when the read failed, else the table (P22-4). */
 function TableSlot({

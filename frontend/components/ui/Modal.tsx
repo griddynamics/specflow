@@ -8,10 +8,10 @@
 // handles Esc and Tab, so one Esc closes one dialog. `closeDisabled` (a running save or removal): the close control is aria-disabled and
 // Esc and the scrim do nothing.
 import { useId, useRef, type ReactNode } from "react";
-import { GlassSurface } from "./GlassSurface";
-import { Icon } from "./Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import { useModalDismissal } from "./use-outside";
-import { cx, truthy } from "./utils";
+import { cx, truthy } from "@/components/shared/ui/utils";
 import "./ui-gaps.css";
 
 export interface ModalProps {

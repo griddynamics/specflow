@@ -11,8 +11,8 @@ import { DataError } from "@/lib/domain/errors";
 stubCss();
 async function load() {
   return {
-    F: await import("../../components/create-project/form-logic"),
-    A: await import("../../components/ui/app-logic"),
+    F: await import("@/components/shared/create-project/form-logic"),
+    A: await import("@/components/shared/ui/app-logic"),
     PP: await import("../../components/ui/PeoplePicker"),
     M: await import("../../components/create-project/CreateProjectModal"),
     D: await import("@/lib/data/provider"),

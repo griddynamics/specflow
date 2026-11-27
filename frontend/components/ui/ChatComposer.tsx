@@ -1,10 +1,10 @@
 "use client";
 // FE-SPEC-01, FE-SPEC-04, FE-DS-02 (R5): port of `ChatComposer` in bundle.js. Glass capsule with a textarea and a yellow send
 // button; Enter sends (Shift+Enter is a new line); suggestion chips above call `onSuggestion`, or `onSend` when that is not set.
-import { Icon } from "./Icon";
-import { GlassSurface } from "./GlassSurface";
-import { useControlled } from "./use-controlled";
-import { nonEmpty, truthy } from "./utils";
+import { Icon } from "@/components/shared/ui/Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { useControlled } from "@/components/shared/ui/use-controlled";
+import { nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface ChatComposerProps {
   onSend?: (text: string) => void;

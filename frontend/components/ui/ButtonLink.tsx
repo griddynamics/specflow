@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ComponentProps } from "react";
 import { Arrow } from "./Button";
-import { cx, truthy } from "./utils";
+import { cx, truthy } from "@/components/shared/ui/utils";
 
 export interface ButtonLinkProps extends Omit<ComponentProps<typeof Link>, "className"> {
   variant?: "primary" | "glass" | "plain";

@@ -7,10 +7,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ButtonLink } from "@/components/ui/ButtonLink";
 import { Card } from "@/components/ui/Card";
-import { GlassSurface } from "@/components/ui/GlassSurface";
-import { Icon } from "@/components/ui/Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import { FLOW_101, FLOW_STEPS } from "@/lib/guides/content";
-import { cx } from "@/components/ui/utils";
+import { cx } from "@/components/shared/ui/utils";
 
 /** `connectHref` is the MCP server guide's route, passed by the server page. */
 export function Flow101({ connectHref }: Readonly<{ connectHref: string }>) {

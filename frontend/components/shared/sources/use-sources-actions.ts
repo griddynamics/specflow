@@ -2,8 +2,8 @@
 // The actions of the sources screen that end in a toast: the failure toast, the "Knowledge built" notice and uploading local files;
 // and starting a build, whose failure shows on the status (the red Error button), not in a toast.
 import { useCallback, useEffect, useRef, type RefObject } from "react";
-import { useNotAvailable } from "@/components/shell/use-not-available";
-import { useToast } from "@/components/ui/Toast";
+import { useNotAvailable } from "@/components/shared/shell/use-not-available";
+import { useToast } from "@/components/shared/ui/Toast";
 import { isDataError } from "@/lib/domain/errors";
 import type { KnowledgePort, ProjectSourcesStatus, ReasoningLevel, SourcesPort } from "@/lib/domain/sources";
 import { plural } from "./kb-logic";

@@ -1,6 +1,6 @@
 // MCP-M10: Best practices. Three strong Cards, each a list of hairline rows: icon, advice (headline), reason (body, ink-2).
 import { Card } from "@/components/ui/Card";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { BEST_PRACTICES } from "@/lib/guides/content";
 import { GuideHeader } from "./GuideHeader";
 import "./guides.css";

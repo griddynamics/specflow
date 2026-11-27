@@ -7,14 +7,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { GlassSurface } from "@/components/ui/GlassSurface";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Tag } from "@/components/ui/Tag";
 import type { AiAnswer, GapsPort } from "@/lib/domain/gaps";
 import { ReasonDialog } from "./GapDialogs";
 import { GapLink } from "./GapLink";
 import { GapsUnavailable } from "./GapsUnavailable";
-import { CLARIFICATION_STATUS_LABEL, clarificationText, confidenceText, failureOf, whenText } from "./gaps-logic";
+import { CLARIFICATION_STATUS_LABEL, clarificationText, confidenceText, failureOf, whenText } from "@/components/shared/gaps/gaps-logic";
 
 type Load = AiAnswer[] | "unavailable" | "failed" | null;
 

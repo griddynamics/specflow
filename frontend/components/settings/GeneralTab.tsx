@@ -6,10 +6,10 @@
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { useSettingsRoutes } from "./use-settings-ports";
+import { useSettingsRoutes } from "@/components/shared/settings/use-settings-ports";
 import { AddRowView, GeneralView, LoadFailed } from "./parts";
-import { useAddRow, type AddOutcome } from "./use-add-row";
-import { useMembersController } from "./use-members-controller";
+import { useAddRow, type AddOutcome } from "@/components/shared/settings/use-add-row";
+import { useMembersController } from "@/components/shared/settings/use-members-controller";
 
 function AddRow({ projectId, onAdd }: Readonly<{ projectId: string; onAdd: (text: string) => Promise<AddOutcome> }>) {
   const row = useAddRow(projectId, onAdd);

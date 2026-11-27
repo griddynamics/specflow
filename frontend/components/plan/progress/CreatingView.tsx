@@ -9,7 +9,7 @@
 //    (R23-09: a batched render cannot skip a label, because the lines come from the remembered event labels, not from `run.label`); the visual list and bar are
 //    `aria-hidden`, so a screen reader does not also hear the spinner's "Loading" or the percent.
 import { useEffect, useRef, useState } from "react";
-import { GlassSurface } from "@/components/ui/GlassSurface";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ToolSteps } from "@/components/ui/ToolSteps";
 import { focusIsLost } from "@/components/ui/use-outside";

@@ -4,10 +4,10 @@
 // Design-system components only: Button, GlassSurface, Icon, Modal.
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
-import { GlassSurface } from "@/components/ui/GlassSurface";
-import { Icon } from "@/components/ui/Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
-import { SETTINGS_COPY } from "./settings-copy";
+import { SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
 import "./settings.css";
 
 const WHEN = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });

@@ -1,8 +1,8 @@
 // FE-DS-02 (R5): port of `EmptyState` in bundle.js.
 import type { ReactNode } from "react";
-import { GlassSurface } from "./GlassSurface";
-import { Icon, type IconName } from "./Icon";
-import { truthy } from "./utils";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
+import { truthy } from "@/components/shared/ui/utils";
 
 export interface EmptyStateProps {
   title: string;

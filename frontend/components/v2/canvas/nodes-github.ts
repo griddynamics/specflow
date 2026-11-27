@@ -1,8 +1,8 @@
 // Node mapper of GitHub repositories: one node per repository of the project (D5). A repository is cloned as preparation; the build does not
 // read the clone (D19), so a node shows only the clone and adds nothing to the graph. It stops only for what the API reports: a clone that
 // failed, or the GitHub integration that needs a reconnect (D2).
-import { cloneViewOf } from "@/components/settings/github-logic";
-import { SETTINGS_COPY } from "@/components/settings/settings-copy";
+import { cloneViewOf } from "@/components/shared/settings/github-logic";
+import { SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
 import type { ProjectRepository } from "@/lib/domain/github";
 import { V2_COPY } from "../v2-copy";
 import type { CanvasInput, NodeDetail, NodeMapper, NodeView } from "./canvas-types";

@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import type { Claim } from "@/lib/domain/work";
 import { useWorkPort } from "../use-plan-ports";
 import { personName, releaseError, taskCount } from "./work-logic";

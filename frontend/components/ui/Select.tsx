@@ -1,9 +1,9 @@
 "use client";
 // FE-DS-02, FE-DOD-05.AC5 (R5): port of `Select` in bundle.js. It is a Menu with a pill trigger, so it shares the Menu keyboard model.
-import { Icon, type IconName } from "./Icon";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
 import { Menu } from "./Menu";
-import { cx, nonEmpty, truthy } from "./utils";
-import { useControlled } from "./use-controlled";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
+import { useControlled } from "@/components/shared/ui/use-controlled";
 
 export interface SelectProps {
   options: { value: string; label: string; description?: string }[];

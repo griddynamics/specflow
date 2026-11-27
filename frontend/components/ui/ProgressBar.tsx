@@ -1,5 +1,5 @@
 // FE-DS-02 (R5): port of `ProgressBar` and `Spinner` in bundle.js.
-import { cx, nonEmpty, truthy } from "./utils";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface ProgressBarProps {
   value?: number;

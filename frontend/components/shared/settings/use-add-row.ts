@@ -2,7 +2,7 @@
 // The state of the "add by email" row, free of any look: the text, its error, the suggestion list and the pending add. Shared by the
 // General tab (design-system parts) and the V2 Members dialog (Graphico parts); both render it, neither repeats it.
 import { useState } from "react";
-import { useEmailSuggestions } from "@/components/members/use-email-suggestions";
+import { useEmailSuggestions } from "@/components/shared/members/use-email-suggestions";
 import type { Suggestion } from "@/lib/domain/members";
 
 export interface AddOutcome {

@@ -15,7 +15,7 @@ stubCss();
 async function load() {
   return {
     P: await import("../../components/settings/github-parts"),
-    L: await import("../../components/settings/github-logic"),
+    L: await import("@/components/shared/settings/github-logic"),
   };
 }
 let P: Awaited<ReturnType<typeof load>>["P"];

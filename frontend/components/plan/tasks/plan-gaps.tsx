@@ -6,7 +6,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { gapLink } from "@/components/gaps/gap-links";
-import { gapsForSpecIds, unionGaps } from "@/components/gaps/gaps-logic";
+import { gapsForSpecIds, unionGaps } from "@/components/shared/gaps/gaps-logic";
 import type { Gap } from "@/lib/domain/gaps";
 import type { PlanTask } from "@/lib/domain/plan";
 import { useGapsPort, usePlanRoutes } from "../use-plan-ports";

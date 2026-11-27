@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ProgressBar, Spinner } from "@/components/ui/ProgressBar";
 import type { GapCheck, GapsPort } from "@/lib/domain/gaps";
-import { checkActive, checkProgress, checkText, newListedText } from "./gaps-logic";
+import { checkActive, checkProgress, checkText, newListedText } from "@/components/shared/gaps/gaps-logic";
 
 const ACTIVE_MS = 3_000;
 const IDLE_MS = 30_000;

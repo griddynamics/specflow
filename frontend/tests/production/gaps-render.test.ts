@@ -23,7 +23,7 @@ async function load() {
     DecisionRow: (await import("../../components/ui/DecisionRow")).DecisionRow,
     ResolveButton: (await import("../../components/gaps/ResolveGaps")).ResolveButton,
     ResolveDialog: (await import("../../components/gaps/ResolveGaps")).ResolveDialog,
-    resolveView: (await import("../../components/gaps/gaps-logic")).resolveView,
+    resolveView: (await import("@/components/shared/gaps/gaps-logic")).resolveView,
   };
 }
 before(async () => {

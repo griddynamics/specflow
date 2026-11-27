@@ -1,6 +1,6 @@
 // FE-DS-02 (R5): port of `Avatar` and `AvatarGroup` in bundle.js. Initials, optional photo, or the SpecBot sparkle.
-import { Icon } from "./Icon";
-import { cx, truthy } from "./utils";
+import { Icon } from "@/components/shared/ui/Icon";
+import { cx, truthy } from "@/components/shared/ui/utils";
 
 export type AvatarSize = "sm" | "md" | "lg";
 

@@ -4,10 +4,10 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import "./ui-gaps.css";
 import { Avatar, type AvatarProps } from "./Avatar";
-import { GlassSurface } from "./GlassSurface";
-import { Icon, type IconName } from "./Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
 import { focusedElement, useOutside } from "./use-outside";
-import { cx, truthy } from "./utils";
+import { cx, truthy } from "@/components/shared/ui/utils";
 
 export interface MenuItem {
   label?: string;

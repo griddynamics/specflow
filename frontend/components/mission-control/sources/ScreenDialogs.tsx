@@ -1,7 +1,7 @@
 "use client";
 // The dialogs of the sources screen (add link, Drive, token, details, remove, build confirm, build error): which one is open is the screen's `Dialog` state.
-import type { ToastInput } from "@/components/ui/Toast";
-import { buildButtonView } from "./kb-logic";
+import type { ToastInput } from "@/components/shared/ui/Toast";
+import { buildButtonView } from "@/components/shared/sources/kb-logic";
 import type { ProjectSourcesStatus, ReasoningLevel, Source, SourcesPort } from "@/lib/domain/sources";
 import { BuildConfirmDialog, BuildErrorDialog } from "./BuildDialogs";
 import { DriveDialog } from "./DriveDialog";

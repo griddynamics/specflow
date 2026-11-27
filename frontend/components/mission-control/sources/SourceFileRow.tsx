@@ -1,11 +1,11 @@
 // FR-SRC-0010 (mockup "Details 3 — grouped"): one file row: a file-type icon, the name (cut with an ellipsis; the full name on hover
 // through `title` and, on keyboard focus, by CSS that unfolds the name of the focused row), the state as a tag (Processing: a spinner and the word) and, for a problem file, its
 // reason under the name. Only design-system glyphs exist, so the icon is a file, a Markdown file or a play mark (USAGE rule 7).
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Tag, type TagProps } from "@/components/ui/Tag";
 import type { FileState, SourceFile } from "@/lib/domain/sources";
-import { fileIcon, reasonText, STATE_LABEL } from "./source-logic";
-import { tabStop, truthy } from "@/components/ui/utils";
+import { fileIcon, reasonText, STATE_LABEL } from "@/components/shared/sources/source-logic";
+import { tabStop, truthy } from "@/components/shared/ui/utils";
 
 const TONE: Record<Exclude<FileState, "processing">, NonNullable<TagProps["tone"]>> = {
   waiting: "neutral",

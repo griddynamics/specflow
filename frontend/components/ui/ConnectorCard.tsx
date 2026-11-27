@@ -3,9 +3,9 @@
 // caller (P14: simple-icons); no logo is fetched here.
 import { initials } from "./Avatar";
 import { Button } from "./Button";
-import { GlassSurface } from "./GlassSurface";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
 import { Tag, type TagProps } from "./Tag";
-import { cx, nonEmpty, truthy } from "./utils";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface ConnectorCardProps {
   name: string;

@@ -72,7 +72,7 @@ import {
   rowSubtitle,
   withAll,
   type GapFilters,
-} from "./gaps-logic";
+} from "@/components/shared/gaps/gaps-logic";
 import { useGapInbox } from "./use-gap-inbox";
 import { useKeepPlace } from "./use-keep-place";
 import "@/components/shell/ready-gate.css";

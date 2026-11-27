@@ -5,9 +5,9 @@
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { Suspense, useState, type ReactNode } from "react";
 import { AppFrame, GraphicoRoot, Notice } from "@graphico/ui";
-import { useSignOut } from "@/components/shell/use-sign-out";
-import { useMe, useProjectList } from "@/components/shell/use-shell-data";
-import { ToastProvider } from "@/components/ui/Toast";
+import { useSignOut } from "@/components/shared/shell/use-sign-out";
+import { useMe, useProjectList } from "@/components/shared/shell/use-shell-data";
+import { ToastProvider } from "@/components/shared/ui/Toast";
 import { useRoutes } from "@/lib/data/provider";
 import { MembersDialog } from "../members/MembersDialog";
 import { V2_COPY } from "../v2-copy";

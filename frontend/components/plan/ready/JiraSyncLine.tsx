@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { JiraProgress } from "@/components/settings/JiraProgress";
-import { POLL_MS } from "@/components/settings/jira-logic";
+import { POLL_MS } from "@/components/shared/settings/jira-logic";
 import type { JiraSettings, JiraSyncState } from "@/lib/domain/jira";
 import { usePlanRoutes, useJiraPort } from "../use-plan-ports";
 import { JIRA_LINE_COPY } from "./jira-sync-text";

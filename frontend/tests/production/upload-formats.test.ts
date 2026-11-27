@@ -18,7 +18,7 @@ import {
   UPLOAD_ACCEPT,
   UPLOAD_FORMATS,
 } from "@/lib/domain/upload-formats";
-import { splitUpload, toastFor, unsupportedFilesToast } from "@/components/mission-control/sources/source-logic";
+import { splitUpload, toastFor, unsupportedFilesToast } from "@/components/shared/sources/source-logic";
 import type { UploadReport } from "@/lib/domain/sources";
 import { UPLOAD_TABLE } from "../support/stub-api.mjs";
 

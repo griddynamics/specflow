@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { RangeSlider } from "@/components/ui/RangeSlider";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 import { isReasoningLevel, type BuildFailure, type ReasoningLevel } from "@/lib/domain/sources";
-import { COPIED_MS, COPY_FALLBACK_HINT } from "./drive-logic";
-import { buildErrorReport, estimateText, plural, REASONING_LEVELS } from "./kb-logic";
+import { COPIED_MS, COPY_FALLBACK_HINT } from "@/components/shared/sources/drive-logic";
+import { buildErrorReport, estimateText, plural, REASONING_LEVELS } from "@/components/shared/sources/kb-logic";
 import { ConfirmDialog } from "./SourceDialogs";
 
 const DEFAULT_LEVEL: ReasoningLevel = 2; // Medium (D8)

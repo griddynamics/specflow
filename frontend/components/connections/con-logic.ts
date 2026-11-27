@@ -1,6 +1,6 @@
 // FE-CON-01.AC2..AC5 (PLAN a.10): pure filter logic of the Connections screen (node-testable).
 import type { Connector } from "@/lib/domain/connectors";
-import { matchesQuery } from "@/components/ui/SearchField";
+import { matchesQuery } from "@/components/shared/ui/SearchField";
 
 export const ALL_CATEGORY = "All";
 

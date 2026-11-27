@@ -3,7 +3,7 @@
 // (or the draft of a new one), with the bot's typing row. `@` in the box suggests the mentionables (Alex, Nina, Sam,
 // SpecBot). The panel only draws; FilesDocument owns the state and calls the comments port.
 import { CommentThread } from "@/components/ui/CommentThread";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import type { DocRef } from "@/lib/domain/common";
 import { docRefLink } from "@/lib/markdown/links";
 import type { Thread } from "@/lib/domain/comments";

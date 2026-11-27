@@ -2,7 +2,7 @@
 import { isDataError } from "@/lib/domain/errors";
 import type { PlanPreview } from "@/lib/domain/plan";
 import { COPY } from "@/lib/copy";
-import type { ToastInput } from "@/components/ui/Toast";
+import type { ToastInput } from "@/components/shared/ui/Toast";
 
 /** The 409 answers of `POST /plan` that refuse a run (the API codes): each has its own info toast. */
 const REFUSALS: Record<string, string> = {

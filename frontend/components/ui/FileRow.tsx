@@ -1,10 +1,10 @@
 // FE-CP-06, FE-DS-02 (R5): port of `FileRow` in bundle.js. One file in an upload list: type icon, name, size, state.
 // Pure (no hooks): the remove handler comes from props.
-import { Icon, type IconName } from "./Icon";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
 import { ProgressBar } from "./ProgressBar";
 import { Tag } from "./Tag";
-import { formatFileSize } from "./app-logic";
-import { cx, nonEmpty } from "./utils";
+import { formatFileSize } from "@/components/shared/ui/app-logic";
+import { cx, nonEmpty } from "@/components/shared/ui/utils";
 
 export interface FileRowProps {
   name: string;

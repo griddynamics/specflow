@@ -2,7 +2,7 @@
 // FE-PLAN-06: how the run that wrote the plan went, above the outline. It shows only when there is something to say (fallback tasks, an
 // unplanned project step, review findings); the text comes from `qualityLines`.
 import type { PlanQuality } from "@/lib/domain/plan";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { qualityLines } from "./task-logic";
 
 export function PlanQualityNotice({ quality, ruleTasks }: Readonly<{ quality: PlanQuality | null; ruleTasks: number }>) {

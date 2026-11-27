@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { GlassSurface } from "@/components/ui/GlassSurface";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
 import { OptionCards } from "@/components/ui/OptionCards";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Tag } from "@/components/ui/Tag";
@@ -22,7 +22,7 @@ import {
   headingText,
   removedText,
   sectionRuleValue,
-} from "./gaps-logic";
+} from "@/components/shared/gaps/gaps-logic";
 import { GapsUnavailable } from "./GapsUnavailable";
 
 type Load = GapNoise | "unavailable" | "failed" | null;

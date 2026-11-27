@@ -5,11 +5,11 @@
 // its cell shows it without a menu. The menu sits beside the row's button (DecisionRow `aside`), so a click on it never opens the card.
 import { useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Menu, type MenuItem } from "@/components/ui/Menu";
 import type { Gap } from "@/lib/domain/gaps";
 import type { Member } from "@/lib/domain/members";
-import { ASSIGNED_TO_NOBODY, assigneeChoices, assigneeText } from "./gaps-logic";
+import { ASSIGNED_TO_NOBODY, assigneeChoices, assigneeText } from "@/components/shared/gaps/gaps-logic";
 import "./gaps.css";
 
 /** What the rows need to assign: the project's members, and the assignment (it rejects when the assignment was not saved). */

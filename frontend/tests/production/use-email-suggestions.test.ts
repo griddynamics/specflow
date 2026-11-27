@@ -2,7 +2,7 @@
 // answer counts, a failed lookup is an empty list, dispose silences everything. Driven through `createSuggester` with fake timers.
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { SUGGEST_DEBOUNCE_MS, createSuggester, suggestionQuery } from "@/components/members/use-email-suggestions";
+import { SUGGEST_DEBOUNCE_MS, createSuggester, suggestionQuery } from "@/components/shared/members/use-email-suggestions";
 import type { Suggestion } from "@/lib/domain/members";
 
 const person = (n: string): Suggestion => ({ name: n, email: `${n}@example.test` });
@@ -128,7 +128,7 @@ test("useEmailSuggestions renders inside the data provider and starts with no su
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { DataProvider } = await import("../../lib/data/provider");
-  const { useEmailSuggestions } = await import("../../components/members/use-email-suggestions");
+  const { useEmailSuggestions } = await import("@/components/shared/members/use-email-suggestions");
   const Probe = () => createElement("p", null, `items:${String(useEmailSuggestions("ali", "p1").items.length)}`);
   assert.match(renderToStaticMarkup(createElement(DataProvider, null, createElement(Probe))), /items:0/);
 });

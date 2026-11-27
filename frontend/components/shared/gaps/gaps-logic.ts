@@ -4,7 +4,7 @@
 // sections, placements, history events and failures, the filters' options and the `list_gaps` query they make, the inbox order, which
 // gaps the latest run found ("New"), the card's answer button and the "Resolve gaps" button, the section noise-rule value, and which open
 // gaps belong to a plan task or story.
-import type { SeverityLevel } from "@/components/ui/SeverityBadge";
+import type { SeverityLevel } from "@/components/shared/ui/SeverityBadge";
 import { isDataError } from "@/lib/domain/errors";
 import {
   GAP_KINDS,

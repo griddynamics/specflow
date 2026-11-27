@@ -4,10 +4,10 @@
 // and the status Tag (the word is always there, never colour alone);
 // activating it opens or closes the task body below it.
 import type { ReactNode } from "react";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Tag } from "@/components/ui/Tag";
 import type { PlanTask } from "@/lib/domain/plan";
-import { openGapsText } from "@/components/gaps/gaps-logic";
+import { openGapsText } from "@/components/shared/gaps/gaps-logic";
 import { PHASE_NAMES, STATUS_TAGS } from "./task-logic";
 
 export function TaskRow({

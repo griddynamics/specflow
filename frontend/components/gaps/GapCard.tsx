@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { QuestionBlock } from "@/components/ui/QuestionBlock";
-import { SeverityBadge } from "@/components/ui/SeverityBadge";
+import { SeverityBadge } from "@/components/shared/ui/SeverityBadge";
 import { Tag } from "@/components/ui/Tag";
 import type { Gap, GapNode, RevertResult } from "@/lib/domain/gaps";
 import { AnswerForm, AnswerMessages, useGapAnswer, type CardControl, type GapAnswerState } from "./GapAnswer";
@@ -40,7 +40,7 @@ import {
   submitLabel,
   withdrawable,
   witnessSection,
-} from "./gaps-logic";
+} from "@/components/shared/gaps/gaps-logic";
 import "./gaps.css";
 
 export type { CardControl } from "./GapAnswer";

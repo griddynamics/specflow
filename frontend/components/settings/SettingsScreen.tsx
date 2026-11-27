@@ -12,7 +12,7 @@ import { GeneralTab } from "./GeneralTab";
 import { GitHubTab } from "./GitHubTab";
 import { JiraTab } from "./JiraTab";
 import { SlackTab } from "./SlackTab";
-import { useSettingsRoutes } from "./use-settings-ports";
+import { useSettingsRoutes } from "@/components/shared/settings/use-settings-ports";
 import "./settings.css";
 
 const TAB_OPTIONS: { value: SettingsTab; label: string }[] = [

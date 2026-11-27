@@ -8,8 +8,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Avatar } from "@/components/ui/Avatar";
 import { ChatComposer } from "@/components/ui/ChatComposer";
 import { ChatMessage } from "@/components/ui/ChatMessage";
-import { GlassSurface } from "@/components/ui/GlassSurface";
-import { Icon } from "@/components/ui/Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import { MarkdownProse } from "@/components/ui/MarkdownProse";
 import { Spinner } from "@/components/ui/ProgressBar";
 import { focusedElement, focusIsLost } from "@/components/ui/use-outside";
@@ -20,7 +20,7 @@ import { gapLink } from "@/components/gaps/gap-links";
 import { applyEvent, failExchange, nearBottom, newExchange, plainText, type Exchange } from "./specbot-logic";
 import "./bot-gaps.css";
 import { useSpecBotEnv } from "./use-specbot-env";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 import { COPY } from "@/lib/copy";
 
 const USER_MESSAGE = { role: "user" } as const;

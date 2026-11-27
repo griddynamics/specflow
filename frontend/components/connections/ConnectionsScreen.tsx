@@ -9,14 +9,14 @@
 // hidden: the sidebar names the page.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ShellHeader } from "@/components/shell/ShellHeader";
-import { useNotAvailable } from "@/components/shell/use-not-available";
+import { useNotAvailable } from "@/components/shared/shell/use-not-available";
 import { Button } from "@/components/ui/Button";
 import { ConnectorCard } from "@/components/ui/ConnectorCard";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Icon } from "@/components/ui/Icon";
-import { SearchField } from "@/components/ui/SearchField";
+import { Icon } from "@/components/shared/ui/Icon";
+import { SearchField } from "@/components/shared/ui/SearchField";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { usePorts } from "@/lib/data/provider";
 import type { Connector } from "@/lib/domain/connectors";
 import { ALL_CATEGORY, actionLabel, filterConnectors } from "./con-logic";

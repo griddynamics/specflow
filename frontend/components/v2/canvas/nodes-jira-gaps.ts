@@ -1,7 +1,7 @@
 // Node mapper of the Jira gap channel: one per project, under Gaps. It waits for the gaps; once they are found it counts the questions posted
 // as sub-tasks and the ones answered. It stops only for what the API reports: an Atlassian connection that expired or went, or a closed code the
 // last pass ended on. The wire moves only while a gap run goes on (questions go out).
-import { syncErrorText } from "@/components/settings/jira-logic";
+import { syncErrorText } from "@/components/shared/settings/jira-logic";
 import { COPY } from "@/lib/copy";
 import type { JiraGaps } from "@/lib/domain/jira-gaps";
 import { V2_COPY } from "../v2-copy";

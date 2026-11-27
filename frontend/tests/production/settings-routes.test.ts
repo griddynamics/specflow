@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROUTES, parseSettingsQuery, routesFor } from "@/lib/routes";
-import { SECTIONS, SIDEBAR_SECTIONS, sectionHref, sectionOf } from "@/components/shell/shell-logic";
+import { SECTIONS, SIDEBAR_SECTIONS, sectionHref, sectionOf } from "@/components/shared/shell/shell-logic";
 
 const routes = routesFor("production");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");

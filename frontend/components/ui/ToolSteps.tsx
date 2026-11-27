@@ -1,8 +1,8 @@
 // FE-SPEC-02, FE-DS-02 (R5): port of `ToolSteps` in bundle.js: what SpecBot did before answering. A running step shows a
 // Spinner, a done step its icon (default check).
-import { Icon, type IconName } from "./Icon";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
 import { Spinner } from "./ProgressBar";
-import { truthy } from "./utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 export interface ToolStep {
   label: string;

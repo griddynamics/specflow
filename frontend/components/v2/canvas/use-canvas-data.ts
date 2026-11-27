@@ -3,9 +3,9 @@
 // integrations. Each read that fails leaves its part `null`: the canvas shows what it knows and nothing invented. Ports only, through
 // `use-v2-data.ts`.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSourcesStatus } from "@/components/mission-control/sources/use-sources-data";
-import { isCloning, startPolling } from "@/components/settings/github-logic";
-import { isRunning } from "@/components/settings/jira-logic";
+import { useSourcesStatus } from "@/components/shared/sources/use-sources-data";
+import { isCloning, startPolling } from "@/components/shared/settings/github-logic";
+import { isRunning } from "@/components/shared/settings/jira-logic";
 import type { PlanState } from "@/lib/domain/plan";
 import { useV2Ports } from "../use-v2-data";
 import { openGapRows, summarizeGaps, SUMMARY_QUERY } from "./canvas-gaps";

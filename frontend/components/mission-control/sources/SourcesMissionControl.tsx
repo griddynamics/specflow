@@ -19,20 +19,20 @@ import { ShellHeader } from "@/components/shell/ShellHeader";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/ProgressBar";
 import { PageTitle } from "@/components/ui/TopBar";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import type { KnowledgePort, ProjectSourcesStatus, Source, SourcesPort } from "@/lib/domain/sources";
 import { parseMissionControlQuery } from "@/lib/routes";
 import { UPLOAD_ACCEPT } from "@/lib/domain/upload-formats";
 import { HeaderActions } from "./HeaderActions";
-import { buildButtonView } from "./kb-logic";
+import { buildButtonView } from "@/components/shared/sources/kb-logic";
 import { ScreenDialogs, type Dialog } from "./ScreenDialogs";
-import { goneToast, removedToast } from "./source-logic";
+import { goneToast, removedToast } from "@/components/shared/sources/source-logic";
 import { SourcesSection } from "./SourcesSection";
-import { isGone } from "./source-files-reader";
-import { useBuild, useFailToast, useKnowledgeBuiltToast, useUpload } from "./use-sources-actions";
-import { useDriveEmail, useMemberId, useSourcesRoutes, useSourcesStatus } from "./use-sources-data";
+import { isGone } from "@/components/shared/sources/source-files-reader";
+import { useBuild, useFailToast, useKnowledgeBuiltToast, useUpload } from "@/components/shared/sources/use-sources-actions";
+import { useDriveEmail, useMemberId, useSourcesRoutes, useSourcesStatus } from "@/components/shared/sources/use-sources-data";
 import "./mc-sources.css";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 import { COPY } from "@/lib/copy";
 
 /** The page: the error, the spinner, one document with its Back link, or the source cards. */

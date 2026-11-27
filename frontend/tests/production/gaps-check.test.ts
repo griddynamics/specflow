@@ -4,7 +4,7 @@ import { test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createHttpGaps, toGapCheck } from "@/lib/data/http/gaps";
 import type { GapCheck } from "@/lib/domain/gaps";
-import { checkActive, checkFoundText, checkProgress, checkStepText, checkText, whenText } from "@/components/gaps/gaps-logic";
+import { checkActive, checkFoundText, checkProgress, checkStepText, checkText, whenText } from "@/components/shared/gaps/gaps-logic";
 
 const PID = "11111111-1111-4111-8111-111111111111";
 const RESULT = { run_id: "run-1", counts: { gaps_new: { total: 2 }, gaps_updated: { total: 9 }, close: { resolved: 1 } } };

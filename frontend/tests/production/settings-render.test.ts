@@ -9,14 +9,14 @@ import { stubCss } from "../support/css-stub.mjs";
 import { DataError } from "@/lib/domain/errors";
 import type { AddedPerson, ClaimsOutcome, MembersPort, MembersState } from "@/lib/domain/members";
 import type { Project, ProjectsPort } from "@/lib/domain/projects";
-import * as A from "../../components/ui/app-logic";
+import * as A from "@/components/shared/ui/app-logic";
 import type { GeneralViewProps } from "../../components/settings/parts";
 
 stubCss();
 async function load() {
   return {
     P: await import("../../components/settings/parts"),
-    L: await import("../../components/settings/settings-logic"),
+    L: await import("@/components/shared/settings/settings-logic"),
   };
 }
 let P: Awaited<ReturnType<typeof load>>["P"];

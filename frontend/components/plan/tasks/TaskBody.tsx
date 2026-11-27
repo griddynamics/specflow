@@ -25,7 +25,7 @@ import { selectedBlock } from "@/components/files/selection-dom";
 import "@/components/files/files-gaps.css"; // the editor frame (`.files-edit*`, G-P11-4/5); imported, not edited (P24-1)
 import { MarkdownProse } from "@/components/ui/MarkdownProse";
 import { DEFAULT_SELECTION_ACTIONS, SelectionToolbar } from "@/components/ui/SelectionToolbar";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { useTextSelection } from "@/components/ui/use-text-selection";
 import { usePlanPort, usePlanRoutes } from "../use-plan-ports";
 import type { DocRef } from "@/lib/domain/common";
@@ -35,7 +35,7 @@ import { blockSource, buildAnchor, headingIndex } from "@/lib/markdown/blocks";
 import { docRefLink } from "@/lib/markdown/links";
 import { editorText, isGraphBlock, savedText, taskCommentPath } from "./task-logic";
 import { useTaskThread } from "./use-task-thread";
-import { tabStop, truthy } from "@/components/ui/utils";
+import { tabStop, truthy } from "@/components/shared/ui/utils";
 
 // R24-03: under the page h1 "Plan" and the phase h2, a task's title is level 3 and its sections level 4 (and so on, capped at 6). The Files
 // block parts keep their tags (`h1`..`h6`, source ranges, editor); the wrapper only adds role and aria-level, which win over the tag's level.

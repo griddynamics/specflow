@@ -5,8 +5,8 @@
 import { markFor } from "@/components/connections/logos";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { GlassSurface } from "@/components/ui/GlassSurface";
-import { Icon } from "@/components/ui/Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Tag } from "@/components/ui/Tag";
@@ -15,8 +15,8 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { COPY } from "@/lib/copy";
 import type { GitHubConnection, GitHubRepositoryList, ProjectRepositories, ProjectRepository } from "@/lib/domain/github";
 import { AccountRow, whenText } from "./account-parts";
-import { addedByText, addGate, cloneViewOf, githubRowOf, pickRowsOf, type GitHubRow, type PickRow } from "./github-logic";
-import { SETTINGS_COPY } from "./settings-copy";
+import { addedByText, addGate, cloneViewOf, githubRowOf, pickRowsOf, type GitHubRow, type PickRow } from "@/components/shared/settings/github-logic";
+import { SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
 import "./settings.css";
 
 // GitHub's mark is near-black: it is drawn in the ink colour (GitHub's brand allows a one-colour mark), so it shows in both themes.

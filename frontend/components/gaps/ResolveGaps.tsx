@@ -12,7 +12,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { Gap, GapsPort } from "@/lib/domain/gaps";
 import {
@@ -24,7 +24,7 @@ import {
   resolvedToast,
   stagedChoiceText,
   type ResolveView,
-} from "./gaps-logic";
+} from "@/components/shared/gaps/gaps-logic";
 
 const PAGE = 200;
 const POLL_MS = 5_000;

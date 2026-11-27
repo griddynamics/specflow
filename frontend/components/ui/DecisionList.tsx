@@ -1,8 +1,8 @@
 // FE-DEC-01, FE-DS-02 (R5): port of `DecisionList` in bundle.js. A glass table: header row (decorative, aria-hidden), rows
 // as <li> (DecisionRow), an empty message when there are none, and an optional footer ("4 of 28 decisions").
 import { Children, type ReactNode } from "react";
-import { GlassSurface } from "./GlassSurface";
-import { nonEmpty, truthy } from "./utils";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface DecisionListProps {
   children?: ReactNode;

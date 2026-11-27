@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import type { IconName } from "@/components/ui/Icon";
+import type { IconName } from "@/components/shared/ui/Icon";
 
 export function NotReadyState({
   testId,

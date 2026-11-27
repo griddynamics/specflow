@@ -6,7 +6,7 @@
 import { isDataError } from "@/lib/domain/errors";
 import { PAGE_LIMIT } from "@/lib/domain/source-state";
 import type { FilePage, Source, SourceFile, SourcesPort } from "@/lib/domain/sources";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 /** FR-SRC-0012: a change shows within 10 s; the read repeats every 5 s, so a change shows within 5 s plus one request (SPECS §2). */
 export const REFRESH_MS = 5_000;

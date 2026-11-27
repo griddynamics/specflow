@@ -1,6 +1,6 @@
 "use client";
 // FE-DS-02 (R5): port of `Switch` in bundle.js. The state is controlled by `checked`, otherwise it keeps its own.
-import { useControlled } from "./use-controlled";
+import { useControlled } from "@/components/shared/ui/use-controlled";
 
 export interface SwitchProps {
   label?: string;

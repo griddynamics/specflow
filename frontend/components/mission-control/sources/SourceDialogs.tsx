@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import { parseSourceLink } from "@/lib/domain/logic/source-link";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 const GITHUB_COPY = {
   title: "Add a GitHub repository",

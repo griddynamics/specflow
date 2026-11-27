@@ -3,7 +3,7 @@
 // toggle it natively) with the area's progress; the body (kept mounted with `hidden`, so no height animates) holds the area description, the
 // members held as no code work, the review findings about the area, then its stories.
 import type { ReactNode } from "react";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tag } from "@/components/ui/Tag";
 import type { AreaGroup } from "@/lib/domain/logic/plan";

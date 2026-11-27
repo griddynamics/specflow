@@ -5,12 +5,12 @@
 // The state is told to assistive technology as the button's description ("Done, 2 files need attention").
 import { useId } from "react";
 import { logoSrc } from "@/components/connections/logos";
-import { GlassSurface } from "@/components/ui/GlassSurface";
-import { Icon } from "@/components/ui/Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon } from "@/components/shared/ui/Icon";
 import type { Source } from "@/lib/domain/sources";
-import { cardView, ringProgress } from "./source-logic";
+import { cardView, ringProgress } from "@/components/shared/sources/source-logic";
 import { SourceRing } from "./SourceRing";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 const LOGO = {
   gdrive: "googledrive",

@@ -2,8 +2,8 @@
 // No React, no fetch.
 import { isDataError } from "@/lib/domain/errors";
 import { ROUTES, TREE_PREFIX, type RouteBuilder } from "@/lib/routes";
-import type { IconName } from "@/components/ui/Icon";
-import { truthy } from "@/components/ui/utils";
+import type { IconName } from "@/components/shared/ui/Icon";
+import { truthy } from "@/components/shared/ui/utils";
 
 /**
  * The seven sections, in order (FE-SHELL-01.AC2); the sidebar shows `SIDEBAR_SECTIONS`. Icons are Phosphor Regular names from the icon map.

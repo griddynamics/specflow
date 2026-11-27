@@ -6,7 +6,7 @@
 // line under the tabs when it is not (shell-gaps.css). The portal keeps the screen's React tree: state, context and handlers stay.
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 
 interface Slot {
   target: HTMLElement | null;

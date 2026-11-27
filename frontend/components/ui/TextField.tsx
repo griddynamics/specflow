@@ -2,7 +2,7 @@
 // FE-DS-02 (R5): port of `TextField` in bundle.js, with `multiline` rendering a textarea. The props are a union: with
 // `multiline` the textarea attributes, ref and onChange types apply, otherwise the input ones.
 import { useId, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
-import { cx, nonEmpty, truthy } from "./utils";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 interface TextFieldBase {
   label: string;

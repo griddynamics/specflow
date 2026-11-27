@@ -7,7 +7,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { isDataError } from "@/lib/domain/errors";
 import type { GitHubConnection, GitHubRepositoryList, ProjectRepositories, ProjectRepository } from "@/lib/domain/github";
 import { ConfirmDialog } from "./account-parts";
@@ -21,10 +21,10 @@ import {
   withoutRepository,
   withRepository,
   type GitHubFailure,
-} from "./github-logic";
+} from "@/components/shared/settings/github-logic";
 import { LoadFailed } from "./parts";
-import { SETTINGS_COPY } from "./settings-copy";
-import { useGitHubPort, useSettingsRoutes } from "./use-settings-ports";
+import { SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
+import { useGitHubPort, useSettingsRoutes } from "@/components/shared/settings/use-settings-ports";
 
 interface Loaded {
   connection: GitHubConnection;

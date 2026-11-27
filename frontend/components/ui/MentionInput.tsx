@@ -14,10 +14,10 @@ import {
   type Ref,
 } from "react";
 import { Avatar } from "./Avatar";
-import { GlassSurface } from "./GlassSurface";
-import { applyMention, filterMentions, mentionQuery, type Person } from "./app-logic";
-import { useControlled } from "./use-controlled";
-import { cx, nonEmpty, truthy } from "./utils";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { applyMention, filterMentions, mentionQuery, type Person } from "@/components/shared/ui/app-logic";
+import { useControlled } from "@/components/shared/ui/use-controlled";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export interface MentionInputProps {
   people: Person[];

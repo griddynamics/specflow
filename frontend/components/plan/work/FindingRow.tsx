@@ -5,7 +5,7 @@
 // "Resolve" / "Dismiss" for an open one. A closed one shows who answered, when and the note.
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Tag } from "@/components/ui/Tag";
 import type { CloseAction, Finding } from "@/lib/domain/work";
 import { blockedStory, formatWhen, KIND_LABELS, personName, REF_LABELS, refHref } from "./work-logic";

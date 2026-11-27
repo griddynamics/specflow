@@ -6,11 +6,11 @@
 // `recommended` names the one option that carries a "Recommended" mark (a Tag in the card, part of the radio's accessible name); without
 // it the cards render exactly as before.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Icon } from "./Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Tag } from "./Tag";
-import { OPTION_LETTERS, radioMove } from "./app-logic";
-import { useControlled } from "./use-controlled";
-import { cx, nonEmpty, truthy } from "./utils";
+import { OPTION_LETTERS, radioMove } from "@/components/shared/ui/app-logic";
+import { useControlled } from "@/components/shared/ui/use-controlled";
+import { cx, nonEmpty, truthy } from "@/components/shared/ui/utils";
 
 export const OTHER_VALUE = "__other";
 

@@ -6,7 +6,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import type { SourcesPort } from "@/lib/domain/sources";
@@ -20,15 +20,15 @@ import {
   GUIDE_TOGGLE,
   NOTHING_TO_IMPORT,
   SAVE_TOO_LONG,
-} from "./drive-logic";
-import { useDriveFlow } from "./use-drive-flow";
+} from "@/components/shared/sources/drive-logic";
+import { useDriveFlow } from "@/components/shared/sources/use-drive-flow";
 // The four Google Drive screenshots (FR-GDUI-0007) are bundled, not served from /public: the sign-in proxy gates every path outside
 // /_next, so a public file would reach a signed-out preview as the login page.
 import shot1 from "./assets/1-share-with-us.png";
 import shot2 from "./assets/2-add-specflow-sa.png";
 import shot3 from "./assets/3-confirm-outside-user.png";
 import shot4 from "./assets/4-copy-link.png";
-import { truthy } from "@/components/ui/utils";
+import { truthy } from "@/components/shared/ui/utils";
 import { COPY } from "@/lib/copy";
 
 const SHOTS: Record<string, { src: string; width: number; height: number }> = {

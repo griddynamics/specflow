@@ -4,12 +4,12 @@
 // carry `aria-label` and `data-tip`; the tip shows on hover and keyboard focus (bundle.css). Toggle returns through `onToggle`.
 import type { CSSProperties } from "react";
 import "./ui-gaps-app.css"; // also carries the Prose link ring: the app shell always renders a Sidebar (Prose itself stays CSS-free for node tests)
-import { GlassSurface } from "./GlassSurface";
-import { Icon, type IconName } from "./Icon";
+import { GlassSurface } from "@/components/shared/ui/GlassSurface";
+import { Icon, type IconName } from "@/components/shared/ui/Icon";
 import { ThemeLogo } from "./ThemeLogo";
-import { sidebarInitials } from "./app-logic";
-import { useControlled } from "./use-controlled";
-import { cx, nonEmpty } from "./utils";
+import { sidebarInitials } from "@/components/shared/ui/app-logic";
+import { useControlled } from "@/components/shared/ui/use-controlled";
+import { cx, nonEmpty } from "@/components/shared/ui/utils";
 
 export type SidebarEntry = { value: string; label: string; icon: IconName; badge?: number | string } | { section: string };
 

@@ -6,15 +6,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { CodeBlock } from "@/components/ui/CodeBlock";
-import { Icon } from "@/components/ui/Icon";
+import { Icon } from "@/components/shared/ui/Icon";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { isDataError } from "@/lib/domain/errors";
 import { type SlackSettings, slackConnectCommand } from "@/lib/domain/slack";
 import { LoadFailed } from "./parts";
-import { SETTINGS_COPY } from "./settings-copy";
+import { SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
 import { useRemoveRight } from "./use-remove-right";
-import { useSlackPort } from "./use-settings-ports";
+import { useSlackPort } from "@/components/shared/settings/use-settings-ports";
 
 const channelLabel = (name: string, isPrivate: boolean) => `${isPrivate ? "🔒" : "#"} ${name}`;
 

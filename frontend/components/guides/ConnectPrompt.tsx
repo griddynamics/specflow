@@ -3,7 +3,7 @@
 // the shell's current project, the name from the same project list the switcher reads) and `<project name>` otherwise. Outside a
 // DataProvider (static render) the placeholder shows.
 import { useContext } from "react";
-import { useProjectList } from "@/components/shell/use-shell-data";
+import { useProjectList } from "@/components/shared/shell/use-shell-data";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { DataContext, useCurrentProject } from "@/lib/data/provider";
 import { connectPrompt } from "@/lib/guides/snippets";

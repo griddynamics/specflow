@@ -3,7 +3,7 @@
 // name, and turns every action into a port call through settings-logic.ts (rename, add, remove, cancel an invite, leave). The caller
 // decides where "the project is gone" and "you left" lead (`onHome`).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import type { MembersState } from "@/lib/domain/members";
 import type { AddOutcome } from "./use-add-row";
 import { useMembersPort, useProjectsPort } from "./use-settings-ports";

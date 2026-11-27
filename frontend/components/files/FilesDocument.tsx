@@ -9,7 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { MarkdownProse } from "@/components/ui/MarkdownProse";
 import { SelectionToolbar } from "@/components/ui/SelectionToolbar";
 import { useTextSelection } from "@/components/ui/use-text-selection";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import type { DocRef } from "@/lib/domain/common";
 import type { TextAnchor, Thread } from "@/lib/domain/comments";
 import { isDataError } from "@/lib/domain/errors";

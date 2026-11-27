@@ -1,8 +1,8 @@
 // The Gaps hub's dialog: how many open gaps of each category, by severity, read-only. Answering is not done here (D10): people answer in
 // Slack or Jira, coding agents over MCP; the Gaps screens list them one by one.
 import { Button, CountTable, DialogFoot, Notice, Stack } from "@graphico/ui";
-import { plural } from "@/components/mission-control/sources/kb-logic";
-import { KIND_LABEL, SEVERITY_LABEL } from "@/components/gaps/gaps-logic";
+import { plural } from "@/components/shared/sources/kb-logic";
+import { KIND_LABEL, SEVERITY_LABEL } from "@/components/shared/gaps/gaps-logic";
 import { gapCounts } from "./canvas-gaps";
 import { CANVAS_COPY } from "./canvas-copy";
 import type { GapRow, GapsSummary } from "./canvas-types";

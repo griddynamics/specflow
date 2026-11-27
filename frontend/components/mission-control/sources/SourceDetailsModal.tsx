@@ -11,10 +11,10 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { sourceState } from "@/lib/domain/source-state";
 import type { Source, SourcesPort } from "@/lib/domain/sources";
 import { FileGroups } from "./FileGroups";
-import { canSyncNow } from "./kb-logic";
-import { EMPTY_SOURCE, headerText, LOAD_FAILED, type GroupId } from "./source-logic";
-import { useSourceFiles, type SourceFiles } from "./use-source-files";
-import { truthy } from "@/components/ui/utils";
+import { canSyncNow } from "@/components/shared/sources/kb-logic";
+import { EMPTY_SOURCE, headerText, LOAD_FAILED, type GroupId } from "@/components/shared/sources/source-logic";
+import { useSourceFiles, type SourceFiles } from "@/components/shared/sources/use-source-files";
+import { truthy } from "@/components/shared/ui/utils";
 
 export interface GithubActions {
   onSync: () => void;
