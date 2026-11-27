@@ -1,19 +1,21 @@
 """The diagrams.net link source: the source kind ``drawio``.
 
-Adds, on top of revision 0011_linear, the kind ``drawio`` to the check constraint ck_connections_kind, which
-becomes ``gdrive, upload, confluence, jira_epic, linear_project, drawio`` (a source imported by the API from a
+Adds, on top of revision 0012_box, the kind ``drawio`` to the check constraint ck_connections_kind, which
+becomes ``gdrive, upload, confluence, jira_epic, linear_project, box, drawio`` (a source imported by the API from a
 diagrams.net link). No table changes.
+
+Box took revision 0012 first, so this revision follows it.
 
 Locks: the first online statement of upgrade() and downgrade() is ``SET LOCAL lock_timeout = '10s'``. The constraint
 swap takes a lock on ``connections``; if it is not granted in time the statement fails and the WHOLE transaction (one
 per run) is rolled back, so nothing is half applied; the next start of the api retries the revision.
 
-downgrade() returns to the 0011_linear schema exactly. A source of a kind the old constraint refuses cannot
+downgrade() returns to the 0012_box schema exactly. A source of a kind the old constraint refuses cannot
 stay, so the downgrade DELETES every ``drawio`` row of connections with its connection_items and the documents they hold
 (their objects stay in object storage until removed by hand).
 
-Revision ID: 0012_drawio_source
-Revises: 0011_linear
+Revision ID: 0013_drawio_source
+Revises: 0012_box
 """
 
 from __future__ import annotations
@@ -26,15 +28,15 @@ from alembic import op
 from db.migration_helpers import delete_sources_of_kinds, set_lock_timeout
 
 # revision identifiers, used by Alembic.
-revision: str = "0012_drawio_source"
-down_revision: str | Sequence[str] | None = "0011_linear"
+revision: str = "0013_drawio_source"
+down_revision: str | Sequence[str] | None = "0012_box"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 SOURCES = "connections"
 KIND_CHECK = "ck_connections_kind"
 LOCK_TIMEOUT = "0003_lock_timeout.sql"
-OLD_KINDS = ("gdrive", "upload", "confluence", "jira_epic", "linear_project")
+OLD_KINDS = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box")
 NEW_KINDS = ("drawio",)
 
 
@@ -58,7 +60,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema to 0011_linear; every drawio source is lost."""
+    """Downgrade schema to 0012_box; every drawio source is lost."""
 
     set_lock_timeout(read_migration_sql(LOCK_TIMEOUT))
     delete_sources_of_kinds(NEW_KINDS)

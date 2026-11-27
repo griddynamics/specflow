@@ -10,7 +10,7 @@ from typing import Final
 from db.models import CONNECTION_FAILURE_REASONS
 
 # the ``connections.kind`` values the API imports itself
-IMPORT_KINDS: Final = ("confluence", "jira_epic", "linear_project", "drawio")
+IMPORT_KINDS: Final = ("confluence", "jira_epic", "linear_project", "box", "drawio")
 
 
 class InvalidFailureReasonError(Exception):
@@ -33,6 +33,10 @@ class ImportFailedError(Exception):
             raise InvalidFailureReasonError
         super().__init__(reason)
         self.reason = reason
+
+
+class OriginalTooLargeError(Exception):
+    """A file streamed past the byte cap its importer gave (``ImportWriter.add_file``): nothing was stored."""
 
 
 class SourceGoneError(Exception):

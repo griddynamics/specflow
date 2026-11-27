@@ -4,6 +4,7 @@
 // for `ConnectorCard logoSrc` (an <img>): no request, no hot-linking.
 // Slack is not in simple-icons 16.34.0 (removed at the owner's request): it stays a text-only tile (the card's monogram).
 import {
+  siBox,
   siCircleci,
   siConfluence,
   siDatadog,
@@ -26,6 +27,7 @@ export interface Mark {
 /** Slug (MOCKS §9 `logoSlug`) to the package's icon object. */
 const MARKS: Record<string, Mark> = {
   github: siGithub,
+  box: siBox,
   googledrive: siGoogledrive,
   jira: siJira,
   confluence: siConfluence,

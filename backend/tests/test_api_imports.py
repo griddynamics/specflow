@@ -304,6 +304,7 @@ async def test_the_start_ends_the_sources_of_the_imported_kinds_a_restart_interr
         "confluence",
         "jira_epic",
         "linear_project",
+        "box",
         "drawio",
     )
     assert imports_db.INTERRUPTED_REASON == "unknown_error"

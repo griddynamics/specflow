@@ -29,6 +29,7 @@ export function composeProductionPorts(http: HttpPorts): DataPorts {
     jiraGaps: http.jiraGaps, // the Jira gap channel (/projects/{pid}/jira-gaps*)
     slack: http.slack, // the Slack channel of a project (/projects/{pid}/slack)
     github: http.github, // the caller's GitHub connection and the project repositories (/integrations/github*, /projects/{pid}/repositories*)
+    box: http.box, // the caller's Box connection (/integrations/box*)
     integrations: http.integrations, // who each app is connected by for a project (/projects/{pid}/integrations)
     linear: http.linear, // LINEAR S1: the caller's Linear connection (/integrations/linear*)
     linearPlan: http.linearPlan, // LINEAR S3: the Linear plan destination (/projects/{pid}/linear-plan*)

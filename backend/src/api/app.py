@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import time
 from collections.abc import AsyncIterator, MutableMapping
 from contextlib import asynccontextmanager
@@ -10,6 +11,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from api.batch_files import start_parse_or_mark_failed
 from api.contained import Contained
 from api.errors import install_error_handlers, required
 from api.request_id import SpecflowApi
@@ -22,6 +24,7 @@ from api.routers import (
     agent_stories,
     agent_writes,
     atlassian,
+    box,
     claims,
     documents,
     findings,
@@ -44,6 +47,7 @@ from api.routers import (
     repositories,
     slack,
     source_batches,
+    source_box,
     source_confluence,
     source_drawio,
     source_jira_epic,
@@ -170,6 +174,9 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
             )
             raise
         await prime_storage(app.state.runtime)
+        imports = getattr(app.state.runtime, "imports", None)
+        if imports is not None:  # the importers that store binary originals (Box) start the parse through this
+            imports.use_parse_starter(functools.partial(start_parse_or_mark_failed, app.state.runtime, None))
         await start_slack(
             app.state.runtime, settings.slack_app, settings.graph_build.state_dir if settings.graph_build else None
         )
@@ -212,6 +219,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         github.router,
         linear.router,
         linear_webhook.router,
+        box.router,
         repositories.router,
         users.router,
         documents.router,
@@ -225,6 +233,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         source_confluence.router,
         source_jira_epic.router,
         source_linear.router,
+        source_box.router,
         source_drawio.router,
         source_removal.router,
         slack.router,

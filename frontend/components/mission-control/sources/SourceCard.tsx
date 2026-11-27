@@ -18,6 +18,7 @@ const LOGO = {
   confluence: "confluence",
   jira_epic: "jira",
   linear_project: "linear",
+  box: "box",
 } as const;
 const ICON = { upload: "upload-simple", drawio: "tree-structure" } as const;
 

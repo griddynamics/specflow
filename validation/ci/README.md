@@ -85,11 +85,14 @@ parallel jobs merge without collisions:
 1. Wrap each check or test command:
    `python3 validation/ci/ci_report.py run --job <job> --unit <unit> --step <step> -- <command>`.
    Give each matrix instance its own `--job`; `--sarif` / `--junit` paths are relative to `--cwd`.
-2. Upload `.reports/` as artifact `validation-reports-<job>-<attempt>` with `if: always()`
-   (`include-hidden-files: true`).
+2. Upload `.reports/` as artifact `validation-reports-<job>` with `if: always()`
+   (`include-hidden-files: true`, `overwrite: true`). Keep the attempt out of the name: after
+   "Re-run failed jobs" the rerun job then replaces its report, and the gate cannot read a stale one.
 3. A gate job (`if: always()`, `needs:` every job) downloads `validation-reports-*` with
    `merge-multiple: true`, runs `merge --expect <every job>` (with `continue-on-error`), then
-   `github-summary`, then fails if any `needs` result or the merge was not successful.
+   `github-summary`, then fails if any `needs` result or the merge was not successful. Give the
+   gate's own upload of the merged `.reports/` a name that `validation-reports-*` does not match
+   (here `validation-summary-<run_id>-<attempt>`).
 
 ## Sharded test packs
 

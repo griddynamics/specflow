@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -29,6 +30,7 @@ from api.jira.runner import JiraSyncRunner
 from api.slack.app import NotBinderError
 from api.slack.channels import Binding, SlackChannels
 from atlassian_support import CLOUD, FakeAtlassianDb, FakeOAuthClient, oauth_env, oauth_settings
+from box.connections import ConnectionView, StoredConnection
 from github.connections import GitHubConnections
 from github_support import CODE_CANARY, USER_ID, FakeGitHub, MemoryStore, github_settings
 from integrations_db_fakes import FakeIntegrationsDb
@@ -37,6 +39,7 @@ from test_api_atlassian_routes import call, error_of
 
 ALICE, BEN, CAROL = "alice@example.com", "ben@example.com", "carol@example.com"
 SITE_HOST = "example.atlassian.net"
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @pytest_asyncio.fixture
@@ -58,6 +61,12 @@ async def rig(monkeypatch, valid_env, tmp_path):
         github, store = FakeGitHub(), MemoryStore()
         github_connections = GitHubConnections(github_settings(), store=store.transaction, client=github.client())
         runtime.github = github_connections
+        box_views: dict[uuid.UUID, ConnectionView] = {}
+
+        async def box_get(user_id: uuid.UUID) -> ConnectionView | None:
+            return box_views.get(user_id)
+
+        runtime.box = SimpleNamespace(get=box_get)  # the Box service as the routes read it: one view per member
         channels = SlackChannels(tmp_path)
         runtime.slack = SimpleNamespace(threads=SimpleNamespace(channels=channels))
         ben = await repo.upsert_user(None, SimpleNamespace(subject=f"user:{BEN}", email=BEN, name=None))
@@ -73,6 +82,7 @@ async def rig(monkeypatch, valid_env, tmp_path):
             atlassian=atlassian,
             github=github,
             github_store=store,
+            box_views=box_views,
             integrations=integrations,
             channels=channels,
             alpha=alpha,
@@ -108,6 +118,7 @@ async def test_a_project_without_connections_lists_the_four_apps_with_nothing_ac
         "github",
         "slack",
         "linear",
+        "box",
     ]
     assert list(apps(answer).values()) == [
         {
@@ -118,7 +129,7 @@ async def test_a_project_without_connections_lists_the_four_apps_with_nothing_ac
             "connected_at": None,
             "health": "none",
         }
-        for app in ("atlassian", "github", "slack", "linear")
+        for app in ("atlassian", "github", "slack", "linear", "box")
     ]
 
 
@@ -140,8 +151,9 @@ async def test_a_connected_app_names_the_member_its_workspace_and_the_health_of_
     assert {app: item["health"] for app, item in listed.items()} == {
         **dict.fromkeys(("atlassian", "github", "slack"), "active"),
         "linear": "none",
+        "box": "none",  # nobody connected it
     }
-    assert all(item["connected_at"] is not None for app, item in listed.items() if app != "linear")
+    assert all(item["connected_at"] is not None for app, item in listed.items() if app not in ("linear", "box"))
 
 
 async def test_an_expired_connection_asks_to_reconnect_and_a_missing_one_or_member_acts_as_nothing(rig) -> None:
@@ -161,12 +173,13 @@ async def test_an_expired_connection_asks_to_reconnect_and_a_missing_one_or_memb
 async def test_an_app_the_server_does_not_run_is_unavailable(rig) -> None:
     rig.runtime.github = None
     rig.runtime.slack = None
+    rig.runtime.box = None
     rig.runtime.jira = SimpleNamespace(connections=None)  # token mode: one account for the server, no per-user ones
 
     listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))
 
     assert {app: item["available"] for app, item in listed.items()} == dict.fromkeys(
-        ("atlassian", "github", "slack", "linear"), False
+        ("atlassian", "github", "slack", "linear", "box"), False
     )
 
 
@@ -199,6 +212,27 @@ async def test_a_member_connects_github_as_themselves_and_the_repositories_are_c
     assert answer.status_code == 200
     assert answer.json()["workspace"] == {"id": "octo", "name": "octo"} and answer.json()["health"] == "active"
     assert rig.integrations.pointed == [("repositories", rig.alpha, rig.alice.id)]
+
+
+async def test_a_member_connects_box_as_themselves_and_the_workspace_is_the_enterprise_or_the_person(rig) -> None:
+    missing = await call(rig, "PUT", f"projects/{ALPHA}/integrations/box")
+    rig.box_views[rig.alice.id] = ConnectionView.of(
+        StoredConnection(rig.alice.id, "11", "Alice", "ent-1", "Acme", b"x", "expired", T0, T0)
+    )
+    expired = await call(rig, "PUT", f"projects/{ALPHA}/integrations/box")
+    rig.box_views[rig.alice.id] = ConnectionView.of(
+        StoredConnection(rig.alice.id, "11", "Alice", "ent-1", "Acme", b"x", "active", T0, T0)
+    )
+
+    answer = await call(rig, "PUT", f"projects/{ALPHA}/integrations/box")
+
+    assert error_of(missing) == (409, "box_not_connected")
+    assert error_of(expired) == (409, "box_reconnect_required")  # a connection that expired is not a missing one
+    assert answer.status_code == 200
+    assert answer.json()["workspace"] == {"id": "ent-1", "name": "Acme"} and answer.json()["health"] == "active"
+    assert rig.integrations.pointed == []  # Box has no acting-account column: the importer reads the bound member
+    personal = ConnectionView.of(StoredConnection(rig.alice.id, "22", "Pat", None, None, b"x", "active", T0, T0))
+    assert (personal.workspace_id, personal.workspace_name) == ("user:22", "Pat")
 
 
 @pytest.mark.parametrize("app", ["atlassian", "github"])
@@ -271,11 +305,15 @@ async def test_the_apps_the_server_does_not_run_refuse_a_connect(rig) -> None:
     rig.runtime.github = None
     rig.runtime.jira = SimpleNamespace(connections=None)  # token mode: one account for the server
 
+    rig.runtime.box = None
+
     github = await call(rig, "PUT", f"projects/{ALPHA}/integrations/github")
     atlassian = await call(rig, "PUT", f"projects/{ALPHA}/integrations/atlassian")
+    box = await call(rig, "PUT", f"projects/{ALPHA}/integrations/box")
 
     assert error_of(github) == (503, "github_unavailable")
     assert error_of(atlassian) == (503, "atlassian_oauth_unavailable")
+    assert error_of(box) == (503, "box_unavailable")
 
 
 async def test_linear_is_off_and_refuses_a_connect_until_its_connections_exist(rig) -> None:

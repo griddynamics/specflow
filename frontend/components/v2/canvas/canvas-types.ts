@@ -31,7 +31,8 @@ export type ConnectorKind =
   | "mcp"
   | "linear_project"
   | "linear_gaps"
-  | "linear_plan";
+  | "linear_plan"
+  | "box";
 
 /** What the open gaps say, from `gaps.check` and the first page of `gaps.list` (`more`: the page was full, so the counts are "at least"). */
 export interface GapsSummary {
@@ -105,6 +106,8 @@ export interface NodeDetail {
   remove: "source" | "repository" | null;
   /** A stopped node offers to reconnect this app on the Integrations page. */
   reconnect: IntegrationApp | null;
+  /** Where the node's source can be opened in its app (an https address); absent when the app has no page for it. */
+  open?: { href: string; label: string };
 }
 
 export interface NodeView {

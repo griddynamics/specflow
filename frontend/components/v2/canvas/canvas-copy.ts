@@ -66,6 +66,15 @@ export const CANVAS_COPY = {
   confluenceNote:
     "The page and its sub-pages, or every page of the space, are read once when it is added. Add the link again to read a newer version.",
   confluenceAdding: "Adding…",
+  // Box link
+  boxLink: "Box link",
+  boxLinkHint: "A folder, a file or a shared link from Box",
+  boxNote: "The folder with all its sub-folders, or the file, is read once when it is added. Add the link again to read a newer version.",
+  openBox: "Open in Box",
+  boxFiles: "Files to add",
+  boxSelectAll: "Select all",
+  boxSelectNone: "Select none",
+  boxCapped: "The folder has more files than one import takes. Only the first ones are listed and imported.",
   // Jira epic
   jiraEpicIssues: "Issues to add",
   jiraEpicSelectAll: "Select all",
@@ -138,6 +147,11 @@ export const CANVAS_COPY = {
     "Sign in to Linear and approve the access Graphico asks for, in the workspace you work in.",
     "Graphico brings you back here. What it writes in Linear is written as you.",
   ],
+  howBox: [
+    "Press Connect your Box account.",
+    "Sign in to Box and allow Graphico.",
+    "If Box says the app is disabled, ask your Box admin to enable it. Graphico brings you back here.",
+  ],
   // Dialogs
   close: "Cancel",
   remove: "Remove",
@@ -158,6 +172,7 @@ export const CANVAS_COPY = {
     confluence: "Pages",
     jira_epic: "Issues",
     linear_project: "Issues",
+    box: "Files",
     drawio: "Pages",
   },
   filesLabel: "Files in this source",

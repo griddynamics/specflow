@@ -6,6 +6,8 @@ statement it reads.
   (a downgrade that narrows ``ck_connections_kind``).
 - ``agent_role``: the agent role named by ``DATABASE_AGENT_USER`` (``migrations/env.py`` resolves it), quoted for DDL.
   Online, the revision fails before any change unless the role exists and row-level security applies to it.
+- ``connection_columns``: the columns and constraints every per-user OAuth connection table ends with (the token, its
+  expiry, the status and the three timestamps, the status check, the user key and the foreign key to ``users``).
 """
 
 from __future__ import annotations
@@ -47,6 +49,25 @@ def agent_role(check: str) -> str:
                 "security would not apply; it must be NOSUPERUSER NOBYPASSRLS."
             )
     return op.get_context().dialect.identifier_preparer.quote_identifier(str(name))
+
+
+def connection_columns(table: str, statuses: Sequence[str]) -> list[sa.schema.SchemaItem]:
+    """What ``<provider>_connections`` ends with, after the columns that name the provider's account: for
+    ``op.create_table(table, <user_id and account columns>, *connection_columns(table, statuses))``."""
+
+    timestamp = sa.DateTime(timezone=True)
+    allowed = ", ".join(repr(status) for status in statuses)
+    return [
+        sa.Column("refresh_token", sa.LargeBinary(), nullable=False),
+        sa.Column("refresh_expires_at", timestamp, nullable=True),
+        sa.Column("status", sa.Text(), nullable=False),
+        sa.Column("connected_at", timestamp, nullable=False),
+        sa.Column("last_used_at", timestamp, nullable=False),
+        sa.Column("expired_at", timestamp, nullable=True),
+        sa.CheckConstraint(f"status IN ({allowed})", name=op.f(f"ck_{table}_status")),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], name=f"fk_{table}_user_id_users", ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("user_id", name=f"pk_{table}"),
+    ]
 
 
 def delete_sources_of_kinds(kinds: Sequence[str]) -> None:

@@ -763,12 +763,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await form.getByLabel(SPACE_KEY).fill("nwo");
     await form.getByLabel("Epic key").fill("nwo-1");
     await form.getByRole("button", { name: CHECK_ACCESS }).click();
-    await expect(
-      form
-        .getByRole("status")
-        .filter({ hasText: /Jira space/ })
-        .last(),
-    ).toBeVisible();
+    await expect(form.getByText(/^Jira space Payments platform\./)).toBeVisible();
     await form.getByRole("button", { name: "Add destination" }).click();
     await expect(form).toBeHidden();
     const node = nodes(page).filter({ hasText: "Jira · NWO-1" });

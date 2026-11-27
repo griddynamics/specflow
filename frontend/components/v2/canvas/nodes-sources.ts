@@ -7,9 +7,11 @@ import { cardView, failedCardLine } from "@/components/mission-control/sources/s
 import { fullSourceName, progressOf, sourceState } from "@/lib/domain/source-state";
 import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
+import { BOX_WORDS, boxOpen } from "./box-logic";
 import { CONFLUENCE_WORDS } from "./confluence-logic";
 import { JIRA_EPIC_WORDS } from "./jira-epic-logic";
 import { LINEAR_SOURCE_WORDS } from "./linear-source-logic";
+import type { IntegrationApp } from "@/lib/domain/integrations";
 import type { NodeMapper, NodeView, Stages } from "./canvas-types";
 
 const APP_NAME: Partial<Record<SourceKind, string>> = {
@@ -18,6 +20,7 @@ const APP_NAME: Partial<Record<SourceKind, string>> = {
   confluence: "Confluence",
   jira_epic: "Jira",
   linear_project: "Linear",
+  box: "Box",
   drawio: "diagrams.net",
 };
 
@@ -27,6 +30,7 @@ const MARK = {
   confluence: "confluence",
   jira_epic: "jira",
   linear_project: "linear",
+  box: "box",
   drawio: "drawio",
 } as const;
 
@@ -60,6 +64,7 @@ const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess:
   confluence: CONFLUENCE_WORDS,
   jira_epic: JIRA_EPIC_WORDS,
   linear_project: LINEAR_SOURCE_WORDS,
+  box: BOX_WORDS,
   drawio: {
     noAccessMeta: "Cannot read it",
     noAccess: "The diagram could not be read. Add the link again.",
@@ -68,6 +73,13 @@ const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess:
   },
 };
 
+/** The app a stopped imported source offers to reconnect (`no_access`: the bound member's account lost its access). */
+const RECONNECT: Partial<Record<SourceKind, IntegrationApp>> = {
+  confluence: "atlassian",
+  jira_epic: "atlassian",
+  linear_project: "linear",
+  box: "box",
+};
 /** A node of a Jira epic is named by its key ("NWO-12: Checkout redesign" is its full name, in the label and the dialog). */
 const nodeName = (s: Source, kind: SourceKind, now: Date): string => {
   if (kind === "upload") return uploadName(s, now);
@@ -90,7 +102,8 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
   const app = APP_NAME[kind] ?? kind;
   const name = nodeName(s, kind, now);
   const named = kind === "upload" ? name : `${app} ${fullSourceName(s)}`;
-  const detail = { app, by: `${V2_COPY.addedBy} ${s.addedBy.name}`, remove: "source", reconnect: null } as const;
+  const open = kind === "box" ? boxOpen(s.link) : undefined;
+  const detail = { app, by: `${V2_COPY.addedBy} ${s.addedBy.name}`, remove: "source", reconnect: null, ...(open && { open }) } as const;
   const base = { id: s.id, kind, zone: "graph", mark: MARK[kind], name, tag: undefined, addedAt: s.addedAt } as const;
   if (state === "processing") {
     const meta = unitText(kind, card.countLine);
@@ -109,7 +122,6 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
   }
   if (state === "failed") {
     const { meta, text } = stoppedWords(s, kind);
-    const reconnectApp = kind === "linear_project" ? "linear" : "atlassian";
     return {
       ...base,
       meta,
@@ -119,7 +131,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
       listing: false,
       label: `${named}: ${meta}`,
       wire: "off",
-      detail: { ...detail, text, reconnect: IMPORT_WORDS[kind] !== undefined && s.failure === "no_access" ? reconnectApp : null },
+      detail: { ...detail, text, reconnect: s.failure === "no_access" ? (RECONNECT[kind] ?? null) : null },
     };
   }
   const count = unitText(kind, card.countLine);
@@ -138,7 +150,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "drawio"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "box" | "drawio"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
@@ -147,4 +159,5 @@ export const driveNodes: NodeMapper = sourcesOf("gdrive");
 export const confluenceNodes: NodeMapper = sourcesOf("confluence");
 export const jiraEpicNodes: NodeMapper = sourcesOf("jira_epic");
 export const linearProjectNodes: NodeMapper = sourcesOf("linear_project");
+export const boxNodes: NodeMapper = sourcesOf("box");
 export const drawioNodes: NodeMapper = sourcesOf("drawio");

@@ -7,8 +7,7 @@ line, an error or a ``repr``. The clients ignore the proxy variables and ``.netr
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final, override
 from urllib.parse import urlencode
@@ -17,6 +16,7 @@ import httpx
 from pydantic import SecretStr
 
 from github.codes import GitHubCode, GitHubError
+from integrations.oauth_client import OAuthHttpClient
 from logger.logger import WARNING, get_logger, log_event
 
 logger = get_logger("github.client")
@@ -140,35 +140,8 @@ def _bearer(token: SecretStr) -> dict[str, str]:
     return {"Authorization": f"Bearer {token.get_secret_value()}"}
 
 
-class GitHubClient:
+class GitHubClient(OAuthHttpClient):
     """The OAuth web flow, the refresh, and the REST reads of the integration."""
-
-    def __init__(
-        self,
-        client_id: str,
-        client_secret: SecretStr,
-        redirect_uri: str,
-        *,
-        transport: httpx.AsyncBaseTransport | None = None,
-        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-    ) -> None:
-        self._sleep = sleep
-        self._client_id = client_id
-        self._secret = client_secret
-        self._redirect_uri = redirect_uri
-        self._http = httpx.AsyncClient(
-            timeout=TIMEOUT_SECONDS,
-            transport=transport,
-            trust_env=False,
-            follow_redirects=False,
-        )
-
-    @override
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}()"
-
-    async def aclose(self) -> None:
-        await self._http.aclose()
 
     def authorize_url(self, state: str) -> str:
         query = {"client_id": self._client_id, "redirect_uri": self._redirect_uri, "state": state}

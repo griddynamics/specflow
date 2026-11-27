@@ -35,6 +35,44 @@
         }
       }
     },
+    "box_connections": {
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "box_user_id": {
+          "type": "text"
+        },
+        "name": {
+          "type": "text"
+        },
+        "enterprise_id": {
+          "type": "text"
+        },
+        "enterprise_name": {
+          "type": "text"
+        },
+        "refresh_token": {
+          "type": "bytes"
+        },
+        "refresh_expires_at": {
+          "type": "timestamp"
+        },
+        "status": {
+          "type": "text"
+        },
+        "connected_at": {
+          "type": "timestamp"
+        },
+        "last_used_at": {
+          "type": "timestamp"
+        },
+        "expired_at": {
+          "type": "timestamp"
+        }
+      }
+    },
     "connection_items": {
       "columns": {
         "id": {
