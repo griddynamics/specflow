@@ -5,6 +5,8 @@ import crypto from "node:crypto";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
+import { checkBox, createBoxModel } from "./stub-box.mjs";
+import { checkDropbox, createDropboxModel } from "./stub-dropbox.mjs";
 import { checkConfluence, SITE_HOST } from "./stub-confluence.mjs";
 import { checkLinearSource } from "./stub-linear-source.mjs";
 import { checkJiraEpic } from "./stub-jira-epic.mjs";
@@ -126,11 +128,15 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   /** Linear (plans/LINEAR): the caller's connection. */
   const linear = createLinearModel(ME.name);
   /** Project integrations (docs/mission-control/integrations-api.md): who each app is connected by, and the Slack channel of a project. */
+  const box = createBoxModel();
+  const dropbox = createDropboxModel();
   const integrations = createIntegrationsModel({
     roleOf: (pid) => people.list(pid).role,
     jira,
     github,
     linear,
+    box,
+    dropbox,
     notion,
     displayName: ME.name,
   });
@@ -1014,6 +1020,42 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           source: importedSource(pid, { kind: "confluence", name: checked.body.title, link: body.link, pages: checked.body.pages }),
         });
       }
+      if (did === "box" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const checked = typeof body?.link === "string" ? checkBox(body.link) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        const exclude = body.exclude ?? [];
+        if (!Array.isArray(exclude) || exclude.length > 1000 || !exclude.every((k) => typeof k === "string" && /^[0-9]+$/.test(k)))
+          return err(res, 422, "validation_failed");
+        const listed = new Set(checked.body.files.map((f) => f.id));
+        return json(res, 201, {
+          source: importedSource(pid, {
+            kind: "box",
+            name: checked.body.name,
+            link: body.link,
+            pages: checked.body.files.length - new Set(exclude.filter((k) => listed.has(k))).size + checked.body.skipped,
+          }),
+        });
+      }
+      if (did === "dropbox" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const checked = typeof body?.link === "string" ? checkDropbox(body.link) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        const exclude = body.exclude ?? [];
+        if (!Array.isArray(exclude) || exclude.length > 1000 || !exclude.every((k) => typeof k === "string" && /^id:.+$/.test(k)))
+          return err(res, 422, "validation_failed");
+        const listed = new Set(checked.body.files.map((f) => f.id));
+        return json(res, 201, {
+          source: importedSource(pid, {
+            kind: "dropbox",
+            name: checked.body.name,
+            link: `https://www.dropbox.com/home/${encodeURIComponent(checked.body.name)}`,
+            pages: checked.body.files.length - new Set(exclude.filter((k) => listed.has(k))).size + checked.body.skipped,
+          }),
+        });
+      }
       if (did === "notion" && req.method === "GET" && action === "shared") {
         const refused = bindingRefusal(integrations.notionHealth(pid));
         return refused === null ? json(res, 200, sharedNotion()) : err(res, refused.status, refused.code);
@@ -1078,6 +1120,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
         did !== "confluence" &&
         did !== "jira-epic" &&
         did !== "linear" &&
+        did !== "box" &&
+        did !== "dropbox" &&
         did !== "notion"
       ) {
         if (!action && req.method === "DELETE") {
@@ -1352,6 +1396,34 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return err(res, 404, "not_found");
   }
 
+  /** `/integrations/dropbox[/authorize|/callback]` (docs/dropbox/oauth.md "Routes"): the caller's Dropbox connection. */
+  async function dropboxRoute({ req, res, action }) {
+    const m = req.method;
+    if (!action && m === "GET") return json(res, 200, dropbox.connection());
+    if (!action && m === "DELETE") {
+      dropbox.disconnect();
+      return noContent(res);
+    }
+    if (action === "authorize" && m === "POST") return json(res, 200, dropbox.authorize(await readJson(req)));
+    if (action === "callback" && m === "POST") return json(res, 200, dropbox.callback(await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
+  /** `/integrations/box[/authorize|/callback]` (docs/box/oauth.md "Routes"): the caller's Box connection. */
+  async function boxRoute({ req, res, action }) {
+    const m = req.method;
+    if (!action && m === "GET") return json(res, 200, box.connection());
+    if (!action && m === "DELETE") {
+      box.disconnect();
+      return noContent(res);
+    }
+    if (action === "authorize" && m === "POST") return json(res, 200, box.authorize(await readJson(req)));
+    if (action === "callback" && m === "POST") return json(res, 200, box.callback(await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
   /** `/projects/{pid}/integrations[/{app}]` (integrations-api.md): list, connect, remove. */
   async function integrationsRoute({ req, res, pid, did }) {
     const m = req.method;
@@ -1511,6 +1583,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (a === "integrations" && pid === "atlassian") return atlassianRoute({ req, res, action: b });
     if (a === "integrations" && pid === "github") return githubRoute({ req, res, action: b });
     if (a === "integrations" && pid === "linear") return linearRoute({ req, res, action: b });
+    if (a === "integrations" && pid === "box") return boxRoute({ req, res, action: b });
+    if (a === "integrations" && pid === "dropbox") return dropboxRoute({ req, res, action: b });
     if (a === "integrations" && pid === "notion") return notionRoute({ req, res, action: b });
     if (a !== "projects") return err(res, 404, "not_found");
     if (!pid) {
@@ -1642,6 +1716,10 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     notionPlan,
     /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
     github,
+    /** Box: `box.state` (enabled, connection, callbackError), `box.seed({reset, enabled, connection, callbackError})`. */
+    box,
+    /** Dropbox: `dropbox.state` (enabled, connection, callbackError), `dropbox.seed({reset, enabled, connection, callbackError})`. */
+    dropbox,
     /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, notion, ...})`. */
     integrations,
     /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */

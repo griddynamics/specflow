@@ -21,8 +21,8 @@ The screens that call these routes: [ui.md](ui.md). The connector docs: [../sour
 | Method, path | Who | Success | Errors |
 |---|---|---|---|
 | `GET /projects/{pid}/integrations` | member | 200 `ProjectIntegrationsOut` | 404 `project_not_found` |
-| `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github` or `notion`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected` / `notion_not_connected`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable` / `notion_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
-| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github`, `slack` or `notion`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
+| `PUT /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github`, `box`, `dropbox` or `notion`; no body) | member | 200 `ProjectIntegrationOut` | 404 `project_not_found`; 409 `atlassian_not_connected` / `github_not_connected` / `box_not_connected` / `dropbox_not_connected` / `notion_not_connected`; 409 `box_reconnect_required` / `dropbox_reconnect_required`; 409 `integration_workspace_mismatch`; 503 `atlassian_oauth_unavailable` / `github_unavailable` / `box_unavailable` / `dropbox_unavailable` / `notion_unavailable`; 422 `validation_failed` (`app` is `slack`, or unknown) |
+| `DELETE /projects/{pid}/integrations/{app}` (`app` is `atlassian`, `github`, `box`, `dropbox`, `notion` or `slack`) | the member who connected it, or the owner | 204 | 404 `project_not_found`; 404 `integration_not_found`; 403 `integration_forbidden`; 502 `slack_unreachable` (Slack channel could not be unbound); 422 `validation_failed` (unknown `app`) |
 
 **Slack in the UI:** `DELETE /projects/{pid}/slack` (the route of the Settings tab) and `/specflow disconnect` follow the same rule as
 `DELETE /projects/{pid}/integrations/slack`: the member who connected the channel, or the owner (`403 integration_forbidden` for any
@@ -32,33 +32,33 @@ left, lost the connection or removed the integration).
 
 Slack is bound by its own command in the channel (`/specflow connect <project id>`, [../slack/gap-answering.md](../slack/gap-answering.md)),
 which records the caller as the project's Slack member; there is no `PUT` for it. The caller connects Atlassian,
-GitHub and Notion to their own account first, with the per-user routes (`/integrations/atlassian/*`,
-`/integrations/github/*`, `/integrations/notion/*`); `PUT` then binds that connection to the project.
+GitHub, Box, Dropbox or Notion to their own account first, with the per-user routes (`/integrations/atlassian/*`,
+`/integrations/github/*`, `/integrations/box/*`, [../box/oauth.md](../box/oauth.md#routes), `/integrations/dropbox/*`, [../dropbox/oauth.md](../dropbox/oauth.md#routes), `/integrations/notion/*`); `PUT` then binds that connection to the project.
 
 ### Shapes
 
-`ProjectIntegrationsOut` is `{integrations: ProjectIntegrationOut[]}`: always four entries, in the order `atlassian`,
-`github`, `slack`, `notion`.
+`ProjectIntegrationsOut` is `{integrations: ProjectIntegrationOut[]}`: always seven entries, in the order `atlassian`,
+`github`, `slack`, `linear`, `box`, `dropbox`, `notion`.
 
 | Model | Fields |
 |---|---|
-| `ProjectIntegrationOut` | `app`, `available` (the server runs the app: Atlassian `oauth` mode, GitHub on, Slack on, Notion on: `NOTION_OAUTH_CLIENT_ID` set), `connected_by` (`{user_id, name}` or null), `workspace` (`{id, name}` or null), `connected_at` (or null), `health` |
-| `health` | `active`: the bound member's connection works (Slack: the channel is bound); `reconnect_required`: their Atlassian, GitHub or Notion connection expired (Notion: or it is in another Notion workspace than the binding, no Notion call is made); `none`: nothing acts (no row, the member left, or their connection is gone) |
+| `ProjectIntegrationOut` | `app`, `available` (the server runs the app: Atlassian `oauth` mode, GitHub on, Slack on, Box on, Dropbox on, Notion on: `NOTION_OAUTH_CLIENT_ID` set), `connected_by` (`{user_id, name}` or null), `workspace` (`{id, name}` or null), `connected_at` (or null), `health` |
+| `health` | `active`: the bound member's connection works (Slack: the channel is bound); `reconnect_required`: their Atlassian, GitHub, Box, Dropbox or Notion connection expired (Notion: or it is in another Notion workspace than the binding, no Notion call is made); `none`: nothing acts (no row, the member left, or their connection is gone) |
 
 `connected_by.name` is the member's display name (their email when they have no name). `connected_by` is null and
 `workspace` stays when the member left: another member connects it again (D2). The Atlassian workspace name is the host
-of the configured site; the GitHub one is the account login; the Slack one the workspace name; the Notion one the name of the Notion workspace
-the member connected.
+of the configured site; the GitHub one is the account login; the Slack one the workspace name; the Box one is the enterprise name (id = the enterprise id), or the user's name (id `user:<box user id>`) for a personal account; the Dropbox one is the team name (id `team:<team_id>`) for a Business member, or the display name (id `user:<account_id>`) for a personal account (DB5); the Notion one the name of the Notion workspace the member connected.
 
 ### Rules
 
 - **Connect** (`PUT`): the caller's own connection must be `active` (else `409 <app>_not_connected`). The project has
-  one workspace per app (D3): the Atlassian site, the GitHub account (login), the Notion workspace or the Slack workspace of that connection.
+  one workspace per app (D3): the Atlassian site, the GitHub account (login), the Box enterprise (or the personal account), the Dropbox team (or the personal account), the Notion workspace or the Slack workspace of that connection.
   A different workspace is `409 integration_workspace_mismatch` (for GitHub the workspace is the login of the connecting
   account, so a second member who connected GitHub under another login gets it until the binding is removed), unless
   nobody acts on the earlier one (its member left), which any member then replaces. The same workspace is taken over by the caller: the row names them, and
   `jira_targets.connected_user_id` (Atlassian) or every `project_repositories.added_by` (GitHub) is set to them in the
-  same transaction, so the runners that read those columns are unchanged.
+  same transaction, so the runners that read those columns are unchanged. Box and Dropbox have no such column: their importers read
+  the member of the `box` or `dropbox` row (`acting_member`).
 - **Acting account** (D1): `PUT /projects/{pid}/jira` sets `connected_user_id` from the project's `atlassian` row
   (`409 jira_not_connected` when there is none), not from whoever saves. `POST /projects/{pid}/repositories` reads the
   `github` row's member's repository list and stores that member as `added_by` (`409 github_not_connected` when there
@@ -106,26 +106,34 @@ Unchanged (members could already): sources, uploads, Drive, source removal, grap
 
 ## Importer seam
 
-For sources the API reads itself (Confluence pages, Jira epics, Notion pages; each source session adds its importer). Nothing in
+For sources the API reads itself (Confluence pages, Jira epics, Box links, Dropbox links, Notion pages; each source session adds its importer). Nothing in
 the graph build changes: an importer writes `parsed` documents the build already reads.
 
-- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence`, `jira_epic` or `notion` (`SourceKindName` too).
+- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence`, `jira_epic`, `box`, `dropbox` or `notion` (`SourceKindName` too).
   `external_id` of an imported source is `str(uuid)`, as a Local files batch has; `connected_by` is the importing member.
 - `api.imports.ImportRunner` (`Runtime.imports`) holds the imports of the process: one asyncio task per source, at most
   two at once (`MAX_CONCURRENT_IMPORTS`). `add_source` creates the source (`listing`); `start(job, importer)` runs it:
   `importing`, the importer, then `done`, or `failed` with a closed `connections.failure_reason` (`ImportFailedError`
   names one, any other error is `unknown_error`). No Temporal workflow is used (AC5).
-- An importer is `async def (job: ImportJob, writer: ImportWriter)`. `ImportWriter.declare(external_id, name)` lists an
-  item (`connection_items`, `pending`); `add(external_id, name=, original=, markdown=)` stores the original under
+- An importer is `async def (job: ImportJob, writer: ImportWriter)`. `ImportWriter.declare(external_id, name, media_type=,
+  size_bytes=, modified_time=)` lists an item (`connection_items`, `pending`; the size and modified time are what the provider
+  listed, kept for the re-add skip, both optional); `add(external_id, name=, original=, markdown=)` stores the original under
   `projects/{pid}/documents/{did}/original.json` (or the extension of another media type), inserts the `documents` row
   (`origin=connection`, `status=parsed`, `parser=<kind>-convert`, held by the source) and finishes the item
   `processed` (a duplicate of content the project holds is `duplicate`, linking the first document); `fail(...)` ends
-  one item `error`. A removed source stops the importer at its next write (`SourceGoneError`).
+  one item `error`. `add_file(external_id, name=, chunks=, media_type=, max_bytes=)` (Box B12, Dropbox) is the binary path: it streams the
+  original to object storage while hashing it (SHA-256), inserts the document `processing` with no parser and no Markdown, finishes
+  the item `processed` (a duplicate is `duplicate`, the object dropped) and starts the parse (`worker-parse` gets bytes only, through
+  `ImportRunner.use_parse_starter`, set by the app's lifespan); bytes over `max_bytes` raise `OriginalTooLargeError` and store nothing.
+  `link_stored(external_id, name, size_bytes=, modified_time=)` (Dropbox DB12) is the re-add skip: when an item of a Dropbox
+  source of this project with the same id, size and modified time still links a document, the item ends `duplicate` linking it and
+  it returns `True` (no download); `False` otherwise, also when that document vanished meanwhile (the file is then downloaded).
+  A removed source stops the importer at its next write (`SourceGoneError`).
 - A restart ends the tasks: at startup every source of those kinds still `listing` or `importing` and not touched since
   before this process started is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). The start instant is read once from the database clock (`SELECT now()`) and compared with `connections.updated_at`, so no process clock is involved; a source added after it is never ended. If the clock read fails (the database is still coming up) it is tried again after 0.5, 1 and 2 seconds; after the last failure a warning (`api.imports.recovery_failed`, the error class only) is logged and no source is ended. One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
-- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source" and "Jira epic source" below.
+- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source", "Jira epic source", "Box source" and "Dropbox source" below.
 
 ## Confluence source
 
@@ -168,6 +176,56 @@ Codes (any 4xx here carries only a fixed sentence, never Confluence's text):
 | `atlassian_unreachable` | 502 | Atlassian could not be reached, or answered something unusable |
 
 Order of checks: project member, Atlassian bound and usable, link, Confluence.
+
+## Box source
+
+What the canvas form (check, then add) calls. Any member (D6); the import reads as the member the project's Box is connected by
+(R1), runs in the API process and is the source `kind` `box`. Links, lanes, caps and failure mapping:
+[../box/source.md](../box/source.md); codes: [../box/codes.md](../box/codes.md).
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/box/check` | `{link}` | 200 `BoxCheckOut` | 404 `project_not_found`; the codes below |
+| `POST /projects/{pid}/sources/box` | `{link, exclude?}` | 201 `BatchSourceOut` (`kind` `box`, `listing_finished` false) | as the check; 404 `source_not_found` (removed at once) |
+
+`link` is at most 2048 characters (the body is closed: other keys are 422 `validation_failed`). `BoxCheckOut`: `kind` (`folder` or
+`file`), `name` (shown, not stored), `files` (`[{id, name, path, category}]`: the importable files in walk order, at most 1000;
+`id` the Box file id, `path` the folder inside the source or `""`, `category` one of `pdf`, `word`, `powerpoint`, `excel`,
+`html`, `markdown`, `csv`, `text`, `note`), `files_capped` (more importable files than listed), `skipped` (items of other types:
+declared, never downloaded), `folders` (walked), `bytes` (the listed size of the listed files), `capped` (a cap stopped the
+walk). The add takes an optional `exclude`: Box file ids (digits only), default `[]`, at most 1000 (else 422
+`validation_failed`); a listed file whose id is in it is neither declared nor downloaded, an id that is not in the walk is
+ignored, and the check ignores `exclude`. The log carries the count only. The check reads Box (the tree walk, no download); nothing is
+stored. A shared link in `link` is never stored: `connections.link` is the canonical folder or file address.
+
+Codes (a fixed sentence only, never Box's text): `box_unavailable` 503; `box_not_connected` 409 (the project has no Box connection
+bound to a member); `box_reconnect_required` 409; `box_link_invalid` 422; `box_link_password` 422; `box_no_access` 409;
+`box_unreachable` 502; `box_auth_failed` 502. Order of checks: project member, Box bound and usable, link, Box.
+
+## Dropbox source
+
+What the canvas form (check, uncheck files, then add) calls. Any member (D6); the import reads as the member the project's
+Dropbox is connected by (R1), runs in the API process and is the source `kind` `dropbox`. Links, lanes, caps and failure
+mapping: [../dropbox/source.md](../dropbox/source.md); codes: [../dropbox/codes.md](../dropbox/codes.md).
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/dropbox/check` | `{link}` | 200 `DropboxCheckOut` | 404 `project_not_found`; the codes below |
+| `POST /projects/{pid}/sources/dropbox` | `{link, exclude?}` | 201 `BatchSourceOut` (`kind` `dropbox`, `listing_finished` false) | as the check; 404 `source_not_found` (removed at once) |
+
+`link` is at most 2048 characters; `exclude` (default `[]`, the check ignores it) holds at most 1000 Dropbox file ids
+(`id:...`) of the listed files the member unchecked. The body is closed: other keys are 422 `validation_failed`.
+`DropboxCheckOut`: `kind` (`folder` or `file`), `name` (shown, not stored), `files` (the importable files, at most 1000, each
+`{id, name, path, category}`; `category` is `pdf`, `word`, `powerpoint`, `excel`, `html`, `markdown`, `csv`, `text` or
+`paper`), `files_capped` (more importable files than listed), `skipped` (other types or over their size cap), `folders`,
+`bytes` (listed size of the importable files) and `capped` (a cap stopped the listing). The check lists Dropbox (no
+download); nothing is stored. A shared link in `link` is never stored: `connections.link` is the
+`https://www.dropbox.com/home<path>` address of the resolved folder or file.
+
+Codes (a fixed sentence only, never Dropbox's text): `dropbox_unavailable` 503; `dropbox_not_connected` 409;
+`dropbox_reconnect_required` 409; `integration_workspace_mismatch` 409; `dropbox_link_invalid` 422 (also a password link and the
+Dropbox root); `dropbox_no_access` 409 (also a link of a folder that is not in the bound member's Dropbox: add it first);
+`dropbox_unreachable` 502; `dropbox_auth_failed` 502. Order of checks: project member, Dropbox bound and usable, link, Dropbox.
 
 ## Jira epic source
 
@@ -340,7 +398,9 @@ connection has no login, so its workspace name is the Notion workspace.
 | `integration_workspace_mismatch` | 409 | `PUT`: the project is connected to another Atlassian site, GitHub account, Notion workspace or Slack workspace |
 | `integration_not_found` | 404 | `DELETE`: the project has no connection to that app |
 | `integration_forbidden` | 403 | `DELETE`: the caller neither connected the app nor owns the project |
-| `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable`, `notion_unavailable` | 503 | the app is not configured on this server |
+| `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable`, `box_unavailable`, `dropbox_unavailable`, `notion_unavailable` | 503 | the app is not configured on this server |
+| `box_not_connected` | 409 | `PUT` Box: the caller has no active Box connection; the Box source routes: the project has none bound to a member |
+| `dropbox_not_connected` | 409 | `PUT` Dropbox: the caller has no active Dropbox connection; the Dropbox source routes: the project has none bound to a member |
 | `slack_link_invalid` | 400 | `POST /integrations/slack/link`: the nonce expired or was used |
 | `jira_not_connected` | 409 | `PUT /projects/{pid}/jira` and `PUT /projects/{pid}/jira-gaps` in `oauth` mode: the project has no Atlassian connection bound to a member |
 | `gap_unavailable` | 503 | `PUT` and the check of `jira-gaps`: gap runs are off on this server |
@@ -351,14 +411,14 @@ connection has no login, so its workspace name is the Notion workspace.
 ## Data
 
 `project_integrations` (migration `0008_project_integrations`): primary key (`project_id`, `app`), `app` one of
-`atlassian`, `github`, `slack`, `notion` (a later integration widens the check), `user_id` (null once the member left; foreign
+`atlassian`, `github`, `slack`, `linear` (migration `0011_linear`), `box` (migration `0012_box`), `dropbox` (migration `0013_dropbox`), `notion` (migration `0014_notion`), `user_id` (null once the member left; foreign
 key `users.id` on delete set null), `workspace_id`, `workspace_name`, `connected_at`. Row-level security on, policy
 `agent_project_scope`, no grant. The migration fills an `atlassian` row from every Jira target whose acting account
 has a connection, and a `github` row from the first adder of every project's repositories whose adder has a GitHub
 connection; Slack bindings live in a file of the graph state folder, so the api fills the `slack` rows from it at
 its start (the member who ran the connect, while they are a member).
 
-The Notion tables (migration `0012_notion`; columns in [../notion/oauth.md](../notion/oauth.md#data) and [../notion/plan.md](../notion/plan.md)):
+The Notion tables (migration `0014_notion`; columns in [../notion/oauth.md](../notion/oauth.md#data) and [../notion/plan.md](../notion/plan.md)):
 `notion_connections` (one row per user: workspace, bot, encrypted refresh token, `status`), `notion_plan_targets` (one per project: the parent
 page, the database and its data source once made, `enabled`, the last pass) and `notion_plan_items` (the map of plan nodes to rows,
 `kind` `story|task`). All three have row-level security on and no grant; the two plan tables carry the policy `agent_project_scope`, `notion_connections` none (not project-scoped). The migration also widens the checks of

@@ -2,7 +2,9 @@
 // What a card shows from the API's answer (health words come from the API), who may disconnect, and what a failed call means.
 import { atlassianToast } from "@/components/settings/jira-logic";
 import { githubToast } from "@/components/settings/github-logic";
+import { boxToast } from "../canvas/box-logic";
 import { LINEAR_FAILURE, linearToast } from "./linear-logic";
+import { dropboxToast } from "../canvas/dropbox-logic";
 import { isDataError } from "@/lib/domain/errors";
 import type { BindableApp, Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { IntegrationState } from "@graphico/ui";
@@ -40,9 +42,11 @@ export function notionToast(code: string): { title: string; tone: "success" | "d
   return code === "connected" ? { title: V2_COPY.connectedToast, tone: "success" } : { title: notionReturnWord(code), tone: "danger" };
 }
 
-/** The toast of `?github=`, `?atlassian=`, `?linear=` or `?notion=` on the way back from an app. */
+/** The toast of `?github=`, `?atlassian=`, `?linear=`, `?box=`, `?dropbox=` or `?notion=` on the way back from an app. */
 export function returnToast(app: BindableApp, code: string): { title: string; tone: "success" | "danger" } {
   if (app === "linear") return linearToast(code);
+  if (app === "box") return boxToast(code);
+  if (app === "dropbox") return dropboxToast(code);
   if (app === "notion") return notionToast(code);
   return app === "github" ? githubToast(code) : atlassianToast(code);
 }
@@ -53,6 +57,10 @@ export const isLinked = (code: string): boolean => code === "connected";
 const FAILURE: Record<string, string> = {
   atlassian_not_connected: V2_COPY.notConnectedFirst,
   github_not_connected: V2_COPY.notConnectedFirst,
+  box_not_connected: V2_COPY.notConnectedFirst,
+  box_unavailable: "Box is not set up on this server.",
+  dropbox_not_connected: V2_COPY.notConnectedFirst,
+  dropbox_unavailable: "Dropbox is not set up on this server.",
   notion_not_connected: V2_COPY.notConnectedFirst,
   notion_reconnect_required: NOTION_WORDS.reconnectFirst,
   notion_unavailable: NOTION_WORDS.unavailable,

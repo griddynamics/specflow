@@ -59,6 +59,10 @@ const http: HttpPorts = {
     addConfluence: never,
     checkJiraEpic: never,
     addJiraEpic: never,
+    checkBox: never,
+    addBox: never,
+    checkDropbox: never,
+    addDropbox: never,
     checkNotion: never,
     listNotion: never,
     addNotion: never,
@@ -94,7 +98,9 @@ const http: HttpPorts = {
   linear: { connection: never, authorize: never, disconnect: never },
   linearPlan: { get: never, teams: never, projects: never, save: never, checkAccess: never },
   linearSource: { check: never, add: never },
+  box: { connection: never, authorize: never, disconnect: never },
   linearGaps: { get: never, save: never, checkAccess: never },
+  dropbox: { connection: never, authorize: never, disconnect: never },
   github: {
     connection: never,
     authorize: never,
@@ -111,7 +117,7 @@ const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github, integrations, linear", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github, integrations, linear, box, dropbox", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
@@ -128,6 +134,8 @@ test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects
   assert.equal(ports.jiraGaps, http.jiraGaps);
   assert.equal(ports.slack, http.slack);
   assert.equal(ports.github, http.github);
+  assert.equal(ports.box, http.box);
+  assert.equal(ports.dropbox, http.dropbox);
   assert.equal(ports.integrations, http.integrations);
   assert.equal(ports.linear, http.linear);
   assert.equal(ports.linearPlan, http.linearPlan);
@@ -197,10 +205,12 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
     Object.keys(ports).toSorted((a, b) => a.localeCompare(b)),
     [
       "assistant",
+      "box",
       "comments",
       "connectors",
       "createProject",
       "diagrams",
+      "dropbox",
       "files",
       "gaps",
       "github",

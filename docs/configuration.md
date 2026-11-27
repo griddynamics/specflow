@@ -56,6 +56,9 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `LINEAR_OAUTH_CLIENT_ID`, `LINEAR_OAUTH_CLIENT_SECRET`, `LINEAR_TOKEN_KEY`, `LINEAR_WEBHOOK_SECRET` | api | The Linear OAuth app of the [Linear integration](#linear-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. The webhook secret is optional. |
 | `NOTION_OAUTH_CLIENT_ID`, `NOTION_OAUTH_CLIENT_SECRET`, `NOTION_TOKEN_KEY` | api | The public Notion connection of the [Notion integration](#notion-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. |
 
+| `BOX_OAUTH_CLIENT_ID`, `BOX_OAUTH_CLIENT_SECRET`, `BOX_TOKEN_KEY` | api | The Box app of the [Box integration](#box-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. |
+| `DROPBOX_OAUTH_CLIENT_ID`, `DROPBOX_OAUTH_CLIENT_SECRET`, `DROPBOX_TOKEN_KEY` | api | The Dropbox app of the [Dropbox integration](#dropbox-integration). The app key turns it on and then needs the app secret, a Fernet key and `PUBLIC_URL`. |
+
 ## Settings with a default (D)
 
 | Name | Default | Read by | Meaning |
@@ -727,6 +730,45 @@ the webhook signing secret to `LINEAR_WEBHOOK_SECRET`. A workspace can require a
 members cannot connect until an admin approves. Without `LINEAR_WEBHOOK_SECRET` the webhook route answers 503
 `linear_webhook_unavailable` and answers to gap questions in Linear are not read back (the api still reads them when the
 gap target is saved and at start).
+## Box integration
+
+The [Box integration](box/INDEX.md) lets each user connect their own Box account and lets a member add a Box folder,
+file or shared link to a project as a source (Graph stage, plus, Box link). Graphico acts with a Box **OAuth 2.0 user
+access token** of a Box Platform app and only reads. The api imports the files in process; `worker-parse` gets file
+bytes, never Box tokens.
+
+| Name | Rule |
+|---|---|
+| `BOX_OAUTH_CLIENT_ID` | The Client ID of the Box app (Configuration tab, OAuth 2.0 Credentials). A non-blank value turns the integration on. |
+| `BOX_OAUTH_CLIENT_SECRET` | The Client Secret of the app. A secret: keep it in the cluster's secret store. |
+| `BOX_TOKEN_KEY` | A Fernet key that encrypts the users' refresh tokens and signs the OAuth `state`. Own key: rotating it expires only the Box connections (each user connects again). |
+| `PUBLIC_URL` | The web app's public address. The redirect URI is `{PUBLIC_URL}/api/integrations/box/callback`. |
+
+Only the api reads these names. With the client ID unset the integration is off: the Box card says so and the Box routes
+answer 503 `box_unavailable`. A partial set stops the role at start and names the missing variables. Make the key with
+`python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`. The api must reach
+`account.box.com`, `api.box.com` and `dl.boxcloud.com` directly: the Box clients ignore `HTTPS_PROXY` and the other
+proxy variables (and `.netrc`). How to register the app: [oauth.md](box/oauth.md#app-setup).
+
+## Dropbox integration
+
+The [Dropbox integration](dropbox/INDEX.md) lets each user connect their own Dropbox account and lets a member add a
+Dropbox folder or file link to a project as a source (Graph stage, plus, Dropbox link). Graphico acts with the user's
+Dropbox token of a scoped app (Full Dropbox, four read scopes) and only reads. The api imports the files in process;
+`worker-parse` gets file bytes, never Dropbox tokens.
+
+| Name | Rule |
+|---|---|
+| `DROPBOX_OAUTH_CLIENT_ID` | The App key of the Dropbox app (App Console, Settings). A non-blank value turns the integration on. |
+| `DROPBOX_OAUTH_CLIENT_SECRET` | The App secret of the app. A secret: keep it in the cluster's secret store. |
+| `DROPBOX_TOKEN_KEY` | A Fernet key that encrypts the users' refresh tokens and signs the OAuth `state`. Own key: rotating it expires only the Dropbox connections (each user connects again). |
+| `PUBLIC_URL` | The web app's public address. The redirect URI is `{PUBLIC_URL}/api/integrations/dropbox/callback`. |
+
+Only the api reads these names. With the app key unset the integration is off: the Dropbox card says so and the Dropbox
+routes answer 503 `dropbox_unavailable`. A partial set stops the role at start and names the missing variables. Make the
+key as for Box. The api must reach `api.dropboxapi.com` and `content.dropboxapi.com` directly (the browser alone opens
+`www.dropbox.com`): the Dropbox client ignores `HTTPS_PROXY` and the other proxy variables (and `.netrc`). How to
+register the app: [oauth.md](dropbox/oauth.md#app-setup).
 
 ## Notion integration
 

@@ -13,6 +13,8 @@ const PORT = 3290;
 const ctx = serveStub(PORT, (api) => {
   api.github.reset();
   api.linear.reset();
+  api.box.seed({ reset: true });
+  api.dropbox.seed({ reset: true });
   api.notion.state.enabled = true;
   api.notion.state.connection = null;
   api.jira.state.mode = "oauth";
@@ -90,7 +92,7 @@ test("the Slack test answer needs posted true and a channel", () => {
 
 // ---- Layer P ----
 
-test("GET lists the five apps in order; nothing is connected on a fresh project", async () => {
+test("GET lists the seven apps in order; nothing is connected on a fresh project", async () => {
   const pid = await ownerProject();
   const rows = await integrations.list(pid);
   assert.deepEqual(
@@ -100,6 +102,8 @@ test("GET lists the five apps in order; nothing is connected on a fresh project"
       ["github", null, "none"],
       ["slack", null, "none"],
       ["linear", null, "none"],
+      ["box", null, "none"],
+      ["dropbox", null, "none"],
       ["notion", null, "none"],
     ],
   );
@@ -123,8 +127,32 @@ test("PUT binds the caller's own connection: Atlassian by the cloud site, GitHub
   assert.deepEqual(github.workspace, { id: "octo", name: "octo" });
   assert.deepEqual(
     (await integrations.list(pid)).map((r) => r.health),
-    ["active", "active", "none", "none", "none"],
+    ["active", "active", "none", "none", "none", "none", "none"],
   );
+});
+
+test("PUT binds the caller's own Box connection by the enterprise (a personal account by its name)", async () => {
+  const pid = await ownerProject();
+  await rejects(integrations.connect(pid, "box"), "conflict", "box_not_connected");
+  ctx.api.box.state.connection = { status: "active", name: "Dana Example", enterprise_name: "Acme Corp" };
+  const bound = await integrations.connect(pid, "box");
+  assert.deepEqual(last(), { method: "PUT", path: `/api/backend/projects/${pid}/integrations/box`, body: null });
+  assert.deepEqual(bound.workspace, { id: "enterprise-stub", name: "Acme Corp" });
+  assert.equal(bound.health, "active");
+  ctx.api.box.state.enabled = false;
+  await rejects(integrations.connect(pid, "box"), "unavailable", "box_unavailable");
+});
+
+test("PUT binds the caller's own Dropbox connection by the team (a personal account by its name)", async () => {
+  const pid = await ownerProject();
+  await rejects(integrations.connect(pid, "dropbox"), "conflict", "dropbox_not_connected");
+  ctx.api.dropbox.state.connection = { status: "active", name: "Dana Example", team_name: "Acme Team" };
+  const bound = await integrations.connect(pid, "dropbox");
+  assert.deepEqual(last(), { method: "PUT", path: `/api/backend/projects/${pid}/integrations/dropbox`, body: null });
+  assert.deepEqual(bound.workspace, { id: "team-stub", name: "Acme Team" });
+  assert.equal(bound.health, "active");
+  ctx.api.dropbox.state.enabled = false;
+  await rejects(integrations.connect(pid, "dropbox"), "unavailable", "dropbox_unavailable");
 });
 
 test("PUT binds the caller's own Notion connection by its workspace; without one it is notion_not_connected", async () => {
@@ -148,6 +176,8 @@ test("PUT needs the caller's own active connection and the app on the server", a
   ctx.api.github.state.enabled = false;
   await rejects(integrations.connect(pid, "github"), "unavailable", "github_unavailable");
   ctx.api.jira.state.mode = "token";
+  ctx.api.box.state.enabled = false;
+  ctx.api.dropbox.state.enabled = false;
   await rejects(integrations.connect(pid, "atlassian"), "unavailable", "atlassian_oauth_unavailable");
   await rejects(integrations.connect(pid, "linear"), "conflict", "linear_not_connected");
   ctx.api.linear.state.available = false;

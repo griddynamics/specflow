@@ -48,6 +48,8 @@ pytestmark = requires_live("POSTGRES")
 
 APP_TABLES = [
     "atlassian_connections",
+    "box_connections",
+    "dropbox_connections",
     "connection_items",
     "connections",
     "corpus_amendment",
@@ -96,7 +98,9 @@ HEAD_0008 = "0008_project_integrations"
 HEAD_0009 = "0009_jira_gaps"
 HEAD_0010 = "0010_github_projects"
 HEAD_0011 = "0011_linear"
-HEAD = "0012_notion"
+HEAD_0012 = "0012_box"
+HEAD_0013 = "0013_dropbox"
+HEAD = "0014_notion"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
@@ -397,8 +401,8 @@ def test_l16_project_invites_has_rls_and_the_agent_has_no_grant(
         "SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relrowsecurity "
         "AND relnamespace = 'public'::regnamespace",
     ) == [
-        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 13
-    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's to 0008's, 0009's to 11's
+        7 + len(GAP_TABLES) + len(JIRA_TABLES) + 18
+    ]  # 0001's five, project_invites (0002), the gap tables (0003), 0004's to 0008's, 0009's to 14's
     assert run_app(
         migrated_database,
         "SELECT has_table_privilege(:role, 'project_invites', 'SELECT,INSERT,UPDATE,DELETE')::text",
@@ -1242,10 +1246,10 @@ def test_l33_0011_adds_the_linear_tables_and_widens_the_checks_and_its_downgrade
     assert fingerprint(scratch_database) == before
 
 
-# Notion, added by revision 0012 on top of 0011 --------------------------------------------------------------
+# Box, added by revision 0012 on top of 0011 ----------------------------------------------------------------
 
 
-def test_l34_0012_adds_the_notion_tables_and_widens_the_app_and_kind_checks_and_its_downgrade_returns_to_0011(
+def test_l34_0012_adds_box_connections_the_box_app_and_kind_and_its_downgrade_returns_to_0011(
     scratch_database: DatabaseSettings, agent_role: AgentRole
 ) -> None:
     cfg = alembic_config(scratch_database, agent_role.name)
@@ -1253,11 +1257,107 @@ def test_l34_0012_adds_the_notion_tables_and_widens_the_app_and_kind_checks_and_
     before = fingerprint(scratch_database)
     ana = insert_user(scratch_database, "ana@example.com")
     project = insert_project(scratch_database, ana, role="owner")
+
+    command.upgrade(cfg, HEAD_0012)
+
+    assert stamped_versions(scratch_database) == [HEAD_0012]
+    assert run_app(scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = 'box_connections'") == [
+        "true"
+    ]
+    assert run_app(
+        scratch_database,
+        "SELECT has_table_privilege(:role, 'box_connections', 'SELECT,INSERT,UPDATE,DELETE')::text",
+        role=SESSION_AGENT_ROLE,
+    ) == ["false"]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    connection = (
+        "INSERT INTO box_connections (user_id, box_user_id, name, refresh_token, status, connected_at, last_used_at) "
+        "VALUES (:u, '42', 'Ana', 'x', :status, now(), now())"
+    )
+    with pytest.raises(IntegrityError):  # a closed set of statuses
+        run_app(scratch_database, connection, u=ana, status="revoked")
+    run_app(scratch_database, connection, u=ana, status="active")
+    with pytest.raises(IntegrityError):  # one connection per user
+        run_app(scratch_database, connection, u=ana, status="active")
+    run_app(
+        scratch_database,
+        "INSERT INTO project_integrations (project_id, app, user_id, workspace_id, workspace_name, connected_at) "
+        "VALUES (:p, 'box', :u, '7', 'Acme', now())",
+        p=project,
+        u=ana,
+    )
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0011]
+    assert fingerprint(scratch_database) == before
+
+
+# Dropbox, added by revision 0013 on top of 0012 ------------------------------------------------------------
+
+
+def test_l35_0013_adds_dropbox_connections_the_dropbox_app_and_kind_and_its_downgrade_returns_to_0012(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0012)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+
+    command.upgrade(cfg, HEAD_0013)
+
+    assert stamped_versions(scratch_database) == [HEAD_0013]
+    assert run_app(
+        scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = 'dropbox_connections'"
+    ) == ["true"]
+    assert run_app(
+        scratch_database,
+        "SELECT has_table_privilege(:role, 'dropbox_connections', 'SELECT,INSERT,UPDATE,DELETE')::text",
+        role=SESSION_AGENT_ROLE,
+    ) == ["false"]
+    assert agent_grants(scratch_database) == ["documents SELECT"]  # still exactly one grant
+    connection = (
+        "INSERT INTO dropbox_connections "
+        "(user_id, account_id, name, refresh_token, status, connected_at, last_used_at) "
+        "VALUES (:u, 'dbid:AA1', 'Ana', :token, :status, now(), now())"
+    )
+    long_token = b"x" * 4096  # Dropbox tokens can pass 1 KB; the Fernet ciphertext is longer still
+    with pytest.raises(IntegrityError):  # a closed set of statuses
+        run_app(scratch_database, connection, u=ana, token=long_token, status="revoked")
+    run_app(scratch_database, connection, u=ana, token=long_token, status="active")
+    with pytest.raises(IntegrityError):  # one connection per user
+        run_app(scratch_database, connection, u=ana, token=long_token, status="active")
+    run_app(
+        scratch_database,
+        "INSERT INTO project_integrations (project_id, app, user_id, workspace_id, workspace_name, connected_at) "
+        "VALUES (:p, 'dropbox', :u, 'user:dbid:AA1', 'Ana', now())",
+        p=project,
+        u=ana,
+    )
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0012]
+    assert fingerprint(scratch_database) == before
+
+
+# Notion, added by revision 0014 on top of 0013 --------------------------------------------------------------
+
+
+def test_l36_0014_adds_the_notion_tables_and_widens_the_app_and_kind_checks_and_its_downgrade_returns_to_0013(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0013)
+    before = fingerprint(scratch_database)
+    ana = insert_user(scratch_database, "ana@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
     binding = (
         "INSERT INTO project_integrations (project_id, app, workspace_id, workspace_name, connected_at) "
         "VALUES (:p, 'notion', 'w', 'W', now())"
     )
-    with pytest.raises(IntegrityError):  # the app is not allowed before 0012
+    with pytest.raises(IntegrityError):  # the app is not allowed before 0014
         run_app(scratch_database, binding, p=project)
 
     command.upgrade(cfg, "head")
@@ -1296,5 +1396,5 @@ def test_l34_0012_adds_the_notion_tables_and_widens_the_app_and_kind_checks_and_
 
     command.downgrade(cfg, "-1")
 
-    assert stamped_versions(scratch_database) == [HEAD_0011]
+    assert stamped_versions(scratch_database) == [HEAD_0013]
     assert fingerprint(scratch_database) == before

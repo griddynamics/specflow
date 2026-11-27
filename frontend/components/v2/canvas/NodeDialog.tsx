@@ -12,7 +12,7 @@ import { NodeFiles } from "./NodeFiles";
 import { RenameUpload } from "./RenameUpload";
 
 /** The node kinds that are sources of the sources API: their files can be listed. */
-const SOURCE_KINDS = ["upload", "gdrive", "confluence", "jira_epic", "linear_project"] as const;
+const SOURCE_KINDS = ["upload", "gdrive", "confluence", "jira_epic", "linear_project", "box", "dropbox"] as const;
 const sourceKindOf = (kind: NodeView["kind"]): (typeof SOURCE_KINDS)[number] | null => SOURCE_KINDS.find((k) => k === kind) ?? null;
 
 /** The quiet actions at the left of the foot: Remove for a source or a repository, Rename for an upload (not while its field is open). */
@@ -81,6 +81,13 @@ export function NodeDialog({
             {detail.link.label}
           </ButtonLink>
         </Row>
+      )}
+      {detail.open === undefined ? null : (
+        <div>
+          <ButtonLink variant="ghost" size="sm" href={detail.open.href} target="_blank" rel="noopener noreferrer">
+            {detail.open.label}
+          </ButtonLink>
+        </div>
       )}
       {failed ? <Notice role="alert">{CANVAS_COPY.removeFailed}</Notice> : null}
       {renaming ? (

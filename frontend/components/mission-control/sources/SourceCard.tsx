@@ -18,6 +18,8 @@ const LOGO = {
   confluence: "confluence",
   jira_epic: "jira",
   linear_project: "linear",
+  box: "box",
+  dropbox: "dropbox",
   notion: "notion",
 } as const;
 

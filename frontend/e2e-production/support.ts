@@ -36,6 +36,8 @@ const OAUTH_RETURN_ROUTES = [
   "/api/integrations/atlassian/callback",
   "/api/integrations/github/callback",
   "/api/integrations/github/setup",
+  "/api/integrations/box/callback",
+  "/api/integrations/dropbox/callback",
   "/api/integrations/notion/callback",
 ];
 
@@ -305,6 +307,8 @@ export interface SeedIntegrations extends Record<string, unknown> {
   slackTest?: string;
   atlassian?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
   github?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
+  dropbox?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
+  box?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
   notion?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
   slack?: { channel?: { id: string; name: string; private: boolean }; by?: { user_id: string; name: string } | null } | null;
 }
@@ -461,6 +465,30 @@ export interface SeedGitHub extends Record<string, unknown> {
 }
 export async function seedGitHub(spec: SeedGitHub): Promise<void> {
   await control("POST", "/seed-github", spec);
+}
+
+/** The Box stub (`POST /seed-box`, tests/support/stub-box.mjs `seed`): the caller's own connection and the Box knobs. */
+export interface SeedBox extends Record<string, unknown> {
+  /** Put every knob back first. */
+  reset?: boolean;
+  enabled?: boolean;
+  connection?: { status: "active" | "expired"; name?: string; enterprise_name?: string | null } | null;
+  callbackError?: string | null;
+}
+export async function seedBox(spec: SeedBox): Promise<void> {
+  await control("POST", "/seed-box", spec);
+}
+
+/** The Dropbox stub (`POST /seed-dropbox`, tests/support/stub-dropbox.mjs `seed`): the caller's own connection and the Dropbox knobs. */
+export interface SeedDropbox extends Record<string, unknown> {
+  /** Put every knob back first. */
+  reset?: boolean;
+  enabled?: boolean;
+  connection?: { status: "active" | "expired"; name?: string; team_name?: string | null } | null;
+  callbackError?: string | null;
+}
+export async function seedDropbox(spec: SeedDropbox): Promise<void> {
+  await control("POST", "/seed-dropbox", spec);
 }
 
 /** The Notion stub (`POST /seed-notion`, tests/support/stub-notion.mjs): the caller's connection and, with `pid`, the plan destination of a project. */

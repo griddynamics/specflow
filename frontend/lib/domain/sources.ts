@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "linear_project" | "notion";
+export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "linear_project" | "box" | "dropbox" | "notion";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;
@@ -215,6 +215,8 @@ export interface Source extends SourceRef {
   /** Why the source failed as a whole (DATA-SRC-0001 table 2); null = it did not. */
   failure: DriveReason | null;
   github: GithubDetail | null;
+  /** The address the source was added from, as the API keeps it (Box: the canonical folder or file link); null when it has none. */
+  link: string | null;
 }
 export interface SourceFile {
   id: string;
@@ -265,6 +267,36 @@ export interface ConfluenceCheck {
   capped: boolean;
   linkedIssues: number;
 }
+
+/** One importable file of a checked Box link: `id` is the Box file id (digits; what `exclude` carries), `path` the folder inside the source ("" in the root). */
+export interface BoxCheckFile {
+  id: string;
+  name: string;
+  path: string;
+  category: "pdf" | "word" | "powerpoint" | "excel" | "html" | "markdown" | "csv" | "text" | "note";
+}
+
+/** What the check of a Box link found, nothing stored (docs/box/source.md): a folder (its whole tree) or one file. `files` are the importable files an
+ * import would take (at most 1000), `filesCapped` = there are more than listed, `skipped` the items of other types (declared, never downloaded), `folders`
+ * walked, `bytes` the listed size of the importable files, `capped` = a cap stopped the walk. */
+export interface BoxCheck {
+  kind: "folder" | "file";
+  name: string;
+  files: BoxCheckFile[];
+  filesCapped: boolean;
+  skipped: number;
+  folders: number;
+  bytes: number;
+  capped: boolean;
+}
+
+/** One importable file of a checked Dropbox link, as a Box one (`BoxCheckFile`): `id` is Dropbox's `id:...` (what `exclude` carries), and a Paper doc is
+ * `paper` where Box has its notes. */
+export type DropboxCheckFile = Omit<BoxCheckFile, "category"> & { category: Exclude<BoxCheckFile["category"], "note"> | "paper" };
+
+/** What the check of a Dropbox link found, nothing stored (docs/dropbox/source.md), in the shape of a Box check (`BoxCheck`); `capped` also covers the
+ * size cap of the listing. */
+export type DropboxCheck = Omit<BoxCheck, "files"> & { files: DropboxCheckFile[] };
 
 /** What the check of a Jira epic found, nothing stored: its key and summary and the issues under it that the bound member can see (an import
  * takes at most `EPIC_ISSUE_CAP`). */
@@ -342,6 +374,18 @@ export interface SourcesPort {
   checkConfluence(projectId: string, input: ConfluenceInput): Promise<ConfluenceCheck>;
   /** Adds the link as a source (one per link, D5) and starts its import, once (D7); the card is in the next status. Rejects like the check. */
   addConfluence(projectId: string, input: ConfluenceInput): Promise<void>;
+  /** Reads a Box folder, file or shared link as the member the project's Box is connected by and counts what an import would take; stores nothing. A
+   * refusal rejects a `DataError` whose `detail.apiCode` is the closed code (`box_link_invalid`, `box_no_access`, `box_not_connected`, ...). */
+  checkBox(projectId: string, link: string): Promise<BoxCheck>;
+  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); `exclude` are the Box file ids of the listed files the member unchecked
+   * (at most 1000). The card is in the next status. Rejects like the check. */
+  addBox(projectId: string, link: string, exclude?: readonly string[]): Promise<void>;
+  /** Reads a Dropbox folder, file or shared link as the member the project's Dropbox is connected by, lists the importable files and counts the rest; stores
+   * nothing. A refusal rejects a `DataError` whose `detail.apiCode` is the closed code (`dropbox_link_invalid`, `dropbox_no_access`, `dropbox_not_connected`, ...). */
+  checkDropbox(projectId: string, link: string): Promise<DropboxCheck>;
+  /** Adds the link as a source (one per link, D5) and starts its import, once (D7); `exclude` are the `id:...` of the listed files the member unchecked
+   * (at most 1000). The card is in the next status. Rejects like the check. */
+  addDropbox(projectId: string, link: string, exclude?: readonly string[]): Promise<void>;
   /** Reads a Jira epic (a key such as `ABC-12`, or its link) of the project's Atlassian site and counts its issues; stores nothing. Rejects like the Confluence check. */
   checkJiraEpic(projectId: string, keyOrLink: string): Promise<JiraEpicCheck>;
   /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). `exclude` are the keys of the children not to import (the epic

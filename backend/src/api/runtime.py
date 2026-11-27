@@ -32,11 +32,15 @@ from api.linear_plan import wiring as linear_plan_wiring
 from api.notion_plan.runner import NotionPlanRunner
 from api.plan.runner import GraphPlanRunner
 from api.plan_destinations import PlanDestinations
+from box.connections import BoxConnections
 from db import session as db_session
+from db.box import connection_store as box_connection_store
+from db.dropbox import connection_store as dropbox_connection_store
 from db.github import connection_store
 from db.models import Project
 from db.notion import connection_store as notion_connection_store
 from db.session import is_database_unreachable
+from dropbox.connections import DropboxConnections
 from github.connections import GitHubConnections
 from graph.core import InfrastructureUnavailableError
 from graph.core.store import as_executor
@@ -110,6 +114,10 @@ class Runtime:
     slack: Any = None
     # github.connections.GitHubConnections; None = the GitHub integration is off (503); GITHUB_APP_CLIENT_ID sets it.
     github: Any = None
+    # box.connections.BoxConnections; None = the Box integration is off (503); BOX_OAUTH_CLIENT_ID sets it.
+    box: Any = None
+    # dropbox.connections.DropboxConnections; None = the Dropbox integration is off (503); DROPBOX_OAUTH_CLIENT_ID
+    dropbox: Any = None
     # notion.connections.NotionConnections; None = the Notion integration is off (503); NOTION_OAUTH_CLIENT_ID sets it.
     notion: Any = None
     # api.plan_destinations.PlanDestinations: the plan runner's one post-plan hook; Jira is the first destination.
@@ -127,7 +135,8 @@ class Runtime:
     linear_gaps: Any = None
     # api.notion_plan.runner.NotionPlanRunner: the Notion plan destination; None when Notion is off
     notion_plan: Any = None
-    # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics, Linear projects)
+    # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics, Linear projects,
+    # Box links)
     imports: Any = None
     # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
     agent_reads: Any = None
@@ -271,6 +280,14 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             runtime.github = GitHubConnections(settings.github, store=connection_store(runtime.transaction))
             stack.push_async_callback(runtime.github.aclose)
         linear_wiring.add_linear(runtime, settings.linear, stack)  # LINEAR S1
+        if settings.box is not None:
+            log_event(logger, INFO, "api.box.mode", mode="on")
+            runtime.box = BoxConnections(settings.box, store=box_connection_store(runtime.transaction))
+            stack.push_async_callback(runtime.box.aclose)
+        if settings.dropbox is not None:
+            log_event(logger, INFO, "api.dropbox.mode", mode="on")
+            runtime.dropbox = DropboxConnections(settings.dropbox, store=dropbox_connection_store(runtime.transaction))
+            stack.push_async_callback(runtime.dropbox.aclose)
         if settings.notion is not None:
             log_event(logger, INFO, "api.notion.mode", mode="on")
             runtime.notion = NotionConnections(settings.notion, store=notion_connection_store(runtime.transaction))

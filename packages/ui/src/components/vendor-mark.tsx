@@ -1,4 +1,4 @@
-import { siConfluence, siGithub, siGoogledrive, siJira, siLinear, siModelcontextprotocol, siNotion } from "simple-icons";
+import { siBox, siConfluence, siDropbox, siGithub, siGoogledrive, siJira, siLinear, siModelcontextprotocol, siNotion } from "simple-icons";
 import type { JSX } from "react";
 import { cx } from "../cx";
 
@@ -10,6 +10,8 @@ export const LOGO_PATHS = {
   confluence: siConfluence.path,
   gdrive: siGoogledrive.path,
   mcp: siModelcontextprotocol.path,
+  box: siBox.path,
+  dropbox: siDropbox.path,
   notion: siNotion.path,
 } as const;
 
@@ -34,7 +36,7 @@ function isLogo(kind: VendorKind): kind is LogoKind {
   return kind in LOGO_PATHS;
 }
 
-/** A vendor mark in the text colour: GitHub, Jira, Linear, Confluence, Google Drive, MCP and Notion from simple-icons; Slack and upload as drawn signs. */
+/** A vendor mark in the text colour: GitHub, Jira, Linear, Confluence, Google Drive, Box, Dropbox, MCP and Notion from simple-icons; Slack and upload as drawn signs. */
 export function VendorMark({ kind, title, className }: VendorMarkProps): JSX.Element {
   const a11y = title === undefined ? { "aria-hidden": true as const } : { role: "img" as const, "aria-label": title };
   return isLogo(kind) ? (

@@ -2,6 +2,8 @@
 // endpoints can serve (`GET /me`, projects, uploads, the sources API of GDRIVE plan 04, the plan, the gaps); every other port stays mock
 // (`lib/data/compose.ts`). All calls go through `lib/api.ts` (browser -> `/api/backend/*` -> API `/api/v1/*`), except `GET /me`
 // (`client.ts`, G01-10). No fixture is imported here (R7).
+import type { BoxPort } from "@/lib/domain/box";
+import type { DropboxPort } from "@/lib/domain/dropbox";
 import type { GapsPort } from "@/lib/domain/gaps";
 import type { GitHubPort } from "@/lib/domain/github";
 import type { IntegrationsPort } from "@/lib/domain/integrations";
@@ -23,6 +25,8 @@ import type { NotionPlanPort } from "@/lib/domain/notion-plan";
 import type { SlackPort } from "@/lib/domain/slack";
 import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
+import { createHttpBox } from "./box";
+import { createHttpDropbox } from "./dropbox";
 import { createHttpGaps } from "./gaps";
 import { createHttpGitHub } from "./github";
 import { createHttpIntegrations } from "./integrations";
@@ -63,6 +67,8 @@ export interface HttpPorts {
   jiraGaps: JiraGapsPort;
   slack: SlackPort;
   github: GitHubPort;
+  box: BoxPort;
+  dropbox: DropboxPort;
   integrations: IntegrationsPort;
   linear: LinearPort; // LINEAR S1
   linearPlan: LinearPlanPort; // LINEAR S3
@@ -96,6 +102,8 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     jiraGaps: createHttpJiraGaps(),
     slack: createHttpSlack(),
     github: createHttpGitHub(),
+    box: createHttpBox(),
+    dropbox: createHttpDropbox(),
     integrations: createHttpIntegrations(),
     linear: createHttpLinear(), // LINEAR S1
     linearPlan: createHttpLinearPlan(), // LINEAR S3

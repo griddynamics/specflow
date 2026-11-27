@@ -21,7 +21,9 @@ from settings import (
     AppSettings,
     AtlassianOAuthSettings,
     AuthSettings,
+    BoxSettings,
     ConfigurationError,
+    DropboxSettings,
     GitHubSettings,
     GraphBuildSettings,
     GraphStoreSettings,
@@ -53,6 +55,7 @@ SETTINGS_CLASSES = (
     AtlassianOAuthSettings,
     GitHubSettings,
     LinearSettings,
+    DropboxSettings,
     LangfuseSettings,
     McpSettings,
     ApiInternalSettings,
@@ -125,6 +128,12 @@ OPTIONAL_KEYS = frozenset(
         "LINEAR_OAUTH_CLIENT_SECRET",
         "LINEAR_TOKEN_KEY",
         "LINEAR_WEBHOOK_SECRET",
+        "BOX_OAUTH_CLIENT_ID",
+        "BOX_OAUTH_CLIENT_SECRET",
+        "BOX_TOKEN_KEY",
+        "DROPBOX_OAUTH_CLIENT_ID",
+        "DROPBOX_OAUTH_CLIENT_SECRET",
+        "DROPBOX_TOKEN_KEY",
         "NOTION_OAUTH_CLIENT_ID",
         "NOTION_OAUTH_CLIENT_SECRET",
         "NOTION_TOKEN_KEY",
@@ -193,7 +202,7 @@ def _env_names_read_in_code() -> set[str]:
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS | STACK_KEYS
     assert len(REQUIRED_KEYS) == 23
-    assert len(OPTIONAL_KEYS) == 37
+    assert len(OPTIONAL_KEYS) == 43
     assert len(STACK_KEYS) == 6
 
 
@@ -627,6 +636,112 @@ def test_the_linear_secrets_are_not_in_the_repr_of_the_settings(valid_env):
     assert "lin-secret-canary" not in shown
     assert "whsec-canary" not in shown
     assert LINEAR_ENV["LINEAR_TOKEN_KEY"] not in shown
+
+
+# Box integration (docs/box/oauth.md "Settings") -----------------------------------------------------------------------
+
+BOX_ENV = {
+    "BOX_OAUTH_CLIENT_ID": "box-client-1",
+    "BOX_OAUTH_CLIENT_SECRET": "box-secret-canary-7c1d",
+    "BOX_TOKEN_KEY": base64.urlsafe_b64encode(bytes(range(2, 34))).decode(),
+    "PUBLIC_URL": "http://localhost:3001/",
+}
+
+
+def test_the_box_client_id_turns_the_integration_on_with_its_redirect_uri(valid_env):
+    box = load_settings("api", {**valid_env, **BOX_ENV}).box
+
+    assert isinstance(box, BoxSettings)
+    assert box.client_id == "box-client-1"
+    assert box.callback_url == "http://localhost:3001/api/integrations/box/callback"
+
+
+def test_box_is_off_without_the_client_id_even_with_the_other_variables(valid_env):
+    env = {**valid_env, **BOX_ENV, "BOX_OAUTH_CLIENT_ID": "  ", "BOX_TOKEN_KEY": "x"}
+
+    assert load_settings("api", env).box is None
+
+
+@pytest.mark.parametrize("missing", ["BOX_OAUTH_CLIENT_SECRET", "BOX_TOKEN_KEY", "PUBLIC_URL"])
+def test_a_partial_box_set_is_refused_at_startup_naming_the_missing_variable(valid_env, missing):
+    env = {**valid_env, **{name: value for name, value in BOX_ENV.items() if name != missing}}
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", env)
+
+    assert raised.value.variables == (missing,)
+    assert "box-secret-canary" not in str(raised.value)
+
+
+def test_a_bad_box_key_is_refused_and_the_box_secrets_are_not_in_the_repr(valid_env):
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", {**valid_env, **BOX_ENV, "BOX_TOKEN_KEY": "not-a-key"})
+    settings = load_settings("api", {**valid_env, **BOX_ENV})
+
+    text = repr(settings) + repr(settings.box) + str(settings.box)
+    assert raised.value.variables == ("BOX_TOKEN_KEY",)
+    assert "box-secret-canary" not in text and BOX_ENV["BOX_TOKEN_KEY"] not in text
+
+
+def test_only_the_api_role_reads_the_box_settings(valid_env):
+    env = {**valid_env, **BOX_ENV}
+
+    assert load_settings("worker", env, queues=["agents"]).box is None
+    assert load_settings("worker", {**env, "PUBLIC_URL": ""}, queues=["parse"]).box is None
+    assert load_settings("migrate", {**env, "PUBLIC_URL": ""}).box is None
+
+
+# Dropbox integration (docs/dropbox/oauth.md "Settings") ---------------------------------------------------------------
+
+DROPBOX_ENV = {
+    "DROPBOX_OAUTH_CLIENT_ID": "dropbox-client-1",
+    "DROPBOX_OAUTH_CLIENT_SECRET": "dropdropbox-secret-canary-4e2a",
+    "DROPBOX_TOKEN_KEY": base64.urlsafe_b64encode(bytes(range(3, 35))).decode(),
+    "PUBLIC_URL": "http://localhost:3001/",
+}
+
+
+def test_the_dropbox_client_id_turns_the_integration_on_with_its_redirect_uri(valid_env):
+    box = load_settings("api", {**valid_env, **DROPBOX_ENV}).dropbox
+
+    assert isinstance(box, DropboxSettings)
+    assert box.client_id == "dropbox-client-1"
+    assert box.callback_url == "http://localhost:3001/api/integrations/dropbox/callback"
+
+
+def test_dropbox_is_off_without_the_client_id_even_with_the_other_variables(valid_env):
+    env = {**valid_env, **DROPBOX_ENV, "DROPBOX_OAUTH_CLIENT_ID": "  ", "DROPBOX_TOKEN_KEY": "x"}
+
+    assert load_settings("api", env).dropbox is None
+
+
+@pytest.mark.parametrize("missing", ["DROPBOX_OAUTH_CLIENT_SECRET", "DROPBOX_TOKEN_KEY", "PUBLIC_URL"])
+def test_a_partial_dropbox_set_is_refused_at_startup_naming_the_missing_variable(valid_env, missing):
+    env = {**valid_env, **{name: value for name, value in DROPBOX_ENV.items() if name != missing}}
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", env)
+
+    assert raised.value.variables == (missing,)
+    assert "dropbox-secret-canary" not in str(raised.value)
+
+
+def test_a_bad_dropbox_key_is_refused_and_the_dropbox_secrets_are_not_in_the_repr(valid_env):
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", {**valid_env, **DROPBOX_ENV, "DROPBOX_TOKEN_KEY": "not-a-key"})
+    settings = load_settings("api", {**valid_env, **DROPBOX_ENV})
+
+    text = repr(settings) + repr(settings.dropbox) + str(settings.dropbox)
+    assert raised.value.variables == ("DROPBOX_TOKEN_KEY",)
+    assert "dropbox-secret-canary" not in text and DROPBOX_ENV["DROPBOX_TOKEN_KEY"] not in text
+
+
+def test_only_the_api_role_reads_the_dropbox_settings(valid_env):
+    env = {**valid_env, **DROPBOX_ENV}
+
+    assert load_settings("worker", env, queues=["agents"]).dropbox is None
+    assert load_settings("worker", {**env, "PUBLIC_URL": ""}, queues=["parse"]).dropbox is None
+    assert load_settings("migrate", {**env, "PUBLIC_URL": ""}).dropbox is None
 
 
 # Notion integration (docs/notion/oauth.md "Settings") -----------------------------------------------------------------

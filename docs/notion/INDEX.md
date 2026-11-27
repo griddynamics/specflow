@@ -36,5 +36,5 @@ member's account. The decisions behind it are N1 to N13 in the table below; each
 | N9 | A pass spends at most 240 requests on rows; when rows are left, another pass follows |
 | N10 | One request limiter per Notion connection (`bot_id`), shared by import and export; `Retry-After` honoured; a pass or import waits at most 60 s in all |
 | N11 | The plan form takes a parent page, picked from the pages the member shared; the first pass creates the database under it and stores its ids |
-| N12 | One migration, `0012_notion`, adds the three Notion tables and widens the two check constraints |
+| N12 | One migration, `0014_notion`, adds the three Notion tables and widens the two check constraints |
 | N13 | The per-app table of Mission Control lists Notion as a source and as a plan destination |

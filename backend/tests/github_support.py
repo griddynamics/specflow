@@ -7,9 +7,6 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs
@@ -17,6 +14,7 @@ from urllib.parse import parse_qs
 import httpx
 from cryptography.fernet import Fernet
 
+from connection_store_support import MemoryConnectionStore
 from github.client import GitHubClient, GitHubUser
 from github.connections import StoredConnection
 from settings import GitHubSettings
@@ -161,33 +159,8 @@ class FakeGitHub:
         return httpx.Response(404)
 
 
-class MemoryStore:
-    """The ``ConnectionStore`` over a dict; ``transaction()`` keeps nothing of a failed block. ``events`` records every
-    write and each commit."""
-
-    def __init__(self) -> None:
-        self.rows: dict[uuid.UUID, StoredConnection] = {}
-        self.refresh_expires: dict[uuid.UUID, datetime | None] = {}
-        self.expired_at: dict[uuid.UUID, datetime] = {}
-        self.events: list[tuple[str, Any]] = []
-
-    @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[MemoryStore]:
-        before = dict(self.rows)
-        try:
-            yield self
-        except BaseException:
-            self.rows = before
-            self.events.append(("rollback", None))
-            raise
-        self.events.append(("commit", None))
-
-    async def get(self, user_id: uuid.UUID) -> StoredConnection | None:
-        return self.rows.get(user_id)
-
-    async def lock(self, user_id: uuid.UUID) -> StoredConnection | None:
-        self.events.append(("lock", user_id))
-        return self.rows.get(user_id)
+class MemoryStore(MemoryConnectionStore):
+    """The ``ConnectionStore`` over a dict (``connection_store_support``)."""
 
     async def save(
         self,
@@ -201,19 +174,3 @@ class MemoryStore:
         self.rows[user_id] = StoredConnection(user_id, user.id, user.login, refresh_token, "active", now, now)
         self.refresh_expires[user_id] = refresh_expires_at
         self.events.append(("save", user_id))
-
-    async def rotate(
-        self, user_id: uuid.UUID, *, refresh_token: bytes, refresh_expires_at: datetime | None, now: datetime
-    ) -> None:
-        self.rows[user_id] = replace(self.rows[user_id], refresh_token=refresh_token, last_used_at=now)
-        self.refresh_expires[user_id] = refresh_expires_at
-        self.events.append(("rotate", user_id))
-
-    async def expire(self, user_id: uuid.UUID, *, now: datetime) -> None:
-        self.rows[user_id] = replace(self.rows[user_id], status="expired")
-        self.expired_at[user_id] = now
-        self.events.append(("expire", user_id))
-
-    async def delete(self, user_id: uuid.UUID) -> bool:
-        self.events.append(("delete", user_id))
-        return self.rows.pop(user_id, None) is not None

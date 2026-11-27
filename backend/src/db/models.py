@@ -55,9 +55,10 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # The Drive-related values mirror
 # drive.categories / reasons; a test keeps them equal. They are
 # written out here so the models do not import the Drive package.
-# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations),
-# ``linear_project`` (migration 0011_linear) and ``notion`` (migration 0012_notion) too.
-CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "notion")
+# ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations);
+# ``linear_project`` is too (migration 0011_linear), ``box`` (migration 0012_box), ``dropbox`` (migration
+# 0013_dropbox) and ``notion`` (migration 0014_notion).
+CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box", "dropbox", "notion")
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",
@@ -384,8 +385,10 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 # GitHub tables (docs/github/data-model.md). The failure codes mirror github.codes.CLONE_FAILURE_CODES; a test keeps
 # them equal (db does not import github).
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
-INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "linear", "notion")
-# Notion tables (docs/notion/oauth.md, docs/notion/plan.md; migration 0012_notion).
+BOX_CONNECTION_STATUSES: Final = ("active", "expired")
+DROPBOX_CONNECTION_STATUSES: Final = ("active", "expired")
+INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "linear", "box", "dropbox", "notion")
+# Notion tables (docs/notion/oauth.md, docs/notion/plan.md; migration 0014_notion).
 NOTION_CONNECTION_STATUSES: Final = ("active", "expired")
 NOTION_PLAN_TRIGGERS: Final = ("plan_run", "settings", "recovery")
 NOTION_RUN_STATUSES: Final = ("running", "succeeded", "partial", "failed", "skipped")  # as the migration says
@@ -766,6 +769,54 @@ class GitHubConnection(Base):
     expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class BoxConnection(Base):
+    """One user's Box connection (migration ``0012_box``, docs/box/oauth.md "Tokens"): the refresh token is Fernet
+    ciphertext; the access token is never stored. ``name`` is the Box display name (the ``login`` e-mail is not
+    stored); ``enterprise_id`` and ``enterprise_name`` are null for a personal account. Not project-scoped:
+    row-level security is on with no policy and no grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "box_connections"
+    __table_args__ = (CheckConstraint(_one_of("status", BOX_CONNECTION_STATUSES), name="status"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    box_user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    enterprise_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enterprise_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DropboxConnection(Base):
+    """One user's Dropbox connection (migration ``0013_dropbox``, docs/dropbox/oauth.md "Tokens"): the refresh token is
+    Fernet ciphertext (``bytea``: Dropbox tokens can pass 1 KB) and never rotates, so there is no
+    ``refresh_expires_at``; the access token is never stored. ``name`` is the display name (the e-mail is not stored);
+    ``team_id`` and ``team_name`` are null for a personal account. Not project-scoped: row-level security is on with
+    no policy and no grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "dropbox_connections"
+    __table_args__ = (CheckConstraint(_one_of("status", DROPBOX_CONNECTION_STATUSES), name="status"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    account_id: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    team_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    team_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ProjectRepository(Base):
     """A GitHub repository of a project and its last clone check (migration ``0007_github``). ``added_by`` is the
     owner whose GitHub connection every clone uses; null once that user is no longer a member. The snapshot fields keep
@@ -824,7 +875,7 @@ class ProjectIntegration(Base):
 
 
 class NotionConnection(Base):
-    """One user's Notion connection (migration ``0012_notion``, docs/notion/oauth.md): the workspace and the bot of the
+    """One user's Notion connection (migration ``0014_notion``, docs/notion/oauth.md): the workspace and the bot of the
     public connection's authorisation, the refresh token as Fernet ciphertext; the access token as Fernet ciphertext
     only for a grant with no refresh token (null otherwise). Not project-scoped: row-level security is on with no
     policy and no grant, so the agent role reads nothing of it."""
@@ -848,7 +899,7 @@ class NotionConnection(Base):
 
 
 class NotionPlanTarget(Base):
-    """The Notion plan destination of a project and its last export pass (migration ``0012_notion``,
+    """The Notion plan destination of a project and its last export pass (migration ``0014_notion``,
     docs/notion/plan.md): the parent page the plan database is created under, and the database and its data source once
     the first pass made them. The member the export acts as is read from ``project_integrations`` on every pass. Holds
     no credential."""

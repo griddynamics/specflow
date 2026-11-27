@@ -62,7 +62,9 @@ HEAD_0008 = "0008_project_integrations"
 HEAD_0009 = "0009_jira_gaps"
 HEAD_0010 = "0010_github_projects"
 HEAD_0011 = "0011_linear"
-HEAD = "0012_notion"
+HEAD_0012 = "0012_box"
+HEAD_0013 = "0013_dropbox"
+HEAD = "0014_notion"
 # SHA-256 of versions/0001_initial.py as 2.0.0 shipped it; a mismatch means a frozen revision was edited.
 FROZEN_0001_SHA256 = "ebc6d2e0f6ca8eef9bcbc5acde990ed151fe17fbc1945c75e5d6289a455948dc"
 INITIAL_TABLES = (
@@ -106,8 +108,12 @@ GITHUB_PROJECT_TABLES = ("github_project_targets", "github_project_items")
 # added by 0011.
 LINEAR_CONNECTIONS = "linear_connections"
 LINEAR_TABLES = ("linear_targets", "linear_issues", "linear_gap_targets", "linear_gap_issues")
+# The users' Box connections (no policy: not project-scoped), added by 0012.
+BOX_CONNECTIONS = "box_connections"
+# The users' Dropbox connections (no policy: not project-scoped), added by 0013.
+DROPBOX_CONNECTIONS = "dropbox_connections"
 # The users' Notion connections (no policy) and the Notion plan destination's target and map (project-scoped), added by
-# 0012.
+# 0014.
 NOTION_CONNECTIONS = "notion_connections"
 NOTION_PLAN_TABLES = ("notion_plan_targets", "notion_plan_items")
 APP_TABLES = (
@@ -124,6 +130,8 @@ APP_TABLES = (
     *GITHUB_PROJECT_TABLES,
     LINEAR_CONNECTIONS,
     *LINEAR_TABLES,
+    BOX_CONNECTIONS,
+    DROPBOX_CONNECTIONS,
     NOTION_CONNECTIONS,
     *NOTION_PLAN_TABLES,
 )
@@ -175,6 +183,8 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_bases() == [FIRST]
     assert [revision.revision for revision in script.walk_revisions()] == [
         HEAD,
+        HEAD_0013,
+        HEAD_0012,
         HEAD_0011,
         HEAD_0010,
         HEAD_0009,
@@ -198,7 +208,9 @@ def test_the_migration_history_is_the_initial_the_collaborators_the_gap_and_the_
     assert script.get_revision(HEAD_0009).down_revision == HEAD_0008
     assert script.get_revision(HEAD_0010).down_revision == HEAD_0009
     assert script.get_revision(HEAD_0011).down_revision == HEAD_0010
-    assert script.get_revision(HEAD).down_revision == HEAD_0011
+    assert script.get_revision(HEAD_0012).down_revision == HEAD_0011
+    assert script.get_revision(HEAD_0013).down_revision == HEAD_0012
+    assert script.get_revision(HEAD).down_revision == HEAD_0013
 
 
 # T9 ------------------------------------------------------------------------
@@ -353,7 +365,7 @@ def test_offline_upgrade_enables_rls_and_creates_the_policy_on_each_scoped_table
             f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
         )
     assert sql.count("CREATE POLICY agent_project_scope") == len(SCOPED_TABLES) + 1
-    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 5  # + invites, 4 connection tables
+    assert sql.count("ENABLE ROW LEVEL SECURITY") == len(SCOPED_TABLES) + 7  # + invites, 6 connection tables
     assert "users ENABLE ROW LEVEL SECURITY" not in sql  # users is not project-scoped
 
 
@@ -1035,18 +1047,104 @@ def test_the_downgrade_of_0011_drops_the_five_tables_narrows_both_checks_and_say
     assert "Every Linear connection, target and map is lost" in doc
 
 
-# Notion, added by revision 0012 on top of 0011 -------------------------------------------------------------
+# Box, added by revision 0012 on top of 0011 ----------------------------------------------------
 
 
-def notion_sql() -> str:
+def box_sql() -> str:
     """The SQL of revision 0012 alone."""
 
     cfg, buffer = offline_config()
-    command.upgrade(cfg, f"{HEAD_0011}:{HEAD}", sql=True)
+    command.upgrade(cfg, f"{HEAD_0011}:{HEAD_0012}", sql=True)
     return buffer.getvalue()
 
 
-def test_0012_creates_the_notion_tables_with_their_keys_and_scopes_the_plan_tables_to_the_agent_role() -> None:
+def test_0012_creates_the_box_connections_table_without_a_policy_and_widens_the_two_checks() -> None:
+    sql = box_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == [BOX_CONNECTIONS]
+    assert "CONSTRAINT pk_box_connections PRIMARY KEY (user_id)" in sql
+    assert "CONSTRAINT ck_box_connections_status CHECK (status IN ('active', 'expired'))" in sql
+    assert "REFERENCES users (id) ON DELETE CASCADE" in sql
+    assert f"ALTER TABLE {BOX_CONNECTIONS} ENABLE ROW LEVEL SECURITY" in sql
+    assert "CREATE POLICY" not in sql
+    assert "GRANT" not in sql.upper()
+    assert "CHECK (app IN ('atlassian', 'github', 'slack', 'linear', 'box'))" in sql
+    assert "CHECK (kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'linear_project', 'box'))" in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index(f"CREATE TABLE {BOX_CONNECTIONS}")
+    assert "UPDATE alembic_version SET version_num='0012_box'" in sql
+
+
+def test_the_downgrade_of_0012_removes_box_rows_restores_the_checks_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD_0012}:{HEAD_0011}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == [BOX_CONNECTIONS]
+    assert "DELETE FROM project_integrations WHERE project_integrations.app = 'box'" in sql
+    assert "CHECK (app IN ('atlassian', 'github', 'slack', 'linear'))" in sql
+    assert "CHECK (kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'linear_project'))" in sql
+    assert "UPDATE alembic_version SET version_num='0011_linear'" in sql
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0012_box.py").read_text("utf-8")
+    assert "every Box connection is lost" in doc
+
+
+# Dropbox, added by revision 0013 on top of 0012 ------------------------------------------------
+
+
+def dropbox_sql() -> str:
+    """The SQL of revision 0013 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{HEAD_0012}:{HEAD_0013}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0013_creates_the_dropbox_connections_table_without_a_policy_or_refresh_expiry_and_widens_the_checks() -> None:
+    sql = dropbox_sql()
+
+    assert re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql) == [DROPBOX_CONNECTIONS]
+    assert "CONSTRAINT pk_dropbox_connections PRIMARY KEY (user_id)" in sql
+    assert "CONSTRAINT ck_dropbox_connections_status CHECK (status IN ('active', 'expired'))" in sql
+    assert "REFERENCES users (id) ON DELETE CASCADE" in sql
+    assert "refresh_token BYTEA NOT NULL" in sql
+    assert "refresh_expires_at" not in sql and "email" not in sql
+    assert f"ALTER TABLE {DROPBOX_CONNECTIONS} ENABLE ROW LEVEL SECURITY" in sql
+    assert "CREATE POLICY" not in sql
+    assert "GRANT" not in sql.upper()
+    assert "CHECK (app IN ('atlassian', 'github', 'slack', 'linear', 'box', 'dropbox'))" in sql
+    assert "CHECK (kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'linear_project', 'box', 'dropbox'))" in sql
+    assert sql.index("-- lock_timeout skipped (offline)") < sql.index(f"CREATE TABLE {DROPBOX_CONNECTIONS}")
+    assert "UPDATE alembic_version SET version_num='0013_dropbox'" in sql
+
+
+def test_the_downgrade_of_0013_removes_dropbox_rows_restores_the_checks_and_says_what_is_lost() -> None:
+    cfg, buffer = offline_config()
+
+    command.downgrade(cfg, f"{HEAD_0013}:{HEAD_0012}", sql=True)
+
+    sql = buffer.getvalue()
+    assert re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql) == [DROPBOX_CONNECTIONS]
+    assert "DELETE FROM project_integrations WHERE project_integrations.app = 'dropbox'" in sql
+    assert "CHECK (app IN ('atlassian', 'github', 'slack', 'linear', 'box'))" in sql
+    assert "CHECK (kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'linear_project', 'box'))" in sql
+    assert "UPDATE alembic_version SET version_num='0012_box'" in sql
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0013_dropbox.py").read_text("utf-8")
+    assert "every Dropbox connection is lost" in doc
+
+
+# Notion, added by revision 0014 on top of 0013 -------------------------------------------------------------
+
+
+def notion_sql() -> str:
+    """The SQL of revision 0014 alone."""
+
+    cfg, buffer = offline_config()
+    command.upgrade(cfg, f"{HEAD_0013}:{HEAD}", sql=True)
+    return buffer.getvalue()
+
+
+def test_0014_creates_the_notion_tables_with_their_keys_and_scopes_the_plan_tables_to_the_agent_role() -> None:
     sql = notion_sql()
 
     created = re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(", sql)
@@ -1071,33 +1169,34 @@ def test_0012_creates_the_notion_tables_with_their_keys_and_scopes_the_plan_tabl
     assert f"CREATE POLICY agent_project_scope ON {NOTION_CONNECTIONS}" not in sql
     assert sql.index("-- lock_timeout skipped (offline)") < sql.index("CREATE TABLE notion_connections")
     assert "GRANT" not in sql.upper()
-    assert "UPDATE alembic_version SET version_num='0012_notion'" in sql
+    assert "UPDATE alembic_version SET version_num='0014_notion'" in sql
 
 
-def test_0012_widens_the_app_and_source_kind_checks_with_notion() -> None:
+def test_0014_widens_the_app_and_source_kind_checks_with_notion() -> None:
     sql = notion_sql()
 
     assert (
-        "ADD CONSTRAINT ck_project_integrations_app CHECK (app IN ('atlassian', 'github', 'slack', 'linear', 'notion'))"
+        "ADD CONSTRAINT ck_project_integrations_app CHECK "
+        "(app IN ('atlassian', 'github', 'slack', 'linear', 'box', 'dropbox', 'notion'))"
     ) in sql
     assert (
         "ADD CONSTRAINT ck_connections_kind CHECK "
-        "(kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'linear_project', 'notion'))"
+        "(kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'linear_project', 'box', 'dropbox', 'notion'))"
     ) in sql
 
 
-def test_the_downgrade_of_0012_drops_the_tables_removes_notion_rows_and_says_what_is_lost() -> None:
+def test_the_downgrade_of_0014_drops_the_tables_removes_notion_rows_and_says_what_is_lost() -> None:
     cfg, buffer = offline_config()
 
-    command.downgrade(cfg, f"{HEAD}:{HEAD_0011}", sql=True)
+    command.downgrade(cfg, f"{HEAD}:{HEAD_0013}", sql=True)
 
     sql = buffer.getvalue()
     dropped = re.findall(r"DROP TABLE (?:IF EXISTS )?(\w+)", sql)
     assert dropped == ["notion_plan_items", "notion_plan_targets", NOTION_CONNECTIONS]
     assert "DELETE FROM project_integrations WHERE project_integrations.app = 'notion'" in sql
     assert "DELETE FROM connections WHERE connections.kind = 'notion'" in sql
-    assert "app IN ('atlassian', 'github', 'slack', 'linear')" in sql
-    assert "kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'linear_project')" in sql
-    assert "UPDATE alembic_version SET version_num='0011_linear'" in sql
-    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0012_notion.py").read_text("utf-8")
+    assert "app IN ('atlassian', 'github', 'slack', 'linear', 'box', 'dropbox')" in sql
+    assert "kind IN ('gdrive', 'upload', 'confluence', 'jira_epic', 'linear_project', 'box', 'dropbox')" in sql
+    assert "UPDATE alembic_version SET version_num='0013_dropbox'" in sql
+    doc = (ALEMBIC_INI.parent / "migrations" / "versions" / "0014_notion.py").read_text("utf-8")
     assert "every Notion connection" in doc

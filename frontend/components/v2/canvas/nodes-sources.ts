@@ -7,10 +7,13 @@ import { cardView, failedCardLine } from "@/components/mission-control/sources/s
 import { fullSourceName, progressOf, sourceState } from "@/lib/domain/source-state";
 import type { Source, SourceKind } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
+import { BOX_WORDS, boxOpen } from "./box-logic";
+import { DROPBOX_WORDS, dropboxOpen } from "./dropbox-logic";
 import { CONFLUENCE_WORDS } from "./confluence-logic";
 import { JIRA_EPIC_WORDS } from "./jira-epic-logic";
 import { LINEAR_SOURCE_WORDS } from "./linear-source-logic";
 import { NOTION_IMPORT_WORDS } from "./notion-logic";
+import type { IntegrationApp } from "@/lib/domain/integrations";
 import type { NodeMapper, NodeView, Stages } from "./canvas-types";
 
 const APP_NAME: Partial<Record<SourceKind, string>> = {
@@ -19,6 +22,8 @@ const APP_NAME: Partial<Record<SourceKind, string>> = {
   confluence: "Confluence",
   jira_epic: "Jira",
   linear_project: "Linear",
+  box: "Box",
+  dropbox: "Dropbox",
   notion: "Notion",
 };
 
@@ -28,11 +33,10 @@ const MARK = {
   confluence: "confluence",
   jira_epic: "jira",
   linear_project: "linear",
+  box: "box",
+  dropbox: "dropbox",
   notion: "notion",
 } as const;
-
-/** The integration whose reconnect a stopped node of an imported kind offers. */
-const IMPORT_APP = { confluence: "atlassian", jira_epic: "atlassian", linear_project: "linear", notion: "notion" } as const;
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 
@@ -64,7 +68,19 @@ const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess:
   confluence: CONFLUENCE_WORDS,
   jira_epic: JIRA_EPIC_WORDS,
   linear_project: LINEAR_SOURCE_WORDS,
+  box: BOX_WORDS,
+  dropbox: DROPBOX_WORDS,
   notion: NOTION_IMPORT_WORDS,
+};
+
+/** The app a stopped imported source offers to reconnect (`no_access`: the bound member's account lost its access). */
+const RECONNECT: Partial<Record<SourceKind, IntegrationApp>> = {
+  confluence: "atlassian",
+  jira_epic: "atlassian",
+  linear_project: "linear",
+  box: "box",
+  dropbox: "dropbox",
+  notion: "notion",
 };
 
 /** A node of a Jira epic is named by its key ("NWO-12: Checkout redesign" is its full name, in the label and the dialog). */
@@ -83,13 +99,20 @@ function stoppedWords(s: Source, kind: SourceKind): { meta: string; text: string
   return { meta, text: s.failure === null ? meta : driveReasonMessage(s.failure, null) };
 }
 
+/** Where a node of an app opens in it (an https address the app's own check accepts). */
+const OPEN: Partial<Record<SourceKind, (link: string | null) => { href: string; label: string } | undefined>> = {
+  box: boxOpen,
+  dropbox: dropboxOpen,
+};
+
 function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Date): NodeView {
   const state = sourceState(s);
   const card = cardView(s);
   const app = APP_NAME[kind] ?? kind;
   const name = nodeName(s, kind, now);
   const named = kind === "upload" ? name : `${app} ${fullSourceName(s)}`;
-  const detail = { app, by: `${V2_COPY.addedBy} ${s.addedBy.name}`, remove: "source", reconnect: null } as const;
+  const open = OPEN[kind]?.(s.link);
+  const detail = { app, by: `${V2_COPY.addedBy} ${s.addedBy.name}`, remove: "source", reconnect: null, ...(open && { open }) } as const;
   const base = { id: s.id, kind, zone: "graph", mark: MARK[kind], name, tag: undefined, addedAt: s.addedAt } as const;
   if (state === "processing") {
     const meta = unitText(kind, card.countLine);
@@ -117,11 +140,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
       listing: false,
       label: `${named}: ${meta}`,
       wire: "off",
-      detail: {
-        ...detail,
-        text,
-        reconnect: kind in IMPORT_APP && s.failure === "no_access" ? IMPORT_APP[kind as keyof typeof IMPORT_APP] : null,
-      },
+      detail: { ...detail, text, reconnect: s.failure === "no_access" ? (RECONNECT[kind] ?? null) : null },
     };
   }
   const count = unitText(kind, card.countLine);
@@ -140,7 +159,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "notion"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "box" | "dropbox" | "notion"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
@@ -149,4 +168,6 @@ export const driveNodes: NodeMapper = sourcesOf("gdrive");
 export const confluenceNodes: NodeMapper = sourcesOf("confluence");
 export const jiraEpicNodes: NodeMapper = sourcesOf("jira_epic");
 export const linearProjectNodes: NodeMapper = sourcesOf("linear_project");
+export const boxNodes: NodeMapper = sourcesOf("box");
+export const dropboxNodes: NodeMapper = sourcesOf("dropbox");
 export const notionNodes: NodeMapper = sourcesOf("notion");

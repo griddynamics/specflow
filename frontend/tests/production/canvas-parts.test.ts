@@ -113,6 +113,8 @@ test("the registry lists each kind once; only MCP is automatic, each kind has a 
       "confluence",
       "jira_epic",
       "linear_project",
+      "box",
+      "dropbox",
       "notion",
       "slack",
       "jira_gap",
@@ -130,7 +132,7 @@ test("the registry lists each kind once; only MCP is automatic, each kind has a 
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === "graph").map((c) => c.app),
-    [null, null, "github", "atlassian", "atlassian", "linear", "notion"],
+    [null, null, "github", "atlassian", "atlassian", "linear", "box", "dropbox", "notion"],
   );
   assert.deepEqual(
     CONNECTORS.filter((c) => c.zone === "plan").map((c) => [c.kind, c.app]),
@@ -146,7 +148,7 @@ test("the registry lists each kind once; only MCP is automatic, each kind has a 
     null,
     "the channel is the Slack integration: it is bound from inside Slack",
   );
-  assert.equal(NODE_MAPPERS.length, 15);
+  assert.equal(NODE_MAPPERS.length, 17);
   assert.equal(CONNECTORS.find((c) => c.kind === "gdrive")?.check?.add, "Add source");
   assert.equal(CONNECTORS.find((c) => c.kind === "jira")?.check?.test, "Check access");
   assert.equal(CONNECTORS.find((c) => c.kind === "notion")?.check, null, "Notion pages are ticked from a list: no check step");

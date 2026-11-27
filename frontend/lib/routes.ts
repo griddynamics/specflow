@@ -17,7 +17,7 @@ export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMode[] }> = {
   home: { template: "", trees: ["production"] },
   canvas: { template: "/projects/{projectId}", trees: ["production"] }, // Mission Control V2: the canvas of a project (app/(v2))
-  integrations: { template: "/projects/{projectId}/integrations", trees: ["production"] }, // V2: ?github= | ?atlassian= | ?next=
+  integrations: { template: "/projects/{projectId}/integrations", trees: ["production"] }, // V2: ?github= | ?atlassian= | ?linear= | ?box= | ?dropbox= | ?next=
   missionControl: { template: "/projects/{projectId}/mission-control", trees: ["production"] },
   gaps: { template: "/projects/{projectId}/gaps", trees: ["production"] }, // FR-GWEB-04: the Gaps screen (was Decisions)
   plan: { template: "/projects/{projectId}/plan", trees: ["production"] }, // P20; page files in P21
@@ -116,13 +116,15 @@ export function parseGuideTopic(topic: string): GuideTopic | null {
 }
 
 /**
- * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?linear=`, `?notion=`), the app whose set-up opens at once (`?setup=`) and
+ * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?linear=`, `?box=`, `?dropbox=`, `?notion=`), the app whose set-up opens at once (`?setup=`) and
  * the same-site `next` path the page returns to after a connect (the canvas form that asked). Anything else is null.
  */
 export function parseIntegrationsQuery(q: URLSearchParams): {
   github: string | null;
   atlassian: string | null;
   linear: string | null;
+  box: string | null;
+  dropbox: string | null;
   notion: string | null;
   setup: IntegrationCardId | null;
   next: string | null;
@@ -133,6 +135,8 @@ export function parseIntegrationsQuery(q: URLSearchParams): {
     github: q.get("github"),
     atlassian: q.get("atlassian"),
     linear: q.get("linear"),
+    box: q.get("box"),
+    dropbox: q.get("dropbox"),
     notion: q.get("notion"),
     setup,
     next: isSameSitePath(next) ? next : null,
