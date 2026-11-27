@@ -122,24 +122,27 @@ test("V2 routes: the canvas and the Integrations page; `/` stays home", () => {
 
 test("the Integrations query: return codes, the app to open and a same-site `next` only", () => {
   const q = (s: string) => parseIntegrationsQuery(new URLSearchParams(s));
-  assert.deepEqual(q(""), { github: null, atlassian: null, linear: null, box: null, dropbox: null, setup: null, next: null });
+  assert.deepEqual(q(""), { github: null, atlassian: null, linear: null, box: null, dropbox: null, notion: null, setup: null, next: null });
   assert.deepEqual(q("github=connected&setup=github&next=/projects/p1"), {
     github: "connected",
     atlassian: null,
     linear: null,
     box: null,
     dropbox: null,
+    notion: null,
     setup: "github",
     next: "/projects/p1",
   });
   assert.equal(q("atlassian=atlassian_consent_denied").atlassian, "atlassian_consent_denied");
   assert.equal(q("linear=linear_consent_denied").linear, "linear_consent_denied");
+  assert.equal(q("notion=connected").notion, "connected");
   assert.equal(q("setup=linear").setup, "linear");
   assert.equal(q("box=box_consent_denied").box, "box_consent_denied");
   assert.equal(q("setup=box").setup, "box");
   assert.equal(q("dropbox=dropbox_consent_denied").dropbox, "dropbox_consent_denied");
   assert.equal(q("setup=dropbox").setup, "dropbox");
-  assert.equal(q("setup=notion").setup, null);
+  assert.equal(q("setup=notion").setup, "notion");
+  assert.equal(q("setup=unknown").setup, null);
   for (const bad of ["//evil.example", "https://evil.example", "/a/../b", "/\\evil"])
     assert.equal(q(`next=${encodeURIComponent(bad)}`).next, null, bad);
 });

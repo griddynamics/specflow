@@ -1230,6 +1230,126 @@
         "group_id"
       ]
     },
+    "notion_connections": {
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "workspace_id": {
+          "type": "text"
+        },
+        "workspace_name": {
+          "type": "text"
+        },
+        "bot_id": {
+          "type": "text"
+        },
+        "status": {
+          "type": "text"
+        },
+        "connected_at": {
+          "type": "timestamp"
+        },
+        "last_used_at": {
+          "type": "timestamp"
+        },
+        "expired_at": {
+          "type": "timestamp"
+        },
+        "refresh_expires_at": {
+          "type": "timestamp"
+        },
+        "refresh_token": {
+          "type": "bytes"
+        }
+      }
+    },
+    "notion_plan_items": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "node_id": {
+          "type": "text"
+        },
+        "kind": {
+          "type": "text"
+        },
+        "page_id": {
+          "type": "text"
+        },
+        "requested_at": {
+          "type": "timestamp"
+        },
+        "synced_at": {
+          "type": "timestamp"
+        },
+        "error_code": {
+          "type": "text"
+        },
+        "removed_at": {
+          "type": "timestamp"
+        },
+        "content_hash": {
+          "type": "text"
+        },
+        "content": {
+          "type": "json"
+        }
+      }
+    },
+    "notion_plan_targets": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "parent_page_id": {
+          "type": "text"
+        },
+        "parent_page_title": {
+          "type": "text"
+        },
+        "parent_page_url": {
+          "type": "text"
+        },
+        "database_id": {
+          "type": "text"
+        },
+        "data_source_id": {
+          "type": "text"
+        },
+        "database_url": {
+          "type": "text"
+        },
+        "last_counts": {
+          "type": "json"
+        },
+        "last_error_code": {
+          "type": "text"
+        },
+        "last_finished_at": {
+          "type": "timestamp"
+        },
+        "last_started_at": {
+          "type": "timestamp"
+        },
+        "last_trigger": {
+          "type": "text"
+        },
+        "last_status": {
+          "type": "text"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        },
+        "enabled": {
+          "type": "bool"
+        }
+      }
+    },
     "pg_class": {
       "columns": {
         "oid": {

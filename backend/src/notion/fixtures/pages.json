@@ -1,0 +1,1278 @@
+{
+ "423ed336-0645-81f3-b5ea-ff40471c93e5": {
+  "object": "page",
+  "id": "423ed336-0645-81f3-b5ea-ff40471c93e5",
+  "created_time": "2026-11-25T19:38:00.000Z",
+  "last_edited_time": "2026-11-25T19:56:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": {
+   "type": "emoji",
+   "emoji": "🧪"
+  },
+  "parent": {
+   "type": "workspace",
+   "workspace": true
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "title": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Specflow Notion Lab",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Specflow Notion Lab",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Specflow-Notion-Lab-423ed336064581f3b5eaff40471c93e5",
+  "public_url": null
+ },
+ "423ed336-0645-8138-9d24-d7f3c76b496d": {
+  "object": "page",
+  "id": "423ed336-0645-8138-9d24-d7f3c76b496d",
+  "created_time": "2026-11-25T19:41:00.000Z",
+  "last_edited_time": "2026-11-25T19:41:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "data_source_id",
+   "data_source_id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+   "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Blocks": {
+    "id": "%3BtrP",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Children": {
+    "id": "FGNX",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Synced at": {
+    "id": "PG%60J",
+    "type": "date",
+    "date": null
+   },
+   "Work area": {
+    "id": "Pe%40%7D",
+    "type": "select",
+    "select": {
+     "id": "a874d6c0-1b30-4ab7-8173-b4245c7c08dc",
+     "name": "frontend",
+     "color": "pink"
+    }
+   },
+   "Blocked by": {
+    "id": "ZI%7B%7B",
+    "type": "relation",
+    "relation": [
+     {
+      "id": "423ed336-0645-8145-9d7d-f38842545c99"
+     }
+    ],
+    "has_more": false
+   },
+   "Parent": {
+    "id": "%60Cgb",
+    "type": "relation",
+    "relation": [
+     {
+      "id": "423ed336-0645-8104-88a4-f83c41585cc1"
+     }
+    ],
+    "has_more": false
+   },
+   "Points": {
+    "id": "q%5BsT",
+    "type": "number",
+    "number": 3
+   },
+   "Type": {
+    "id": "twHt",
+    "type": "select",
+    "select": {
+     "id": "f694eeaa-9dd6-48f0-8921-3aa05156dc11",
+     "name": "Task",
+     "color": "gray"
+    }
+   },
+   "Specflow ID": {
+    "id": "w_RA",
+    "type": "rich_text",
+    "rich_text": [
+     {
+      "type": "text",
+      "text": {
+       "content": "T-1.1.2",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "T-1.1.2",
+      "href": null
+     }
+    ]
+   },
+   "Status": {
+    "id": "%7DfrA",
+    "type": "status",
+    "status": {
+     "id": "a2a35b5b-ff90-45a1-8974-6b9fd4a1568a",
+     "name": "To do",
+     "color": "gray"
+    }
+   },
+   "Name": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Render points line on checkout summary",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Render points line on checkout summary",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Render-points-line-on-checkout-summary-423ed336064581389d24d7f3c76b496d",
+  "public_url": null
+ },
+ "423ed336-0645-8145-9d7d-f38842545c99": {
+  "object": "page",
+  "id": "423ed336-0645-8145-9d7d-f38842545c99",
+  "created_time": "2026-11-25T19:41:00.000Z",
+  "last_edited_time": "2026-11-25T19:41:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "data_source_id",
+   "data_source_id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+   "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Blocks": {
+    "id": "%3BtrP",
+    "type": "relation",
+    "relation": [
+     {
+      "id": "423ed336-0645-8138-9d24-d7f3c76b496d"
+     }
+    ],
+    "has_more": false
+   },
+   "Children": {
+    "id": "FGNX",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Synced at": {
+    "id": "PG%60J",
+    "type": "date",
+    "date": null
+   },
+   "Work area": {
+    "id": "Pe%40%7D",
+    "type": "select",
+    "select": {
+     "id": "d624829e-c269-4174-a1f9-23d84eafe4e9",
+     "name": "backend",
+     "color": "blue"
+    }
+   },
+   "Blocked by": {
+    "id": "ZI%7B%7B",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Parent": {
+    "id": "%60Cgb",
+    "type": "relation",
+    "relation": [
+     {
+      "id": "423ed336-0645-8104-88a4-f83c41585cc1"
+     }
+    ],
+    "has_more": false
+   },
+   "Points": {
+    "id": "q%5BsT",
+    "type": "number",
+    "number": 2
+   },
+   "Type": {
+    "id": "twHt",
+    "type": "select",
+    "select": {
+     "id": "f694eeaa-9dd6-48f0-8921-3aa05156dc11",
+     "name": "Task",
+     "color": "gray"
+    }
+   },
+   "Specflow ID": {
+    "id": "w_RA",
+    "type": "rich_text",
+    "rich_text": [
+     {
+      "type": "text",
+      "text": {
+       "content": "T-1.1.1",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "T-1.1.1",
+      "href": null
+     }
+    ]
+   },
+   "Status": {
+    "id": "%7DfrA",
+    "type": "status",
+    "status": {
+     "id": "a2a35b5b-ff90-45a1-8974-6b9fd4a1568a",
+     "name": "To do",
+     "color": "gray"
+    }
+   },
+   "Name": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Add earned_points to the loyalty API",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Add earned_points to the loyalty API",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Add-earned_points-to-the-loyalty-API-423ed336064581459d7df38842545c99",
+  "public_url": null
+ },
+ "423ed336-0645-8104-88a4-f83c41585cc1": {
+  "object": "page",
+  "id": "423ed336-0645-8104-88a4-f83c41585cc1",
+  "created_time": "2026-11-25T19:41:00.000Z",
+  "last_edited_time": "2026-11-25T19:41:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "data_source_id",
+   "data_source_id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+   "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Blocks": {
+    "id": "%3BtrP",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Children": {
+    "id": "FGNX",
+    "type": "relation",
+    "relation": [
+     {
+      "id": "423ed336-0645-8145-9d7d-f38842545c99"
+     },
+     {
+      "id": "423ed336-0645-8138-9d24-d7f3c76b496d"
+     }
+    ],
+    "has_more": false
+   },
+   "Synced at": {
+    "id": "PG%60J",
+    "type": "date",
+    "date": null
+   },
+   "Work area": {
+    "id": "Pe%40%7D",
+    "type": "select",
+    "select": {
+     "id": "a874d6c0-1b30-4ab7-8173-b4245c7c08dc",
+     "name": "frontend",
+     "color": "pink"
+    }
+   },
+   "Blocked by": {
+    "id": "ZI%7B%7B",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Parent": {
+    "id": "%60Cgb",
+    "type": "relation",
+    "relation": [
+     {
+      "id": "423ed336-0645-812b-bd9a-e9be6ec3cfa1"
+     }
+    ],
+    "has_more": false
+   },
+   "Points": {
+    "id": "q%5BsT",
+    "type": "number",
+    "number": 5
+   },
+   "Type": {
+    "id": "twHt",
+    "type": "select",
+    "select": {
+     "id": "186d34f6-7d79-406f-927c-405e0d990198",
+     "name": "Story",
+     "color": "blue"
+    }
+   },
+   "Specflow ID": {
+    "id": "w_RA",
+    "type": "rich_text",
+    "rich_text": [
+     {
+      "type": "text",
+      "text": {
+       "content": "S-1.1",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "S-1.1",
+      "href": null
+     }
+    ]
+   },
+   "Status": {
+    "id": "%7DfrA",
+    "type": "status",
+    "status": {
+     "id": "a2a35b5b-ff90-45a1-8974-6b9fd4a1568a",
+     "name": "To do",
+     "color": "gray"
+    }
+   },
+   "Name": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Shopper sees earned points on the summary",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Shopper sees earned points on the summary",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Shopper-sees-earned-points-on-the-summary-423ed3360645810488a4f83c41585cc1",
+  "public_url": null
+ },
+ "423ed336-0645-812b-bd9a-e9be6ec3cfa1": {
+  "object": "page",
+  "id": "423ed336-0645-812b-bd9a-e9be6ec3cfa1",
+  "created_time": "2026-11-25T19:41:00.000Z",
+  "last_edited_time": "2026-11-25T19:41:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "data_source_id",
+   "data_source_id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+   "database_id": "423ed336-0645-8136-a09f-e7d3e03939ab"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Blocks": {
+    "id": "%3BtrP",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Children": {
+    "id": "FGNX",
+    "type": "relation",
+    "relation": [
+     {
+      "id": "423ed336-0645-8104-88a4-f83c41585cc1"
+     }
+    ],
+    "has_more": false
+   },
+   "Synced at": {
+    "id": "PG%60J",
+    "type": "date",
+    "date": null
+   },
+   "Work area": {
+    "id": "Pe%40%7D",
+    "type": "select",
+    "select": null
+   },
+   "Blocked by": {
+    "id": "ZI%7B%7B",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Parent": {
+    "id": "%60Cgb",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Points": {
+    "id": "q%5BsT",
+    "type": "number",
+    "number": 13
+   },
+   "Type": {
+    "id": "twHt",
+    "type": "select",
+    "select": {
+     "id": "9687f6af-7c77-4ef4-a89b-efb8de643936",
+     "name": "Feature",
+     "color": "purple"
+    }
+   },
+   "Specflow ID": {
+    "id": "w_RA",
+    "type": "rich_text",
+    "rich_text": [
+     {
+      "type": "text",
+      "text": {
+       "content": "F-1",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "F-1",
+      "href": null
+     }
+    ]
+   },
+   "Status": {
+    "id": "%7DfrA",
+    "type": "status",
+    "status": {
+     "id": "a2a35b5b-ff90-45a1-8974-6b9fd4a1568a",
+     "name": "To do",
+     "color": "gray"
+    }
+   },
+   "Name": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Loyalty points at checkout",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Loyalty points at checkout",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Loyalty-points-at-checkout-423ed3360645812bbd9ae9be6ec3cfa1",
+  "public_url": null
+ },
+ "423ed336-0645-81d7-96ef-e0d042cb7f97": {
+  "object": "page",
+  "id": "423ed336-0645-81d7-96ef-e0d042cb7f97",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "data_source_id",
+   "data_source_id": "423ed336-0645-819d-aec9-000b2cecb51b",
+   "database_id": "423ed336-0645-819b-8a30-d73a847eb5e6"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Priority": {
+    "id": "G_S%3D",
+    "type": "select",
+    "select": {
+     "id": "5cf70c2f-54cd-427d-ba1c-85f86d2fa8a8",
+     "name": "Must",
+     "color": "red"
+    }
+   },
+   "Estimate": {
+    "id": "XnAR",
+    "type": "number",
+    "number": 5
+   },
+   "Status": {
+    "id": "Z%3F%5DR",
+    "type": "status",
+    "status": {
+     "id": "76191b0f-edcc-4792-863f-f011140865d2",
+     "name": "Approved",
+     "color": "green"
+    }
+   },
+   "Area": {
+    "id": "aCNB",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "2696c21d-be2c-4e63-bffd-302638ef025d",
+      "name": "checkout",
+      "color": "blue"
+     },
+     {
+      "id": "7875c932-8c53-48d1-bc11-a2e08cb6ec58",
+      "name": "loyalty",
+      "color": "green"
+     }
+    ]
+   },
+   "Due": {
+    "id": "ckMj",
+    "type": "date",
+    "date": {
+     "start": "2027-01-20",
+     "end": null,
+     "time_zone": null
+    }
+   },
+   "Owner": {
+    "id": "ogXc",
+    "type": "people",
+    "people": [
+     {
+      "object": "user",
+      "id": "00000000-0000-4000-8000-0000000000a1",
+      "name": "Sample Author",
+      "avatar_url": null,
+      "type": "person",
+      "person": {}
+     }
+    ]
+   },
+   "Spec link": {
+    "id": "qMrn",
+    "type": "url",
+    "url": "https://example.com/spec/fr-1"
+   },
+   "Req ID": {
+    "id": "u%7DeA",
+    "type": "unique_id",
+    "unique_id": {
+     "prefix": "LOYREQ",
+     "number": 1
+    }
+   },
+   "Requirement": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Show earned points on checkout summary",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Show earned points on checkout summary",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Show-earned-points-on-checkout-summary-423ed336064581d796efe0d042cb7f97",
+  "public_url": null
+ },
+ "423ed336-0645-81dc-893f-cc140e89d124": {
+  "object": "page",
+  "id": "423ed336-0645-81dc-893f-cc140e89d124",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "data_source_id",
+   "data_source_id": "423ed336-0645-819d-aec9-000b2cecb51b",
+   "database_id": "423ed336-0645-819b-8a30-d73a847eb5e6"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Priority": {
+    "id": "G_S%3D",
+    "type": "select",
+    "select": {
+     "id": "5cf70c2f-54cd-427d-ba1c-85f86d2fa8a8",
+     "name": "Must",
+     "color": "red"
+    }
+   },
+   "Estimate": {
+    "id": "XnAR",
+    "type": "number",
+    "number": 8
+   },
+   "Status": {
+    "id": "Z%3F%5DR",
+    "type": "status",
+    "status": {
+     "id": "9be0a530-7342-4d3a-b21b-d5449d40b97b",
+     "name": "Review",
+     "color": "blue"
+    }
+   },
+   "Area": {
+    "id": "aCNB",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "7875c932-8c53-48d1-bc11-a2e08cb6ec58",
+      "name": "loyalty",
+      "color": "green"
+     }
+    ]
+   },
+   "Due": {
+    "id": "ckMj",
+    "type": "date",
+    "date": null
+   },
+   "Owner": {
+    "id": "ogXc",
+    "type": "people",
+    "people": []
+   },
+   "Spec link": {
+    "id": "qMrn",
+    "type": "url",
+    "url": null
+   },
+   "Req ID": {
+    "id": "u%7DeA",
+    "type": "unique_id",
+    "unique_id": {
+     "prefix": "LOYREQ",
+     "number": 2
+    }
+   },
+   "Requirement": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Credit points after payment capture",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Credit points after payment capture",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Credit-points-after-payment-capture-423ed336064581dc893fcc140e89d124",
+  "public_url": null
+ },
+ "423ed336-0645-81ec-b3ae-e35ee7c4de54": {
+  "object": "page",
+  "id": "423ed336-0645-81ec-b3ae-e35ee7c4de54",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "data_source_id",
+   "data_source_id": "423ed336-0645-819d-aec9-000b2cecb51b",
+   "database_id": "423ed336-0645-819b-8a30-d73a847eb5e6"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Priority": {
+    "id": "G_S%3D",
+    "type": "select",
+    "select": {
+     "id": "64b65133-f882-4f07-bd75-c822f9ed1e0d",
+     "name": "Should",
+     "color": "yellow"
+    }
+   },
+   "Estimate": {
+    "id": "XnAR",
+    "type": "number",
+    "number": 3
+   },
+   "Status": {
+    "id": "Z%3F%5DR",
+    "type": "status",
+    "status": {
+     "id": "bf5d8f75-7aa8-4186-b5d4-080e9525cb18",
+     "name": "Draft",
+     "color": "gray"
+    }
+   },
+   "Area": {
+    "id": "aCNB",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "7875c932-8c53-48d1-bc11-a2e08cb6ec58",
+      "name": "loyalty",
+      "color": "green"
+     },
+     {
+      "id": "12158e7f-30ec-4d58-b27c-5fd8dcedcea5",
+      "name": "crm",
+      "color": "purple"
+     }
+    ]
+   },
+   "Due": {
+    "id": "ckMj",
+    "type": "date",
+    "date": null
+   },
+   "Owner": {
+    "id": "ogXc",
+    "type": "people",
+    "people": []
+   },
+   "Spec link": {
+    "id": "qMrn",
+    "type": "url",
+    "url": null
+   },
+   "Req ID": {
+    "id": "u%7DeA",
+    "type": "unique_id",
+    "unique_id": {
+     "prefix": "LOYREQ",
+     "number": 3
+    }
+   },
+   "Requirement": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Points history page",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Points history page",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Points-history-page-423ed336064581ecb3aee35ee7c4de54",
+  "public_url": null
+ },
+ "423ed336-0645-81b9-83b2-f33eaa8f36e5": {
+  "object": "page",
+  "id": "423ed336-0645-81b9-83b2-f33eaa8f36e5",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-8159-9753-d8419c8ae458"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "title": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Runbook - Points backfill",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Runbook - Points backfill",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Runbook-Points-backfill-423ed336064581b983b2f33eaa8f36e5",
+  "public_url": null
+ },
+ "423ed336-0645-8143-b422-d74e5eb9926c": {
+  "object": "page",
+  "id": "423ed336-0645-8143-b422-d74e5eb9926c",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-8137-b924-dd97aa16e0a9"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "title": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Onboarding",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Onboarding",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Onboarding-423ed33606458143b422d74e5eb9926c",
+  "public_url": null
+ },
+ "423ed336-0645-8159-9753-d8419c8ae458": {
+  "object": "page",
+  "id": "423ed336-0645-8159-9753-d8419c8ae458",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-8137-b924-dd97aa16e0a9"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "title": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Runbooks",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Runbooks",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Runbooks-423ed336064581599753d8419c8ae458",
+  "public_url": null
+ },
+ "423ed336-0645-8137-b924-dd97aa16e0a9": {
+  "object": "page",
+  "id": "423ed336-0645-8137-b924-dd97aa16e0a9",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": {
+   "type": "emoji",
+   "emoji": "📚"
+  },
+  "parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-81f3-b5ea-ff40471c93e5"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "title": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Engineering Wiki",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Engineering Wiki",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/Engineering-Wiki-423ed33606458137b924dd97aa16e0a9",
+  "public_url": null
+ },
+ "423ed336-0645-8163-a8dd-e12275fc660d": {
+  "object": "page",
+  "id": "423ed336-0645-8163-a8dd-e12275fc660d",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": {
+   "type": "emoji",
+   "emoji": "📄"
+  },
+  "parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-81f3-b5ea-ff40471c93e5"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "title": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "PRD - Checkout Loyalty Points",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "PRD - Checkout Loyalty Points",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/PRD-Checkout-Loyalty-Points-423ed33606458163a8dde12275fc660d",
+  "public_url": null
+ },
+ "423ed336-0645-816a-aff4-ffe7862445e1": {
+  "object": "page",
+  "id": "423ed336-0645-816a-aff4-ffe7862445e1",
+  "created_time": "2026-11-25T19:39:00.000Z",
+  "last_edited_time": "2026-11-25T19:39:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "00000000-0000-4000-8000-0000000000a1"
+  },
+  "cover": null,
+  "icon": {
+   "type": "emoji",
+   "emoji": "🏛️"
+  },
+  "parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-81f3-b5ea-ff40471c93e5"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "title": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "ADR-007 Use event sourcing for points ledger",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "ADR-007 Use event sourcing for points ledger",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/ADR-007-Use-event-sourcing-for-points-ledger-423ed3360645816aaff4ffe7862445e1",
+  "public_url": null
+ }
+}

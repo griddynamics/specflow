@@ -24,6 +24,7 @@ from api.dropbox import dropbox_connections, dropbox_error
 from api.errors import ApiError
 from api.github import github_connections, github_error
 from api.linear.errors import linear_not_connected, linear_unavailable
+from api.notion import notion_connections, notion_error
 from api.project_integrations import (
     atlassian_not_connected,
     integration_forbidden,
@@ -40,6 +41,7 @@ from db.integrations import (
     DROPBOX,
     GITHUB,
     LINEAR,
+    NOTION,
     SLACK,
     BindingHeldError,
     IntegrationView,
@@ -48,14 +50,17 @@ from db.integrations import (
 from dropbox.codes import DropboxCode, DropboxError
 from github.codes import GitHubCode, GitHubError
 from logger.logger import INFO, WARNING, get_logger, log_event
+from notion.reasons import NotionCode, NotionError
 
 logger = get_logger("api.routers.integrations")
 router = APIRouter(prefix="/projects/{pid}/integrations", tags=["integrations"])
 
-AppName = Literal["atlassian", "github", "slack", "linear", "box", "dropbox"]
-BindableApp = Literal["atlassian", "github", "linear", "box", "dropbox"]  # Slack is bound by ``/specflow connect``
+AppName = Literal["atlassian", "github", "slack", "linear", "box", "dropbox", "notion"]
+BindableApp = Literal[
+    "atlassian", "github", "linear", "box", "dropbox", "notion"
+]  # Slack is bound by ``/specflow connect``
 Health = Literal["active", "reconnect_required", "none"]
-APPS: Final[tuple[AppName, ...]] = ("atlassian", "github", "slack", "linear", "box", "dropbox")
+APPS: Final[tuple[AppName, ...]] = ("atlassian", "github", "slack", "linear", "box", "dropbox", "notion")
 
 
 class IntegrationMemberOut(BaseModel):
@@ -95,15 +100,14 @@ def _atlassian_site(runtime: Runtime) -> str | None:
 def _available(runtime: Runtime, app: str) -> bool:
     if app == ATLASSIAN:
         return runtime.jira is not None and runtime.jira.connections is not None
-    if app == GITHUB:
-        return runtime.github is not None
-    if app == LINEAR:
-        return runtime.linear is not None
-    if app == BOX:
-        return runtime.box is not None
-    if app == DROPBOX:
-        return runtime.dropbox is not None
-    return runtime.slack is not None
+    service = {
+        GITHUB: runtime.github,
+        LINEAR: runtime.linear,
+        BOX: runtime.box,
+        DROPBOX: runtime.dropbox,
+        NOTION: runtime.notion,  # C1: the Notion branch of the card
+    }.get(app, runtime.slack)
+    return service is not None
 
 
 async def _health(runtime: Runtime, pid: uuid.UUID, row: IntegrationView | None) -> Health:
@@ -122,12 +126,16 @@ async def _health(runtime: Runtime, pid: uuid.UUID, row: IntegrationView | None)
         found = None if runtime.box is None else await runtime.box.get(row.user_id)
     elif row.app == DROPBOX:
         found = None if runtime.dropbox is None else await runtime.dropbox.get(row.user_id)
+    elif row.app == NOTION:  # C1: the Notion branch of the card
+        found = None if runtime.notion is None else await runtime.notion.get(row.user_id)
     else:
         threads = None if runtime.slack is None else runtime.slack.threads
         bound = None if threads is None else await threads.channels.binding(str(pid))
         return "active" if bound is not None else "none"
     if found is None:
         return "none"
+    if row.app == NOTION and found.workspace_id != row.workspace_id:
+        return "reconnect_required"  # the member reconnected into another Notion workspace than the binding's
     return "active" if found.status == "active" else "reconnect_required"
 
 
@@ -183,6 +191,15 @@ async def _dropbox_workspace(runtime: Runtime, user_id: uuid.UUID) -> tuple[str,
     return mine.workspace_id, mine.workspace_name
 
 
+async def _notion_workspace(runtime: Runtime, user_id: uuid.UUID) -> tuple[str, str]:
+    """C1: the Notion branch of the own workspace."""
+
+    notion = await notion_connections(runtime).get(user_id)
+    if notion is None or notion.status != "active":
+        raise notion_error(NotionError(NotionCode.NOT_CONNECTED))
+    return notion.workspace_id, notion.workspace_name
+
+
 async def _own_workspace(runtime: Runtime, user_id: uuid.UUID, app: BindableApp) -> tuple[str, str]:
     """The workspace of the caller's own active connection; ``409 <app>_not_connected`` without one."""
 
@@ -202,10 +219,9 @@ async def _own_workspace(runtime: Runtime, user_id: uuid.UUID, app: BindableApp)
         if linear is None or linear.status != "active":
             raise linear_not_connected()
         return linear.organization_id, linear.organization_name
-    if app == BOX:
-        return await _box_workspace(runtime, user_id)
-    if app == DROPBOX:
-        return await _dropbox_workspace(runtime, user_id)
+    own = {BOX: _box_workspace, DROPBOX: _dropbox_workspace, NOTION: _notion_workspace}.get(app)
+    if own is not None:
+        return await own(runtime, user_id)
     github = github_connections(runtime)
     found = await github.get(user_id)
     if found is None or found.status != "active":

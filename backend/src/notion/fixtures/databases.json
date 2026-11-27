@@ -1,0 +1,128 @@
+{
+ "423ed336-0645-8136-a09f-e7d3e03939ab": {
+  "object": "database",
+  "id": "423ed336-0645-8136-a09f-e7d3e03939ab",
+  "title": [
+   {
+    "type": "text",
+    "text": {
+     "content": "Specflow Plan (trial)",
+     "link": null
+    },
+    "annotations": {
+     "bold": false,
+     "italic": false,
+     "strikethrough": false,
+     "underline": false,
+     "code": false,
+     "color": "default"
+    },
+    "plain_text": "Specflow Plan (trial)",
+    "href": null
+   }
+  ],
+  "description": [
+   {
+    "type": "text",
+    "text": {
+     "content": "Trial export of a Specflow plan: one row per feature, story and task.",
+     "link": null
+    },
+    "annotations": {
+     "bold": false,
+     "italic": false,
+     "strikethrough": false,
+     "underline": false,
+     "code": false,
+     "color": "default"
+    },
+    "plain_text": "Trial export of a Specflow plan: one row per feature, story and task.",
+    "href": null
+   }
+  ],
+  "parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-81f3-b5ea-ff40471c93e5"
+  },
+  "is_inline": false,
+  "database_type": null,
+  "in_trash": false,
+  "is_locked": false,
+  "show_data_source_title": true,
+  "created_time": "2026-11-25T19:41:12.974+00:00",
+  "last_edited_time": "2026-11-25T19:41:19.644+00:00",
+  "data_sources": [
+   {
+    "id": "423ed336-0645-8162-9b9a-000bbce2d0e4",
+    "name": "Specflow Plan (trial)"
+   }
+  ],
+  "icon": null,
+  "cover": null,
+  "url": "https://app.notion.com/p/423ed33606458136a09fe7d3e03939ab",
+  "public_url": null
+ },
+ "423ed336-0645-819b-8a30-d73a847eb5e6": {
+  "object": "database",
+  "id": "423ed336-0645-819b-8a30-d73a847eb5e6",
+  "title": [
+   {
+    "type": "text",
+    "text": {
+     "content": "Requirements DB",
+     "link": null
+    },
+    "annotations": {
+     "bold": false,
+     "italic": false,
+     "strikethrough": false,
+     "underline": false,
+     "code": false,
+     "color": "default"
+    },
+    "plain_text": "Requirements DB",
+    "href": null
+   }
+  ],
+  "description": [
+   {
+    "type": "text",
+    "text": {
+     "content": "Requirement rows with properties and page bodies, to test database-as-source.",
+     "link": null
+    },
+    "annotations": {
+     "bold": false,
+     "italic": false,
+     "strikethrough": false,
+     "underline": false,
+     "code": false,
+     "color": "default"
+    },
+    "plain_text": "Requirement rows with properties and page bodies, to test database-as-source.",
+    "href": null
+   }
+  ],
+  "parent": {
+   "type": "page_id",
+   "page_id": "423ed336-0645-81f3-b5ea-ff40471c93e5"
+  },
+  "is_inline": false,
+  "database_type": null,
+  "in_trash": false,
+  "is_locked": false,
+  "show_data_source_title": true,
+  "created_time": "2026-11-25T19:39:21.210+00:00",
+  "last_edited_time": "2026-11-25T19:39:21.210+00:00",
+  "data_sources": [
+   {
+    "id": "423ed336-0645-819d-aec9-000b2cecb51b",
+    "name": "Requirements DB"
+   }
+  ],
+  "icon": null,
+  "cover": null,
+  "url": "https://app.notion.com/p/423ed3360645819b8a30d73a847eb5e6",
+  "public_url": null
+ }
+}

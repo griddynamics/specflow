@@ -35,6 +35,7 @@ from dropbox import connections as dropbox_connections
 from github.connections import GitHubConnections
 from github_support import CODE_CANARY, USER_ID, FakeGitHub, MemoryStore, github_settings
 from integrations_db_fakes import FakeIntegrationsDb
+from notion_support import FakeNotionConnections
 from specflow_api_agent_support import ALPHA, agent_env, serve_agent
 from test_api_atlassian_routes import call, error_of
 
@@ -45,8 +46,8 @@ T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 @pytest_asyncio.fixture
 async def rig(monkeypatch, valid_env, tmp_path):
-    """The app with Atlassian (oauth mode), GitHub and Slack on: ``rig.atlassian`` and ``rig.github_store`` hold the
-    members' connections, ``rig.integrations`` the project rows, ``rig.channels`` the Slack bindings."""
+    """The app with Atlassian (oauth mode), GitHub, Slack and Notion on: ``rig.atlassian`` and ``rig.github_store``
+    hold the members' connections, ``rig.integrations`` the project rows, ``rig.channels`` the Slack bindings."""
 
     async with serve_agent(monkeypatch, agent_env(valid_env, **oauth_env())) as served:
         atlassian = FakeAtlassianDb()
@@ -74,6 +75,7 @@ async def rig(monkeypatch, valid_env, tmp_path):
             return dropbox_views.get(user_id)
 
         runtime.dropbox = SimpleNamespace(get=dropbox_get)  # the Dropbox service as the routes read it
+        runtime.notion = notion = FakeNotionConnections()
         channels = SlackChannels(tmp_path)
         runtime.slack = SimpleNamespace(threads=SimpleNamespace(channels=channels))
         ben = await repo.upsert_user(None, SimpleNamespace(subject=f"user:{BEN}", email=BEN, name=None))
@@ -91,6 +93,7 @@ async def rig(monkeypatch, valid_env, tmp_path):
             github_store=store,
             box_views=box_views,
             dropbox_views=dropbox_views,
+            notion=notion,
             integrations=integrations,
             channels=channels,
             alpha=alpha,
@@ -128,6 +131,7 @@ async def test_a_project_without_connections_lists_the_five_apps_with_nothing_ac
         "linear",
         "box",
         "dropbox",
+        "notion",
     ]
     assert list(apps(answer).values()) == [
         {
@@ -138,7 +142,7 @@ async def test_a_project_without_connections_lists_the_five_apps_with_nothing_ac
             "connected_at": None,
             "health": "none",
         }
-        for app in ("atlassian", "github", "slack", "linear", "box", "dropbox")
+        for app in ("atlassian", "github", "slack", "linear", "box", "dropbox", "notion")
     ]
 
 
@@ -148,6 +152,8 @@ async def test_a_connected_app_names_the_member_its_workspace_and_the_health_of_
     rig.integrations.put(rig.alpha, "atlassian", rig.alice.id, workspace_id=CLOUD, workspace_name="stored")
     rig.integrations.put(rig.alpha, "github", rig.ben.id, workspace_id="octo-ben", workspace_name="octo-ben")
     rig.integrations.put(rig.alpha, "slack", rig.alice.id, workspace_id="T1", workspace_name="Shop")
+    rig.notion.users[rig.ben.id] = "active"
+    rig.integrations.put(rig.alpha, "notion", rig.ben.id, workspace_id="ws-1", workspace_name="Sample Workspace")
     await rig.channels.bind(Binding(str(rig.alpha), "C1", "shop-gaps", str(rig.alice.id)))
 
     listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN))
@@ -157,8 +163,10 @@ async def test_a_connected_app_names_the_member_its_workspace_and_the_health_of_
     assert listed["github"]["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
     assert listed["github"]["workspace"] == {"id": "octo-ben", "name": "octo-ben"}
     assert listed["slack"]["workspace"] == {"id": "T1", "name": "Shop"}
+    assert listed["notion"]["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
+    assert listed["notion"]["workspace"] == {"id": "ws-1", "name": "Sample Workspace"}
     assert {app: item["health"] for app, item in listed.items()} == {
-        **dict.fromkeys(("atlassian", "github", "slack"), "active"),
+        **dict.fromkeys(("atlassian", "github", "slack", "notion"), "active"),
         "linear": "none",
         "box": "none",  # nobody connected it
         "dropbox": "none",
@@ -187,12 +195,13 @@ async def test_an_app_the_server_does_not_run_is_unavailable(rig) -> None:
     rig.runtime.slack = None
     rig.runtime.box = None
     rig.runtime.dropbox = None
+    rig.runtime.notion = None
     rig.runtime.jira = SimpleNamespace(connections=None)  # token mode: one account for the server, no per-user ones
 
     listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))
 
     assert {app: item["available"] for app, item in listed.items()} == dict.fromkeys(
-        ("atlassian", "github", "slack", "linear", "box", "dropbox"), False
+        ("atlassian", "github", "slack", "linear", "box", "dropbox", "notion"), False
     )
 
 
@@ -411,7 +420,15 @@ async def test_removing_what_is_not_connected_is_404_and_an_unknown_app_is_422(r
         404,
         "integration_not_found",
     )
-    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")) == (422, "validation_failed")
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")) == (
+        404,
+        "integration_not_found",
+    )
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/linear")) == (
+        404,
+        "integration_not_found",
+    )
+    assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/integrations/asana")) == (422, "validation_failed")
 
 
 async def test_removing_slack_unbinds_its_channel(rig) -> None:
@@ -501,3 +518,100 @@ async def test_a_binding_that_cannot_be_read_is_a_closed_502_and_the_row_stays(r
     assert "disk full" not in answer.text and "disk full" not in caplog.text
     assert "api.integrations.binding_failed" in caplog.text
     assert (rig.alpha, "slack") in rig.integrations.rows
+
+
+# Notion ---------------------------------------------------------------------------------------------------------------
+
+
+async def test_a_member_connects_notion_as_themselves_and_nothing_is_pointed(rig) -> None:
+    rig.notion.users[rig.ben.id] = "active"
+
+    answer = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion", BEN)  # a collaborator: D6
+
+    assert answer.status_code == 200
+    body = answer.json()
+    assert body["connected_by"] == {"user_id": str(rig.ben.id), "name": "Ben"}
+    assert body["workspace"] == {"id": "ws-1", "name": "Sample Workspace"} and body["health"] == "active"
+    assert rig.integrations.rows[rig.alpha, "notion"].user_id == rig.ben.id
+    assert rig.integrations.pointed == []  # Notion has no acting-account column: its uses read the binding every call
+
+
+@pytest.mark.parametrize("state", ["missing", "expired"])
+async def test_connecting_notion_needs_the_callers_own_active_connection(rig, state: str) -> None:
+    if state == "expired":
+        rig.notion.users[rig.alice.id] = "expired"
+
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion")
+
+    assert error_of(refused) == (409, "notion_not_connected")
+    assert rig.integrations.rows == {} and rig.integrations.pointed == []
+
+
+async def test_a_project_stays_in_the_one_notion_workspace(rig) -> None:
+    rig.notion.users[rig.ben.id] = "active"
+    rig.integrations.put(rig.alpha, "notion", rig.alice.id, workspace_id="another-ws", workspace_name="Other")
+
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion", BEN)
+
+    assert error_of(refused) == (409, "integration_workspace_mismatch")
+    assert rig.integrations.rows[rig.alpha, "notion"].user_id == rig.alice.id
+
+
+async def test_a_notion_binding_is_taken_over_only_when_its_connection_is_no_longer_active(rig) -> None:
+    rig.notion.users[rig.ben.id] = "active"
+    rig.integrations.put(rig.alpha, "notion", rig.alice.id, workspace_id="ws-1", workspace_name="Sample Workspace")
+
+    held = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion", BEN)
+    rig.integrations.inactive.add(rig.alice.id)
+    taken = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion", BEN)
+
+    assert error_of(held) == (409, "integration_already_connected")
+    assert taken.status_code == 200 and taken.json()["connected_by"]["user_id"] == str(rig.ben.id)
+
+
+async def test_a_notion_binding_whose_member_expired_asks_to_reconnect_and_one_who_left_acts_as_nothing(rig) -> None:
+    rig.notion.users[rig.alice.id] = "expired"
+    rig.integrations.put(rig.alpha, "notion", rig.alice.id, workspace_id="ws-1", workspace_name="Sample Workspace")
+    expired = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))["notion"]
+    del rig.notion.users[rig.alice.id]  # disconnected altogether
+    gone = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))["notion"]
+
+    assert expired["health"] == "reconnect_required"
+    assert gone["health"] == "none" and gone["connected_by"] is not None
+
+
+async def test_notion_off_on_this_server_refuses_a_connect_and_is_unavailable(rig) -> None:
+    rig.runtime.notion = None
+
+    refused = await call(rig, "PUT", f"projects/{ALPHA}/integrations/notion")
+    listed = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations"))["notion"]
+
+    assert error_of(refused) == (503, "notion_unavailable")
+    assert listed["available"] is False and rig.integrations.rows == {}
+
+
+async def test_the_member_who_connected_notion_or_the_owner_removes_it_and_nobody_else(rig) -> None:
+    rig.integrations.put(rig.alpha, "notion", rig.ben.id)
+
+    other = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion", CAROL)
+    by_alice = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")  # alice owns the project
+    rig.integrations.put(rig.alpha, "notion", rig.alice.id)
+    forbidden = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion", BEN)
+    by_alice_again = await call(rig, "DELETE", f"projects/{ALPHA}/integrations/notion")
+
+    assert error_of(other) == (404, "project_not_found")
+    assert by_alice.status_code == by_alice_again.status_code == 204
+    assert error_of(forbidden) == (403, "integration_forbidden")
+    assert rig.integrations.rows == {} and rig.integrations.pointed == []
+
+
+async def test_a_notion_member_connected_to_another_workspace_than_the_binding_must_reconnect(rig) -> None:
+    rig.notion.users[rig.ben.id] = "active"
+    rig.integrations.put(rig.alpha, "notion", rig.ben.id, workspace_id="ws-1", workspace_name="Sample Workspace")
+    rig.notion.workspace_id = "ws-1"
+    same = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN))["notion"]["health"]
+    rig.notion.workspace_id = "ws-other"  # they reconnected into another Notion workspace
+
+    other = apps(await call(rig, "GET", f"projects/{ALPHA}/integrations", BEN))["notion"]["health"]
+
+    assert (same, other) == ("active", "reconnect_required")

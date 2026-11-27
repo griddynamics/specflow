@@ -80,6 +80,9 @@ def test_the_base_metadata_holds_exactly_the_app_tables() -> None:
         "linear_issues",
         "linear_gap_targets",
         "linear_gap_issues",
+        "notion_connections",
+        "notion_plan_targets",
+        "notion_plan_items",
     }
 
 

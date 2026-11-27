@@ -19,6 +19,7 @@ import { createLinearPlanModel } from "./stub-linear-plan.mjs";
 import { createJiraGapsModel } from "./stub-jira-gaps.mjs";
 import { createLinearGapsModel } from "./stub-linear-gaps.mjs";
 import { createGitHubModel } from "./stub-github.mjs";
+import { addNotion, bindingRefusal, checkNotion, createNotionModel, createNotionPlanModel, sharedNotion } from "./stub-notion.mjs";
 import { createIntegrationsModel } from "./stub-integrations.mjs";
 import { createMembersModel, ME, StubError as MembersError } from "./stub-members.mjs";
 
@@ -129,6 +130,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const jira = createJiraModel((pid) => people.list(pid).role);
   /** GitHub (docs/github/api.md): the caller's connection, their repositories, a project's repositories. */
   const github = createGitHubModel((pid) => people.list(pid).role, ME.name);
+  /** Notion (docs/notion/oauth.md): the caller's connection. */
+  const notion = createNotionModel();
   /** Linear (plans/LINEAR): the caller's connection. */
   const linear = createLinearModel(ME.name);
   /** Project integrations (docs/mission-control/integrations-api.md): who each app is connected by, and the Slack channel of a project. */
@@ -141,8 +144,11 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     linear,
     box,
     dropbox,
+    notion,
     displayName: ME.name,
   });
+  /** Notion plan destination: any member; acts as the project's Notion binding. */
+  const notionPlan = createNotionPlanModel((pid) => integrations.notionHealth(pid));
   /** The Linear gap channel: any member; acts as the project's Linear binding (the integrations stub, once it knows Linear, says who). */
   const linearGaps = createLinearGapsModel((pid) => integrations.linearActive?.(pid) ?? true);
   /** The Jira gap channel: any member; acts as the project's Atlassian binding. */
@@ -1057,6 +1063,22 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
           }),
         });
       }
+      if (did === "notion" && req.method === "GET" && action === "shared") {
+        const refused = bindingRefusal(integrations.notionHealth(pid));
+        return refused === null ? json(res, 200, sharedNotion()) : err(res, refused.status, refused.code);
+      }
+      if (did === "notion" && req.method === "POST" && (action === undefined || action === "check")) {
+        const body = await readJson();
+        const shape = action === "check" ? typeof body?.link === "string" : Array.isArray(body?.links);
+        const read = action === "check" ? () => checkNotion(body.link) : () => addNotion(body.links);
+        const checked = shape ? (bindingRefusal(integrations.notionHealth(pid)) ?? read()) : { status: 422, code: "validation_failed" };
+        if (!("body" in checked)) return err(res, checked.status, checked.code);
+        if (action === "check") return json(res, 200, checked.body);
+        const link = body.links[0].trim();
+        return json(res, 201, {
+          source: importedSource(pid, { kind: "notion", name: checked.body.title, link, pages: checked.body.pages }),
+        });
+      }
       if (did === "jira-epic" && req.method === "POST" && (action === undefined || action === "check")) {
         const body = await readJson();
         const checked =
@@ -1117,6 +1139,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
         did !== "linear" &&
         did !== "box" &&
         did !== "dropbox" &&
+        did !== "notion" &&
         did !== "drawio"
       ) {
         if (!action && req.method === "DELETE") {
@@ -1333,6 +1356,32 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!did && m === "PUT") return json(res, 200, githubProjects.put(pid, await readJson(req)));
     if (did === "projects" && m === "GET") return json(res, 200, githubProjects.projects(pid, url.searchParams.get("repository_id") ?? ""));
     if (did === "access-check" && m === "POST") return json(res, 200, githubProjects.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
+  /** `/projects/{pid}/notion-plan[/access-check]` (docs/notion/plan.md): the destination and the check. */
+  async function notionPlanRoute({ req, res, pid, did }) {
+    const m = req.method;
+    people.list(pid); // a non-member is a 404
+    if (!did && m === "GET") return json(res, 200, notionPlan.get(pid));
+    if (!did && m === "PUT") return json(res, 200, notionPlan.put(pid, await readJson(req)));
+    if (did === "access-check" && m === "POST") return json(res, 200, notionPlan.check(pid, await readJson(req)));
+    await drainBody(req);
+    return err(res, 404, "not_found");
+  }
+
+  /** `/integrations/notion[/authorize|/callback]` (docs/notion/oauth.md "Routes"): the caller's Notion connection. */
+  async function notionRoute({ req, res, action }) {
+    const m = req.method;
+    if (!action && m === "GET") return json(res, 200, notion.connection());
+    if (!action && m === "DELETE") {
+      notion.disconnect();
+      res.writeHead(204);
+      return res.end();
+    }
+    if (action === "authorize" && m === "POST") return json(res, 200, notion.authorize(await readJson(req)));
+    if (action === "callback" && m === "POST") return json(res, 200, notion.callback(await readJson(req)));
     await drainBody(req);
     return err(res, 404, "not_found");
   }
@@ -1554,6 +1603,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (a === "integrations" && pid === "linear") return linearRoute({ req, res, action: b });
     if (a === "integrations" && pid === "box") return boxRoute({ req, res, action: b });
     if (a === "integrations" && pid === "dropbox") return dropboxRoute({ req, res, action: b });
+    if (a === "integrations" && pid === "notion") return notionRoute({ req, res, action: b });
     if (a !== "projects") return err(res, 404, "not_found");
     if (!pid) {
       if (req.method === "GET")
@@ -1585,6 +1635,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (b === "jira-gaps") return jiraGapsRoute({ req, res, pid, did });
     if (b === "github-projects") return githubProjectsRoute({ req, res, url, pid, did });
     if (b === "linear-plan") return linearPlanRoute({ req, res, url, pid, did });
+    if (b === "notion-plan") return notionPlanRoute({ req, res, pid, did });
     if (b === "integrations") return integrationsRoute({ req, res, pid, did });
     // LINEAR S4: sources/linear (check, add) is served inside sourcesRoute, next to "jira-epic" (stub-linear-source.mjs).
     if (b === "slack") return slackRoute({ req, res, pid, did });
@@ -1677,13 +1728,17 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     linear,
     /** Linear plan destination: `linearPlan.state` (available, workspace) and `linearPlan.seed({pid, available, workspace, target, access})`. */
     linearPlan,
+    /** Notion: `notion.state` (enabled, connection, callbackError). */
+    notion,
+    /** Notion plan destination: `notionPlan.state` (available) and `notionPlan.seed({pid, available, target, access})`. */
+    notionPlan,
     /** GitHub: `github.state` (enabled, connection, errors, available, cloneMs, cloneOutcome), `github.seed({pid, repositories, ...})`. */
     github,
     /** Box: `box.state` (enabled, connection, callbackError), `box.seed({reset, enabled, connection, callbackError})`. */
     box,
     /** Dropbox: `dropbox.state` (enabled, connection, callbackError), `dropbox.seed({reset, enabled, connection, callbackError})`. */
     dropbox,
-    /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, ...})`. */
+    /** Project integrations: `integrations.state` (slackAvailable, slackTest) and `integrations.seed({pid, atlassian, github, slack, notion, ...})`. */
     integrations,
     /** Test seam: a project named `name` where the caller has `spec.role` (default owner), with the given members and invites. */
     seedProject: (name, spec) => {

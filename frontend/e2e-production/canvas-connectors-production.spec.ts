@@ -34,6 +34,7 @@ import {
   seedJira,
   seedJiraGaps,
   seedMembers,
+  seedNotion,
   seedSlack,
   seedSource,
   stubTiming,
@@ -59,11 +60,17 @@ const jiraTarget = (sync?: Record<string, unknown>) => ({
   acting: "me" as const,
   sync,
 });
+const NOTION_WIKI = "https://www.notion.so/423ed33606458163a8dde12275fc660d"; // the stub's shared "Engineering Wiki" (stub-notion.mjs)
+const WIKI = "Engineering Wiki";
+const NOTION_PLANS = "https://www.notion.so/423ed33606458163a8dde12275fc660e"; // its shared "Plans"
+const NOTION_OLD_NOTES = "https://www.notion.so/423ed33606458163a8dde12275fc0404"; // shared, then unshared
+const NOTION_REQUIREMENTS = "https://www.notion.so/423ed33606458163a8dde12275fc00db"; // a database
 const CHECK_ACCESS = "Check access";
 const SPACE_KEY = "Jira space key";
 const ADD_SOURCE = "Add a source";
 const SET_UP_FIRST = "Set up first";
 const CHECK_LINK = "Check link";
+const ADD_SOURCE_BUTTON = "Add source";
 const CHECK_EPIC = "Check epic";
 const ADD_SELECTED = "Add selected";
 const FILES_TO_ADD = "Files to add";
@@ -78,6 +85,7 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   await stubTiming(STUB_TIMING);
+  await seedNotion({ reset: true });
   await seedGitHub({ reset: true });
   await seedIntegrations({ reset: true });
   await seedSlack({ pid: "none", channel: null, available: true, test: "ok" });
@@ -338,7 +346,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(detail.getByRole("button", { name: "Remove" })).toHaveCount(0);
   });
 
-  test("Confluence: no Atlassian on the project says Set up first and comes back with the form open; a link is checked (the closed codes in words), then added as a source that imports its pages", async ({
+  test("Confluence: no Atlassian on the project says Set up first and comes back with the form open; a shared page or database is picked and checked (the closed codes in words), then added as a source that imports its pages", async ({
     page,
     requests,
   }) => {
@@ -370,12 +378,12 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await link.fill(PAGE);
     await form.getByRole("button", { name: CHECK_LINK }).click();
     await expect(form.getByText("Page Checkout notes · 4 pages, 3 linked Jira issues.")).toBeVisible();
-    await expect(form.getByRole("button", { name: "Add source" })).toBeVisible();
+    await expect(form.getByRole("button", { name: ADD_SOURCE_BUTTON })).toBeVisible();
     await form.getByLabel("Follow links to other pages and Jira issues").uncheck(); // a different choice is a new check
     await expect(form.getByRole("button", { name: CHECK_LINK })).toBeVisible();
     await form.getByRole("button", { name: CHECK_LINK }).click();
     await expect(form.getByText("Page Checkout notes · 4 pages.")).toBeVisible();
-    await form.getByRole("button", { name: "Add source" }).click();
+    await form.getByRole("button", { name: ADD_SOURCE_BUTTON }).click();
     await expect(form).toBeHidden();
     const node = nodes(page).filter({ hasText: "Checkout notes" });
     await expect(node).toHaveAttribute(STATE, "busy");
@@ -428,7 +436,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await expect(form.getByRole("button", { name: CHECK_EPIC })).toBeVisible();
     await form.getByRole("button", { name: CHECK_EPIC }).click();
     await expect(form.getByText("NWO-12 · Checkout redesign · 18 issues.")).toBeVisible();
-    await form.getByRole("button", { name: "Add source" }).click();
+    await form.getByRole("button", { name: ADD_SOURCE_BUTTON }).click();
     await expect(form).toBeHidden();
     const node = nodes(page).filter({ hasText: "NWO-12" });
     await expect(node).toHaveAttribute(STATE, "busy");
@@ -471,7 +479,7 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     await list.getByRole("button", { name: SELECT_ALL }).click();
     await expect(list.getByText("18 of 18 issues, and the epic")).toBeVisible();
     await list.getByRole("checkbox", { name: /NWO-102 +Address form/ }).uncheck();
-    await form.getByRole("button", { name: "Add source" }).click();
+    await form.getByRole("button", { name: ADD_SOURCE_BUTTON }).click();
     await expect(form).toBeHidden();
     const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/jira-epic`);
     expect(bodiesOf(adds)).toEqual([{ key_or_link: "NWO-12", exclude: ["NWO-102"] }]);
@@ -685,6 +693,102 @@ test.describe("Mission Control V2: the canvas decisions and connections", { tag:
     });
     await expect(node).toContainText("6 issues · GitHub", { timeout: 15_000 });
     await expect(wire(page, "github-plan")).toHaveAttribute(MOTION, "on");
+  });
+
+  test("Notion pages: no Notion on the project says Set up first and comes back with the form open; the ticked pages and databases become one source, and a refused add adds nothing and reads the list again", async ({
+    page,
+    requests,
+  }) => {
+    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/); // the refused add is an answer
+    await seedNotion({ reset: true, connection: { status: "active", workspace_name: "Sample Workspace" } });
+    const pid = await canvas(page, unique("Notion form"));
+    await page.getByRole("button", { name: ADD.source }).click();
+    const plus = dialog(page, ADD_SOURCE);
+    await expect(plus.getByRole("button", { name: /^Notion pages/ })).toContainText(SET_UP_FIRST);
+    await plus.getByRole("button", { name: /^Notion pages/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=notion&next=%2Fprojects%2F${pid}%3Fadd%3Dnotion$`));
+    await seedIntegrations({ pid, notion: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=notion`);
+    const form = dialog(page, "Add Notion pages");
+    const addSelected = form.getByRole("button", { name: "Add selected" });
+    await expect(form.getByRole("checkbox")).toHaveCount(6); // the stub's shared pages, then its databases
+    await expect(addSelected).toBeDisabled();
+    for (const name of [new RegExp(`^${WIKI}`), /^Old notes/, /^Requirements/]) await form.getByLabel(name).check();
+    await expect(form.getByText("3 picked")).toBeVisible();
+    await addSelected.click(); // Old notes was unshared since Notion was connected: nothing is added
+    await expect(form.getByRole("alert")).toContainText(/^Nothing was added: one of the picked pages is no longer shared with Graphico/);
+    await expect(form.getByLabel(/^Old notes/)).toBeChecked();
+    await form.getByLabel(/^Old notes/).uncheck();
+    await addSelected.click();
+    await expect(form).toBeHidden();
+    const node = nodes(page).filter({ hasText: `${WIKI} + 1 more` });
+    await expect(node).toHaveAttribute(STATE, "on", { timeout: 15_000 });
+    await expect(node).toContainText("Notion");
+    await expect(nodes(page).filter({ hasText: /^Requirements/ })).toHaveCount(0);
+    const adds = requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/sources/notion`);
+    expect(bodiesOf(adds)).toEqual([
+      { links: [NOTION_WIKI, NOTION_OLD_NOTES, NOTION_REQUIREMENTS] },
+      { links: [NOTION_WIKI, NOTION_REQUIREMENTS] },
+    ]);
+    const reads = requests.filter((r) => r.method === "GET" && r.path === `/api/backend/projects/${pid}/sources/notion/shared`);
+    expect(reads.length).toBeGreaterThanOrEqual(2); // read again after the refused add
+    await node.getByRole("button").click();
+    await expect(dialog(page, `${WIKI} + 1 more`).getByRole("button", { name: "Remove" })).toBeVisible();
+  });
+
+  test("Notion plan: no Notion on the project says Set up first; the parent page is picked and checked (the closed codes in words), Add destination saves it and the node shows the pass", async ({
+    page,
+    requests,
+  }) => {
+    allowConsoleErrors(page, /Failed to load resource: the server responded with a status of 4\d\d/);
+    const pid = await gapsFound(page, "Notion plan form");
+    await buildGraphAndPlan(page, pid);
+    await seedNotion({ connection: { status: "active", workspace_name: "Sample Workspace" } });
+    await page.goto(`/projects/${pid}`);
+    await page.getByRole("button", { name: ADD.destination }).click();
+    const plus = dialog(page, "Add a plan destination");
+    await expect(plus.getByRole("button", { name: /^Notion/ })).toContainText(SET_UP_FIRST);
+    await plus.getByRole("button", { name: /^Notion/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/integrations\\?setup=notion`));
+    await seedIntegrations({ pid, notion: { by: ALEX, health: "active" } });
+    await page.goto(`/projects/${pid}?add=notion_plan`);
+    const form = dialog(page, "Send the plan to Notion");
+    const parent = form.getByLabel("Parent page");
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeDisabled();
+    await expect(parent.getByRole("option")).toHaveText(["Choose…", WIKI, "Old notes", `Onboarding · in ${WIKI}`, "Plans"]);
+    await parent.selectOption({ label: "Old notes" });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByRole("alert")).toContainText(/no longer shared with Graphico/);
+    await expect(form.getByRole("button", { name: CHECK_ACCESS })).toBeVisible(); // still a check: nothing to add yet
+    await seedNotion({ pid, access: { reason: "notion_permissions_missing" } });
+    await parent.selectOption({ label: "Plans" });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByRole("alert")).toContainText("may not add or change content");
+    await seedNotion({ pid, access: "ok" });
+    await form.getByRole("button", { name: CHECK_ACCESS }).click();
+    await expect(form.getByText("Page “Plans”. The plan database is created under it.")).toBeVisible();
+    await form.getByRole("button", { name: "Add destination" }).click();
+    await expect(form).toBeHidden();
+    const saves = requests.filter((r) => r.method === "PUT" && r.path === `/api/backend/projects/${pid}/notion-plan`);
+    expect(bodiesOf(saves)).toEqual([{ link: NOTION_PLANS, enabled: true }]);
+    const node = nodes(page).filter({ has: page.getByLabel(/^Notion Plans:/) });
+    await expect(node).toHaveAttribute(STATE, "on");
+    await expect(node).toContainText("In sync");
+    // A pass that runs moves the wire; a finished one counts its rows.
+    const target = { parent_page_title: "Plans" };
+    await seedNotion({ pid, target: { ...target, sync: { status: "running", counts: null } } });
+    await page.reload();
+    await expect(node).toHaveAttribute(STATE, "busy");
+    await expect(wire(page, "notion-plan")).toHaveAttribute(MOTION, "flow");
+    await seedNotion({
+      pid,
+      target: {
+        ...target,
+        sync: { status: "succeeded", counts: { created: 6, updated: 0, commented: 0, removed: 0, unchanged: 0, failed: 0, deferred: 0 } },
+      },
+    });
+    await expect(node).toContainText("6 rows created", { timeout: 15_000 });
+    await expect(wire(page, "notion-plan")).toHaveAttribute(MOTION, "on");
   });
 
   test("a finished build queues the gap run by itself, and once it is done the Gap hub is on and Build plan is offered", async ({

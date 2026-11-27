@@ -6,9 +6,10 @@ import { boxToast } from "../canvas/box-logic";
 import { LINEAR_FAILURE, linearToast } from "./linear-logic";
 import { dropboxToast } from "../canvas/dropbox-logic";
 import { isDataError } from "@/lib/domain/errors";
-import type { Integration, IntegrationApp } from "@/lib/domain/integrations";
+import type { BindableApp, Integration, IntegrationApp } from "@/lib/domain/integrations";
 import type { IntegrationState } from "@graphico/ui";
 import { V2_COPY } from "../v2-copy";
+import { NOTION_WORDS, notionReturnWord } from "./notion-setup-logic";
 
 export interface CardView {
   state: IntegrationState;
@@ -36,18 +37,21 @@ export function cardViewOf(i: Integration): CardView {
 /** Slack's channel is removed through its own web route; the other apps go through the integrations route. */
 export const disconnectsThroughSlackRoute = (app: IntegrationApp): boolean => app === "slack";
 
-/** The toast of `?github=`, `?atlassian=`, `?linear=`, `?box=` or `?dropbox=` on the way back from an app. */
-export function returnToast(
-  app: "atlassian" | "github" | "linear" | "box" | "dropbox",
-  code: string,
-): { title: string; tone: "success" | "danger" } {
+/** The toast of `?notion=` on the way back from Notion: connected, or what failed. */
+export function notionToast(code: string): { title: string; tone: "success" | "danger" } {
+  return code === "connected" ? { title: V2_COPY.connectedToast, tone: "success" } : { title: notionReturnWord(code), tone: "danger" };
+}
+
+/** The toast of `?github=`, `?atlassian=`, `?linear=`, `?box=`, `?dropbox=` or `?notion=` on the way back from an app. */
+export function returnToast(app: BindableApp, code: string): { title: string; tone: "success" | "danger" } {
   if (app === "linear") return linearToast(code);
   if (app === "box") return boxToast(code);
   if (app === "dropbox") return dropboxToast(code);
+  if (app === "notion") return notionToast(code);
   return app === "github" ? githubToast(code) : atlassianToast(code);
 }
 
-/** Both apps come back with `connected` once the account is linked; GitHub also with `installed` after its repositories changed. */
+/** Every app comes back with `connected` once the account is linked; GitHub also with `installed` after its repositories changed. */
 export const isLinked = (code: string): boolean => code === "connected";
 
 const FAILURE: Record<string, string> = {
@@ -57,6 +61,9 @@ const FAILURE: Record<string, string> = {
   box_unavailable: "Box is not set up on this server.",
   dropbox_not_connected: V2_COPY.notConnectedFirst,
   dropbox_unavailable: "Dropbox is not set up on this server.",
+  notion_not_connected: V2_COPY.notConnectedFirst,
+  notion_reconnect_required: NOTION_WORDS.reconnectFirst,
+  notion_unavailable: NOTION_WORDS.unavailable,
   integration_workspace_mismatch: V2_COPY.workspaceMismatch,
   integration_already_connected: V2_COPY.alreadyConnected,
   integration_forbidden: V2_COPY.notAllowedToRemove,

@@ -20,6 +20,7 @@ const LOGO = {
   linear_project: "linear",
   box: "box",
   dropbox: "dropbox",
+  notion: "notion",
 } as const;
 const ICON = { upload: "upload-simple", drawio: "tree-structure" } as const;
 

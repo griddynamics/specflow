@@ -6291,6 +6291,7 @@
               "linear_project",
               "box",
               "dropbox",
+              "notion",
               "drawio"
             ],
             "title": "Kind",
@@ -9312,6 +9313,606 @@
         "title": "NoiseSection",
         "type": "object"
       },
+      "NotionCallbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "state"
+        ],
+        "title": "NotionCallbackIn",
+        "type": "object"
+      },
+      "NotionCallbackOut": {
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/NotionConnectionOut"
+          },
+          "return_to": {
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "return_to"
+        ],
+        "title": "NotionCallbackOut",
+        "type": "object"
+      },
+      "NotionCheckOut": {
+        "description": "What the link would import: a page with its sub-pages, or a database with its rows; ``pages`` is the count (at\nmost the page cap, ``capped`` when there are more).",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "page",
+              "database"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "pages": {
+            "title": "Pages",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "pages",
+          "capped"
+        ],
+        "title": "NotionCheckOut",
+        "type": "object"
+      },
+      "NotionConnectionOut": {
+        "description": "The caller's Notion connection; ``enabled`` is whether the server has the Notion connection configured.",
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "expired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "workspace_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Name"
+          }
+        },
+        "required": [
+          "enabled",
+          "connected",
+          "status",
+          "workspace_name",
+          "connected_at",
+          "last_used_at"
+        ],
+        "title": "NotionConnectionOut",
+        "type": "object"
+      },
+      "NotionLinkIn": {
+        "additionalProperties": false,
+        "description": "A Notion page or database link (``notion.so``, ``app.notion.com``, ``*.notion.site``).",
+        "properties": {
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "NotionLinkIn",
+        "type": "object"
+      },
+      "NotionLinksIn": {
+        "additionalProperties": false,
+        "description": "The pages and databases picked from the shared list, added as one source (N2); at most ``MAX_PAGES``.",
+        "properties": {
+          "links": {
+            "items": {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "links"
+        ],
+        "title": "NotionLinksIn",
+        "type": "object"
+      },
+      "NotionPlanAccessFailed": {
+        "properties": {
+          "reason": {
+            "enum": [
+              "notion_not_connected",
+              "notion_reconnect_required",
+              "notion_unreachable",
+              "notion_auth_failed",
+              "notion_link_invalid",
+              "notion_not_shared",
+              "notion_parent_not_a_page",
+              "notion_permissions_missing"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "result": {
+            "const": "failed",
+            "default": "failed",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "NotionPlanAccessFailed",
+        "type": "object"
+      },
+      "NotionPlanAccessIn": {
+        "additionalProperties": false,
+        "description": "The typed destination before it is saved: a link to the page the plan database is created under.",
+        "properties": {
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link"
+        ],
+        "title": "NotionPlanAccessIn",
+        "type": "object"
+      },
+      "NotionPlanAccessOk": {
+        "properties": {
+          "parent_page_title": {
+            "title": "Parent Page Title",
+            "type": "string"
+          },
+          "result": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "parent_page_title"
+        ],
+        "title": "NotionPlanAccessOk",
+        "type": "object"
+      },
+      "NotionPlanCounts": {
+        "properties": {
+          "commented": {
+            "default": 0,
+            "title": "Commented",
+            "type": "integer"
+          },
+          "created": {
+            "default": 0,
+            "title": "Created",
+            "type": "integer"
+          },
+          "deferred": {
+            "default": 0,
+            "description": "Rows left for the next pass (a pass writes at most 120 rows).",
+            "title": "Deferred",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "removed": {
+            "default": 0,
+            "title": "Removed",
+            "type": "integer"
+          },
+          "unchanged": {
+            "default": 0,
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "default": 0,
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "title": "NotionPlanCounts",
+        "type": "object"
+      },
+      "NotionPlanIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "link": {
+            "maxLength": 2048,
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link",
+          "enabled"
+        ],
+        "title": "NotionPlanIn",
+        "type": "object"
+      },
+      "NotionPlanOut": {
+        "description": "The Notion plan destination of a project: null fields while there is none. ``available`` is false when the\nNotion integration is off on this server; ``database_url`` is null until the first pass made the database.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "connected_by_me": {
+            "title": "Connected By Me",
+            "type": "boolean"
+          },
+          "connected_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Notion workspace the export acts in, or null.",
+            "title": "Connected By Name"
+          },
+          "database_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Database Url"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "parent_page_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Page Id"
+          },
+          "parent_page_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Page Title"
+          },
+          "parent_page_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Page Url"
+          },
+          "sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotionPlanStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "parent_page_id",
+          "parent_page_title",
+          "parent_page_url",
+          "database_url",
+          "enabled",
+          "sync",
+          "connected_by_name",
+          "connected_by_me"
+        ],
+        "title": "NotionPlanOut",
+        "type": "object"
+      },
+      "NotionPlanStatus": {
+        "description": "The last export pass of the destination (``error_code`` is one closed code, never Notion text).",
+        "properties": {
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotionPlanCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "parent_page_title": {
+            "title": "Parent Page Title",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "running",
+              "succeeded",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "project_id",
+          "enabled",
+          "status",
+          "queued",
+          "trigger",
+          "started_at",
+          "finished_at",
+          "error_code",
+          "counts",
+          "parent_page_title"
+        ],
+        "title": "NotionPlanStatus",
+        "type": "object"
+      },
+      "NotionReturnToIn": {
+        "additionalProperties": false,
+        "description": "Where the browser returns after Notion: a path of this site (the Atlassian rule).",
+        "properties": {
+          "return_to": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Return To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "return_to"
+        ],
+        "title": "NotionReturnToIn",
+        "type": "object"
+      },
+      "NotionSharedItem": {
+        "description": "A page or database the bound member shared with Graphico; ``link`` is what the check and the add take, and\n``parent_title`` the title of its parent page when that page is shared too.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "page",
+              "database"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "link": {
+            "title": "Link",
+            "type": "string"
+          },
+          "parent_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Title"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "link",
+          "parent_title"
+        ],
+        "title": "NotionSharedItem",
+        "type": "object"
+      },
+      "NotionSharedOut": {
+        "description": "What the pickers offer, sorted by title; ``capped`` when there is more than the list holds.",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotionSharedItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "capped"
+        ],
+        "title": "NotionSharedOut",
+        "type": "object"
+      },
+      "NotionUrlOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "NotionUrlOut",
+        "type": "object"
+      },
       "OptionRow": {
         "additionalProperties": false,
         "description": "``gap_option``: one offered answer; exactly one recommended per gap, 2 to 4 rows.",
@@ -10775,7 +11376,8 @@
               "slack",
               "linear",
               "box",
-              "dropbox"
+              "dropbox",
+              "notion"
             ],
             "title": "App",
             "type": "string"
@@ -11939,6 +12541,7 @@
               "linear_project",
               "box",
               "dropbox",
+              "notion",
               "drawio"
             ],
             "title": "Kind",
@@ -17320,6 +17923,124 @@
         ]
       }
     },
+    "/api/v1/integrations/notion": {
+      "delete": {
+        "description": "Delete the caller's connection and revoke the grant on Notion (best effort).",
+        "operationId": "disconnect_notion_api_v1_integrations_notion_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Disconnect Notion",
+        "tags": [
+          "notion"
+        ]
+      },
+      "get": {
+        "operationId": "get_notion_connection_api_v1_integrations_notion_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotionConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Notion Connection",
+        "tags": [
+          "notion"
+        ]
+      }
+    },
+    "/api/v1/integrations/notion/authorize": {
+      "post": {
+        "description": "Notion's consent page of the connection; its ``state`` holds the user, ``return_to`` and a 10-minute expiry.",
+        "operationId": "authorize_notion_api_v1_integrations_notion_authorize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotionReturnToIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotionUrlOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Authorize Notion",
+        "tags": [
+          "notion"
+        ]
+      }
+    },
+    "/api/v1/integrations/notion/callback": {
+      "post": {
+        "description": "Check ``state``, exchange ``code`` and keep the connection.",
+        "operationId": "notion_callback_api_v1_integrations_notion_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotionCallbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotionCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Notion Callback",
+        "tags": [
+          "notion"
+        ]
+      }
+    },
     "/api/v1/integrations/slack/link": {
       "post": {
         "description": "Link the Slack user the nonce was made for to the caller, and tell them in Slack.",
@@ -19572,7 +20293,8 @@
                 "slack",
                 "linear",
                 "box",
-                "dropbox"
+                "dropbox",
+                "notion"
               ],
               "title": "App",
               "type": "string"
@@ -19622,7 +20344,8 @@
                 "github",
                 "linear",
                 "box",
-                "dropbox"
+                "dropbox",
+                "notion"
               ],
               "title": "App",
               "type": "string"
@@ -20638,6 +21361,167 @@
         "summary": "Remove Member",
         "tags": [
           "members"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/notion-plan": {
+      "get": {
+        "operationId": "get_notion_plan_api_v1_projects__pid__notion_plan_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotionPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Notion Plan",
+        "tags": [
+          "notion-plan"
+        ]
+      },
+      "put": {
+        "description": "Resolve the parent page link as the bound member (``api.notion_plan.access.resolve``), save the target\n(``db.notion_plan.save_target``) and tell the runner (``after_settings``) after the commit.",
+        "operationId": "put_notion_plan_api_v1_projects__pid__notion_plan_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotionPlanIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotionPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Notion Plan",
+        "tags": [
+          "notion-plan"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/notion-plan/access-check": {
+      "post": {
+        "description": "Read the parent page as the bound member (``api.notion_plan.access.check_access``). A project with no binding\nor an expired connection is a ``failed`` answer, not an error: the form shows it in words.",
+        "operationId": "check_notion_plan_access_api_v1_projects__pid__notion_plan_access_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotionPlanAccessIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "failed": "#/components/schemas/NotionPlanAccessFailed",
+                      "ok": "#/components/schemas/NotionPlanAccessOk"
+                    },
+                    "propertyName": "result"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NotionPlanAccessOk"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NotionPlanAccessFailed"
+                    }
+                  ],
+                  "title": "Response Check Notion Plan Access Api V1 Projects  Pid  Notion Plan Access Check Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Notion Plan Access",
+        "tags": [
+          "notion-plan"
         ]
       }
     },
@@ -22041,6 +22925,155 @@
           }
         },
         "summary": "Check Linear Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/notion": {
+      "post": {
+        "description": "Check every link as above, create one source for the caller and start its import (``start_import`` of\n``api.source_imports`` with ``NotionImporter``, reading as the member the project is bound to). The source is named\nafter the first link (\"Engineering Wiki + 2 more\") and links to it.",
+        "operationId": "add_notion_source_api_v1_projects__pid__sources_notion_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotionLinksIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Notion Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/notion/check": {
+      "post": {
+        "description": "What the link would import, read as the member the project's Notion is bound to; ``422 notion_link_invalid``,\n``409 notion_not_shared``, ``409 notion_not_connected``, ``409 notion_reconnect_required``.",
+        "operationId": "check_notion_link_api_v1_projects__pid__sources_notion_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotionLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotionCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Notion Link",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/sources/notion/shared": {
+      "get": {
+        "description": "The pages and databases the member the project's Notion is bound to shared with Graphico, for the pickers of\nthe source and plan forms (``notion.shared``); ``409 notion_not_connected``, ``409 notion_reconnect_required``.",
+        "operationId": "list_shared_notion_api_v1_projects__pid__sources_notion_shared_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotionSharedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Shared Notion",
         "tags": [
           "sources"
         ]

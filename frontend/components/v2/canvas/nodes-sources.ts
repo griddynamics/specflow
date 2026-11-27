@@ -12,6 +12,7 @@ import { DROPBOX_WORDS, dropboxOpen } from "./dropbox-logic";
 import { CONFLUENCE_WORDS } from "./confluence-logic";
 import { JIRA_EPIC_WORDS } from "./jira-epic-logic";
 import { LINEAR_SOURCE_WORDS } from "./linear-source-logic";
+import { NOTION_IMPORT_WORDS } from "./notion-logic";
 import type { IntegrationApp } from "@/lib/domain/integrations";
 import type { NodeMapper, NodeView, Stages } from "./canvas-types";
 
@@ -23,6 +24,7 @@ const APP_NAME: Partial<Record<SourceKind, string>> = {
   linear_project: "Linear",
   box: "Box",
   dropbox: "Dropbox",
+  notion: "Notion",
   drawio: "diagrams.net",
 };
 
@@ -34,6 +36,7 @@ const MARK = {
   linear_project: "linear",
   box: "box",
   dropbox: "dropbox",
+  notion: "notion",
   drawio: "drawio",
 } as const;
 
@@ -54,7 +57,13 @@ export function uploadName(s: Pick<Source, "addedAt" | "nameSuffix" | "name">, n
   return `Upload ${sameDay ? clock(s.addedAt) : DAY.format(added)}${suffix}`;
 }
 
-const UNIT: Partial<Record<SourceKind, string>> = { confluence: "page", jira_epic: "issue", linear_project: "issue", drawio: "page" };
+const UNIT: Partial<Record<SourceKind, string>> = {
+  confluence: "page",
+  jira_epic: "issue",
+  linear_project: "issue",
+  notion: "page",
+  drawio: "page",
+};
 
 /** A Confluence source and a diagrams.net link count pages and a Jira epic issues where the others count files. */
 export const unitText = (kind: SourceKind, text: string): string => {
@@ -69,6 +78,7 @@ const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess:
   linear_project: LINEAR_SOURCE_WORDS,
   box: BOX_WORDS,
   dropbox: DROPBOX_WORDS,
+  notion: NOTION_IMPORT_WORDS,
   drawio: {
     noAccessMeta: "Cannot read it",
     noAccess: "The diagram could not be read. Add the link again.",
@@ -84,6 +94,7 @@ const RECONNECT: Partial<Record<SourceKind, IntegrationApp>> = {
   linear_project: "linear",
   box: "box",
   dropbox: "dropbox",
+  notion: "notion",
 };
 
 /** A node of a Jira epic is named by its key ("NWO-12: Checkout redesign" is its full name, in the label and the dialog). */
@@ -162,7 +173,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "box" | "dropbox" | "drawio"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "box" | "dropbox" | "notion" | "drawio"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
@@ -173,4 +184,5 @@ export const jiraEpicNodes: NodeMapper = sourcesOf("jira_epic");
 export const linearProjectNodes: NodeMapper = sourcesOf("linear_project");
 export const boxNodes: NodeMapper = sourcesOf("box");
 export const dropboxNodes: NodeMapper = sourcesOf("dropbox");
+export const notionNodes: NodeMapper = sourcesOf("notion");
 export const drawioNodes: NodeMapper = sourcesOf("drawio");

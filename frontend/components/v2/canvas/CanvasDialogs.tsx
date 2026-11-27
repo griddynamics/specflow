@@ -26,9 +26,9 @@ export type DialogState =
   | { type: "plan" }
   | { type: "gaps" };
 
-/** The plan destinations the plan goes to (Jira, GitHub Projects), by node name; null when it has none. */
+/** The plan destinations the plan goes to (Jira, GitHub Projects, Notion), by node name; null when it has none. */
 export function destinationsOf(nodes: readonly Pick<NodeView, "kind" | "name">[]): string | null {
-  const names = nodes.filter((n) => n.kind === "jira" || n.kind === "github_plan").map((n) => n.name);
+  const names = nodes.filter((n) => n.kind === "jira" || n.kind === "github_plan" || n.kind === "notion_plan").map((n) => n.name);
   return names.length === 0 ? null : names.join(", ");
 }
 

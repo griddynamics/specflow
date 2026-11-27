@@ -66,6 +66,7 @@ function toRef(v: Record<string, unknown>, addedAt: unknown): SourceRef {
       v.kind === "linear_project" ||
       v.kind === "box" ||
       v.kind === "dropbox" ||
+      v.kind === "notion" ||
       v.kind === "drawio") &&
       isString(v.id) &&
       v.id !== "" &&
@@ -95,6 +96,7 @@ export const isUnknownKind = (v: unknown): boolean =>
   v.kind !== "linear_project" &&
   v.kind !== "box" &&
   v.kind !== "dropbox" &&
+  v.kind !== "notion" &&
   v.kind !== "drawio";
 
 /** `SourceSummaryOut` -> `Source`. A failure reason outside the Drive set reads as `unknown_error`. */

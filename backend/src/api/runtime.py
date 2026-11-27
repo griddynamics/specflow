@@ -29,6 +29,7 @@ from api.jira_gaps.poster import JiraGapPoster
 from api.linear import wiring as linear_wiring
 from api.linear_gaps import wiring as linear_gaps_wiring
 from api.linear_plan import wiring as linear_plan_wiring
+from api.notion_plan.runner import NotionPlanRunner
 from api.plan.runner import GraphPlanRunner
 from api.plan_destinations import PlanDestinations
 from box.connections import BoxConnections
@@ -37,6 +38,7 @@ from db.box import connection_store as box_connection_store
 from db.dropbox import connection_store as dropbox_connection_store
 from db.github import connection_store
 from db.models import Project
+from db.notion import connection_store as notion_connection_store
 from db.session import is_database_unreachable
 from dropbox.connections import DropboxConnections
 from github.connections import GitHubConnections
@@ -55,6 +57,7 @@ from health import (
 from jira.http import HttpJiraGateway
 from logger.correlation import run_in_context
 from logger.logger import INFO, WARNING, get_logger, log_event
+from notion.connections import NotionConnections
 from settings import GRAPH_BUILD_SWITCHES, AtlassianOAuthSettings, GraphBuildSettings, JiraModeSettings, RoleSettings
 from storage import factory as storage_factory
 from temporal import client as temporal_client
@@ -115,6 +118,8 @@ class Runtime:
     box: Any = None
     # dropbox.connections.DropboxConnections; None = the Dropbox integration is off (503); DROPBOX_OAUTH_CLIENT_ID
     dropbox: Any = None
+    # notion.connections.NotionConnections; None = the Notion integration is off (503); NOTION_OAUTH_CLIENT_ID sets it.
+    notion: Any = None
     # api.plan_destinations.PlanDestinations: the plan runner's one post-plan hook; Jira is the first destination.
     plan_destinations: Any = None
     # api.jira_gaps.JiraGaps: the Jira gap channel; None without Atlassian OAuth or gap runs
@@ -128,6 +133,8 @@ class Runtime:
     linear_plan: Any = None
     # api.linear_gaps.wiring (stream S5): the Linear gap channel; None until it is built (needs ``linear``)
     linear_gaps: Any = None
+    # api.notion_plan.runner.NotionPlanRunner: the Notion plan destination; None when Notion is off
+    notion_plan: Any = None
     # api.imports.ImportRunner: the importers that run in this process (Confluence, Jira epics, Linear projects,
     # Box links)
     imports: Any = None
@@ -281,6 +288,10 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             log_event(logger, INFO, "api.dropbox.mode", mode="on")
             runtime.dropbox = DropboxConnections(settings.dropbox, store=dropbox_connection_store(runtime.transaction))
             stack.push_async_callback(runtime.dropbox.aclose)
+        if settings.notion is not None:
+            log_event(logger, INFO, "api.notion.mode", mode="on")
+            runtime.notion = NotionConnections(settings.notion, store=notion_connection_store(runtime.transaction))
+            stack.push_async_callback(runtime.notion.aclose)
         runtime.imports = ImportRunner(transaction=runtime.transaction, store=store)
         stack.push_async_callback(runtime.imports.aclose)
         await runtime.imports.start_recovery()
@@ -360,6 +371,13 @@ def _add_runners(runtime: Runtime, graph_build: GraphBuildSettings, gap: GapSett
         runtime.github_projects.start_recovery()
         destinations.register(runtime.github_projects)
     linear_plan_wiring.add_linear_plan(runtime, destinations, stack)  # LINEAR S3
+    if runtime.notion is not None:
+        runtime.notion_plan = NotionPlanRunner(
+            runtime.notion, transaction=runtime.transaction, graph_store=runtime.graph_store
+        )
+        stack.push_async_callback(runtime.notion_plan.aclose)
+        runtime.notion_plan.start_recovery()
+        destinations.register(runtime.notion_plan)
     runtime.plan_destinations = destinations  # the plan runner's one hook: a destination is added here
     runtime.plans = GraphPlanRunner(graph_build, store=runtime.graph_store, gaps=runtime.gaps, jira=destinations)
     # Pushed last, so they run first: plan runs, builds and then gap runs stop before the store and engine close.

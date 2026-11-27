@@ -1,6 +1,6 @@
 // The connector registry (06a, D5, D20): every kind of connection the canvas offers, in the order its plus dialog lists them. Only kinds of
 // V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
-// link (08), the Jira epic (09), the diagrams.net link, the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), Linear: project source, gap issues, plan destination (LINEAR). To add one: write its form component and its node
+// link (08), the Jira epic (09), the diagrams.net link, the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), Linear: project source, gap issues, plan destination (LINEAR), the Notion link and the Notion plan destination. To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
 import {
   boxNodes,
@@ -8,6 +8,7 @@ import {
   drawioNodes,
   driveNodes,
   dropboxNodes,
+  notionNodes,
   jiraEpicNodes,
   linearProjectNodes,
   uploadNodes,
@@ -18,8 +19,11 @@ import { githubNodes } from "./canvas/nodes-github";
 import { ConfluenceForm } from "./canvas/ConfluenceForm";
 import { DrawioForm } from "./canvas/DrawioForm";
 import { JiraEpicForm } from "./canvas/JiraEpicForm";
+import { NotionForm } from "./canvas/NotionForm";
+import { NotionPlanForm } from "./canvas/NotionPlanForm";
 import { jiraNodes } from "./canvas/nodes-jira";
 import { githubPlanNodes } from "./canvas/nodes-github-plan";
+import { notionPlanNodes } from "./canvas/nodes-notion-plan";
 import { jiraGapNodes } from "./canvas/nodes-jira-gaps";
 import { linearGapNodes } from "./canvas/nodes-linear-gaps";
 import { linearPlanNodes } from "./canvas/nodes-linear-plan";
@@ -151,6 +155,18 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     Form: DropboxForm,
     nodes: dropboxNodes,
   },
+  {
+    kind: "notion",
+    zone: "graph",
+    name: "Notion pages",
+    line: "Pages and databases, read once",
+    mark: "notion",
+    app: "notion",
+    title: "Add Notion pages",
+    check: null,
+    Form: NotionForm,
+    nodes: notionNodes,
+  },
   // The Slack channel IS the project's Slack integration (it is bound from inside Slack), so the form needs no app first.
   {
     kind: "slack",
@@ -223,6 +239,18 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     check: { test: CHECK_ACCESS, testing: "Checking…", add: "Add destination" },
     Form: LinearPlanForm, // LINEAR S3
     nodes: linearPlanNodes,
+  },
+  {
+    kind: "notion_plan",
+    zone: "plan",
+    name: "Notion",
+    line: "Stories and tasks as rows of a database",
+    mark: "notion",
+    app: "notion",
+    title: "Send the plan to Notion",
+    check: { test: CHECK_ACCESS, testing: "Checking…", add: "Add destination" },
+    Form: NotionPlanForm,
+    nodes: notionPlanNodes,
   },
   {
     kind: "mcp",

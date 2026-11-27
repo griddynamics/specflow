@@ -12,6 +12,7 @@ import yaml
 from temporalio.service import RPCError, RPCStatusCode
 
 import specflow_live
+from runtime_defaults_support import RUNTIME_DEFAULTS
 from settings import (
     AgentDatabaseSettings,
     AgentRunSettings,
@@ -30,6 +31,7 @@ from settings import (
     LangfuseSettings,
     LinearSettings,
     McpSettings,
+    NotionSettings,
     SlackAppSettings,
     SlackNoticeSettings,
     StorageSettings,
@@ -132,6 +134,10 @@ OPTIONAL_KEYS = frozenset(
         "DROPBOX_OAUTH_CLIENT_ID",
         "DROPBOX_OAUTH_CLIENT_SECRET",
         "DROPBOX_TOKEN_KEY",
+        "NOTION_OAUTH_CLIENT_ID",
+        "NOTION_OAUTH_CLIENT_SECRET",
+        "NOTION_TOKEN_KEY",
+        "NOTION_REQUESTS_PER_MINUTE",
     }
 )
 # Names only the local stack reads (`make env-local` writes them, docker-compose.yml and the Keycloak realm use them).
@@ -196,7 +202,7 @@ def _env_names_read_in_code() -> set[str]:
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS | STACK_KEYS
     assert len(REQUIRED_KEYS) == 23
-    assert len(OPTIONAL_KEYS) == 39
+    assert len(OPTIONAL_KEYS) == 43
     assert len(STACK_KEYS) == 6
 
 
@@ -736,3 +742,63 @@ def test_only_the_api_role_reads_the_dropbox_settings(valid_env):
     assert load_settings("worker", env, queues=["agents"]).dropbox is None
     assert load_settings("worker", {**env, "PUBLIC_URL": ""}, queues=["parse"]).dropbox is None
     assert load_settings("migrate", {**env, "PUBLIC_URL": ""}).dropbox is None
+
+
+# Notion integration (docs/notion/oauth.md "Settings") -----------------------------------------------------------------
+
+NOTION_ENV = {
+    "NOTION_OAUTH_CLIENT_ID": "notion-client-1",
+    "NOTION_OAUTH_CLIENT_SECRET": "notion-secret-canary-3f9a",
+    "NOTION_TOKEN_KEY": base64.urlsafe_b64encode(bytes(range(2, 34))).decode(),
+    "PUBLIC_URL": "http://localhost:3001/",
+}
+
+
+def test_the_notion_client_id_turns_the_integration_on_with_its_callback_and_the_default_rate(valid_env):
+    notion = load_settings("api", {**valid_env, **NOTION_ENV}).notion
+
+    assert isinstance(notion, NotionSettings)
+    assert (
+        notion.client_id == "notion-client-1"
+        and notion.requests_per_minute == RUNTIME_DEFAULTS["NOTION_REQUESTS_PER_MINUTE"]
+    )
+    assert notion.callback_url == "http://localhost:3001/api/integrations/notion/callback"
+
+
+def test_notion_takes_its_own_request_rate_and_treats_a_blank_one_as_the_default(valid_env):
+    env = {**valid_env, **NOTION_ENV}
+
+    assert load_settings("api", {**env, "NOTION_REQUESTS_PER_MINUTE": "90"}).notion.requests_per_minute == 90
+    assert (
+        load_settings("api", {**env, "NOTION_REQUESTS_PER_MINUTE": " "}).notion.requests_per_minute
+        == (RUNTIME_DEFAULTS["NOTION_REQUESTS_PER_MINUTE"])
+    )
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", {**env, "NOTION_REQUESTS_PER_MINUTE": "0"})
+    assert raised.value.variables == ("NOTION_REQUESTS_PER_MINUTE",)
+
+
+def test_notion_is_off_without_the_client_id_even_with_the_other_variables(valid_env):
+    env = {**valid_env, **NOTION_ENV, "NOTION_OAUTH_CLIENT_ID": "  ", "NOTION_TOKEN_KEY": "x"}
+
+    assert load_settings("api", env).notion is None
+
+
+@pytest.mark.parametrize("missing", ["NOTION_OAUTH_CLIENT_SECRET", "NOTION_TOKEN_KEY", "PUBLIC_URL"])
+def test_a_partial_notion_set_is_refused_at_startup_naming_the_missing_variable(valid_env, missing):
+    env = {**valid_env, **{name: value for name, value in NOTION_ENV.items() if name != missing}}
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("api", env)
+
+    assert raised.value.variables == (missing,)
+    assert "notion-secret-canary" not in str(raised.value)
+
+
+def test_the_notion_secrets_are_not_in_the_repr_and_only_the_api_role_reads_them(valid_env):
+    env = {**valid_env, **NOTION_ENV}
+    settings = load_settings("api", env)
+
+    text = repr(settings) + repr(settings.notion) + str(settings.notion)
+    assert "notion-secret-canary" not in text and NOTION_ENV["NOTION_TOKEN_KEY"] not in text
+    assert load_settings("worker", {**env, "PUBLIC_URL": ""}, queues=["agents"]).notion is None

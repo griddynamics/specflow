@@ -16,9 +16,12 @@ import {
   addJiraEpicSource,
   checkBoxLink,
   checkDropboxLink,
+  addNotionSource,
   checkConfluenceLink,
   checkDrawioLink,
   checkJiraEpicLink,
+  checkNotionLink,
+  listNotionShared,
   endBatch,
   getDriveIdentity,
   listSourceFiles,
@@ -49,6 +52,9 @@ import {
   type ConfluenceCheck,
   type JiraEpicCheck,
   type JiraEpicChild,
+  type NotionCheck,
+  type NotionShared,
+  type NotionSharedItem,
   type ProcessingClass,
   type SourcesPort,
   type UploadReport,
@@ -355,6 +361,19 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         opts.changed(projectId);
       }
     },
+    async listNotion(projectId) {
+      return toNotionShared(await guard(() => listNotionShared(projectId)));
+    },
+    async checkNotion(projectId, link) {
+      return toNotionCheck(await guard(() => checkNotionLink(projectId, link)));
+    },
+    async addNotion(projectId, links) {
+      try {
+        await guard(() => addNotionSource(projectId, links));
+      } finally {
+        opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
+      }
+    },
     async checkDrawio(projectId, link) {
       return toDrawioCheck(await guard(() => checkDrawioLink(projectId, link)));
     },
@@ -456,4 +475,35 @@ export function toConfluenceCheck(body: unknown): ConfluenceCheck {
       body.linked_issues >= 0,
   );
   return { kind: body.kind, title: body.title, pages: body.pages, capped: body.capped, linkedIssues: body.linked_issues };
+}
+
+const toNotionSharedItem = (item: unknown): NotionSharedItem => {
+  expectShape(
+    isRecord(item) &&
+      (item.kind === "page" || item.kind === "database") &&
+      isString(item.title) &&
+      isString(item.link) &&
+      (item.parent_title === null || isString(item.parent_title)),
+  );
+  return { kind: item.kind, title: item.title, link: item.link, parentTitle: item.parent_title };
+};
+
+/** `GET .../sources/notion/shared` -> `NotionShared`; any other shape is `invalid_response`. */
+export function toNotionShared(body: unknown): NotionShared {
+  expectShape(isRecord(body) && Array.isArray(body.items) && typeof body.capped === "boolean");
+  return { items: body.items.map(toNotionSharedItem), capped: body.capped };
+}
+
+/** `POST .../sources/notion/check` -> `NotionCheck`; any other shape is `invalid_response`. */
+export function toNotionCheck(body: unknown): NotionCheck {
+  expectShape(
+    isRecord(body) &&
+      (body.kind === "page" || body.kind === "database") &&
+      isString(body.title) &&
+      typeof body.pages === "number" &&
+      Number.isInteger(body.pages) &&
+      body.pages >= 0 &&
+      typeof body.capped === "boolean",
+  );
+  return { kind: body.kind, title: body.title, pages: body.pages, capped: body.capped };
 }

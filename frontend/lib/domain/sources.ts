@@ -6,7 +6,7 @@ import type { Unsubscribe } from "./common";
 /** What a pasted link can point to (parsed into ids on the server, never fetched). */
 export type LinkKind = "github" | "gdrive";
 /** Every kind of source: a link kind, or a Local files batch (DATA-SRC-0003). */
-export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "linear_project" | "box" | "dropbox" | "drawio";
+export type SourceKind = LinkKind | "upload" | "confluence" | "jira_epic" | "linear_project" | "box" | "dropbox" | "notion" | "drawio";
 /** A pasted link to a source. */
 export interface SourceLink {
   kind: LinkKind;
@@ -319,6 +319,29 @@ export interface JiraEpicChild {
 /** The most issues one epic import reads (the backend's `MAX_EPIC_ISSUES`). */
 export const EPIC_ISSUE_CAP = 200;
 
+/** What a Notion link would import (docs/notion/source.md): a page with its sub-pages or a database with its rows; `capped` when there are more than the cap. */
+export interface NotionCheck {
+  kind: "page" | "database";
+  title: string;
+  pages: number;
+  capped: boolean;
+}
+
+/** A page or database the member the project's Notion is connected by shared with Graphico; `link` is what the check, the add and the plan
+ * destination take, `parentTitle` the title of its parent page when that page is shared too. */
+export interface NotionSharedItem {
+  kind: "page" | "database";
+  title: string;
+  link: string;
+  parentTitle: string | null;
+}
+
+/** What the Notion pickers offer, sorted by title; `capped` when there is more than the list holds. */
+export interface NotionShared {
+  items: NotionSharedItem[];
+  capped: boolean;
+}
+
 /** What the check of a diagrams.net link found, nothing stored: the diagram's name and one entry per page with the shapes and arrows an import
  * would take; `capped` = a cap dropped pages or cells. */
 export interface DrawioCheck {
@@ -381,6 +404,14 @@ export interface SourcesPort {
   /** Adds the epic as a source (one per epic, D5) and starts its import, once (D7). `exclude` are the keys of the children not to import (the epic
    * itself is always imported); a key that is not a child rejects `validation`. */
   addJiraEpic(projectId: string, keyOrLink: string, exclude?: readonly string[]): Promise<void>;
+  /** Reads a Notion page or database link as the member the project's Notion is connected by and counts what an import would take; stores nothing. A refusal
+   * rejects a `DataError` whose `detail.apiCode` is the closed code (`notion_link_invalid`, `notion_not_shared`, `notion_not_connected`, ...). */
+  checkNotion(projectId: string, link: string): Promise<NotionCheck>;
+  /** The pages and databases the member the project's Notion is connected by shared with Graphico, for the pickers. Rejects like the check. */
+  listNotion(projectId: string): Promise<NotionShared>;
+  /** Adds the picked pages and databases (their links, 1 to 100) as one source and starts its import, once (D7); the card is in the next status.
+   * Rejects like the check: `notion_not_shared` when one of them is no longer shared, and then nothing is added. */
+  addNotion(projectId: string, links: readonly string[]): Promise<void>;
   /** Reads a diagrams.net link (`#R` diagram in the link, `#U` public HTTPS file) and counts what an import would take; stores nothing. A refusal rejects
    * a `DataError` whose `detail.apiCode` is the closed code (`drawio_link_invalid`, `drawio_link_unsupported`, `drawio_fetch_failed`, `drawio_not_a_diagram`, `drawio_too_large`). */
   checkDrawio(projectId: string, link: string): Promise<DrawioCheck>;

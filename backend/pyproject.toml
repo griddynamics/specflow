@@ -140,7 +140,7 @@ dev = [
 [tool.deptry]
 known_first_party = [
     "agent_contracts", "agent_runtime", "api", "auth", "box", "db", "dropbox", "drive", "file_parsers", "github", "graph", "integrations", "jira", "linear", "llm",
-    "logger", "mcp_server", "postgres", "storage",
+    "logger", "mcp_server", "notion", "postgres", "storage",
     "temporal", "cli", "cloud_profile", "health", "settings",
     "example_lib", "gap_detect_bench", "graph_build", "mcp_qa_lib",  # examples/
     "graph_probes",  # tests/graph_probes: the store probes examples/graph_bench.py reads the graph through

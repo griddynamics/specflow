@@ -73,6 +73,7 @@ commands are in [**QUICKSTART.md**](QUICKSTART.md).
 - [docs/mission-control/](docs/mission-control/README.md): the canvas (the prototype, [the screens as built](docs/mission-control/ui.md), the decisions, the integrations API)
 - [docs/jira-sync/](docs/jira-sync/INDEX.md): the automatic export of a project's plan to Jira, and the Jira gap channel
 - [docs/github/](docs/github/INDEX.md): per-user GitHub connections, the project repositories with their clone check, and the GitHub Projects plan destination
+- [docs/notion/](docs/notion/INDEX.md): per-user Notion connections, a Notion page or database as a source, and the Notion plan destination
 - [docs/file-parsers/](docs/file-parsers/INDEX.md): how uploads and Drive files become Markdown
 - [Rosetta](https://github.com/griddynamics/rosetta): the harness that turns plan steps into reviewed code
 

@@ -4,7 +4,19 @@
 import type { Locator, Page } from "@playwright/test";
 import { canvas, dialog, done, hub, MOTION, nodes, parsed, SPECS, STATE, unique, wire, YELLOW } from "./canvas-support";
 import { FINISHED_RUN, shopGaps } from "./gaps-fixtures";
-import { expect, seedGaps, seedGitHub, seedIntegrations, seedJira, seedJiraGaps, seedSlack, seedSource, test } from "./support";
+import {
+  allowOrigin,
+  expect,
+  seedGaps,
+  seedGitHub,
+  seedIntegrations,
+  seedJira,
+  seedJiraGaps,
+  seedNotion,
+  seedSlack,
+  seedSource,
+  test,
+} from "./support";
 
 const ALEX = { user_id: "u-alex", name: "Alex Kim" };
 const CHANNEL = { id: "C0NWO", name: "northwind-specs", private: false };
@@ -40,9 +52,11 @@ async function addKeyed(page: Page, stage: "gap" | "plan", card: RegExp, title: 
 test.beforeEach(async () => {
   await seedJira({ pid: "none", mode: "oauth", connection: { status: "active", account_name: "Alex Kim" } });
   await seedGitHub({ connection: { status: "active", login: "alex-kim" } });
+  await seedNotion({ reset: true });
 });
 
 test.afterEach(async () => {
+  await seedNotion({ reset: true });
   await seedGitHub({ reset: true });
   await seedIntegrations({ reset: true });
   await seedSlack({ pid: "none", channel: null, available: true, test: "ok" });
@@ -51,10 +65,30 @@ test.afterEach(async () => {
 });
 
 test.describe("Mission Control V2: the journey", { tag: "@production" }, () => {
-  test("a node of every kind, the build, the gaps, the plan, a node that stops and the reconnect", async ({ page }) => {
+  test("a node of every kind, the build, the gaps, the plan, a node that stops and the reconnect", async ({ page, baseURL }) => {
     test.setTimeout(240_000);
     const pid = await canvas(page, unique("Journey"));
     await seedIntegrations({ pid, atlassian: { by: ALEX, health: "active" }, github: { by: ALEX, health: "active" } });
+
+    // 00 Integrations: Notion is one more card; Connect goes to Notion and the return binds the account to the project.
+    allowOrigin(page, "https://api.notion.com");
+    await page.route(
+      (url) => url.origin === "https://api.notion.com",
+      async (route) => {
+        const state = new URL(route.request().url()).searchParams.get("state") ?? "";
+        await route.fulfill({
+          status: 302,
+          headers: { location: `${baseURL ?? ""}/api/integrations/notion/callback?code=stub-code&state=${state}` },
+        });
+      },
+    );
+    await page.goto(`/projects/${pid}/integrations`);
+    const notion = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Notion", exact: true }) });
+    await expect(notion).toHaveAttribute(STATE, "off");
+    await notion.getByRole("button", { name: "Set up" }).click();
+    await dialog(page, "Notion").getByRole("button", { name: "Connect Notion" }).click();
+    await expect(notion).toHaveAttribute(STATE, "on");
+    await expect(notion).toContainText("Connected by");
     await page.goto(`/projects/${pid}`);
 
     // 01 Graph: a node of each source kind.
@@ -75,12 +109,16 @@ test.describe("Mission Control V2: the journey", { tag: "@production" }, () => {
       "Check link",
     );
     await addLinkSource(page, /^Jira epic/, "Add a Jira epic", "Epic key or link", "NWO-12", "Check epic");
+    const notionSource = await openForm(page, "graph", /^Notion pages/, "Add Notion pages");
+    await notionSource.getByLabel(/^Engineering Wiki/).check();
+    await notionSource.getByRole("button", { name: "Add selected" }).click();
+    await expect(notionSource).toBeHidden();
     await expect(
       nodes(page)
         .filter({ hasText: /^Upload / })
         .first(),
     ).toBeVisible(); // the seeded batch and the parsed document
-    for (const name of [SPECS, "payments-api", "Checkout notes", "NWO-12"])
+    for (const name of [SPECS, "payments-api", "Checkout notes", "NWO-12", "Engineering Wiki"])
       await expect(nodes(page).filter({ hasText: name })).toHaveCount(1);
     await expect(nodes(page).filter({ hasText: "NWO-12" })).toHaveAttribute(STATE, "on", { timeout: 15_000 });
 
@@ -120,6 +158,12 @@ test.describe("Mission Control V2: the journey", { tag: "@production" }, () => {
         .filter({ hasText: /^Jira · NWO/ })
         .first(),
     ).toBeVisible();
+    const notionForm = await openForm(page, "plan", /^Notion/, "Send the plan to Notion");
+    await notionForm.getByLabel("Parent page").selectOption({ label: "Plans" });
+    await notionForm.getByRole("button", { name: CHECK }).click();
+    await notionForm.getByRole("button", { name: "Add destination" }).click();
+    await expect(notionForm).toBeHidden();
+    await expect(nodes(page).filter({ has: page.getByLabel(/^Notion Plans:/) })).toHaveCount(1);
     const planNode = nodes(page).filter({ hasText: "GitHub · " });
     await expect(planNode).toHaveCount(1);
     await expect(nodes(page).filter({ hasText: "Automatic" })).toHaveCount(2); // MCP joins Gap and Plan by itself

@@ -57,8 +57,18 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # written out here so the models do not import the Drive package.
 # ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations);
 # ``linear_project`` is too (migration 0011_linear), ``box`` (migration 0012_box), ``dropbox`` (migration
-# 0013_dropbox) and ``drawio`` (migration 0014_drawio_source).
-CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box", "dropbox", "drawio")
+# 0013_dropbox), ``notion`` (migration 0014_notion) and ``drawio`` (migration 0015_drawio_source).
+CONNECTION_KINDS: Final = (
+    "gdrive",
+    "upload",
+    "confluence",
+    "jira_epic",
+    "linear_project",
+    "box",
+    "dropbox",
+    "notion",
+    "drawio",
+)
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",
@@ -387,7 +397,12 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
 BOX_CONNECTION_STATUSES: Final = ("active", "expired")
 DROPBOX_CONNECTION_STATUSES: Final = ("active", "expired")
-INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "linear", "box", "dropbox")
+INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "linear", "box", "dropbox", "notion")
+# Notion tables (docs/notion/oauth.md, docs/notion/plan.md; migration 0014_notion).
+NOTION_CONNECTION_STATUSES: Final = ("active", "expired")
+NOTION_PLAN_TRIGGERS: Final = ("plan_run", "settings", "recovery")
+NOTION_RUN_STATUSES: Final = ("running", "succeeded", "partial", "failed", "skipped")  # as the migration says
+NOTION_PLAN_ITEM_KINDS: Final = ("story", "task")
 JIRA_GAP_GROUPINGS: Final = ("one", "area")
 GITHUB_PROJECT_TRIGGERS: Final = ("plan_run", "settings", "recovery")
 GITHUB_PROJECT_ITEM_KINDS: Final = ("story", "subtask")
@@ -867,6 +882,82 @@ class ProjectIntegration(Base):
     workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
     workspace_name: Mapped[str] = mapped_column(Text, nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class NotionConnection(Base):
+    """One user's Notion connection (migration ``0014_notion``, docs/notion/oauth.md): the workspace and the bot of the
+    public connection's authorisation, the refresh token as Fernet ciphertext; the access token as Fernet ciphertext
+    only for a grant with no refresh token (null otherwise). Not project-scoped: row-level security is on with no
+    policy and no grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "notion_connections"
+    __table_args__ = (CheckConstraint(_one_of("status", NOTION_CONNECTION_STATUSES), name="status"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_name: Mapped[str] = mapped_column(Text, nullable=False)
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    access_token: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+
+
+class NotionPlanTarget(Base):
+    """The Notion plan destination of a project and its last export pass (migration ``0014_notion``,
+    docs/notion/plan.md): the parent page the plan database is created under, and the database and its data source once
+    the first pass made them. The member the export acts as is read from ``project_integrations`` on every pass. Holds
+    no credential."""
+
+    __tablename__ = "notion_plan_targets"
+    __table_args__ = (
+        CheckConstraint(_one_of("last_status", NOTION_RUN_STATUSES), name="last_status"),
+        CheckConstraint(_one_of("last_trigger", NOTION_PLAN_TRIGGERS), name="last_trigger"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    parent_page_id: Mapped[str] = mapped_column(Text, nullable=False)
+    parent_page_title: Mapped[str] = mapped_column(Text, nullable=False)
+    parent_page_url: Mapped[str] = mapped_column(Text, nullable=False)
+    database_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data_source_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    database_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_counts: Mapped[Any] = _json(nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(Text)
+    last_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_trigger: Mapped[str | None] = mapped_column(Text)
+    last_status: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
+class NotionPlanItem(Base):
+    """The database row of a plan node: a pending row (no page) before the create, the applied content after. A story
+    and a task are both rows of the one database; the task's row names its story's row in ``Parent``."""
+
+    __tablename__ = "notion_plan_items"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "node_id"),
+        UniqueConstraint("project_id", "page_id"),
+        CheckConstraint(_one_of("kind", NOTION_PLAN_ITEM_KINDS), name="kind"),
+    )
+
+    project_id: Mapped[uuid.UUID] = _project_id()
+    node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    page_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content: Mapped[Any] = _json(nullable=True)
 
 
 class JiraGapTarget(Base):

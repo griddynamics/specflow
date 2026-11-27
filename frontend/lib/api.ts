@@ -248,6 +248,12 @@ export const putLinearPlan = (pid: string, teamId: string, projectId: string | n
   );
 export const checkLinearPlanAccess = (pid: string, teamId: string, projectId: string | null) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/linear-plan/access-check`, json(linearTargetBody(teamId, projectId))).then((r) => r.body);
+// The Notion plan destination of a project (docs/notion/plan.md). Bodies stay `unknown`; lib/data/http/notion-plan.ts checks them.
+export const getNotionPlan = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/notion-plan`).then((r) => r.body);
+export const putNotionPlan = (pid: string, link: string, enabled: boolean) =>
+  httpPut(`/projects/${encodeURIComponent(pid)}/notion-plan`, json({ link, enabled })).then((r) => r.body);
+export const checkNotionPlanAccess = (pid: string, link: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/notion-plan/access-check`, json({ link })).then((r) => r.body);
 
 // The caller's Atlassian connection (docs/jira-sync/oauth.md#routes). The consent callback is not here: the route handler
 // app/api/integrations/atlassian/callback calls the API on the server.
@@ -300,6 +306,14 @@ export const authorizeDropbox = (returnTo: string) =>
   httpPost("/integrations/dropbox/authorize", json({ return_to: returnTo })).then((r) => r.body);
 /** 204: resolves with the HTTP status. */
 export const disconnectDropbox = () => httpDelete("/integrations/dropbox").then((r) => r.status);
+
+// The caller's Notion connection (docs/notion/oauth.md "Routes"). The consent callback is not here: the route handler
+// app/api/integrations/notion/callback calls the API on the server.
+export const getNotionConnection = () => httpGet("/integrations/notion").then((r) => r.body);
+export const authorizeNotion = (returnTo: string) =>
+  httpPost("/integrations/notion/authorize", json({ return_to: returnTo })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const disconnectNotion = () => httpDelete("/integrations/notion").then((r) => r.status);
 
 // Sources (GDRIVE plan 04, architecture-notes B4). Bodies are returned as `unknown`: the http adapter (lib/data/http/sources.ts)
 // checks their shape. POSTs go through `call`, so they carry the CSRF header.
@@ -363,6 +377,11 @@ export const addLinearSourceLink = (pid: string, link: string, exclude: readonly
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/linear`, json(exclude.length === 0 ? { link } : { link, exclude })).then(
     (r) => r.body,
   );
+export const listNotionShared = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/sources/notion/shared`).then((r) => r.body);
+export const checkNotionLink = (pid: string, link: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/notion/check`, json({ link })).then((r) => r.body);
+export const addNotionSource = (pid: string, links: readonly string[]) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/notion`, json({ links })).then((r) => r.body);
 export const checkDrawioLink = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/drawio/check`, json({ link })).then((r) => r.body);
 export const addDrawioSource = (pid: string, link: string) =>

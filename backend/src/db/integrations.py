@@ -28,12 +28,21 @@ from db.models import (
     GitHubConnection,
     JiraTarget,
     LinearConnection,
+    NotionConnection,
     ProjectIntegration,
     ProjectRepository,
     User,
 )
 
-ATLASSIAN, GITHUB, SLACK, LINEAR, BOX, DROPBOX = "atlassian", "github", "slack", "linear", "box", "dropbox"
+ATLASSIAN, GITHUB, SLACK, LINEAR, BOX, DROPBOX, NOTION = (
+    "atlassian",
+    "github",
+    "slack",
+    "linear",
+    "box",
+    "dropbox",
+    "notion",
+)
 
 
 class WorkspaceMismatchError(Exception):
@@ -93,6 +102,8 @@ async def _holds(session: AsyncSession, app: str, user_id: uuid.UUID) -> bool:
         probe = exists().where(BoxConnection.user_id == user_id, BoxConnection.status == "active")
     elif app == DROPBOX:
         probe = exists().where(DropboxConnection.user_id == user_id, DropboxConnection.status == "active")
+    elif app == NOTION:
+        probe = exists().where(NotionConnection.user_id == user_id, NotionConnection.status == "active")
     else:
         return True
     return bool((await session.execute(select(probe))).scalar())

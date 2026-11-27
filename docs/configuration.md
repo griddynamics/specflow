@@ -54,6 +54,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `ATLASSIAN_OAUTH_CLIENT_ID`, `ATLASSIAN_OAUTH_CLIENT_SECRET`, `ATLASSIAN_TOKEN_KEY` | api | Per-user Atlassian connections of the [Jira sync](#jira-sync) (`oauth` mode, which wins over the one account). The client ID turns it on and then needs the secret, a Fernet key, `ATLASSIAN_SITE_URL` and `PUBLIC_URL`. |
 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_TOKEN_KEY` | api, worker-agents | The GitHub App of the [GitHub integration](#github-integration). The client ID turns it on and then needs the secret, the app slug, a Fernet key and `PUBLIC_URL`. |
 | `LINEAR_OAUTH_CLIENT_ID`, `LINEAR_OAUTH_CLIENT_SECRET`, `LINEAR_TOKEN_KEY`, `LINEAR_WEBHOOK_SECRET` | api | The Linear OAuth app of the [Linear integration](#linear-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. The webhook secret is optional. |
+| `NOTION_OAUTH_CLIENT_ID`, `NOTION_OAUTH_CLIENT_SECRET`, `NOTION_TOKEN_KEY` | api | The public Notion connection of the [Notion integration](#notion-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. |
 
 | `BOX_OAUTH_CLIENT_ID`, `BOX_OAUTH_CLIENT_SECRET`, `BOX_TOKEN_KEY` | api | The Box app of the [Box integration](#box-integration). The client ID turns it on and then needs the secret, a Fernet key and `PUBLIC_URL`. |
 | `DROPBOX_OAUTH_CLIENT_ID`, `DROPBOX_OAUTH_CLIENT_SECRET`, `DROPBOX_TOKEN_KEY` | api | The Dropbox app of the [Dropbox integration](#dropbox-integration). The app key turns it on and then needs the app secret, a Fernet key and `PUBLIC_URL`. |
@@ -68,6 +69,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `NEO4J_DATABASE` | unset | api, workers, tools | Alias of `GRAPH_STORE_NAME` while `GRAPH_STORE` is `neo4j`. |
 | `AGENT_TRACE_SENSITIVE_DATA` | `false` | api, workers | `true` puts document text into traces. Use it only for local debugging. |
 | `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Vector size of `GRAPH_EMBEDDING_MODEL`; set it together with the model, because the default fits only models with 1536 dimensions (1 to 4096). The first build of each api process checks it with one embedding call, before the schema and any extraction: a mismatch fails that build at once with `embedding_dim_mismatch`, and the `api.graph_build.failed` log gives `expected` and `actual`. To change it after a build, see [Local stack](#local-stack). |
+| `NOTION_REQUESTS_PER_MINUTE` | `150` | api | Requests a minute one Notion connection may send; import and export share it. 1 to 600 ([Notion integration](#notion-integration)). |
 | `GRAPH_STATE_DIR` | `.graph-build/state` | api | Folder of the graph build file stores, relative to the working directory. |
 | `GRAPH_LLM_CONCURRENCY` | `8` | api, tools | How many graph-build model calls may run at once. |
 | `GAP_ENABLED` | `true` | api | With the graph build configured, runs gap runs and serves the gap routes; `false` makes them answer 503 `gap_unavailable` ([gap settings](graph/gap/architecture.md#settings)). |
@@ -767,6 +769,28 @@ routes answer 503 `dropbox_unavailable`. A partial set stops the role at start a
 key as for Box. The api must reach `api.dropboxapi.com` and `content.dropboxapi.com` directly (the browser alone opens
 `www.dropbox.com`): the Dropbox client ignores `HTTPS_PROXY` and the other proxy variables (and `.netrc`). How to
 register the app: [oauth.md](dropbox/oauth.md#app-setup).
+
+## Notion integration
+
+The [Notion integration](notion/INDEX.md) lets each user connect their own Notion account, add a Notion page or
+database as a project source and export the plan to a Notion database. It uses one **public connection** (OAuth 2.0)
+of the deployment; only the api talks to Notion.
+
+| Name | Rule |
+|---|---|
+| `NOTION_OAUTH_CLIENT_ID` | The OAuth client ID of the public connection. A non-blank value turns the integration on. |
+| `NOTION_OAUTH_CLIENT_SECRET` | The OAuth client secret. A secret: keep it in the cluster's secret store. |
+| `NOTION_TOKEN_KEY` | A Fernet key that encrypts the users' refresh tokens and signs the OAuth `state`. Own key: rotating it expires only the Notion connections. |
+| `NOTION_REQUESTS_PER_MINUTE` | Requests per minute one Notion connection (one `bot_id`) may send in the api process; import and export share it. Default 150 (Notion allows 180 on Free and Plus workspaces, 600 on Business and Enterprise). 1 to 600. |
+| `PUBLIC_URL` | The web app's public address. The redirect URI is `{PUBLIC_URL}/api/integrations/notion/callback`. |
+
+With the client ID unset the integration is off: the Notion card says so and the Notion routes answer 503
+`notion_unavailable`. A partial set stops the role at start and names the missing variables. Make the key as for
+`GITHUB_TOKEN_KEY`. Register the redirect URI and the capabilities in [oauth.md](notion/oauth.md#settings).
+
+`NOTION_API_TOKEN` is not a product setting. It is the token of an internal Notion connection that the live tests use
+to record the fixtures of `backend/src/notion/fixtures/` and to check the client against a test workspace
+(`test_notion_http_live.py`, skipped without it). Keep it in `.env.local` only.
 
 ## Document parsing
 

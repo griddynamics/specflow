@@ -116,7 +116,7 @@ export function parseGuideTopic(topic: string): GuideTopic | null {
 }
 
 /**
- * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?linear=`, `?box=`, `?dropbox=`), the app whose set-up opens at once (`?setup=`) and
+ * The Integrations page query: the OAuth return codes (`?github=`, `?atlassian=`, `?linear=`, `?box=`, `?dropbox=`, `?notion=`), the app whose set-up opens at once (`?setup=`) and
  * the same-site `next` path the page returns to after a connect (the canvas form that asked). Anything else is null.
  */
 export function parseIntegrationsQuery(q: URLSearchParams): {
@@ -125,6 +125,7 @@ export function parseIntegrationsQuery(q: URLSearchParams): {
   linear: string | null;
   box: string | null;
   dropbox: string | null;
+  notion: string | null;
   setup: IntegrationCardId | null;
   next: string | null;
 } {
@@ -136,6 +137,7 @@ export function parseIntegrationsQuery(q: URLSearchParams): {
     linear: q.get("linear"),
     box: q.get("box"),
     dropbox: q.get("dropbox"),
+    notion: q.get("notion"),
     setup,
     next: isSameSitePath(next) ? next : null,
   };
