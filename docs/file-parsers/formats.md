@@ -21,18 +21,27 @@ same rows from `backend/src/api/fixtures/upload-formats.json`, which a backend t
 | HTML | `.html` | `text/html` | 10 MiB |
 | Markdown | `.md` | `text/markdown` | 10 MiB |
 | CSV | `.csv` | `text/csv` | 10 MiB |
+| draw.io diagram | `.drawio` | `application/vnd.jgraph.mxfile` | 10 MiB |
+| draw.io diagram (SVG) | `.drawio.svg` | `application/vnd.graphico.drawio-svg` | 10 MiB |
+| draw.io diagram (PNG) | `.drawio.png` | `application/vnd.graphico.drawio-png` | 10 MiB |
 
+The two `drawio-*` types are invented, so that every step can route on the stored type. The diagram formats are not
+converted by Docling: `file_parsers/diagrams` (standard library only) turns every page into Markdown (parser
+`drawio-convert`, one document per file; its Markdown is capped at 10 MiB, a label at 300 characters and a group title at three levels, and an upload has no diagram name, so it starts `# Diagram`; the mapping is in [../sources/importers.md](../sources/importers.md#diagramsnet-link)).
+
+The same files can be added from a diagrams.net link ([../sources/importers.md](../sources/importers.md#diagramsnet-link)).
 Legacy `.doc`, `.ppt` and `.xls`, and every other type, are refused ([roadmap.md](roadmap.md#deferred-features)).
 
 ## Upload API
 
-- The file extension picks the format and its canonical type. The `Content-Type` header must agree, except
+- The file extension picks the format and its canonical type; the longest suffix wins, so `.drawio.svg` and `.drawio.png`
+  are diagrams and a plain `.svg` or `.png` is refused. The `Content-Type` header must agree, except
   for browser quirks: an empty type or `text/plain` for `.md`, `text/plain` or `application/vnd.ms-excel` for
-  `.csv`. The stored `documents.media_type` is always the canonical type. With no extension, or one that is
+  `.csv`; for `.drawio` an empty type, `text/xml`, `application/xml` or `application/octet-stream`; for `.drawio.svg` the same and `image/svg+xml`; for `.drawio.png` an empty type, `application/octet-stream` or `image/png`. The stored `documents.media_type` is always the canonical type. With no extension, or one that is
   not in the table (`.txt`, `.htm`), only a header that names an accepted type decides (`notes.txt` sent as
   `text/markdown` is Markdown), and the quirk headers are refused. A legacy extension is always refused.
 - The stream checks only what the first bytes show: `%PDF-` for PDF, a ZIP header (`PK\x03\x04`) for Word,
-  PowerPoint and Excel, UTF-8 without NUL bytes for text. It counts bytes against the cap while it streams
+  PowerPoint and Excel, UTF-8 without NUL bytes for text (`.drawio` and `.drawio.svg` included), the PNG signature for `.drawio.png`. It counts bytes against the cap while it streams
   the body, with no temporary file and no full buffering. Deeper checks belong to the parse
   ([limits.md](limits.md)).
 - A refusal uses `unsupported_format` (415) or `file_too_large` (413) ([errors.md](errors.md#error-codes)).
@@ -58,7 +67,7 @@ real format.
 
 ## Drive import
 
-- Drive classifies a file by its MIME type only (DATA-GDUI-0001.AC5), inside the existing categories, with
+- Drive classifies a file by its MIME type (DATA-GDUI-0001.AC5), with one exception below, inside the existing categories, with
   no migration (decision N1 of [decisions/docling-replaces-pymupdf.md](decisions/docling-replaces-pymupdf.md#decided-questions)):
 
 | Drive MIME type | Category | Processing class |
@@ -68,8 +77,12 @@ real format.
 | Legacy Word, PowerPoint, Excel | Word, PowerPoint, Excel | stored only |
 | `text/html`, `text/markdown`, `text/csv` | other files | processed |
 | `text/plain` (even a `.md` file), images, video, everything else | as before | stored only |
+| `application/vnd.jgraph.mxfile` (and the legacy `.realtime`, `.rtlegacy`) | other files | processed |
 | Google Docs, Slides, Sheets | Google | converted by `drive-convert`, not by the file parsers |
 
+- **The name wins for draw.io.** A file named `.drawio`, `.drawio.svg` or `.drawio.png` (case-insensitive, with a base name) is
+  other files, processed, whatever its MIME type (Drive reports `image/png`, `text/xml` or `application/octet-stream`); its format
+  is the one its name says. A plain `.png` or `.svg` stays an image.
 - A processed file is imported as a document with its canonical type and key, and deduplicated by content
   hash like a PDF.
 - The Drive import does not apply the upload caps while it downloads; the guard holds the Office and text

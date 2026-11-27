@@ -52,6 +52,7 @@ from api.routers import (
     source_batches,
     source_box,
     source_confluence,
+    source_drawio,
     source_dropbox,
     source_jira_epic,
     source_linear,
@@ -243,6 +244,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         source_box.router,
         source_dropbox.router,
         source_notion.router,
+        source_drawio.router,
         source_removal.router,
         slack.router,
     ):

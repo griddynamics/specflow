@@ -100,16 +100,16 @@ def store():
 )
 def test_the_kind_follows_the_class_and_the_mime_type(mime, kind):
     category, klass = categorize(mime)
-    row = SimpleNamespace(category=category.value, processing_class=klass.value, mime_type=mime)
+    row = SimpleNamespace(category=category.value, processing_class=klass.value, mime_type=mime, name="x")
     assert kind_of(row) == kind
 
 
 @pytest.mark.parametrize(
     "row",
     [
-        SimpleNamespace(category="other_files", processing_class="processed", mime_type="application/zip"),
-        SimpleNamespace(category="word", processing_class="processed", mime_type="application/msword"),
-        SimpleNamespace(category="other_google", processing_class="forwarded", mime_type=G + "form"),
+        SimpleNamespace(category="other_files", processing_class="processed", mime_type="application/zip", name="x"),
+        SimpleNamespace(category="word", processing_class="processed", mime_type="application/msword", name="x"),
+        SimpleNamespace(category="other_google", processing_class="forwarded", mime_type=G + "form", name="x"),
     ],
 )
 def test_a_row_without_a_reader_has_no_kind(row):
@@ -150,6 +150,34 @@ async def test_a_file_of_each_new_type_becomes_a_parsed_document(
     ((markdown, parser),) = parse_repo.parsed
     assert parser == engine_id()
     assert item.external_id in markdown  # each fake file names its Drive id
+
+
+@pytest.mark.parametrize(
+    ("mime", "name", "media_type", "extension"),
+    [
+        ("image/png", "Flow.drawio.png", "application/vnd.graphico.drawio-png", ".drawio.png"),
+        ("application/octet-stream", "Flow.drawio", "application/vnd.jgraph.mxfile", ".drawio"),
+    ],
+)
+async def test_a_drawio_file_is_stored_with_its_canonical_type(
+    *, mime, name, media_type, extension, tmp_path, monkeypatch, store, pool
+):
+    drive = mixed_drive(tmp_path, [mime])
+    activities, _ = build(store, pool, drive)
+    item = row_of(0, mime, name)
+    repo = Repo(monkeypatch, item)
+    kind = kind_of(item)
+    assert kind == "document"
+
+    result = await run_activity(activities, activities.drive_import_item, data(item, kind))
+
+    document_id = ids.drive_document_id(CID, item.external_id)
+    assert (result.action, result.document_id) == ("parse", document_id)
+    key = document_original(str(PID), str(document_id), media_type)
+    assert key.endswith(f"original{extension}")
+    assert store.content_types[key] == media_type
+    [inserted] = repo.inserted
+    assert (inserted["media_type"], inserted.get("filename", name)) == (media_type, name)
 
 
 @pytest.mark.parametrize(("mime", "name"), STORED, ids=[s[1] for s in STORED])

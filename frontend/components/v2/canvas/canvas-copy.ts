@@ -194,6 +194,7 @@ export const CANVAS_COPY = {
     box: "Files",
     dropbox: "Files",
     notion: "Pages",
+    drawio: "Pages",
   },
   filesLabel: "Files in this source",
   filesNone: "Nothing in this source yet.",

@@ -66,6 +66,8 @@ const http: HttpPorts = {
     checkNotion: never,
     listNotion: never,
     addNotion: never,
+    checkDrawio: never,
+    addDrawio: never,
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },

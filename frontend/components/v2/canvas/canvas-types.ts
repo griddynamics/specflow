@@ -25,6 +25,7 @@ export type ConnectorKind =
   | "confluence"
   | "jira_epic"
   | "notion"
+  | "drawio"
   | "slack"
   | "jira_gap"
   | "jira"

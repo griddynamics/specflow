@@ -65,7 +65,7 @@ CONNECTION_ORIGIN: Final = "connection"
 STALE_FAILURE_REASON: Final = "unknown_error"
 # The sources whose import state and failure reason the status reads (Drive and the importers of the API process);
 # an upload batch has no state of its own.
-PROGRESS_KINDS: Final = ("gdrive", "confluence", "jira_epic", "box", "dropbox", "notion")
+PROGRESS_KINDS: Final = ("gdrive", "confluence", "jira_epic", "box", "dropbox", "notion", "drawio")
 FINAL_ITEM_STATES: Final = frozenset({"processed", "stored", "skipped", "error", "duplicate"})
 _INSERT_CHUNK: Final = 500  # rows per INSERT; 13 columns stay far below the bind limit
 
@@ -244,7 +244,7 @@ def _aware(value: str | None) -> datetime | None:
 
 
 def _item_values(connection_id: uuid.UUID, project_id: uuid.UUID, item: DriveItem) -> dict[str, object]:
-    category, processing_class = categorize(item.mime_type)
+    category, processing_class = categorize(item.mime_type, item.name)
     return {
         "id": uuid.uuid4(),
         "connection_id": connection_id,

@@ -30,7 +30,7 @@ test("each accepted type is added to a Local files batch with its canonical Cont
   const pid = (await http.createProject.create({ name: "All types" })).id;
   const picked = UPLOAD_FORMATS.map((f) => documentFile(`doc${f.extension}`, BROWSER_TYPE[f.extension] ?? f.mediaType));
   const report = await http.sources.upload(pid, picked);
-  assert.equal(report.added, 7, "all seven are added");
+  assert.equal(report.added, UPLOAD_FORMATS.length, "every accepted type is added");
   assert.equal(report.notAdded, 0);
   assert.equal(report.tooLarge, undefined);
   assert.deepEqual(

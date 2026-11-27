@@ -36,15 +36,24 @@ export const UPLOAD_FORMATS: readonly UploadFormat[] = [
   { extension: ".html", mediaType: "text/html", label: "HTML", maxBytes: 10 * MB },
   { extension: ".md", mediaType: "text/markdown", label: "Markdown", maxBytes: 10 * MB },
   { extension: ".csv", mediaType: "text/csv", label: "CSV", maxBytes: 10 * MB },
+  { extension: ".drawio", mediaType: "application/vnd.jgraph.mxfile", label: "Diagram", maxBytes: 10 * MB },
+  { extension: ".drawio.svg", mediaType: "application/vnd.graphico.drawio-svg", label: "Diagram SVG", maxBytes: 10 * MB },
+  { extension: ".drawio.png", mediaType: "application/vnd.graphico.drawio-png", label: "Diagram PNG", maxBytes: 10 * MB },
 ];
 
 const BY_EXTENSION = new Map(UPLOAD_FORMATS.map((f) => [f.extension, f]));
 
-/** The extension with its dot, lower case, from the last path segment; "" when there is none. */
+const COMPOUND_EXTENSIONS = UPLOAD_FORMATS.map((f) => f.extension)
+  .filter((e) => e.lastIndexOf(".") > 0)
+  .toSorted((a, b) => b.length - a.length);
+
+/** The extension with its dot, lower case, from the last path segment; "" when there is none. A compound one (`.drawio.svg`) wins over its last part. */
 function extensionOf(filename: string): string {
-  const name = filename.split(/[\\/]/).pop() ?? "";
+  const name = (filename.split(/[\\/]/).pop() ?? "").toLowerCase();
+  const compound = COMPOUND_EXTENSIONS.find((e) => name.endsWith(e) && name.length > e.length);
+  if (compound !== undefined) return compound;
   const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(dot).toLowerCase() : "";
+  return dot > 0 ? name.slice(dot) : "";
 }
 
 /** The accepted format of a file name, or `null` (unknown and legacy extensions are refused). */
@@ -63,14 +72,14 @@ export function sizeText(bytes: number): string {
 }
 
 const extensionList = (formats: readonly UploadFormat[]) => formats.map((f) => f.extension).join(", ");
-/** "PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV". */
+/** "PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV, Diagram, Diagram SVG or Diagram PNG". */
 export const FORMAT_LABELS = `${UPLOAD_FORMATS.slice(0, -1)
   .map((f) => f.label)
   .join(", ")} or ${UPLOAD_FORMATS[UPLOAD_FORMATS.length - 1].label}`;
-/** ".pdf, .docx, .pptx, .xlsx, .html, .md, .csv" */
+/** ".pdf, .docx, .pptx, .xlsx, .html, .md, .csv, .drawio, .drawio.svg, .drawio.png" */
 export const ACCEPTED_EXTENSIONS = extensionList(UPLOAD_FORMATS);
 
-/** The N2 caps, grouped: "PDF up to 100 MB; Word, PowerPoint and Excel up to 50 MB; HTML, Markdown and CSV up to 10 MB". */
+/** The N2 caps, grouped: "PDF up to 100 MB; Word, PowerPoint and Excel up to 50 MB; HTML, Markdown, CSV, Diagram, Diagram SVG and Diagram PNG up to 10 MB". */
 export function limitsText(): string {
   const groups = new Map<number, string[]>();
   for (const f of UPLOAD_FORMATS) groups.set(f.maxBytes, [...(groups.get(f.maxBytes) ?? []), f.label]);

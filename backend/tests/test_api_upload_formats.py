@@ -38,6 +38,9 @@ BODIES = {
     DocumentFormat.HTML: b"<html><body><h1>Title</h1></body></html>",
     DocumentFormat.MARKDOWN: "# Titel\n\nZażółć gęślą jaźń\n".encode(),
     DocumentFormat.CSV: b"a,b\n1,2\n",
+    DocumentFormat.DRAWIO: b'<mxfile><diagram id="a" name="Page-1"></diagram></mxfile>',
+    DocumentFormat.DRAWIO_SVG: b'<svg xmlns="http://www.w3.org/2000/svg" content="&lt;mxfile/&gt;"></svg>',
+    DocumentFormat.DRAWIO_PNG: b"\x89PNG\r\n\x1a\n" + b"\x00" * 30,
 }
 CATEGORY = {
     DocumentFormat.PDF: "pdf",
@@ -47,6 +50,9 @@ CATEGORY = {
     DocumentFormat.HTML: "other_files",
     DocumentFormat.MARKDOWN: "other_files",
     DocumentFormat.CSV: "other_files",
+    DocumentFormat.DRAWIO: "other_files",
+    DocumentFormat.DRAWIO_SVG: "other_files",
+    DocumentFormat.DRAWIO_PNG: "other_files",
 }
 CANONICAL = [pytest.param(spec, id=spec.extension) for spec in FORMATS]
 
@@ -359,6 +365,9 @@ def test_the_byte_caps_are_the_n2_values():
         DocumentFormat.HTML: 10,
         DocumentFormat.MARKDOWN: 10,
         DocumentFormat.CSV: 10,
+        DocumentFormat.DRAWIO: 10,
+        DocumentFormat.DRAWIO_SVG: 10,
+        DocumentFormat.DRAWIO_PNG: 10,
     }
     assert set(uploads.MAX_BYTES) == {spec.format for spec in FORMATS}
 
@@ -460,3 +469,22 @@ def test_the_batch_item_category_follows_the_format(spec):
 
 def test_an_unknown_media_type_falls_into_other_files():
     assert batches.item_category("application/octet-stream") == "other_files"
+
+
+# ---- diagram files: the compound extension decides, the first bytes are checked --------------
+
+
+async def test_a_drawio_png_must_start_with_the_png_signature_and_the_text_ones_must_not(harness):
+    pid = await project(harness)
+    text = BODIES[DocumentFormat.DRAWIO]
+    assert (await legacy(harness, pid, text, "a.drawio.png", "image/png")).status_code == 415
+    png = BODIES[DocumentFormat.DRAWIO_PNG]
+    for name, header in (("a.drawio", "text/xml"), ("a.drawio.svg", "image/svg+xml")):
+        assert (await legacy(harness, pid, png, name, header)).status_code == 415
+    assert nothing_kept(harness)
+
+
+async def test_a_plain_png_or_svg_is_not_a_diagram_upload(harness):
+    pid = await project(harness)
+    for name, header in (("a.png", "image/png"), ("a.svg", "image/svg+xml")):
+        assert (await legacy(harness, pid, BODIES[DocumentFormat.DRAWIO_SVG], name, header)).status_code == 415

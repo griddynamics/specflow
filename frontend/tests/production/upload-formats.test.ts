@@ -31,7 +31,7 @@ test("the table equals the API contract backend/src/api/fixtures/upload-formats.
     formats: { extension: string; media_type: string; max_bytes: number }[];
     legacy_extensions: string[];
   };
-  assert.equal(contract.formats.length, 7);
+  assert.equal(contract.formats.length, 10);
   assert.deepEqual(
     UPLOAD_FORMATS.map((f) => ({ extension: f.extension, media_type: f.mediaType, max_bytes: f.maxBytes })),
     contract.formats,
@@ -57,6 +57,13 @@ test("canonical Content-Type by extension: case-insensitive, a path is fine, bro
   assert.equal(contentTypeFor("dir/notes.CSV"), "text/csv");
 });
 
+test("a diagram file is chosen by the longest extension: a plain .svg or .png is not one", () => {
+  assert.equal(contentTypeFor("flow.drawio"), "application/vnd.jgraph.mxfile");
+  assert.equal(contentTypeFor("Flow.DRAWIO.SVG"), "application/vnd.graphico.drawio-svg");
+  assert.equal(contentTypeFor("dir/a.b.drawio.png"), "application/vnd.graphico.drawio-png");
+  for (const name of ["logo.svg", "photo.png", ".drawio.svg", "flow.drawio.svg.bak"]) assert.equal(formatOf(name), null, name);
+});
+
 test("legacy, unknown and extension-less names are not accepted and get a generic type (the API answers 415)", () => {
   for (const name of ["old.doc", "old.ppt", "old.xls", "notes.txt", "page.htm", "archive", ".md", "a.pdf.exe", "a.docm"]) {
     assert.equal(formatOf(name), null, name);
@@ -75,11 +82,17 @@ test("picker accept list, texts and caps agree with N2", () => {
       ".html,text/html",
       ".md,text/markdown",
       ".csv,text/csv",
+      ".drawio,application/vnd.jgraph.mxfile",
+      ".drawio.svg,application/vnd.graphico.drawio-svg",
+      ".drawio.png,application/vnd.graphico.drawio-png",
     ].join(","),
   );
-  assert.equal(ACCEPTED_EXTENSIONS, ".pdf, .docx, .pptx, .xlsx, .html, .md, .csv");
-  assert.equal(FORMAT_LABELS, "PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV");
-  assert.equal(limitsText(), "PDF up to 100 MB; Word, PowerPoint and Excel up to 50 MB; HTML, Markdown and CSV up to 10 MB");
+  assert.equal(ACCEPTED_EXTENSIONS, ".pdf, .docx, .pptx, .xlsx, .html, .md, .csv, .drawio, .drawio.svg, .drawio.png");
+  assert.equal(FORMAT_LABELS, "PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV, Diagram, Diagram SVG or Diagram PNG");
+  assert.equal(
+    limitsText(),
+    "PDF up to 100 MB; Word, PowerPoint and Excel up to 50 MB; HTML, Markdown, CSV, Diagram, Diagram SVG and Diagram PNG up to 10 MB",
+  );
   assert.equal(sizeText(100 * MB), "100 MB");
   assert.equal(sizeText(1.5 * MB), "1.5 MB");
 });
@@ -110,8 +123,8 @@ test("the refusal toast names the files and the accepted types", () => {
   assert.equal(one.title, "File type not supported");
   assert.equal(
     one.message,
-    "old.doc was not added. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV files (.pdf, .docx, .pptx, .xlsx, .html, .md, .csv). " +
-      "Limits: PDF up to 100 MB; Word, PowerPoint and Excel up to 50 MB; HTML, Markdown and CSV up to 10 MB.",
+    "old.doc was not added. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV, Diagram, Diagram SVG or Diagram PNG files (.pdf, .docx, .pptx, .xlsx, .html, .md, .csv, .drawio, .drawio.svg, .drawio.png). " +
+      "Limits: PDF up to 100 MB; Word, PowerPoint and Excel up to 50 MB; HTML, Markdown, CSV, Diagram, Diagram SVG and Diagram PNG up to 10 MB.",
   );
   assert.match(unsupportedFilesToast(["a.doc", "b.ppt"]).message, /^a\.doc, b\.ppt were not added\./);
 });

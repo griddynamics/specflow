@@ -129,7 +129,10 @@ def _file_rows(listing: Listing) -> tuple[list[DriveFileOut], bool]:
 
     rows = [
         DriveFileOut(
-            id=item.id, name=item.name, path=folder_path(listing, item), category=categorize(item.mime_type)[0].value
+            id=item.id,
+            name=item.name,
+            path=folder_path(listing, item),
+            category=categorize(item.mime_type, item.name)[0].value,
         )
         for item in listing.items
     ]

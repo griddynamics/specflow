@@ -799,6 +799,7 @@ is no setting for the engine, the formats or the limits: they are fixed in the c
 [file parsers documentation](file-parsers/INDEX.md):
 
 - [accepted formats and upload caps](file-parsers/formats.md#accepted-formats);
+- diagrams.net links and `.drawio` files need no setting either: caps and hosts are constants ([importers](sources/importers.md#diagramsnet-link));
 - [parse limits](file-parsers/limits.md#parse-limits) and [error codes](file-parsers/errors.md#error-codes);
 - [time limits](file-parsers/runtime.md#time-limits): one parse runs at a time per `worker-parse` replica, so
   add replicas for a backlog;

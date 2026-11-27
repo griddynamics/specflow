@@ -34,6 +34,21 @@
       "extension": ".csv",
       "media_type": "text/csv",
       "max_bytes": 10485760
+    },
+    {
+      "extension": ".drawio",
+      "media_type": "application/vnd.jgraph.mxfile",
+      "max_bytes": 10485760
+    },
+    {
+      "extension": ".drawio.svg",
+      "media_type": "application/vnd.graphico.drawio-svg",
+      "max_bytes": 10485760
+    },
+    {
+      "extension": ".drawio.png",
+      "media_type": "application/vnd.graphico.drawio-png",
+      "max_bytes": 10485760
     }
   ],
   "legacy_extensions": [

@@ -160,6 +160,11 @@ codes = [
     { code = "notion_rate_limited", http = 503 },
     { code = "notion_parent_not_a_page", http = 422 },
     { code = "notion_permissions_missing", http = 409 },
+    { code = "drawio_link_invalid", http = 422 },
+    { code = "drawio_link_unsupported", http = 422 },
+    { code = "drawio_fetch_failed", http = 409 },
+    { code = "drawio_not_a_diagram", http = 422 },
+    { code = "drawio_too_large", http = 413 },
     { code = "internal_error", http = 500 },
     { code = "http_error", http = 400 },
 ]
@@ -300,6 +305,11 @@ probes = [
     { name = "probe-128", class = "api.errors:ApiError", args = [422, "notion_parent_not_a_page", "The link is a database. Paste the link of a page."] },
     { name = "probe-129", class = "api.errors:ApiError", args = [409, "notion_permissions_missing", "The Notion connection cannot insert or update content. Connect Notion again and allow it."] },
     { name = "probe-130", class = "api.errors:ApiError", args = [503, "notion_rate_limited", "Notion is busy right now. Try again in a minute."] },
+    { name = "probe-131", class = "api.errors:ApiError", args = [422, "drawio_link_invalid", "Paste a link to a diagram on diagrams.net."] },
+    { name = "probe-132", class = "api.errors:ApiError", args = [422, "drawio_link_unsupported", "The diagram is stored in a place SpecFlow cannot read from a link. Download it as .drawio and add it with Upload."] },
+    { name = "probe-133", class = "api.errors:ApiError", args = [409, "drawio_fetch_failed", "The diagram could not be fetched from the link."] },
+    { name = "probe-134", class = "api.errors:ApiError", args = [422, "drawio_not_a_diagram", "The link does not hold a diagrams.net diagram."] },
+    { name = "probe-135", class = "api.errors:ApiError", args = [413, "drawio_too_large", "The diagram is too large to import."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

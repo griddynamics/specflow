@@ -57,8 +57,18 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # written out here so the models do not import the Drive package.
 # ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations);
 # ``linear_project`` is too (migration 0011_linear), ``box`` (migration 0012_box), ``dropbox`` (migration
-# 0013_dropbox) and ``notion`` (migration 0014_notion).
-CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box", "dropbox", "notion")
+# 0013_dropbox), ``notion`` (migration 0014_notion) and ``drawio`` (migration 0015_drawio_source).
+CONNECTION_KINDS: Final = (
+    "gdrive",
+    "upload",
+    "confluence",
+    "jira_epic",
+    "linear_project",
+    "box",
+    "dropbox",
+    "notion",
+    "drawio",
+)
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",

@@ -12,11 +12,13 @@ import {
   addBoxSource,
   addDropboxSource,
   addConfluenceSource,
+  addDrawioSource,
   addJiraEpicSource,
   checkBoxLink,
   checkDropboxLink,
   addNotionSource,
   checkConfluenceLink,
+  checkDrawioLink,
   checkJiraEpicLink,
   checkNotionLink,
   listNotionShared,
@@ -57,6 +59,7 @@ import {
   type SourcesPort,
   type UploadReport,
 } from "@/lib/domain/sources";
+import { toDrawioCheck } from "./drawio-wire";
 import { expectShape, guard, isRecord, isString } from "./errors";
 import { BATCH_OUTCOMES, toFilePage, toProgress, toSource, type BatchOutcome } from "./sources-wire";
 
@@ -369,6 +372,16 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
         await guard(() => addNotionSource(projectId, links));
       } finally {
         opts.changed(projectId); // the source may exist on the server even when the answer was odd or late
+      }
+    },
+    async checkDrawio(projectId, link) {
+      return toDrawioCheck(await guard(() => checkDrawioLink(projectId, link)));
+    },
+    async addDrawio(projectId, link) {
+      try {
+        await guard(() => addDrawioSource(projectId, link));
+      } finally {
+        opts.changed(projectId);
       }
     },
   };

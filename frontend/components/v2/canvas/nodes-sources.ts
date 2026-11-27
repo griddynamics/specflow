@@ -25,6 +25,7 @@ const APP_NAME: Partial<Record<SourceKind, string>> = {
   box: "Box",
   dropbox: "Dropbox",
   notion: "Notion",
+  drawio: "diagrams.net",
 };
 
 const MARK = {
@@ -36,6 +37,7 @@ const MARK = {
   box: "box",
   dropbox: "dropbox",
   notion: "notion",
+  drawio: "drawio",
 } as const;
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
@@ -55,9 +57,15 @@ export function uploadName(s: Pick<Source, "addedAt" | "nameSuffix" | "name">, n
   return `Upload ${sameDay ? clock(s.addedAt) : DAY.format(added)}${suffix}`;
 }
 
-const UNIT: Partial<Record<SourceKind, string>> = { confluence: "page", jira_epic: "issue", linear_project: "issue", notion: "page" };
+const UNIT: Partial<Record<SourceKind, string>> = {
+  confluence: "page",
+  jira_epic: "issue",
+  linear_project: "issue",
+  notion: "page",
+  drawio: "page",
+};
 
-/** A Confluence source counts pages and a Jira epic issues where the others count files. */
+/** A Confluence source and a diagrams.net link count pages and a Jira epic issues where the others count files. */
 export const unitText = (kind: SourceKind, text: string): string => {
   const unit = UNIT[kind];
   return unit === undefined ? text : text.replaceAll(/\bfile(s?)\b/g, `${unit}$1`);
@@ -71,6 +79,12 @@ const IMPORT_WORDS: Partial<Record<SourceKind, { noAccessMeta: string; noAccess:
   box: BOX_WORDS,
   dropbox: DROPBOX_WORDS,
   notion: NOTION_IMPORT_WORDS,
+  drawio: {
+    noAccessMeta: "Cannot read it",
+    noAccess: "The diagram could not be read. Add the link again.",
+    failedMeta: "Import failed",
+    failed: "The import failed. Add the link again.",
+  },
 };
 
 /** The app a stopped imported source offers to reconnect (`no_access`: the bound member's account lost its access). */
@@ -159,7 +173,7 @@ function sourceNode(s: Source, kind: keyof typeof MARK, stages: Stages, now: Dat
 }
 
 const sourcesOf =
-  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "box" | "dropbox" | "notion"): NodeMapper =>
+  (kind: "upload" | "gdrive" | "confluence" | "jira_epic" | "linear_project" | "box" | "dropbox" | "notion" | "drawio"): NodeMapper =>
   (input, stages) =>
     (input.status?.sources ?? []).filter((s) => s.kind === kind).map((s) => sourceNode(s, kind, stages, input.now));
 
@@ -171,3 +185,4 @@ export const linearProjectNodes: NodeMapper = sourcesOf("linear_project");
 export const boxNodes: NodeMapper = sourcesOf("box");
 export const dropboxNodes: NodeMapper = sourcesOf("dropbox");
 export const notionNodes: NodeMapper = sourcesOf("notion");
+export const drawioNodes: NodeMapper = sourcesOf("drawio");

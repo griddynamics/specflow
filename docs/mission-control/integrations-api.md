@@ -106,10 +106,10 @@ Unchanged (members could already): sources, uploads, Drive, source removal, grap
 
 ## Importer seam
 
-For sources the API reads itself (Confluence pages, Jira epics, Box links, Dropbox links, Notion pages; each source session adds its importer). Nothing in
+For sources the API reads itself (Confluence pages, Jira epics, Box links, Dropbox links, Notion pages, diagrams.net diagrams; each source session adds its importer). Nothing in
 the graph build changes: an importer writes `parsed` documents the build already reads.
 
-- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence`, `jira_epic`, `box`, `dropbox` or `notion` (`SourceKindName` too).
+- Source kinds: `connections.kind` is `gdrive`, `upload`, `confluence`, `jira_epic`, `linear_project`, `box`, `dropbox`, `notion` or `drawio` (`SourceKindName` too; migration `0015_drawio_source` widens the check).
   `external_id` of an imported source is `str(uuid)`, as a Local files batch has; `connected_by` is the importing member.
 - `api.imports.ImportRunner` (`Runtime.imports`) holds the imports of the process: one asyncio task per source, at most
   two at once (`MAX_CONCURRENT_IMPORTS`). `add_source` creates the source (`listing`); `start(job, importer)` runs it:
@@ -133,7 +133,7 @@ the graph build changes: an importer writes `parsed` documents the build already
   before this process started is `failed` (`unknown_error`) with its unfinished items `error` (`import_failed`); the member adds it again (D7: import once). The start instant is read once from the database clock (`SELECT now()`) and compared with `connections.updated_at`, so no process clock is involved; a source added after it is never ended. If the clock read fails (the database is still coming up) it is tried again after 0.5, 1 and 2 seconds; after the last failure a warning (`api.imports.recovery_failed`, the error class only) is logged and no source is ended. One API replica is assumed, as for the Slack bindings.
 - Removing such a source (`DELETE /projects/{pid}/sources/{sid}`) behaves as removing an upload.
 - Lineage: an imported document is `doc:<document id>`; a re-imported changed page is a new graph document.
-- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source", "Jira epic source", "Box source" and "Dropbox source" below.
+- The importers that exist, their routes, caps and failure reasons: [../sources/importers.md](../sources/importers.md), "Confluence source", "Jira epic source", "Box source", "Dropbox source" and "diagrams.net source" below.
 
 ## Confluence source
 
@@ -259,6 +259,28 @@ Codes: the shared `atlassian_oauth_unavailable`, `atlassian_not_connected`, `atl
 | `jira_epic_forbidden` | 409 | Jira refused the bound member (403) |
 
 Order of checks: project member, Atlassian bound and usable, key or link, Jira.
+
+## diagrams.net source
+
+What the canvas form (check, then add) calls. Any member (D6); no integration and no key. The link is parsed, fetched, decoded (off the event loop) and counted inside the request, so every refusal is a code below; the import runs in the API process and is the source `kind` `drawio`, started with the caller as reader. What it reads, the caps and the Markdown: [../sources/importers.md](../sources/importers.md) "diagrams.net link".
+
+| Method, path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /projects/{pid}/sources/drawio/check` | `{link}` | 200 `DrawioCheckOut` | 404 `project_not_found`; the codes below |
+| `POST /projects/{pid}/sources/drawio` | `{link}` | 201 `BatchSourceOut` (the card of the new source, `kind` `drawio`, `name` the diagram's, `link` the viewer link without the fragment for `#R` and `#P`, only `scheme://host/path` for a fetched URL) | as the check; 404 `source_not_found` (removed at once) |
+
+`link` is validated only against an absurd size: over 512 KiB (twice the 256 KiB link limit) is 422 `validation_failed`, before anything reads it; between 256 and 512 KiB is `drawio_too_large` (the body is closed: other keys are 422 `validation_failed`).
+`DrawioCheckOut`: `name` (the `title` parameter of the link, else the fetched file's name, both without a `.drawio`/`.xml`/`.svg`/`.png` suffix, else `diagrams.net diagram`; the source and its items use the same name), `pages` (`[{name, shapes, arrows}]` in order, at most 50) and `capped` (pages or cells were dropped by a cap). Nothing is stored; a `#U` link makes one fetch. Progress and status are the card of `GET /projects/{pid}/sources?batches=1`, as for the Confluence source; one source per add, every add is a new source (D7). A failure after the add can only be `unknown_error`.
+
+| Code | HTTP | When |
+|---|---|---|
+| `drawio_link_invalid` | 422 | not an `https` link (no credentials, port 443) to a diagrams.net host or a `.drawio` URL, a malformed fragment, or a fetch URL that is not plain `https` |
+| `drawio_link_unsupported` | 422 | the diagram is in a storage (Google Drive, GitHub, ...): the message names it; download it as `.drawio` and add it with Upload |
+| `drawio_fetch_failed` | 409 | the fetch failed: unreachable, timeout (15 s), a refused address, a status other than 2xx, a content type that is not a diagram's, a `Content-Encoding` other than identity |
+| `drawio_not_a_diagram` | 422 | the content is not a diagrams.net diagram (no pages, bad encoding, malformed XML, a DTD or entity declaration) |
+| `drawio_too_large` | 413 | the link is over 256 KiB, or the file or its XML is over its cap (10 MiB, 20 MiB inflated), or a rendered page is over 2 MiB of Markdown (a link import then ends `unknown_error`) |
+
+Order of checks: project member, link, fetch, decode. Every message is a fixed sentence: never the link, a host or the file's text.
 
 ## Google Drive source
 
@@ -396,6 +418,9 @@ connection has no login, so its workspace name is the Notion workspace.
 | `github_not_connected` | 409 | `PUT` GitHub: the caller has no active GitHub connection; adding a repository: the project has no GitHub connection bound to a member |
 | `integration_already_connected` | 409 | `PUT`: another member's connection to the app is still active, so the binding is not taken over (they or the owner remove it first) |
 | `integration_workspace_mismatch` | 409 | `PUT`: the project is connected to another Atlassian site, GitHub account, Notion workspace or Slack workspace |
+| `drawio_link_invalid`, `drawio_link_unsupported`, `drawio_not_a_diagram` | 422 | the diagrams.net source (see "diagrams.net source") |
+| `drawio_fetch_failed` | 409 | the diagrams.net source: the link could not be fetched |
+| `drawio_too_large` | 413 | the diagrams.net source: the link, file or XML is over its cap |
 | `integration_not_found` | 404 | `DELETE`: the project has no connection to that app |
 | `integration_forbidden` | 403 | `DELETE`: the caller neither connected the app nor owns the project |
 | `atlassian_oauth_unavailable`, `github_unavailable`, `slack_unavailable`, `box_unavailable`, `dropbox_unavailable`, `notion_unavailable` | 503 | the app is not configured on this server |

@@ -11,7 +11,7 @@ from typing import Final
 from db.models import CONNECTION_FAILURE_REASONS
 
 # the ``connections.kind`` values the API imports itself
-IMPORT_KINDS: Final = ("confluence", "jira_epic", "linear_project", "box", "dropbox", "notion")
+IMPORT_KINDS: Final = ("confluence", "jira_epic", "linear_project", "box", "dropbox", "notion", "drawio")
 
 
 class InvalidFailureReasonError(Exception):

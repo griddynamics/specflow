@@ -55,7 +55,7 @@ from docling_core.types.doc.items.table.table import TableItem
 from file_parsers.engines.cpu import available_cpus
 from file_parsers.engines.docling_office import to_office_content
 from file_parsers.engines.port import PageRange, ProgressCallback, UnsupportedFormatError
-from file_parsers.formats import PDF_MEDIA_TYPE, DocumentFormat, canonical_media_types, format_for_media_type
+from file_parsers.formats import FORMATS, PDF_MEDIA_TYPE, DocumentFormat, format_for_media_type
 from file_parsers.office.model import OfficeContent
 from file_parsers.pdf.pdfium_typed import open_document
 from file_parsers.pdf.schema import PDFDocument, PDFFigure, PDFPageContent, PDFTableBox
@@ -154,7 +154,7 @@ class DoclingEngine:
     worker-parse image and the CI prefetch set it); else the Hugging Face cache.
     """
 
-    formats = frozenset(canonical_media_types())
+    formats = frozenset(spec.media_type for spec in FORMATS if spec.format in INPUT_FORMATS)
 
     def __init__(self, *, threads: int | None = None, artifacts_path: Path | None = None) -> None:
         self._threads = threads if threads is not None else default_threads()

@@ -28,6 +28,9 @@ class DocumentFormat(StrEnum):
     HTML = "html"
     MARKDOWN = "markdown"
     CSV = "csv"
+    DRAWIO = "drawio"
+    DRAWIO_SVG = "drawio_svg"
+    DRAWIO_PNG = "drawio_png"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +60,11 @@ class LegacyFormat:
 
 PDF_MEDIA_TYPE = "application/pdf"
 
+DRAWIO_MEDIA_TYPE = "application/vnd.jgraph.mxfile"
+DRAWIO_SVG_MEDIA_TYPE = "application/vnd.graphico.drawio-svg"
+DRAWIO_PNG_MEDIA_TYPE = "application/vnd.graphico.drawio-png"
+_XML_QUIRKS = frozenset({"", "text/xml", "application/xml", "application/octet-stream"})
+
 FORMATS: tuple[FormatSpec, ...] = (
     FormatSpec(DocumentFormat.PDF, ".pdf", PDF_MEDIA_TYPE),
     FormatSpec(
@@ -84,6 +92,17 @@ FORMATS: tuple[FormatSpec, ...] = (
         "text/csv",
         upload_aliases=frozenset({"text/plain", "application/vnd.ms-excel"}),
     ),
+    # The two compound extensions are matched by the longest suffix, so a plain .svg or .png is never one of them.
+    FormatSpec(DocumentFormat.DRAWIO, ".drawio", DRAWIO_MEDIA_TYPE, upload_aliases=_XML_QUIRKS),
+    FormatSpec(
+        DocumentFormat.DRAWIO_SVG, ".drawio.svg", DRAWIO_SVG_MEDIA_TYPE, upload_aliases=_XML_QUIRKS | {"image/svg+xml"}
+    ),
+    FormatSpec(
+        DocumentFormat.DRAWIO_PNG,
+        ".drawio.png",
+        DRAWIO_PNG_MEDIA_TYPE,
+        upload_aliases=frozenset({"", "application/octet-stream", "image/png"}),
+    ),
 )
 
 LEGACY_FORMATS: tuple[LegacyFormat, ...] = (
@@ -102,10 +121,18 @@ def normalize_media_type(value: str | None) -> str:
     return (value or "").split(";", 1)[0].strip().lower()
 
 
+_COMPOUND_EXTENSIONS = tuple(sorted((e for e in _BY_EXTENSION if e.count(".") > 1), key=len, reverse=True))
+
+
 def _extension(filename: str | None) -> str:
-    name = (filename or "").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    """The extension of the last path segment, lower case; a compound one (``.drawio.svg``) wins over its last part."""
+
+    name = (filename or "").rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+    for compound in _COMPOUND_EXTENSIONS:
+        if name.endswith(compound) and len(name) > len(compound):
+            return compound
     dot = name.rfind(".")
-    return name[dot:].lower() if dot > 0 else ""
+    return name[dot:] if dot > 0 else ""
 
 
 def canonical_media_types() -> tuple[str, ...]:

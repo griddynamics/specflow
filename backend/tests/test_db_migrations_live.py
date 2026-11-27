@@ -49,11 +49,11 @@ pytestmark = requires_live("POSTGRES")
 APP_TABLES = [
     "atlassian_connections",
     "box_connections",
-    "dropbox_connections",
     "connection_items",
     "connections",
     "corpus_amendment",
     "documents",
+    "dropbox_connections",
     "gap_assignment",
     "gap_event",
     "gap_noise_rule",
@@ -100,7 +100,8 @@ HEAD_0010 = "0010_github_projects"
 HEAD_0011 = "0011_linear"
 HEAD_0012 = "0012_box"
 HEAD_0013 = "0013_dropbox"
-HEAD = "0014_notion"
+HEAD_0014 = "0014_notion"
+HEAD = "0015_drawio_source"
 # The member who resolves a gap, added by revision 0004.
 ASSIGNMENT = "gap_assignment"
 # The Jira target and the node-to-issue map, added by revision 0005.
@@ -1222,7 +1223,7 @@ def test_l33_0011_adds_the_linear_tables_and_widens_the_checks_and_its_downgrade
         "VALUES (:p, 't', 'ENG', 'lp', 'Plan', true, true, now(), :trigger)"
     )
     with pytest.raises(IntegrityError):  # a closed set of triggers
-        run_app(scratch_database, target, p=project, trigger="mcp")
+        run_app(scratch_database, target, p=project, trigger="manual")
     run_app(scratch_database, target, p=project, trigger="settings")
     with pytest.raises(IntegrityError):  # one target per project
         run_app(scratch_database, target, p=project, trigger="plan_run")
@@ -1360,9 +1361,9 @@ def test_l36_0014_adds_the_notion_tables_and_widens_the_app_and_kind_checks_and_
     with pytest.raises(IntegrityError):  # the app is not allowed before 0014
         run_app(scratch_database, binding, p=project)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_0014)
 
-    assert stamped_versions(scratch_database) == [HEAD]
+    assert stamped_versions(scratch_database) == [HEAD_0014]
     for table in ("notion_connections", "notion_plan_targets", "notion_plan_items"):
         assert run_app(
             scratch_database, "SELECT relrowsecurity::text FROM pg_class WHERE relname = :table", table=table
@@ -1397,4 +1398,60 @@ def test_l36_0014_adds_the_notion_tables_and_widens_the_app_and_kind_checks_and_
     command.downgrade(cfg, "-1")
 
     assert stamped_versions(scratch_database) == [HEAD_0013]
+    assert fingerprint(scratch_database) == before
+
+
+# The diagrams.net link source, added by revision 0015 on top of 0014 ----------------------------------------
+
+
+def test_l37_0015_accepts_the_drawio_kind_and_its_downgrade_deletes_those_sources(
+    scratch_database: DatabaseSettings, agent_role: AgentRole
+) -> None:
+    cfg = alembic_config(scratch_database, agent_role.name)
+    command.upgrade(cfg, HEAD_0014)
+    ana = insert_user(scratch_database, "ana@example.com")
+    project = insert_project(scratch_database, ana, role="owner")
+    insert_source(scratch_database, project, ana, "notion", str(uuid.uuid4()))
+    with pytest.raises(IntegrityError):  # not yet a kind
+        insert_source(scratch_database, project, ana, "drawio", str(uuid.uuid4()))
+    run_app(scratch_database, "DELETE FROM connections WHERE kind = 'notion' RETURNING 1")
+    before = fingerprint(scratch_database)
+
+    command.upgrade(cfg, "head")
+
+    assert stamped_versions(scratch_database) == [HEAD]
+    drawio = insert_source(scratch_database, project, ana, "drawio", str(uuid.uuid4()))
+    insert_source(scratch_database, project, ana, "upload", str(uuid.uuid4()))
+    with pytest.raises(IntegrityError):  # still a closed set of kinds
+        insert_source(scratch_database, project, ana, "onedrive", str(uuid.uuid4()))
+    document = uuid.uuid4()
+    run_app(
+        scratch_database,
+        "INSERT INTO documents (id, project_id, content_hash, original_filename, media_type, size_bytes, origin, "
+        "original_key, source_id, markdown, status) VALUES (:d, :p, :h, 'Flow · Main', "
+        "'application/vnd.jgraph.mxfile', 1, 'connection', 'projects/x/documents/y/original.drawio', :s, '# Flow', "
+        "'parsed')",
+        d=document,
+        p=project,
+        h="b" * 64,
+        s=drawio,
+    )
+    run_app(
+        scratch_database,
+        "INSERT INTO connection_items (id, connection_id, project_id, external_id, name, mime_type, category, "
+        "processing_class, state, document_id) VALUES (gen_random_uuid(), :s, :p, 'page:p1', 'Flow · Main', "
+        "'text/markdown', 'other_files', 'processed', 'processed', :d)",
+        s=drawio,
+        p=project,
+        d=document,
+    )
+    assert run_app(scratch_database, "SELECT count(*) FROM connection_items") == [1]
+
+    command.downgrade(cfg, "-1")
+
+    assert stamped_versions(scratch_database) == [HEAD_0014]
+    assert run_app(scratch_database, "SELECT kind FROM connections") == ["upload"]
+    assert run_app(scratch_database, "SELECT count(*) FROM documents") == [0]
+    assert run_app(scratch_database, "SELECT count(*) FROM connection_items") == [0]
+    assert run_app(scratch_database, "DELETE FROM connections WHERE kind = 'upload' RETURNING 1") == [1]
     assert fingerprint(scratch_database) == before

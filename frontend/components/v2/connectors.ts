@@ -1,10 +1,11 @@
 // The connector registry (06a, D5, D20): every kind of connection the canvas offers, in the order its plus dialog lists them. Only kinds of
 // V2's scope are here: Upload, Google Drive and MCP (06a), the GitHub repository, Slack channel and Jira plan (06b), the Confluence
-// link (08), the Jira epic (09), the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), Linear: project source, gap issues, plan destination (LINEAR), the Notion link and the Notion plan destination. To add one: write its form component and its node
+// link (08), the Jira epic (09), the diagrams.net link, the Jira gap sub-tasks (10), the GitHub Projects plan destination (11b), Linear: project source, gap issues, plan destination (LINEAR), the Notion link and the Notion plan destination. To add one: write its form component and its node
 // mapper (`canvas/nodes-*.ts`), then add one spec below. The canvas, the plus dialog and the "Set up first" round trip need no other change.
 import {
   boxNodes,
   confluenceNodes,
+  drawioNodes,
   driveNodes,
   dropboxNodes,
   notionNodes,
@@ -16,6 +17,7 @@ import { BoxForm } from "./canvas/BoxForm";
 import { DropboxForm } from "./canvas/DropboxForm";
 import { githubNodes } from "./canvas/nodes-github";
 import { ConfluenceForm } from "./canvas/ConfluenceForm";
+import { DrawioForm } from "./canvas/DrawioForm";
 import { JiraEpicForm } from "./canvas/JiraEpicForm";
 import { NotionForm } from "./canvas/NotionForm";
 import { NotionPlanForm } from "./canvas/NotionPlanForm";
@@ -41,6 +43,7 @@ import { UploadForm } from "./canvas/UploadForm";
 import type { ConnectorSpec } from "./connector-types";
 
 const CHECK_ACCESS = "Check access";
+const CHECK_LINK = "Check link";
 const ADD_SOURCE = "Add source";
 
 export const CONNECTORS: readonly ConnectorSpec[] = [
@@ -88,7 +91,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "confluence",
     app: "atlassian",
     title: "Add a Confluence link",
-    check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
+    check: { test: CHECK_LINK, testing: "Checking…", add: ADD_SOURCE },
     Form: ConfluenceForm,
     nodes: confluenceNodes,
   },
@@ -105,6 +108,18 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     nodes: jiraEpicNodes,
   },
   {
+    kind: "drawio",
+    zone: "graph",
+    name: "diagrams.net link",
+    line: "A diagram, one document per page",
+    mark: "drawio",
+    app: null,
+    title: "Add a diagrams.net link",
+    check: { test: CHECK_LINK, testing: "Checking…", add: ADD_SOURCE },
+    Form: DrawioForm,
+    nodes: drawioNodes,
+  },
+  {
     kind: "linear_project",
     zone: "graph",
     name: "Linear project",
@@ -112,7 +127,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "linear",
     app: "linear",
     title: "Add a Linear project",
-    check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
+    check: { test: CHECK_LINK, testing: "Checking…", add: ADD_SOURCE },
     Form: LinearSourceForm, // LINEAR S4
     nodes: linearProjectNodes,
   },
@@ -124,7 +139,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "box",
     app: "box",
     title: "Add a Box link",
-    check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
+    check: { test: CHECK_LINK, testing: "Checking…", add: ADD_SOURCE },
     Form: BoxForm,
     nodes: boxNodes,
   },
@@ -136,7 +151,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     mark: "dropbox",
     app: "dropbox",
     title: "Add a Dropbox link",
-    check: { test: "Check link", testing: "Checking…", add: ADD_SOURCE },
+    check: { test: CHECK_LINK, testing: "Checking…", add: ADD_SOURCE },
     Form: DropboxForm,
     nodes: dropboxNodes,
   },

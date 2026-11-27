@@ -185,11 +185,13 @@ def mixed_drive(tmp_path: Path, mimes: list[str], cls: type[Flaky] = Flaky) -> F
     return cls(app_env="local", file_delay_s=0, role="worker", fixtures=tmp_path)
 
 
-def row_of(index: int, mime: str):
-    """The item row the listing would store: category and class by MIME, as ``upsert_items`` does."""
+def row_of(index: int, mime: str, name: str | None = None):
+    """The item row the listing would store: category and class by MIME (a draw.io name wins)."""
 
-    category, klass = categorize(mime)
-    row = make_item(mime=mime, file_id=f"fake-mixed-i{index}", category=category.value)
+    category, klass = categorize(mime, name)
+    row = make_item(
+        mime=mime, file_id=f"fake-mixed-i{index}", category=category.value, name=name or "Quarterly plan.pdf"
+    )
     row.processing_class = klass.value
     return row
 

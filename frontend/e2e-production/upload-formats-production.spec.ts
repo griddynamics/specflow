@@ -1,4 +1,4 @@
-// Local files accepts PDF, Word, PowerPoint, Excel, HTML, Markdown and CSV in a real browser, against the stub
+// Local files accepts PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV and draw.io diagrams in a real browser, against the stub
 // API through the real BFF. One upload per type reaches the API with the canonical Content-Type (whatever type the browser sent);
 // a legacy `.doc` is refused in the page with a toast that names the accepted types; a file over its cap shows the cap.
 import { randomBytes } from "node:crypto";
@@ -46,11 +46,22 @@ test.describe("Local files: accepted types", { tag: "@production" }, () => {
     });
   }
 
-  test("the picker offers the seven types and the menu says so", async ({ page }) => {
+  test("the picker offers the ten types and the menu says so", async ({ page }) => {
     await login(page);
     await createViaNew(page, unique("Picker"));
     const accept = (await page.getByTestId("mcs-upload-input").getAttribute("accept")) ?? "";
-    expect(accept.split(",").filter((x) => x.startsWith("."))).toEqual([".pdf", ".docx", ".pptx", ".xlsx", ".html", ".md", ".csv"]);
+    expect(accept.split(",").filter((x) => x.startsWith("."))).toEqual([
+      ".pdf",
+      ".docx",
+      ".pptx",
+      ".xlsx",
+      ".html",
+      ".md",
+      ".csv",
+      ".drawio",
+      ".drawio.svg",
+      ".drawio.png",
+    ]);
     await page.getByTestId("mcs-add-source").click();
     await expect(page.getByRole("menuitem", { name: /Local files/ })).toContainText("Upload PDF, Office, HTML, Markdown or CSV files");
   });
@@ -63,7 +74,7 @@ test.describe("Local files: accepted types", { tag: "@production" }, () => {
     const toast = page.getByTestId("toasts").getByTestId("toast");
     await expect(toast).toContainText("old.doc was not added.");
     await expect(toast).toContainText(
-      "PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV files (.pdf, .docx, .pptx, .xlsx, .html, .md, .csv)",
+      "PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV, Diagram, Diagram SVG or Diagram PNG files (.pdf, .docx, .pptx, .xlsx, .html, .md, .csv, .drawio, .drawio.svg, .drawio.png)",
     );
     await expect(page.getByTestId("toasts")).toHaveAttribute("aria-live", "polite");
     expect((await stubLog()).slice(before).filter((e) => e.path.includes(`/projects/${pid}/sources`))).toEqual([]);

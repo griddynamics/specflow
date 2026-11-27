@@ -180,7 +180,9 @@ test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second d
       { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a pdf") },
     ]);
     await page
-      .getByText(/notes\.txt was not added\. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV files/)
+      .getByText(
+        /notes\.txt was not added\. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV, Diagram, Diagram SVG or Diagram PNG files/,
+      )
       .waitFor({ timeout: 15_000 });
     // The success toast does not call the duplicate "added".
     await page.getByText("1 file added", { exact: true }).waitFor({ timeout: 15_000 });

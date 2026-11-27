@@ -26,6 +26,7 @@ from file_parsers.office.guard import inspect_file
 from file_parsers.office.kind import check_main_parts, main_format
 from office_support import build_docx, build_pptx, build_xlsx
 
+DIAGRAM_FORMATS = {DocumentFormat.DRAWIO, DocumentFormat.DRAWIO_SVG, DocumentFormat.DRAWIO_PNG}
 TEXT_FORMATS = (DocumentFormat.MARKDOWN, DocumentFormat.HTML, DocumentFormat.CSV)
 OOXML_SWAPS = [
     (actual, stored)
@@ -158,7 +159,7 @@ def test_without_the_guard_docling_refuses_an_ooxml_swap(
 
 def test_each_converter_allows_only_its_format_and_is_cached_per_format_and_images():
     engine = DoclingEngine(threads=1)
-    assert set(INPUT_FORMATS) == set(DocumentFormat)
+    assert set(INPUT_FORMATS) == set(DocumentFormat) - DIAGRAM_FORMATS  # diagrams never go to Docling
     for input_format in ALLOWED_FORMATS:
         converter = engine._converter(input_format)
         assert converter.allowed_formats == [input_format]
