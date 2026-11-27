@@ -25,33 +25,33 @@ The rule-by-rule catalogue is in [RULES.md](RULES.md).
 
 ## Layout
 
-| Path                                                    | What it is                                                                                                                                                                                         |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run.mjs`                                               | Orchestrator: runs prettier, eslint, stylelint, tsc, knip, semgrep and (opt-in) size-limit against a project                                                                                       |
-| `eslint.config.mjs`                                     | Flat config; exports `defineKitConfig`, `appPreset`, `libraryPreset`, `e2ePreset`, `nodePreset`, the `SEL_*` selector groups and the selector builders; default export lints the current directory |
-| `kit.config.example.mjs`                                | Example project config listing every option with neutral facts                                                                                                                                     |
-| `eslint-rules/index.mjs`                                | The `local` plugin: registers every custom rule                                                                                                                                                    |
-| `eslint-rules/restrict.mjs`                             | The `restrict` plugin: ESLint core `no-restricted-*` rules registered once per selector group                                                                                                      |
-| `eslint-rules/config-helpers.mjs`                       | `severityOf`, `optionsOf`, `selectorsOf` helpers for reading a rule entry out of a built config                                                                                                    |
-| `eslint-rules/rules/*.mjs`, `rules/lib/*.mjs`           | Custom rule implementations and their shared analysis helpers (interactive controls, repetition, render sinks, route components, wire type names)                                                  |
-| `eslint-rules/rules/fixtures/`                          | Fixture sources (neutral names) the type-aware rule tests lint                                                                                                                                     |
-| `eslint-rules/rule-tester-setup.mjs`                    | Wires ESLint `RuleTester` to `node:test`                                                                                                                                                           |
-| `stylelint.config.mjs`, `stylelint/`                    | Stylelint config factory `defineStylelintConfig` and the `a11y/reduced-motion` plugin with tests                                                                                                   |
-| `semgrep/*.yml`, `semgrep/fixtures/`                    | Semgrep rule files that run by default, and annotated test targets (`ruleid:` / `ok:`); the banned-terms rule is generated and lives in your own `semgrep/` folder                                 |
-| `semgrep-ds/*.yml`, `semgrep-ds/fixtures/`              | The design-system rules built from `design-system.example.json` and the banned-terms rule built from `banned-terms.example.json`. Self-test target only: `run.mjs` never loads this folder         |
-| `scripts/build-banned-terms.mjs`                        | Builds the `banned-terms.yml` rule from a terms file                                                                                                                                               |
-| `banned-terms.example.json`                             | Neutral example terms file                                                                                                                                                                         |
-| `scripts/build-ds-rules.mjs`, `templates/ds-*.yml.tmpl` | Builds the six design-system rule files (`ds-components`, `ds-forms`, `ds-navigation`, `ds-overlays`, `ds-typography`, `ds-styling`) from the templates and a design-system facts file             |
-| `design-system.example.json`                            | Neutral example design-system facts (primitives folder, component and field names, geometry modules, tokens)                                                                                       |
-| `prettierignore.project`                                | Prettier ignores `run.mjs` uses when the project has no `.prettierignore`                                                                                                                          |
-| `run.test.mjs`                                          | Orchestrator self-test (kit exclusion, ignore fallback, Size Limit step)                                                                                                                           |
-| `knip.json`                                             | Dead code and dependency hygiene template, every issue type an error                                                                                                                               |
-| `tsconfig.base.json`, `tsconfig.library.json`           | Strict compiler base and library variant (`isolatedDeclarations`)                                                                                                                                  |
-| `.prettierrc`, `.prettierignore`                        | Formatting options                                                                                                                                                                                 |
-| `size-limit.config.mjs`, `size-limit/assets.mjs`        | Payload budgets read from the build output                                                                                                                                                         |
-| `vitest.strict.mjs`, `vitest.setup.mjs`                 | `strictTestOptions()` and the fail-on-console setup                                                                                                                                                |
-| `config.test.mjs`                                       | Config self-test: presets, restrict groups and option-gated groups on a scratch project                                                                                                            |
-| `package.json`, `pyproject.toml`                        | Pinned Node tools and the pinned semgrep                                                                                                                                                           |
+| Path                                             | What it is                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run.mjs`                                        | Orchestrator: runs prettier, eslint, stylelint, tsc, knip, semgrep and (opt-in) size-limit against a project                                                                                                                                                                          |
+| `eslint.config.mjs`                              | Flat config; exports `defineKitConfig`, `appPreset`, `libraryPreset`, `e2ePreset`, `nodePreset`, the `SEL_*` selector groups and the selector builders; default export lints the current directory                                                                                    |
+| `kit.config.example.mjs`                         | Example project config listing every option with neutral facts                                                                                                                                                                                                                        |
+| `eslint-rules/index.mjs`                         | The `local` plugin: registers every custom rule                                                                                                                                                                                                                                       |
+| `eslint-rules/restrict.mjs`                      | The `restrict` plugin: ESLint core `no-restricted-*` rules registered once per selector group                                                                                                                                                                                         |
+| `eslint-rules/config-helpers.mjs`                | `severityOf`, `optionsOf`, `selectorsOf` helpers for reading a rule entry out of a built config                                                                                                                                                                                       |
+| `eslint-rules/rules/*.mjs`, `rules/lib/*.mjs`    | Custom rule implementations and their shared analysis helpers (interactive controls, repetition, render sinks, route components, wire type names)                                                                                                                                     |
+| `eslint-rules/rules/fixtures/`                   | Fixture sources (neutral names) the type-aware rule tests lint                                                                                                                                                                                                                        |
+| `eslint-rules/rule-tester-setup.mjs`             | Wires ESLint `RuleTester` to `node:test`                                                                                                                                                                                                                                              |
+| `stylelint.config.mjs`, `stylelint/`             | Stylelint config factory `defineStylelintConfig` and the `a11y/reduced-motion` plugin with tests                                                                                                                                                                                      |
+| `semgrep/*.yml`, `semgrep/fixtures/`             | Semgrep rule files that run by default, and annotated test targets (`ruleid:` / `ok:`); the banned-terms rule is generated and lives in your own `semgrep/` folder                                                                                                                    |
+| `semgrep-ds/*.yml`, `semgrep-ds/fixtures/`       | The example design-system rules and the banned-terms rule built from `banned-terms.example.json`. Self-test target only: `run.mjs` never loads this folder                                                                                                                            |
+| `scripts/build-banned-terms.mjs`                 | Builds the `banned-terms.yml` rule from a terms file                                                                                                                                                                                                                                  |
+| `banned-terms.example.json`                      | Neutral example terms file                                                                                                                                                                                                                                                            |
+| `templates/ds-*.yml.tmpl`                        | The templates of the six design-system rule files (`ds-components`, `ds-forms`, `ds-navigation`, `ds-overlays`, `ds-typography`, `ds-styling`): a project that owns a primitives layer writes its own `ds-*.yml` into its `semgrep/` folder; the example build ships in `semgrep-ds/` |
+| `design-system.example.json`                     | Neutral example design-system facts (primitives folder, component and field names, geometry modules, tokens)                                                                                                                                                                          |
+| `prettierignore.project`                         | Prettier ignores `run.mjs` uses when the project has no `.prettierignore`                                                                                                                                                                                                             |
+| `run.test.mjs`                                   | Orchestrator self-test (kit exclusion, ignore fallback, Size Limit step)                                                                                                                                                                                                              |
+| `knip.json`                                      | Dead code and dependency hygiene template, every issue type an error                                                                                                                                                                                                                  |
+| `tsconfig.base.json`, `tsconfig.library.json`    | Strict compiler base and library variant (`isolatedDeclarations`)                                                                                                                                                                                                                     |
+| `.prettierrc`, `.prettierignore`                 | Formatting options                                                                                                                                                                                                                                                                    |
+| `size-limit.config.mjs`, `size-limit/assets.mjs` | Payload budgets read from the build output                                                                                                                                                                                                                                            |
+| `vitest.strict.mjs`, `vitest.setup.mjs`          | `strictTestOptions()` and the fail-on-console setup                                                                                                                                                                                                                                   |
+| `config.test.mjs`                                | Config self-test: presets, restrict groups and option-gated groups on a scratch project                                                                                                                                                                                               |
+| `package.json`, `pyproject.toml`                 | Pinned Node tools and the pinned semgrep                                                                                                                                                                                                                                              |
 
 ## Requirements
 
@@ -91,14 +91,11 @@ All versions come from the kit's own manifests.
    rule (build it into `<project>/semgrep/banned-terms.yml`; the rule is off until then), and the OpenAPI document or generated types directory for the wire-type rule.
 7. Add the semgrep rules the project wants to own: put them in a `semgrep/` folder at the project
    root and `run.mjs` loads it next to the kit's rules. The design-system rules (the `ds-*` ids
-   and `styling-layout-measurement`) are OFF until the project supplies its facts: copy
-   `design-system.example.json`, set the project's primitives folder, component and field names,
-   geometry modules, tokens and classes, then either pass it on every run
-   (`node run.mjs --design-system <facts.json>`, which builds the rules into a temporary folder),
-   or build the files into the project's own `semgrep/` folder
-   (`node scripts/build-ds-rules.mjs <facts.json> <project>/semgrep`). Never edit the generated
-   `ds-*.yml` files: the next rebuild replaces them. A project without a primitives layer skips
-   this step and gets none of those rules.
+   and `styling-layout-measurement`) are OFF: the kit ships their `templates/ds-*.yml.tmpl` and
+   an example build in `semgrep-ds/` (a self-test target `run.mjs` never loads), but no builder.
+   A project that owns a primitives layer writes its own `ds-*.yml` into its `semgrep/` folder;
+   `design-system.example.json` documents the facts the templates expect. A project without a
+   primitives layer gets none of those rules.
 8. In Vitest config, use `strictTestOptions()` from `vitest.strict.mjs`.
 9. Run the kit, fix findings, then wire it into CI.
 
@@ -117,7 +114,6 @@ Run everything against a project (exit 0 pass, 1 findings, 2 usage error):
 node run.mjs --project /path/to/project
 node run.mjs --project /path/to/project --only eslint,stylelint,semgrep
 node run.mjs --project /path/to/project --skip knip --size-limit
-node run.mjs --project /path/to/project --only semgrep --design-system /path/to/design-system.json
 ```
 
 Steps: `prettier`, `eslint`, `stylelint`, `tsc`, `knip`, `semgrep`, `size-limit`. `tsc` runs only
@@ -134,7 +130,6 @@ npx knip --directory /path/to/project --config "$PWD/knip.json"
 npx tsc --noEmit -p /path/to/project/tsconfig.json
 SIZE_LIMIT_DIST=/path/to/project/dist npx size-limit --config size-limit.config.mjs
 node scripts/build-banned-terms.mjs /path/to/project/banned-terms.json /path/to/project/semgrep/banned-terms.yml
-node scripts/build-ds-rules.mjs /path/to/project/design-system.json /path/to/project/semgrep
 ```
 
 `--no-inline-config` makes inline `eslint-disable` comments inert, and the `no-warning-comments`
@@ -167,10 +162,8 @@ npm run format:check
 ```
 
 - `selftest`: `node --test` over the custom rules (RuleTester wired to `node:test`), the stylelint
-  plugin and options, the banned-terms and design-system rule builders (the shipped
-  `semgrep-ds/ds-*.yml` must equal the build of `design-system.example.json`, and `semgrep/` must
-  hold no `ds-*.yml`; `semgrep-ds/banned-terms.yml` must equal the build of
-  `banned-terms.example.json`), the Size Limit asset
+  plugin and options, the banned-terms rule builder (the shipped
+  `semgrep-ds/banned-terms.yml` must equal the build of `banned-terms.example.json`), the Size Limit asset
   reader, `config.test.mjs` and `run.test.mjs` (the orchestrator, including a Size Limit run on a
   scratch build).
 - `selftest:semgrep-validate`: every rule file in `semgrep/` and `semgrep-ds/` parses and validates.
@@ -179,9 +172,8 @@ npm run format:check
 - `selflint`: the kit lints itself with its own config and zero warnings.
 - Prettier: `format:check` verifies the shipped files without rewriting them. Run
   `npx prettier --write --ignore-path .prettierignore .` after editing a kit file. Both semgrep
-  fixture folders, `templates/` and the generated `semgrep-ds/*.yml` (design-system and
-  banned-terms example builds) are ignored by design (annotations must stay on the line before their
-  target; the generated files are compared byte for byte).
+  fixture folders, `templates/` and `semgrep-ds/*.yml` are ignored by design (annotations must
+  stay on the line before their target; the banned-terms build is compared byte for byte).
 
 ## CI and pre-commit
 

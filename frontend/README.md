@@ -61,7 +61,8 @@ backend endpoint yet. An unknown or foreign project id redirects to `/`. The ava
 "Sign out". A 401 from the BFF signs the user out and shows `/login`.
 
 Theme: `<html data-theme>` from the cookie `specflow-theme` (`light` or `dark`); light by default, also when the OS
-prefers dark. The design-system CSS is imported once by `app/layout.tsx`; `app/globals.css` holds only the base rules.
+prefers dark. The Graphico CSS (`@graphico/ui/styles.css`, every rule under `.gx`) is imported once by `app/layout.tsx`;
+`app/globals.css` holds only the base rules.
 
 ## Test, lint, build
 
@@ -78,7 +79,7 @@ Run these in `frontend/` (or use `make frontend-lint` / `make frontend-build` fr
 | `npm run e2e` or `make e2e` | Playwright against the running stack, real model calls (see below)                                                                                                                                                                                                                                                                                                           |
 | `npm run test:production`   | production data adapter (`lib/data/http`) against the stub API through the real BFF (`tests/production/*.test.ts`, ports 3250-3257). Run `npm run build` first: without `.next/standalone/frontend/server.js` the tests stop with "run `npm run build` first". No backend, no model calls                                                                                    |
 | `npm run e2e:production`    | Playwright on the production routes (`e2e-production/`) against the stub API: starts the built app on port 3260 with `scripts/serve-production.mjs`, signed in through the OIDC code flow against the in-process stub issuer (RS256 JWTs, port 3263; stub API 3261, test control 3262), so run `npm run build` first. Both viewports, no retries. No backend, no model calls |
-| `npm run check:tokens`      | all app UI code (`app/**`, `components/**`, `lib/**/*.tsx`, `styles/**` except `styles/ds`) uses design tokens only (no literal colours, font sizes, families, radii, shadows, blur). It does NOT check spacing, sizes, `gap`, `padding` or `font-weight` literals                                                                                                           |
+| `npm run check:tokens`      | the live tree (`app/**`, `components/v2/**`, `components/shared/**`, `lib/**/*.tsx`) uses design tokens only (no literal colours, font sizes, families, radii, shadows, blur). It does NOT check spacing, sizes, `gap`, `padding` or `font-weight` literals                                                                                                                  |
 
 Install the browser once: `npx --prefix frontend playwright install chromium`.
 
@@ -174,15 +175,16 @@ The hello hooks `project-name-input`, `project-create`, `project-row`, `upload-i
 - Project and document lists read the first 100 entries only (no "load more").
 - Real parse and summarize results have no screen: the summary is visible through the API only.
 
-## Design system and checks
+## Style checks
 
-Design-system files are copied unchanged from `docs/design-system/` into `styles/ds/` and `public/ds/` (do not edit; re-copy).
-`/ds/**` (logos) and `/icon.svg` never need login. Light theme by default; dark through the cookie `specflow-theme=dark`.
+The GD design-system copy (`styles/ds/`, `public/ds/`) left with Task 4; the `/ds/**` proxy skip, the `asset()` route
+helper and the logo components that use them stay until Task 6 removes the legacy screens. Light theme by default; dark
+through the cookie `specflow-theme=dark`. `/icon.svg` never needs login.
 
-- `check:tokens` scans `app/**`, `components/**`, `lib/**/*.tsx` and `styles/**` (not `styles/ds`). One exception per
-  line: a trailing `// tokens-ok: <reason>`; the count is printed.
+- `check:tokens` scans `app/**`, `components/v2/**`, `components/shared/**` and `lib/**/*.tsx` (the live tree; the
+  legacy screens leave with Task 6). One exception per line: a trailing `// tokens-ok: <reason>`; the count is printed.
 - `next build` may run while `next dev` serves (dev writes to `.next/dev`).
 
 ## Clone check config
 
-`.jscpd.json` mirrors the kit `jscpd.json` and additionally ignores `styles/ds/tokens.css`: it is a byte-equal copy of the read-only design system tokens (enforced by `tests/unit/ds-tokens-parity.test.mjs`), so it cannot be deduplicated locally.
+`.jscpd.json` mirrors the kit `jscpd.json`.

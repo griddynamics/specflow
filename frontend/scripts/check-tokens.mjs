@@ -1,24 +1,24 @@
 // R4, FE-DS-04, FE-DS-05, FE-DOD-03 (TECH-SPECS §10.5): `npm run check:tokens`. It enforces these property classes in app UI code, and only these:
 // hex and rgb/hsl colours, `font-size`/`fontSize`, `font-family`/`fontFamily`, `font:` shorthand with px, `border-radius`/`borderRadius`,
 // `box-shadow`/`boxShadow` and `blur()` literals. It does NOT enforce spacing or size literals (`gap`, `padding`, `margin`, `width`, `height`,
-// `min-`/`max-` sizes, `rem`/`px` lengths) or `font-weight`; the ones in scope are listed in the P18 gaps list. Skips styles/ds/**.
+// `min-`/`max-` sizes, `rem`/`px` lengths) or `font-weight`; the ones in scope are listed in the P18 gaps list.
 // One escape hatch per line: `// tokens-ok: <reason>` (or `/* tokens-ok: <reason> */`); escapes are counted and printed.
 // `--root <dir>` points the scan at another frontend folder (the self-test uses it).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-// P17 s09 (FE-DOD-03.AC1, FE-DS-01.AC1 "all app UI after P17"): every app route and layout (app/**, production tree and
-// /login), every component (components/**, no hello exemption any more: the hello components are removed), React files under lib/,
-// and app styles under styles/ (except the design-system copy styles/ds/**).
+// Task 4: the live tree only — app routes and layouts, the V2 components and the shared modules they
+// use. The legacy screens (components/ beyond shared/, gone with Task 6) still reference the retired
+// GD tokens and literals, and the Graphico token sheet itself lives in packages/ui, out of this scan.
 const IN_SCOPE = [
   (rel) => rel.startsWith("app/"),
-  (rel) => rel.startsWith("components/"),
+  (rel) => rel.startsWith("components/v2/"),
+  (rel) => rel.startsWith("components/shared/"),
   (rel) => rel.startsWith("lib/") && rel.endsWith(".tsx"),
-  (rel) => rel.startsWith("styles/"),
 ];
 const EXT = /\.(css|ts|tsx|jsx)$/;
-const SKIP_DIR = /(^|\/)(node_modules|\.next|styles\/ds)(\/|$)/;
+const SKIP_DIR = /(^|\/)(node_modules|\.next)(\/|$)/;
 
 // A value that is a token reference or a harmless keyword is fine.
 const OK_VALUE = String.raw`(?!["'\x60]?(?:var\(|inherit\b|revert\b|initial\b|unset\b|none\b|0(?=\s*(?:[;,"'\x60}]|$))|currentcolor\b|transparent\b))`;
@@ -74,7 +74,7 @@ export function checkSource(rel, text) {
 }
 
 export function run(root) {
-  const files = ["app", "components", "lib", "styles"].flatMap((d) => {
+  const files = ["app", "components", "lib"].flatMap((d) => {
     try {
       return walk(path.join(root, d), root);
     } catch {

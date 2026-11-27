@@ -13,8 +13,7 @@
     "selftest:semgrep-validate": "uv run semgrep --validate --metrics=off --disable-version-check --config semgrep/ && uv run semgrep --validate --metrics=off --disable-version-check --config semgrep-ds/",
     "selflint": "eslint --config eslint.config.mjs --no-inline-config --report-unused-disable-directives-severity error --max-warnings 0 .",
     "format:check": "prettier --check --ignore-path .prettierignore .",
-    "build:banned-terms": "node scripts/build-banned-terms.mjs",
-    "build:ds-rules": "node scripts/build-ds-rules.mjs"
+    "build:banned-terms": "node scripts/build-banned-terms.mjs"
   },
   "devDependencies": {
     "@eslint-react/eslint-plugin": "5.19.0",

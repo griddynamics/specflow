@@ -1,10 +1,13 @@
 "use client";
-// FE-DS-02 (R5): port of `Toast`, `ToastProvider` and `useToast` in bundle.js. Wrap the app once, call `useToast()(...)`
-// anywhere below. A toast fades after ~4 s (`duration` overrides). Placement bottom-right comes from `.gdg-toasts`.
+// FE-DS-02 (R5): port of `Toast`, `ToastProvider` and `useToast` in bundle.js, restyled in the Graphico way (Task 4):
+// the surface is the flat paper card with the hard offset shadow of `.sui-glass--strong`/`--float`, the icons stay
+// monochrome. Wrap the app once, call `useToast()(...)` anywhere below. A toast dismisses itself after ~4 s
+// (`duration` overrides). Placement bottom-right comes from `.sui-toasts`.
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { GlassSurface } from "./GlassSurface";
 import { Icon, type IconName } from "./Icon";
-import { cx, truthy } from "./utils";
+import { truthy } from "./utils";
+import "./shared-ui.css";
 
 export interface ToastProps {
   title: string;
@@ -34,23 +37,17 @@ export const TOAST_DURATION_MS = 4000;
 export function Toast({ title, message, tone = "neutral", action, onClose }: Readonly<ToastProps>) {
   const titleId = useId();
   return (
-    <GlassSurface
-      variant="strong"
-      floating
-      className={cx("gdg-toast", `gdg-toast--${tone}`)}
-      role={tone === "danger" ? "alert" : "status"}
-      data-testid="toast"
-    >
-      <span className="gdg-toast__icon">
+    <GlassSurface variant="strong" floating className="sui-toast" role={tone === "danger" ? "alert" : "status"} data-testid="toast">
+      <span className="sui-toast__icon">
         <Icon name={ICON_BY_TONE[tone] ?? "check"} size={20} />
       </span>
-      <div className="gdg-toast__text">
+      <div className="sui-toast__text">
         <b id={titleId}>{title}</b>
         {truthy(message) ? <span>{message}</span> : null}
       </div>
       {action ?? null}
       {onClose ? (
-        <button type="button" className="gdg-iconbtn" aria-label="Dismiss" aria-describedby={titleId} onClick={onClose}>
+        <button type="button" className="sui-iconbtn" aria-label="Dismiss" aria-describedby={titleId} onClick={onClose}>
           <Icon name="x" size={16} />
         </button>
       ) : null}
@@ -90,7 +87,7 @@ export function ToastProvider({ children }: Readonly<ToastProviderProps>) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="gdg-toasts" aria-live="polite" data-testid="toasts">
+      <div className="sui-toasts" aria-live="polite" data-testid="toasts">
         {list.map((t) => (
           <Toast
             key={t.id}

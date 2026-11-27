@@ -1,9 +1,11 @@
 /**
  * Reads CSS custom-property declarations out of a theme stylesheet for
- * `tokens.mjs` and `contrast.mjs`: `:root { --x: value; }`, the one palette.
- * A small, purpose-built reader over exactly one flat selector block of
- * `--name: value;` declarations; a full CSS AST buys nothing here that two
- * regular expressions do not already give correctly.
+ * `tokens.mjs` and `contrast.mjs`: one palette block of `--name: value;`
+ * declarations. The default selector is `:root`; a theme scoped to a root
+ * class (the Graphico `.gx`) passes its selector instead
+ * (`--tokens-selector`). A small, purpose-built reader over exactly one flat
+ * selector block; a full CSS AST buys nothing here that two regular
+ * expressions do not already give correctly.
  */
 
 import { readFileSync } from 'node:fs';
@@ -41,13 +43,15 @@ function readCustomProperties(cssText, selectorRe) {
   return out;
 }
 
-/** The `:root` declarations of the theme stylesheet: the one palette. */
-export function readTokensCss(cssPath) {
-  // project: the design-system sheet declares its palette over several blocks, among them
-  // `:root, [data-theme="light"] { ... }`; every block whose selector list starts with `:root` counts.
+/** The `selector` declarations of the theme stylesheet: the one palette. The default is
+ * `:root`; a class root (`.gx`) reads the block the theme scopes its tokens to. Every block
+ * whose selector list starts with the selector counts, so a sheet declaring its palette over
+ * several blocks (`:root, [data-theme="light"] { ... }`) still reads as one. */
+export function readTokensCss(cssPath, selector = ':root') {
   const cssText = readFileSync(cssPath, 'utf8');
   const merged = {};
-  const rootRe = /(^|\n)[ \t]*:root[ \t]*(?:,[^{}]*)?\{/g;
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rootRe = new RegExp(`(^|\\n)[ \\t]*${escaped}[ \\t]*(?:,[^{}]*)?\\{`, 'g');
   let match;
   while ((match = rootRe.exec(cssText))) {
     const open = match.index + match[0].length - 1;

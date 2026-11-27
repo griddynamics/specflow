@@ -10,7 +10,6 @@
     "**/build/**",
     "**/coverage/**",
     "**/*.generated.*",
-    "**/src/generated/**",
-    "**/styles/ds/tokens.css"
+    "**/src/generated/**"
   ]
 }

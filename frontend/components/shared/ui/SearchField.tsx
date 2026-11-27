@@ -1,9 +1,10 @@
 "use client";
-// FE-DS-02 (R5): port of `SearchField` in bundle.js.
+// FE-DS-02 (R5): port of `SearchField` in bundle.js, restyled in the Graphico way (Task 4).
 import { useRef } from "react";
 import { Icon } from "./Icon";
 import { cx, nonEmpty } from "./utils";
 import { useControlled } from "./use-controlled";
+import "./shared-ui.css";
 
 /**
  * The one matcher of client-side search: `query` against `haystack`, ignoring letter case, anywhere in the text or only at its start.
@@ -28,7 +29,7 @@ export function SearchField({ value, defaultValue = "", onChange, placeholder, l
   const [v, set] = useControlled(value, defaultValue, onChange);
   const input = useRef<HTMLInputElement>(null);
   return (
-    <label className={cx("gdg-search", className)}>
+    <label className={cx("sui-search", className)}>
       <Icon name="magnifying-glass" size={18} />
       <input
         ref={input}
@@ -43,7 +44,7 @@ export function SearchField({ value, defaultValue = "", onChange, placeholder, l
       {v ? (
         <button
           type="button"
-          className="gdg-search__clear"
+          className="sui-search__clear"
           aria-label="Clear search"
           onClick={() => {
             set("");

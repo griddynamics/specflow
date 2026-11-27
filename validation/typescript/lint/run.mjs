@@ -5,7 +5,6 @@
  * folder; semgrep through `uv` with this folder's pyproject.toml).
  *
  * Usage: node run.mjs [--project <dir>] [--only <step,...>] [--skip <step,...>] [--size-limit]
- *                     [--design-system <facts.json>]
  *   steps: prettier, eslint, stylelint, tsc, knip, semgrep, size-limit
  *
  * Config resolution, per tool: the project's own config file when it has one (it usually extends
@@ -15,10 +14,9 @@
  * Prettier ignores: the project's `.prettierignore` when it has one, else its `.gitignore` plus
  * the kit's `prettierignore.project` (build output, dependencies, reports).
  * semgrep runs every rule file in ./semgrep (and the project's own `semgrep/` folder when present).
- * The design-system rules (templates/ds-*.yml.tmpl) are off until the project supplies its facts:
- * `--design-system <facts.json>` builds them into a temporary folder for the run, or the project
- * keeps the built `ds-*.yml` files in its own `semgrep/` folder
- * (`node scripts/build-ds-rules.mjs <facts.json> <project>/semgrep`).
+ * The kit ships the design-system rule templates (`templates/ds-*.yml.tmpl`) and an example build
+ * in `semgrep-ds/` (a self-test target `run.mjs` never loads), but no builder: a project that owns
+ * a primitives layer writes its own `ds-*.yml` into its `semgrep/` folder.
  *
  * The kit may live inside the project (for example `validation/typescript/lint/`): its own folder
  * is left out of the Prettier, ESLint, stylelint and semgrep scans. Add it to the `ignore` list of
@@ -30,12 +28,9 @@
  * Exit status: 0 when every step passes, 1 when a step reports findings, 2 on a usage error.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import { buildDesignSystemRules } from './scripts/build-ds-rules.mjs';
 
 const KIT = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(KIT, 'node_modules', '.bin');
@@ -47,7 +42,6 @@ export function parseArguments(argv) {
     only: null,
     skip: new Set(),
     sizeLimit: false,
-    designSystem: null,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -60,7 +54,6 @@ export function parseArguments(argv) {
     else if (argument === '--only') options.only = new Set(value().split(','));
     else if (argument === '--skip') options.skip = new Set(value().split(','));
     else if (argument === '--size-limit') options.sizeLimit = true;
-    else if (argument === '--design-system') options.designSystem = path.resolve(value());
     else throw new Error(`unknown argument ${argument}`);
   }
   for (const step of [...(options.only ?? []), ...options.skip]) {
@@ -100,7 +93,7 @@ function prettierIgnoreArguments(project) {
  * Each step as `{ command, cwd, env }` (null when the step does not apply).
  *
  * @param {string} project
- * @param {{sizeLimit: boolean, designSystem?: string | null}} options
+ * @param {{sizeLimit: boolean}} options
  */
 export function plan(project, options) {
   const projectSemgrep = path.join(project, 'semgrep');
@@ -157,37 +150,25 @@ export function plan(project, options) {
         configFor(project, 'knip.json'),
         '--no-progress',
       ]),
-    semgrep: () => {
-      const facts = options.designSystem ?? null;
-      const designSystemRules =
-        facts === null ? null : mkdtempSync(path.join(os.tmpdir(), 'ts-lint-kit-ds-'));
-      if (designSystemRules !== null) buildDesignSystemRules(facts, designSystemRules);
-      return {
-        ...inProject([
-          'uv',
-          'run',
-          '--project',
-          KIT,
-          'semgrep',
-          'scan',
-          '--error',
-          '--metrics=off',
-          '--disable-version-check',
-          '--config',
-          path.join(KIT, 'semgrep'),
-          ...(existsSync(projectSemgrep) ? ['--config', projectSemgrep] : []),
-          ...(designSystemRules === null ? [] : ['--config', designSystemRules]),
-          '--exclude',
-          'semgrep/fixtures',
-          ...(kit === null ? [] : ['--exclude', kit]),
-          project,
-        ]),
-        cleanup: () => {
-          if (designSystemRules === null) return;
-          rmSync(designSystemRules, { recursive: true, force: true });
-        },
-      };
-    },
+    semgrep: () =>
+      inProject([
+        'uv',
+        'run',
+        '--project',
+        KIT,
+        'semgrep',
+        'scan',
+        '--error',
+        '--metrics=off',
+        '--disable-version-check',
+        '--config',
+        path.join(KIT, 'semgrep'),
+        ...(existsSync(projectSemgrep) ? ['--config', projectSemgrep] : []),
+        '--exclude',
+        'semgrep/fixtures',
+        ...(kit === null ? [] : ['--exclude', kit]),
+        project,
+      ]),
     'size-limit': () =>
       options.sizeLimit
         ? {

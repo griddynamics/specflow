@@ -1,7 +1,9 @@
 "use client";
-// FE-DS-02, FE-DS-06 (R5): port of `Icon` in bundle.js. Phosphor Regular glyph, 256 viewBox, `currentColor`.
+// FE-DS-02, FE-DS-06 (R5): port of `Icon` in bundle.js, restyled in the Graphico way (Task 4).
+// Phosphor Regular glyph, 256 viewBox, `currentColor`.
 import { ICON_MAP, type IconName } from "./icon-map";
 import { cx, truthy } from "./utils";
+import "./shared-ui.css";
 
 export type { IconName } from "./icon-map";
 
@@ -21,7 +23,7 @@ export function Icon({ name, size = 20, label, className }: Readonly<IconProps>)
   const Glyph = GLYPHS[name] ?? ICON_MAP.cube;
   return (
     <Glyph
-      className={cx("gdg-icon", className)}
+      className={cx("sui-icon", className)}
       size={size}
       aria-hidden={truthy(label) ? undefined : true}
       role={truthy(label) ? "img" : undefined}

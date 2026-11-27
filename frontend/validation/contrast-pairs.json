@@ -1,11 +1,11 @@
 {
   "pairs": [
-    ["--ground", "--ink"],
-    ["--ground", "--ink-2"],
-    ["--ground", "--ink-3"],
-    ["--ground-alt", "--ink"],
-    ["--ground-alt", "--ink-2"],
-    ["--yellow", "--on-yellow"],
-    ["--severity-critical", "--on-severity-critical"]
+    ["--gx-paper", "--gx-ink"],
+    ["--gx-paper", "--gx-ink-2"],
+    ["--gx-paper", "--gx-ink-3"],
+    ["--gx-wash", "--gx-ink"],
+    ["--gx-inv-bg", "--gx-inv-fg"],
+    ["--gx-inv-bg", "--gx-inv-mute"],
+    ["--gx-yellow", "--gx-on-yellow"]
   ]
 }
