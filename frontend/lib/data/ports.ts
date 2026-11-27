@@ -1,6 +1,7 @@
 // FE-DATA-01 (TECH-SPECS §2.14). Screens reach data only through these interfaces (R7).
 import type { AssistantPort } from "@/lib/domain/assistant";
 import type { BoxPort } from "@/lib/domain/box";
+import type { DropboxPort } from "@/lib/domain/dropbox";
 import type { CommentsPort } from "@/lib/domain/comments";
 import type { ConnectorsPort } from "@/lib/domain/connectors";
 import type { CreateProjectPort } from "@/lib/domain/create-project";
@@ -48,6 +49,7 @@ export interface DataPorts {
   slack: SlackPort; // the Slack channel of a project: Settings (Slack tab)
   github: GitHubPort; // the caller's GitHub connection and the GitHub repositories of a project: Settings (GitHub tab)
   box: BoxPort; // the caller's Box connection: the V2 Integrations page (docs/box/oauth.md)
+  dropbox: DropboxPort; // the caller's Dropbox connection: the V2 Integrations page (docs/dropbox/oauth.md)
   integrations: IntegrationsPort; // who each app is connected by for a project: the V2 Integrations page
   linear: LinearPort; // LINEAR S1: the caller's Linear connection: the V2 Integrations page
   linearPlan: LinearPlanPort; // LINEAR S3: the Linear plan destination of a project: the V2 canvas (Plan stage)

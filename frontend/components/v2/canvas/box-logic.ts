@@ -47,8 +47,13 @@ export function boxOpen(link: string | null): { href: string; label: string } | 
 
 const plural = (n: number, one: string): string => `${String(n)} ${n === 1 ? one : one + "s"}`;
 
+/** The part of a checked file link (Box, Dropbox) the list reads: a file is picked by its `id` and shown with the folder it is in. */
+type ListedFile = Pick<BoxCheckFile, "id" | "name" | "path">;
+/** A check that lists files (a Box check, or a Dropbox one in the same shape). */
+export type ListedCheck = Omit<BoxCheck, "files"> & { files: readonly ListedFile[] };
+
 /** The line under a passed check: "Folder Project · 12 files (3.2 MB), 3 skipped (other types), 2 folders."; the cap has its own note under the list. */
-export function boxCheckText(c: BoxCheck): string {
+export function boxCheckText(c: ListedCheck): string {
   const what = c.kind === "folder" ? "Folder" : "File";
   const count = plural(c.files.length, "file");
   const size = c.files.length === 0 ? "" : ` (${bytesText(c.bytes)})`;
@@ -58,13 +63,13 @@ export function boxCheckText(c: BoxCheck): string {
 }
 
 /** A listed file is picked by its Box file id, which is what `exclude` carries. */
-export const idOfFile = (f: BoxCheckFile): Pickable => ({ id: f.id });
+export const idOfFile = (f: ListedFile): Pickable => ({ id: f.id });
 
 /** What a row says after the file name: the folder it is in, or nothing for a file in the root. */
-export const folderHint = (f: BoxCheckFile): string | undefined => (f.path === "" ? undefined : f.path);
+export const folderHint = (f: ListedFile): string | undefined => (f.path === "" ? undefined : f.path);
 
 /** What an Add would take once a file is unchecked: "12 of 14 files", or "No files"; nothing while every file is checked (the check line has the count). */
-export function selectionText(files: readonly BoxCheckFile[], unchecked: Unchecked): string | null {
+export function selectionText(files: readonly ListedFile[], unchecked: Unchecked): string | null {
   const picked = pickedCount(files.map(idOfFile), unchecked);
   if (picked === files.length) return null;
   return picked === 0 ? "No files" : `${String(picked)} of ${plural(files.length, "file")}`;

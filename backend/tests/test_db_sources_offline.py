@@ -234,7 +234,7 @@ async def test_create_connection_rejects_an_unknown_kind() -> None:
         await sources.create_connection(
             NO_SESSION,
             project_id=ID,
-            kind="dropbox",
+            kind="onedrive",
             external_id="x" * 12,
             link="l",
             name="n",

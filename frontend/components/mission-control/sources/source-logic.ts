@@ -32,6 +32,7 @@ export const KIND_LINE: Record<Exclude<SourceKind, "upload">, string> = {
   jira_epic: "Jira epic",
   linear_project: "Linear project",
   box: "Box",
+  dropbox: "Dropbox",
   drawio: "diagrams.net",
 };
 /** The small label above the name in the details modal. */
@@ -43,6 +44,7 @@ export const KIND_LABEL = {
   jira_epic: "Jira epic",
   linear_project: "Linear project",
   box: "Box",
+  dropbox: "Dropbox",
   drawio: "diagrams.net",
 } as const satisfies Record<SourceKind, string>;
 

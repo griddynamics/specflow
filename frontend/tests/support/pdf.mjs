@@ -3,7 +3,15 @@ import { randomBytes } from "node:crypto";
 /** A tiny synthetic "PDF" (magic bytes + random body): enough for the stub API, never a real document. */
 export const syntheticPdf = (size = 2048) => Buffer.concat([Buffer.from("%PDF-1.7\n"), randomBytes(size), Buffer.from("\n%%EOF\n")]);
 
-const MAGIC = { ".pdf": "%PDF-1.7\n", ".docx": "PK\x03\x04", ".pptx": "PK\x03\x04", ".xlsx": "PK\x03\x04" };
+const MAGIC = {
+  ".pdf": "%PDF-1.7\n",
+  ".docx": "PK\x03\x04",
+  ".pptx": "PK\x03\x04",
+  ".xlsx": "PK\x03\x04",
+  ".drawio": "<mxfile>",
+  ".svg": "<svg ", // the last extension of a .drawio.svg name
+  ".png": "\x89PNG\r\n\x1a\n",
+};
 const TEXT = { ".html": "<!doctype html><title>t</title><p>x</p>\n", ".md": "# Title\n\ntext\n", ".csv": "a,b\n1,2\n" };
 
 /** A tiny synthetic document of the type of `extension` (the first bytes the API checks, then filler); never a real document. */

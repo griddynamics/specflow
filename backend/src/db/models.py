@@ -56,9 +56,9 @@ SUMMARIZATION_STATUSES: Final = ("none", "running", "succeeded", "failed")
 # drive.categories / reasons; a test keeps them equal. They are
 # written out here so the models do not import the Drive package.
 # ``confluence`` and ``jira_epic`` are imported by the API in-process (migration 0008_project_integrations);
-# ``linear_project`` is too (migration 0011_linear), ``box`` (migration 0012_box) and ``drawio`` (migration
-# 0013_drawio_source).
-CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box", "drawio")
+# ``linear_project`` is too (migration 0011_linear), ``box`` (migration 0012_box), ``dropbox`` (migration
+# 0013_dropbox) and ``drawio`` (migration 0014_drawio_source).
+CONNECTION_KINDS: Final = ("gdrive", "upload", "confluence", "jira_epic", "linear_project", "box", "dropbox", "drawio")
 CONNECTION_STATES: Final = ("listing", "importing", "done", "failed")
 CONNECTION_FAILURE_REASONS: Final = (
     "invalid_link",
@@ -386,7 +386,8 @@ ATLASSIAN_CONNECTION_STATUSES: Final = ("active", "expired")
 # them equal (db does not import github).
 GITHUB_CONNECTION_STATUSES: Final = ("active", "expired")
 BOX_CONNECTION_STATUSES: Final = ("active", "expired")
-INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "linear", "box")
+DROPBOX_CONNECTION_STATUSES: Final = ("active", "expired")
+INTEGRATION_APPS: Final = ("atlassian", "github", "slack", "linear", "box", "dropbox")
 JIRA_GAP_GROUPINGS: Final = ("one", "area")
 GITHUB_PROJECT_TRIGGERS: Final = ("plan_run", "settings", "recovery")
 GITHUB_PROJECT_ITEM_KINDS: Final = ("story", "subtask")
@@ -781,6 +782,30 @@ class BoxConnection(Base):
     enterprise_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DropboxConnection(Base):
+    """One user's Dropbox connection (migration ``0013_dropbox``, docs/dropbox/oauth.md "Tokens"): the refresh token is
+    Fernet ciphertext (``bytea``: Dropbox tokens can pass 1 KB) and never rotates, so there is no
+    ``refresh_expires_at``; the access token is never stored. ``name`` is the display name (the e-mail is not stored);
+    ``team_id`` and ``team_name`` are null for a personal account. Not project-scoped: row-level security is on with
+    no policy and no grant, so the agent role reads nothing of it."""
+
+    __tablename__ = "dropbox_connections"
+    __table_args__ = (CheckConstraint(_one_of("status", DROPBOX_CONNECTION_STATUSES), name="status"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    account_id: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    team_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    team_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

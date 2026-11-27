@@ -1,9 +1,9 @@
 ---
 type: Design
-title: "Importers: Confluence links, Jira epics, Box links and diagrams.net links"
-description: "The sources the API reads itself: what a Confluence link, a Jira epic, a Box link or a diagrams.net link imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
+title: "Importers: Confluence links, Jira epics, Box links, Dropbox links and diagrams.net links"
+description: "The sources the API reads itself from Atlassian, Box, Dropbox and diagrams.net: what a Confluence link, a Jira epic, a Box link, a Dropbox link or a diagrams.net link imports, the caps, the acting account, the Markdown conversion, how a changed page is added again, codes and failure reasons"
 status: draft
-tags: [sources, confluence, jira, box, drawio, import]
+tags: [sources, confluence, jira, box, dropbox, drawio, import]
 ---
 # importers.md: sources the API imports itself
 
@@ -19,8 +19,10 @@ Rules shared by every importer:
   used: `read:page`, `read:hierarchical-content`, `read:space` (Confluence) and `read:jira-work` (Jira) were granted already
   ([../jira-sync/oauth.md](../jira-sync/oauth.md)). The site is the deployment's one site (`ATLASSIAN_SITE_URL`); a link
   on another host is `atlassian_site_mismatch`.
-- **One source per link.** `kind` is `confluence`, `jira_epic`, `box` or `drawio` (the Box link follows the same rules with Box's account and
-  its own parts, see "Box link" below; the diagrams.net link needs no account, see "diagrams.net link"); `external_id` is a fresh uuid, `link` the link as pasted.
+- **One source per link.** `kind` is `confluence`, `jira_epic`, `box`, `dropbox` or `drawio` (the Box and Dropbox links follow the same rules
+  with their own account and parts, see "Box link" and "Dropbox link" below; the diagrams.net link needs no account, see "diagrams.net link"); `external_id` is a fresh uuid. `link` is the link as pasted for Confluence, Jira and diagrams.net; for Box it is the canonical
+  folder or file link of the resolved item, for Dropbox the `https://www.dropbox.com/home<path>` address of the resolved item (a
+  shared link is never stored).
 - **Originals and Markdown.** Each item is stored twice: the API's answer as JSON (`original.json` in object storage) and
   a Markdown document (`origin = connection`, `status = parsed`, `parser = <kind>-convert`). The document starts with the
   title as its heading; the graph reads it like any other (`doc:<document id>` lineage, path `<source name>/<item name>`).
@@ -131,6 +133,30 @@ Caps: `MAX_FILES = 1000` importable files, `MAX_ENTRIES = 5000` walked entries (
 `file:<id>`, named by the path inside the source. Failure reasons are the closed set above (no new reason). Link shapes, lanes,
 failure mapping, link back and follow-ups: [../box/source.md](../box/source.md); codes: [../box/codes.md](../box/codes.md); the
 connection: [../box/oauth.md](../box/oauth.md).
+
+## Dropbox link
+
+`POST /projects/{pid}/sources/dropbox/check` (`{link}`) and `POST /projects/{pid}/sources/dropbox` (`{link, exclude}`), any
+member. The import reads as the member the project's Dropbox is connected by (R1), with that member's own Dropbox access (four
+read scopes; every call sends `Dropbox-API-Path-Root` with the member's root namespace, so a team space is reachable). One link
+per source: a shared link (`www.dropbox.com/scl/fo/...`, `/scl/fi/...`, legacy `/s/...`, `/sh/...`) or a web path
+(`/home/<path>`) of a folder or file **in the bound member's Dropbox** (a link of someone else's folder is `dropbox_no_access`:
+add it to your Dropbox first). The check answers `kind`, `name`, the importable `files` (`{id, name, path, category}`, at most
+1000, for the unchecking), `files_capped`, `skipped`, `folders`, `bytes` and `capped`; the add takes the unchecked ids as
+`exclude`.
+
+Like Box, the files are binary: PDF, DOCX, PPTX, XLSX, HTML, MD, CSV and TXT are downloaded by id and stored as originals
+(`ImportWriter.add_file`) and then parsed by `worker-parse`. The lane table and caps are shared with Box
+(`api/imports/files.py`, DB18). A Paper doc is exported as Markdown and stored `parsed` (parser `dropbox-convert`) once its
+export is recorded live; until then it is `skipped` (DB10). Everything else is declared and ends `skipped`. An entry the project
+already holds unchanged (same `id:`, `server_modified`, size, still linked to a document) is a `duplicate` without a download
+(DB12). The shared link is **never stored**: `connections.link` is the `https://www.dropbox.com/home<path>` address of the target.
+
+Caps: `MAX_FILES = 1000` importable files, `MAX_ENTRIES = 5000` listed entries, `MAX_BYTES = 2 GiB` listed size
+(`api/imports/dropbox.py`), cap events `api.imports.dropbox_cap_reached`. Item names are `id:<...>`, named by the path inside
+the source. Failure reasons are the closed set above (no new reason). Links, lanes, failure mapping and follow-ups:
+[../dropbox/source.md](../dropbox/source.md); codes: [../dropbox/codes.md](../dropbox/codes.md); the connection:
+[../dropbox/oauth.md](../dropbox/oauth.md).
 
 ## diagrams.net link
 

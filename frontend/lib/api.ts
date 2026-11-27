@@ -293,6 +293,14 @@ export const authorizeBox = (returnTo: string) =>
 /** 204: resolves with the HTTP status. */
 export const disconnectBox = () => httpDelete("/integrations/box").then((r) => r.status);
 
+// Dropbox (docs/dropbox/oauth.md "Routes"): the caller's connection. Bodies stay `unknown`; the Dropbox port (lib/data/http/dropbox.ts) checks their shape.
+// The OAuth callback is not here: the route handler app/api/integrations/dropbox/callback calls the API on the server.
+export const getDropboxConnection = () => httpGet("/integrations/dropbox").then((r) => r.body);
+export const authorizeDropbox = (returnTo: string) =>
+  httpPost("/integrations/dropbox/authorize", json({ return_to: returnTo })).then((r) => r.body);
+/** 204: resolves with the HTTP status. */
+export const disconnectDropbox = () => httpDelete("/integrations/dropbox").then((r) => r.status);
+
 // Sources (GDRIVE plan 04, architecture-notes B4). Bodies are returned as `unknown`: the http adapter (lib/data/http/sources.ts)
 // checks their shape. POSTs go through `call`, so they carry the CSRF header.
 export const getDriveIdentity = () => httpGet("/drive/identity").then((r) => r.body);
@@ -338,6 +346,10 @@ export const checkBoxLink = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/box/check`, json({ link })).then((r) => r.body);
 export const addBoxSource = (pid: string, link: string, exclude: readonly string[] = []) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/box`, json({ link, exclude })).then((r) => r.body);
+export const checkDropboxLink = (pid: string, link: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/dropbox/check`, json({ link })).then((r) => r.body);
+export const addDropboxSource = (pid: string, link: string, exclude: readonly string[] = []) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/sources/dropbox`, json({ link, exclude })).then((r) => r.body);
 export const checkJiraEpicLink = (pid: string, keyOrLink: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/jira-epic/check`, json({ key_or_link: keyOrLink })).then((r) => r.body);
 export const addJiraEpicSource = (pid: string, keyOrLink: string, exclude: readonly string[] = []) =>

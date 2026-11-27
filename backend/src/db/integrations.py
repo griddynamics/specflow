@@ -1,7 +1,7 @@
 """Application-role data access for the project integrations (migration ``0008_project_integrations``).
 
-A row binds a member's per-user connection (Atlassian, GitHub, Linear, Box) or Slack channel binding to a project: the
-member is the
+A row binds a member's per-user connection (Atlassian, GitHub, Linear, Box, Dropbox) or Slack channel binding to a
+project: the member is the
 account every use of the app in the project acts as, and the row names the project's one workspace (Atlassian site,
 GitHub account, Slack workspace). The acting account the runners read stays where it was (``jira_targets``
 ``connected_user_id``, ``project_repositories`` ``added_by``): ``point_*`` copies the bound member there.
@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import (
     AtlassianConnection,
     BoxConnection,
+    DropboxConnection,
     GitHubConnection,
     JiraTarget,
     LinearConnection,
@@ -32,7 +33,7 @@ from db.models import (
     User,
 )
 
-ATLASSIAN, GITHUB, SLACK, LINEAR, BOX = "atlassian", "github", "slack", "linear", "box"
+ATLASSIAN, GITHUB, SLACK, LINEAR, BOX, DROPBOX = "atlassian", "github", "slack", "linear", "box", "dropbox"
 
 
 class WorkspaceMismatchError(Exception):
@@ -90,6 +91,8 @@ async def _holds(session: AsyncSession, app: str, user_id: uuid.UUID) -> bool:
         probe = exists().where(LinearConnection.user_id == user_id, LinearConnection.status == "active")
     elif app == BOX:
         probe = exists().where(BoxConnection.user_id == user_id, BoxConnection.status == "active")
+    elif app == DROPBOX:
+        probe = exists().where(DropboxConnection.user_id == user_id, DropboxConnection.status == "active")
     else:
         return True
     return bool((await session.execute(select(probe))).scalar())

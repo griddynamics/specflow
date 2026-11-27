@@ -34,9 +34,11 @@ from api.plan_destinations import PlanDestinations
 from box.connections import BoxConnections
 from db import session as db_session
 from db.box import connection_store as box_connection_store
+from db.dropbox import connection_store as dropbox_connection_store
 from db.github import connection_store
 from db.models import Project
 from db.session import is_database_unreachable
+from dropbox.connections import DropboxConnections
 from github.connections import GitHubConnections
 from graph.core import InfrastructureUnavailableError
 from graph.core.store import as_executor
@@ -111,6 +113,8 @@ class Runtime:
     github: Any = None
     # box.connections.BoxConnections; None = the Box integration is off (503); BOX_OAUTH_CLIENT_ID sets it.
     box: Any = None
+    # dropbox.connections.DropboxConnections; None = the Dropbox integration is off (503); DROPBOX_OAUTH_CLIENT_ID
+    dropbox: Any = None
     # api.plan_destinations.PlanDestinations: the plan runner's one post-plan hook; Jira is the first destination.
     plan_destinations: Any = None
     # api.jira_gaps.JiraGaps: the Jira gap channel; None without Atlassian OAuth or gap runs
@@ -273,6 +277,10 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             log_event(logger, INFO, "api.box.mode", mode="on")
             runtime.box = BoxConnections(settings.box, store=box_connection_store(runtime.transaction))
             stack.push_async_callback(runtime.box.aclose)
+        if settings.dropbox is not None:
+            log_event(logger, INFO, "api.dropbox.mode", mode="on")
+            runtime.dropbox = DropboxConnections(settings.dropbox, store=dropbox_connection_store(runtime.transaction))
+            stack.push_async_callback(runtime.dropbox.aclose)
         runtime.imports = ImportRunner(transaction=runtime.transaction, store=store)
         stack.push_async_callback(runtime.imports.aclose)
         await runtime.imports.start_recovery()

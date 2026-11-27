@@ -37,6 +37,7 @@ const OAUTH_RETURN_ROUTES = [
   "/api/integrations/github/callback",
   "/api/integrations/github/setup",
   "/api/integrations/box/callback",
+  "/api/integrations/dropbox/callback",
 ];
 
 export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
@@ -305,6 +306,7 @@ export interface SeedIntegrations extends Record<string, unknown> {
   slackTest?: string;
   atlassian?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
   github?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
+  dropbox?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
   box?: { by?: { user_id: string; name: string } | null; workspace?: { id: string; name: string }; health?: string } | null;
   slack?: { channel?: { id: string; name: string; private: boolean }; by?: { user_id: string; name: string } | null } | null;
 }
@@ -473,6 +475,18 @@ export interface SeedBox extends Record<string, unknown> {
 }
 export async function seedBox(spec: SeedBox): Promise<void> {
   await control("POST", "/seed-box", spec);
+}
+
+/** The Dropbox stub (`POST /seed-dropbox`, tests/support/stub-dropbox.mjs `seed`): the caller's own connection and the Dropbox knobs. */
+export interface SeedDropbox extends Record<string, unknown> {
+  /** Put every knob back first. */
+  reset?: boolean;
+  enabled?: boolean;
+  connection?: { status: "active" | "expired"; name?: string; team_name?: string | null } | null;
+  callbackError?: string | null;
+}
+export async function seedDropbox(spec: SeedDropbox): Promise<void> {
+  await control("POST", "/seed-dropbox", spec);
 }
 
 /** Builds the knowledge graph of a Ready project through the BFF and waits for it (the stub runs it without a model). */

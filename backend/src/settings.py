@@ -1071,6 +1071,41 @@ class BoxSettings(_MappedSettings):
         return f"{self.public_url}{BOX_CALLBACK_PATH}"
 
 
+DROPBOX_CALLBACK_PATH: Final = "/api/integrations/dropbox/callback"
+
+
+class DropboxSettings(_MappedSettings):
+    """The Dropbox app of the Dropbox integration (docs/dropbox/oauth.md "Settings"; api role only): the app key turns
+    it on and needs the app secret, the token key and ``PUBLIC_URL``."""
+
+    client_id: Text = Field(validation_alias="DROPBOX_OAUTH_CLIENT_ID")
+    client_secret: SecretStr = Field(validation_alias="DROPBOX_OAUTH_CLIENT_SECRET")
+    token_key: SecretStr = Field(validation_alias="DROPBOX_TOKEN_KEY")
+    public_url: InternalUrl = Field(validation_alias="PUBLIC_URL")
+
+    @field_validator("client_secret")
+    @classmethod
+    def _secret_not_blank(cls, value: SecretStr) -> SecretStr:
+        return _not_blank(value)
+
+    @field_validator("token_key")
+    @classmethod
+    def _key_is_fernet(cls, value: SecretStr) -> SecretStr:
+        return _fernet_key(value)
+
+    @classmethod
+    def configured_in(cls, env: Mapping[str, str]) -> bool:
+        """True when ``DROPBOX_OAUTH_CLIENT_ID`` is non-blank (a partial set is then refused by the build)."""
+
+        return bool(env.get("DROPBOX_OAUTH_CLIENT_ID", "").strip())
+
+    @property
+    def callback_url(self) -> str:
+        """The redirect URI registered on the Dropbox app: ``{PUBLIC_URL}/api/integrations/dropbox/callback``."""
+
+        return f"{self.public_url}{DROPBOX_CALLBACK_PATH}"
+
+
 @dataclass(frozen=True)
 class RoleSettings:
     """The bindings one role needs; the others are ``None``."""
@@ -1095,6 +1130,7 @@ class RoleSettings:
     github: GitHubSettings | None = None  # api and worker-agents; None = GitHub off (``GITHUB_APP_CLIENT_ID`` unset)
     linear: LinearSettings | None = None  # api only; None = Linear off (``LINEAR_OAUTH_CLIENT_ID`` unset)
     box: BoxSettings | None = None  # api only; None = Box off (``BOX_OAUTH_CLIENT_ID`` unset)
+    dropbox: DropboxSettings | None = None  # api only; None = Dropbox off (``DROPBOX_OAUTH_CLIENT_ID`` unset)
 
 
 @dataclass(frozen=True)
@@ -1208,6 +1244,7 @@ class _Bindings:
     github: GitHubSettings | None = None
     linear: LinearSettings | None = None
     box: BoxSettings | None = None
+    dropbox: DropboxSettings | None = None
     mcp: McpSettings | None = None
     api_internal: ApiInternalSettings | None = None
 
@@ -1253,6 +1290,15 @@ def _build_box(role: str, source: Mapping[str, str], bad: list[str]) -> BoxSetti
     return _build(BoxSettings, source, bad)
 
 
+def _build_dropbox(role: str, source: Mapping[str, str], bad: list[str]) -> DropboxSettings | None:
+    """The Dropbox app of the api role; ``None`` when ``DROPBOX_OAUTH_CLIENT_ID`` is unset (the Dropbox routes answer
+    503)."""
+
+    if role != "api" or not DropboxSettings.configured_in(source):
+        return None
+    return _build(DropboxSettings, source, bad)
+
+
 def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bindings:
     """Build every binding ``role`` needs, flagging each refused variable in ``bad``."""
 
@@ -1275,6 +1321,7 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
     found.github = _build_github(role, source, bad)
     found.linear = _build_linear(role, source, bad)
     found.box = _build_box(role, source, bad)
+    found.dropbox = _build_dropbox(role, source, bad)
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
         found.gap = _build_gap(source, bad)
@@ -1480,6 +1527,7 @@ def load_settings(
         github=found.github,
         linear=found.linear,
         box=found.box,
+        dropbox=found.dropbox,
     )
 
 
