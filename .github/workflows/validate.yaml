@@ -90,10 +90,11 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-static-${{ matrix.track }}-${{ github.run_attempt }}
+          name: validation-reports-static-${{ matrix.track }}
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   # Licence gate G6: the locked dependency set of each image (api, worker-agents, worker-parse, mcp) is installed into a
@@ -114,10 +115,11 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-static-licences-${{ github.run_attempt }}
+          name: validation-reports-static-licences
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   static-typescript:
@@ -153,10 +155,11 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-static-${{ matrix.track }}-${{ github.run_attempt }}
+          name: validation-reports-static-${{ matrix.track }}
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   site:
@@ -180,10 +183,11 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-site-${{ github.run_attempt }}
+          name: validation-reports-site
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   unit-python:
@@ -219,10 +223,11 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-unit-python-${{ github.run_attempt }}
+          name: validation-reports-unit-python
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   unit-typescript:
@@ -257,10 +262,11 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-unit-typescript-${{ github.run_attempt }}
+          name: validation-reports-unit-typescript
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   # The offline browser packs (frontend/e2e-production) run against the BUILT standalone app and a
@@ -297,17 +303,19 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-e2e-build-${{ github.run_attempt }}
+          name: validation-reports-e2e-build
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   # Each shard reports as job e2e-<pack>-shard<i> (ci_report.py orders the shards, adds one combined row per pack and
   # names a shard that sent nothing). With CI set, frontend/playwright.reporter.ts writes the list, a JUnit file (the
   # run summary) and a blob report (merged by e2e-report). The shard counts here must match the gate's --expect list.
-  # The blob artifact is named per shard without the attempt and overwritten by a rerun, so after "Re-run failed
-  # jobs" e2e-report merges the latest result of every shard (and no stale copy of the rerun one).
+  # The blob artifact is named per shard without the attempt and overwritten by a rerun (as validation-reports-<job> is,
+  # see validation-gate), so after "Re-run failed jobs" e2e-report merges the latest result of every shard (and no
+  # stale copy of the rerun one).
   # The production specs share one stub API per server, so each shard runs one worker against its own server.
   e2e-production:
     name: E2E production (shard ${{ matrix.shard }}/2)
@@ -350,10 +358,11 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-e2e-production-shard${{ matrix.shard }}-${{ github.run_attempt }}
+          name: validation-reports-e2e-production-shard${{ matrix.shard }}
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   # One HTML report artifact (e2e-html-report-<attempt>, a folder per pack) merged from the latest blob report of
@@ -401,6 +410,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      # Every job uploads its .reports/ as validation-reports-<job>, without the attempt and with overwrite: true. So
+      # after "Re-run failed jobs" the run holds one report per job (the newest one of a rerun job), and the merge
+      # cannot read a stale <job>/summary.json from an earlier attempt. The gate's own upload is named
+      # validation-summary-* so that this pattern does not match it.
       - uses: actions/download-artifact@v8
         with:
           pattern: validation-reports-*
@@ -438,7 +451,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: validation-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          name: validation-summary-${{ github.run_id }}-${{ github.run_attempt }}
           path: .reports/
           include-hidden-files: true
           if-no-files-found: error
