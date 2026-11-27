@@ -11,6 +11,18 @@ import type { RouteBuilder } from "@/lib/routes";
 import { V2_COPY } from "../v2-copy";
 import { useTheme } from "./use-theme";
 
+/**
+ * The header's navigation, in order (D11): the project menu (the projects and "Create new project"), then Mission Control (the canvas),
+ * the Members dialog and Integrations. The same tree is declared in `validation/nav-spec.json`, which the nav-tree check compares this
+ * array to; the entries that name a route carry its `ROUTES` key.
+ */
+const HEADER_NAV: readonly { readonly key: string; readonly label: string }[] = [
+  { key: "projects", label: V2_COPY.projectsMenu },
+  { key: "canvas", label: V2_COPY.missionControl },
+  { key: "members", label: V2_COPY.members },
+  { key: "integrations", label: V2_COPY.integrations },
+];
+
 export interface V2HeaderProps {
   routes: RouteBuilder;
   pathname: string;
@@ -26,6 +38,7 @@ export function V2Header({ routes, pathname, projects, projectId, me, onCreate, 
   const router = useRouter();
   const { theme, toggle } = useTheme();
   const current = projects?.find((p) => p.id === projectId);
+  const [projectMenu, ...nav] = HEADER_NAV;
   const projectItems: MenuItem[] = (projects ?? []).map((p) => ({
     key: p.id,
     label: p.name,
@@ -50,21 +63,27 @@ export function V2Header({ routes, pathname, projects, projectId, me, onCreate, 
       brand={<Brand href={routes.home()} name={V2_COPY.brandName} />}
       project={
         projects === null || projects.length === 0 ? undefined : (
-          <Menu look="project" label={V2_COPY.projectsMenu} trigger={current?.name ?? V2_COPY.projectsMenu} items={items} />
+          <Menu look="project" label={projectMenu.label} trigger={current?.name ?? projectMenu.label} items={items} />
         )
       }
     >
       {canvas === null || integrations === null ? null : (
         <>
-          <NavLink href={canvas} current={pathname === canvas} onNavigate={go(canvas)}>
-            {V2_COPY.missionControl}
-          </NavLink>
-          <NavButton opensDialog onClick={onMembers}>
-            {V2_COPY.members}
-          </NavButton>
-          <NavLink href={integrations} current={pathname === integrations} onNavigate={go(integrations)}>
-            {V2_COPY.integrations}
-          </NavLink>
+          {nav.map((item) => {
+            if (item.key === "members") {
+              return (
+                <NavButton key={item.key} opensDialog onClick={onMembers}>
+                  {item.label}
+                </NavButton>
+              );
+            }
+            const href = item.key === "canvas" ? canvas : integrations;
+            return (
+              <NavLink key={item.key} href={href} current={pathname === href} onNavigate={go(href)}>
+                {item.label}
+              </NavLink>
+            );
+          })}
         </>
       )}
       <ThemeToggle theme={theme} onToggle={toggle} toDarkLabel={V2_COPY.toDark} toLightLabel={V2_COPY.toLight} />

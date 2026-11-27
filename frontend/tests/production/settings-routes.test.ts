@@ -5,15 +5,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ROUTES, parseSettingsQuery, routesFor } from "@/lib/routes";
+import { LEGACY_TEMPLATES, parseSettingsQuery, routesFor } from "@/lib/routes";
 import { SECTIONS, SIDEBAR_SECTIONS, sectionHref, sectionOf } from "@/components/shared/shell/shell-logic";
 
 const routes = routesFor("production");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 test("route key settings: template, builder with and without a tab", () => {
-  assert.equal(ROUTES.settings.template, "/projects/{projectId}/settings");
-  assert.deepEqual(ROUTES.settings.trees, ["production"]);
+  assert.equal(LEGACY_TEMPLATES.settings, "/projects/{projectId}/settings");
   assert.equal(routes.settings("p1"), "/projects/p1/settings");
   assert.equal(routes.settings("p1", { tab: "general" }), "/projects/p1/settings?tab=general");
   assert.equal(routes.settings("p1", { tab: "jira" }), "/projects/p1/settings?tab=jira");

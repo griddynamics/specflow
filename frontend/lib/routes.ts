@@ -7,8 +7,7 @@ export type AppMode = "production";
 export type MissionControlView = "readme" | "business" | "architecture" | "files" | "sources"; // "sources": Phase 1 sources screen only
 export type PlanView = "plan" | "work" | "develop"; // P20 (Plan page, AUTO-17)
 export type SettingsTab = "general" | "jira" | "slack" | "github"; // the Settings tabs (docs/projects/ui.md#route-and-sidebar)
-export type RouteKey =
-  "home" | "canvas" | "integrations" | "missionControl" | "gaps" | "plan" | "specbot" | "settings" | "connections" | "guides";
+export type RouteKey = "home" | "canvas" | "integrations";
 /** The Guides topics (MCP-M10): `/guides/{topic}`. Any other topic answers 404. */
 export const GUIDE_TOPICS = ["specflow-101", "best-practices", "mcp-server"] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
@@ -18,14 +17,23 @@ export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMod
   home: { template: "", trees: ["production"] },
   canvas: { template: "/projects/{projectId}", trees: ["production"] }, // Mission Control V2: the canvas of a project (app/(v2))
   integrations: { template: "/projects/{projectId}/integrations", trees: ["production"] }, // V2: ?github= | ?atlassian= | ?linear= | ?box= | ?dropbox= | ?next=
-  missionControl: { template: "/projects/{projectId}/mission-control", trees: ["production"] },
-  gaps: { template: "/projects/{projectId}/gaps", trees: ["production"] }, // FR-GWEB-04: the Gaps screen (was Decisions)
-  plan: { template: "/projects/{projectId}/plan", trees: ["production"] }, // P20; page files in P21
-  specbot: { template: "/projects/{projectId}/specbot", trees: ["production"] },
-  settings: { template: "/projects/{projectId}/settings", trees: ["production"] }, // ?tab=general | jira | slack | github
-  connections: { template: "/connections", trees: ["production"] },
-  guides: { template: "/guides", trees: ["production"] }, // + "/guides/{topic}": app/(app)/guides/[topic]/page.tsx
 };
+
+/**
+ * The pre-V2 path templates (legacy-frontend removal, Task 3): those pages are gone — the URLs 404 — but the legacy builders below still
+ * serve them to the callers that survive until Tasks 5/6 (`lib/markdown/links.ts`, the legacy shell's `sectionOf` matchers, the legacy
+ * components, the legacy tests), all inside `next build`'s complete-project type check. Task 6's knip pass deletes the builders, the
+ * parsers, `GUIDE_TOPICS`, the types and this bridge together. `ROUTES` above stays the one checked route table; this const is the bridge.
+ */
+export const LEGACY_TEMPLATES = {
+  missionControl: "/projects/{projectId}/mission-control",
+  gaps: "/projects/{projectId}/gaps", // FR-GWEB-04: the Gaps screen (was Decisions)
+  plan: "/projects/{projectId}/plan", // P20
+  specbot: "/projects/{projectId}/specbot",
+  settings: "/projects/{projectId}/settings", // ?tab=general | jira | slack | github
+  connections: "/connections",
+  guides: "/guides", // + "/guides/{topic}"
+} as const;
 
 export const TREE_PREFIX: Record<AppMode, ""> = { production: "" };
 
@@ -63,18 +71,19 @@ function fill(template: string, params: Record<string, string>): string {
 export function routesFor(mode: AppMode): RouteBuilder {
   const prefix = TREE_PREFIX[mode];
   const at = (key: RouteKey, params: Record<string, string> = {}) => prefix + fill(ROUTES[key].template, params);
+  const legacyAt = (template: string, params: Record<string, string> = {}) => prefix + fill(template, params);
   return {
     home: () => "/",
     canvas: (projectId, opts) => withQuery(at("canvas", { projectId }), { add: opts?.add }),
     integrations: (projectId, opts) => withQuery(at("integrations", { projectId }), { setup: opts?.setup, next: opts?.next }),
-    missionControl: (projectId, opts) => withQuery(at("missionControl", { projectId }), { view: opts?.view }),
-    file: (projectId, ref) => withQuery(at("missionControl", { projectId }), { view: "files", file: ref.path, section: ref.anchor }),
-    gaps: (projectId, opts) => withQuery(at("gaps", { projectId }), { gap: opts?.gapId }),
-    plan: (projectId, opts) => withQuery(at("plan", { projectId }), { view: opts?.view }),
-    specbot: (projectId) => at("specbot", { projectId }),
-    settings: (projectId, opts) => withQuery(at("settings", { projectId }), { tab: opts?.tab }),
-    connections: () => at("connections"),
-    guides: (topic) => at("guides") + (topic === undefined ? "" : `/${encodeURIComponent(topic)}`),
+    missionControl: (projectId, opts) => withQuery(legacyAt(LEGACY_TEMPLATES.missionControl, { projectId }), { view: opts?.view }),
+    file: (projectId, ref) => withQuery(legacyAt(LEGACY_TEMPLATES.missionControl, { projectId }), { view: "files", file: ref.path, section: ref.anchor }),
+    gaps: (projectId, opts) => withQuery(legacyAt(LEGACY_TEMPLATES.gaps, { projectId }), { gap: opts?.gapId }),
+    plan: (projectId, opts) => withQuery(legacyAt(LEGACY_TEMPLATES.plan, { projectId }), { view: opts?.view }),
+    specbot: (projectId) => legacyAt(LEGACY_TEMPLATES.specbot, { projectId }),
+    settings: (projectId, opts) => withQuery(legacyAt(LEGACY_TEMPLATES.settings, { projectId }), { tab: opts?.tab }),
+    connections: () => legacyAt(LEGACY_TEMPLATES.connections),
+    guides: (topic) => legacyAt(LEGACY_TEMPLATES.guides) + (topic === undefined ? "" : `/${encodeURIComponent(topic)}`),
     login: () => "/login",
     asset: (path) => `/ds/${path.replace(/^\/+/, "")}`,
   };

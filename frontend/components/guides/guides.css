@@ -26,12 +26,6 @@
 .guides p {
   margin: 0;
 }
-.guides-page {
-  display: grid;
-  gap: var(--space-sm);
-  align-content: start;
-  min-width: 0;
-}
 .guides-stack {
   display: grid;
   gap: var(--space-sm);

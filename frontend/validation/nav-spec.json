@@ -1,7 +1,7 @@
 {
-  "variable": "SECTIONS",
+  "variable": "HEADER_NAV",
   "fields": {
-    "key": "value",
+    "key": "key",
     "path": "path",
     "icon": "icon",
     "exact": "exact",
@@ -9,12 +9,9 @@
     "restricted": "restricted"
   },
   "items": [
-    { "label": "Mission Control", "key": "missionControl", "icon": "squares-four" },
-    { "label": "Gaps", "key": "gaps", "icon": "list-checks" },
-    { "label": "Plan", "key": "plan", "icon": "kanban" },
-    { "label": "SpecBot", "key": "specbot", "icon": "sparkle" },
-    { "label": "Settings", "key": "settings", "icon": "gear-six" },
-    { "label": "Connections", "key": "connections", "icon": "plug" },
-    { "label": "Guides", "key": "guides", "icon": "question" }
+    { "label": "Projects" },
+    { "label": "Mission Control", "key": "canvas" },
+    { "label": "Members" },
+    { "label": "Integrations", "key": "integrations" }
   ]
 }

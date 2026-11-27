@@ -4,12 +4,12 @@ import { test } from "node:test";
 import { SECTIONS, SIDEBAR_SECTIONS, sectionHref, sectionOf } from "@/components/shared/shell/shell-logic";
 import { AGENTS, DEFAULT_AGENT, agentLabel, isTested, parseAgent } from "../../lib/guides/agent";
 import { FLOW_STEPS, TOPIC_CARDS, topicTitle } from "../../lib/guides/content";
-import { GUIDE_TOPICS, ROUTES, parseGuideTopic, routesFor } from "../../lib/routes";
+import { GUIDE_TOPICS, LEGACY_TEMPLATES, parseGuideTopic, routesFor } from "../../lib/routes";
 
 const routes = routesFor("production");
 
 test("route builder: /guides and /guides/{topic}", () => {
-  assert.equal(ROUTES.guides.template, "/guides");
+  assert.equal(LEGACY_TEMPLATES.guides, "/guides");
   assert.equal(routes.guides(), "/guides");
   assert.equal(routes.guides("specflow-101"), "/guides/specflow-101");
   assert.equal(routes.guides("best-practices"), "/guides/best-practices");

@@ -1,7 +1,7 @@
 // FE-SHELL-01, FE-SHELL-02 (TECH-SPECS §1.3, §1.8, §5.2): the pure rules of the app shell.
 // No React, no fetch.
 import { isDataError } from "@/lib/domain/errors";
-import { ROUTES, TREE_PREFIX, type RouteBuilder } from "@/lib/routes";
+import { LEGACY_TEMPLATES, TREE_PREFIX, type RouteBuilder } from "@/lib/routes";
 import type { IconName } from "@/components/shared/ui/Icon";
 import { truthy } from "@/components/shared/ui/utils";
 
@@ -28,12 +28,12 @@ export type SectionKey = "missionControl" | "gaps" | "plan" | "specbot" | "setti
 export const SIDEBAR_SECTIONS = SECTIONS.filter((s) => s.value !== "connections");
 
 const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** One matcher per section and tree, built from the ROUTES templates: `{param}` = one path segment, optional trailing slash. */
+/** One matcher per section and tree, built from the legacy templates (`LEGACY_TEMPLATES`, the bridge for this file's Task 6 deletion): `{param}` = one path segment, optional trailing slash. */
 const SECTION_MATCHERS: [SectionKey, RegExp][] = SECTIONS.flatMap((s) =>
   (Object.values(TREE_PREFIX) as string[]).map((prefix): [SectionKey, RegExp] => [
     s.value,
     new RegExp(
-      `^${escape(prefix)}${ROUTES[s.value].template
+      `^${escape(prefix)}${LEGACY_TEMPLATES[s.value]
         .split(/(\{\w+\})/)
         .map((part) => (/^\{\w+\}$/.test(part) ? "[^/]+" : escape(part)))
         .join("")}/?$`,
@@ -41,7 +41,7 @@ const SECTION_MATCHERS: [SectionKey, RegExp][] = SECTIONS.flatMap((s) =>
   ]),
 );
 
-/** Which section a pathname belongs to from the ROUTES templates. null = none (e.g. `/`, `/projects/x`). */
+/** Which section a pathname belongs to from the legacy templates. null = none (e.g. `/`, `/projects/x`). */
 export function sectionOf(pathname: string): SectionKey | null {
   if (/^\/guides(?:\/[^/]+)?\/?$/.test(pathname)) return "guides"; // the hub and every topic (E6)
   return SECTION_MATCHERS.find(([, re]) => re.test(pathname))?.[0] ?? null;
