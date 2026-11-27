@@ -115,7 +115,7 @@ test.describe("Mission Control V2: the canvas", { tag: "@production" }, () => {
             return { box: c.getBoundingClientRect(), text: c.textContent, cut: cut(name) || cut(line) };
           }),
         );
-      expect(boxes).toHaveLength(14); // all fourteen connections: the stage's own and the other stages'
+      expect(boxes).toHaveLength(16); // all sixteen connections: the stage's own and the other stages'
       expect(boxes.filter((b) => b.cut).map((b) => b.text)).toEqual([]); // the text is written to the card, never cut by it
       for (const { box } of boxes) sizes.add(`${String(Math.round(box.width))}x${String(Math.round(box.height))}`);
       await page.keyboard.press("Escape");
