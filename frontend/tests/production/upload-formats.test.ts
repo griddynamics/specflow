@@ -1,6 +1,7 @@
 // The accepted upload types (lib/domain/upload-formats.ts): the table equals the API's, the canonical
 // Content-Type comes from the extension, the picker/texts follow the N2 caps, splitUpload keeps the accepted files only, the
-// 413 file_too_large mapping carries the per-type cap, and the toast names the files over the limit. Pure: no server.
+// 413 file_too_large mapping carries the per-type cap, and the toast names the files over the limit and the ones already in
+// the project. Pure: no server.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -181,4 +182,16 @@ test("the upload toast names a file over its cap with that cap; other refusals a
   );
   assert.equal(two.message, "a.pdf is over the 100 MB limit. b.docx is over the 50 MB limit.");
   assert.equal(toastFor(report({ picked: 1, notAdded: 1 })).message, "1 file was not added.");
+});
+
+test("the upload toast says when files were already in the project, and nothing new was added", () => {
+  const one = toastFor(report({ picked: 1, alreadyInProject: 1 }));
+  assert.equal(one.title, "Already in this project");
+  assert.equal(one.tone, "info");
+  assert.equal(one.message, "1 file is already in this project; nothing new was added.");
+  // `alreadyInProject` and `duplicates` read the same sentence and count together (FR-SRC-0020..0022).
+  const alongside = toastFor(report({ picked: 3, added: 1, alreadyInProject: 1, duplicates: 1 }));
+  assert.equal(alongside.title, "1 file added");
+  assert.equal(alongside.tone, "success");
+  assert.equal(alongside.message, "Specflow collects them now. 2 files are already in this project; nothing new was added.");
 });
