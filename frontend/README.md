@@ -47,11 +47,11 @@ script (a Volta, asdf or mise shim); then source the file in your shell and run
 The V2 screens are the app: routes under `app/(v2)/`, components under `components/v2/`. `lib/routes.ts` is the only
 place that knows a path.
 
-| Path                          | Tree                                                   | What it shows                                                                                        |
-| ----------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `/login`                      | none (no shell)                                        | Starts the OIDC sign-in at once; a small Graphico card only for a failed sign-in or a local sign-out |
+| Path                          | Tree                                                   | What it shows                                                                                         |
+| ----------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `/login`                      | none (no shell)                                        | Starts the OIDC sign-in at once; a small Graphico card only for a failed sign-in or a local sign-out  |
 | `/`                           | `app/(v2)/(session)`                                   | Opens the newest project's canvas; with no project the uncloseable "Create your first project" window |
-| `/projects/<id>`              | `app/(v2)/(session)/projects/[projectId]`              | The canvas: hubs and wires, the gaps dialog, the upload and integration forms                        |
+| `/projects/<id>`              | `app/(v2)/(session)/projects/[projectId]`              | The canvas: hubs and wires, the gaps dialog, the upload and integration forms                         |
 | `/projects/<id>/integrations` | `app/(v2)/(session)/projects/[projectId]/integrations` | The Integrations page: a card per app and the MCP setup commands; the OAuth returns land here         |
 
 Every page needs a session (the proxy redirects to `/login`; the `(session)` layout checks again with `requireUser`). A
@@ -143,10 +143,10 @@ UI elements the tests use carry `data-testid`. Find them with `grep -rn data-tes
 without updating `tests/ui`, `e2e` and `e2e-production`. The V2 screens lean on roles, labels and names (the
 `e2e-production` specs locate the header, the dialogs and the app cards that way); the test ids that exist:
 
-| Where    | Hooks                                                                                                                                                                                                    |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Where    | Hooks                                                                                                                                                                                                                                                         |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/login` | `login-page`, `login-oidc` (the "Sign in" button), `login-redirecting` (the quiet note while it starts), `login-signed-out`; `login-error` (a failed sign-in, fixed message), `login-still-signed-in` (note when the session is still valid after a sign-out) |
-| Canvas   | `canvas-node` (a node; `data-state`, `data-kind`, `data-anchor`); per hub `hub-<id>` (`data-state`, `data-yellow`, `data-anchor`) and `hub-status-<id>`; per wire `wire-<key>` (`packages/ui`'s canvas) |
+| Canvas   | `canvas-node` (a node; `data-state`, `data-kind`, `data-anchor`); per hub `hub-<id>` (`data-state`, `data-yellow`, `data-anchor`) and `hub-status-<id>`; per wire `wire-<key>` (`packages/ui`'s canvas)                                                       |
 
 ## Known limits
 
