@@ -139,11 +139,13 @@ Known limits:
 
 ## Disconnect
 
-`DELETE /integrations/linear` locks the row, deletes it, drops the cached token, then revokes the refresh token and the
-access token at Linear (best effort; AC-S1-4). A token that no longer decrypts, or that Linear refuses or
-cannot be reached for, is skipped. The route answers 204 also without a connection. Project bindings
-(`project_integrations`) of the member are not deleted here; a binding without an active connection reads as
-`reconnect_required` or `none` ([api.md](api.md#integration-health)).
+The per-user `DELETE /integrations/linear` went with the V1 screens; the disconnect remains the service call
+`LinearConnections.disconnect` (AC-S1-4): it locks the row, deletes it, drops the cached token, then revokes the refresh
+token and the access token at Linear (best effort). A token that no longer decrypts, or that Linear refuses or
+cannot be reached for, is skipped, and a member without a connection is a no-op. Project bindings
+(`project_integrations`) of the member are not deleted; a binding without an active connection reads as
+`reconnect_required` or `none` ([api.md](api.md#integration-health)). Removing the app from a project is the
+project-level `DELETE /projects/{pid}/integrations/linear` (same section).
 
 ## The member gateway
 

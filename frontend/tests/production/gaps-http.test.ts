@@ -1,5 +1,8 @@
-// FR-GWEB-04, FR-GRTE-06: the production gaps port over `/projects/{pid}/gaps` and `/projects/{pid}/gap/runs/latest`
-// (reads only; the writes moved to the agents and the Slack bot, D10), and the pure logic of the shared gap helpers and the Plan's gap links.
+// The production gaps port over `/projects/{pid}/gaps` and `/projects/{pid}/gap/runs/latest` (reads only; the writes
+// moved to the agents and the Slack bot, D10) covers the live inbox read, FR-GRTE-06. The rest of this file pins the
+// former Gaps screen's answer and assignment copy, kept with the shared helpers in
+// `@/components/shared/gaps/gaps-logic`: FR-GWEB-04 was rewritten to the read-only canvas Gaps-hub dialog and
+// FR-GWEB-06 was dropped, so those cases carry no requirement label.
 // Layer U: the wire parsers and the words. Layer P: the port against a fake `fetch`.
 import { test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
@@ -94,7 +97,7 @@ const invalid = (e: unknown) => isDataError(e) && e.code === "invalid_response";
 
 // ---- Layer U ----
 
-test("FR-GWEB-04: toGap reads a gap with its nodes, quotes, options by rank, the recommended one and the reach", () => {
+test("toGap reads a gap with its nodes, quotes, options by rank, the recommended one and the reach", () => {
   const g = toGap(wireGap());
   assert.equal(g.id, "GAP::1");
   assert.deepEqual(
@@ -120,7 +123,7 @@ test("FR-GWEB-04: toGap reads a gap with its nodes, quotes, options by rank, the
   assert.deepEqual(g.reach, { stories: ["STORY::CHECKOUT"], tasks: ["TASK::REFUND"] });
 });
 
-test("FR-GWEB-04: a list item has no options and no reach; a second recommendation never shows; any other shape is invalid_response", () => {
+test("a list item has no options and no reach; a second recommendation never shows; any other shape is invalid_response", () => {
   const item = toGap(wireGap({ options: undefined, reach: undefined, history: undefined, witness: undefined }));
   assert.deepEqual(item.options, []);
   assert.equal(item.reach, null);
@@ -133,7 +136,7 @@ test("FR-GWEB-04: a list item has no options and no reach; a second recommendati
   assert.throws(() => toGap(wireGap({ about: [{ spec_id: 1 }] })), invalid);
 });
 
-test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for the open gaps of route ask, every one a run found (no held_back); list filters repeat", () => {
+test("FR-GRTE-06: the inbox query asks for the open gaps of route ask, every one a run found (no held_back); list filters repeat", () => {
   assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS)), "status=open&route=ask");
   const f = {
     ...DEFAULT_GAP_FILTERS,
@@ -154,7 +157,7 @@ test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for the open gaps of route as
   );
 });
 
-test("FR-GWEB-04: the Status filter offers Open (the default), Staged, Resolved and All; Staged asks for answered and applying", () => {
+test("the Status filter offers Open (the default), Staged, Resolved and All; Staged asks for answered and applying", () => {
   assert.deepEqual(
     STATUS_OPTIONS.map((o) => o.label),
     ["Open", "Staged", "Resolved", "All"],
@@ -167,7 +170,7 @@ test("FR-GWEB-04: the Status filter offers Open (the default), Staged, Resolved 
   assert.deepEqual(STATUS_LABEL, { open: "Open", answered: "Staged", applying: "Staged", resolved: "Resolved" });
 });
 
-test("FR-GWEB-04: a filter value outside its vocabulary is the default", () => {
+test("a filter value outside its vocabulary is the default", () => {
   assert.deepEqual(patchOf("kind", "idea"), { kind: "all" });
   assert.deepEqual(patchOf("kind", "assumption"), { kind: "assumption" });
   assert.deepEqual(patchOf("status", "nope"), { status: "open" });
@@ -178,7 +181,7 @@ test("FR-GWEB-04: a filter value outside its vocabulary is the default", () => {
   assert.deepEqual(patchOf("assigned", "u-2"), { assigned: "u-2" });
 });
 
-test("FR-GWEB-04: development gaps that hold tasks come first; the rest keep the server's order", () => {
+test("development gaps that hold tasks come first; the rest keep the server's order", () => {
   const g = (id: string, origin: Gap["origin"], blocking: boolean) => ({ ...toGap(wireGap({ gap_id: id, origin, blocking })) });
   assert.deepEqual(
     inboxOrder([g("a", "analysis", true), g("b", "development", false), g("c", "development", true)]).map((x) => x.id),
@@ -186,7 +189,7 @@ test("FR-GWEB-04: development gaps that hold tasks come first; the rest keep the
   );
 });
 
-test("FR-GWEB-04: the words of counts, quotes, answers and noise sections", () => {
+test("the words of counts, quotes, answers and noise sections", () => {
   assert.equal(countText(1, false), "1 gap");
   assert.equal(countText(3, true), "3+ gaps");
   assert.equal(quoteSource({ fragmentId: "F", quote: "q", lineStart: 12, lineEnd: 14 }), "F · lines 12–14");
@@ -220,7 +223,7 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-test("FR-GWEB-04, FR-GRTE-06: list sends the filters and reads the page and its cursor; the next page sends the cursor", async () => {
+test("FR-GRTE-06: list sends the filters and reads the page and its cursor; the next page sends the cursor", async () => {
   answer(200, { gaps: [wireGap({ options: [], reach: null })], next: "c2" });
   const gaps = createHttpGaps();
   const page = await gaps.list(PID, gapQuery(DEFAULT_GAP_FILTERS));
@@ -239,7 +242,7 @@ test("FR-GWEB-04, FR-GRTE-06: list sends the filters and reads the page and its 
   await assert.rejects(createHttpGaps().list(PID, {}), invalid);
 });
 
-test("FR-GWEB-04: a list read when gap runs are not configured rejects as unavailable with gap_unavailable", async () => {
+test("a list read when gap runs are not configured rejects as unavailable with gap_unavailable", async () => {
   answer(503, apiError("gap_unavailable"));
   let caught: unknown;
   try {
@@ -261,7 +264,7 @@ const member = (userId: string, name: string | null, isYou = false): Member => (
   isYou,
 });
 
-test("FR-GWEB-06: the Assigned filter's options, the assignee menu's choices, the assignee in words and the history's names", () => {
+test("the Assigned filter's options, the assignee menu's choices, the assignee in words and the history's names", () => {
   const members = [member("u-1", "Dana", true), member("u-2", null)];
   assert.deepEqual(
     assignedOptions(members).map((o) => [o.value, o.label]),
@@ -296,7 +299,7 @@ test("FR-GWEB-06: the Assigned filter's options, the assignee menu's choices, th
   assert.throws(() => toGap(wireGap({ assigned_to: 7 })), invalid);
 });
 
-test("FR-GWEB-04: toGap reads updated_at, the witness's document and section, the clarification's id, placement, basis and confidence, and the history in time order", () => {
+test("toGap reads updated_at, the witness's document and section, the clarification's id, placement, basis and confidence, and the history in time order", () => {
   const g = toGap(
     wireGap({
       witness: [
@@ -362,7 +365,7 @@ test("FR-GWEB-04: toGap reads updated_at, the witness's document and section, th
   );
 });
 
-test("FR-GWEB-04: the recommended option is preselected only for a major gap; the recorded option wins; unstage and withdraw fit pending, applied and absorbed, never while a rebuild runs", () => {
+test("the recommended option is preselected only for a major gap; the recorded option wins; unstage and withdraw fit pending, applied and absorbed, never while a rebuild runs", () => {
   const major = toGap(wireGap());
   assert.equal(preselectedOption(major), 1);
   assert.equal(preselectedOption({ ...major, severity: "blocker" }), undefined);
@@ -385,7 +388,7 @@ test("FR-GWEB-04: the recommended option is preselected only for a major gap; th
   assert.equal(withdrawable({ ...staged, clarification: { ...c, clrId: undefined } }), false);
 });
 
-test("FR-GWEB-04: an open gap's button stages the answer; a gap a coding agent waits on is answered and resolved at once; a staged one changes its answer", () => {
+test("an open gap's button stages the answer; a gap a coding agent waits on is answered and resolved at once; a staged one changes its answer", () => {
   const open = toGap(wireGap());
   assert.equal(submitLabel(open), "Stage answer");
   assert.equal(submitLabel({ ...open, origin: "development", blocking: true }), "Answer and resolve");
@@ -400,7 +403,7 @@ test("FR-GWEB-04: an open gap's button stages the answer; a gap a coding agent w
   );
 });
 
-test("FR-GWEB-04: a recorded answer says who staged it and what waits, or who answered it and its status; AI answers are staged by AI", () => {
+test("a recorded answer says who staged it and what waits, or who answered it and its status; AI answers are staged by AI", () => {
   const g = toGap(wireGap({ status: "answered" }));
   const c = {
     clrId: "C",
@@ -430,7 +433,7 @@ test("FR-GWEB-04: a recorded answer says who staged it and what waits, or who an
   assert.equal(stagedChoiceText({ ...c, mode: "own", optionLabel: null, text: "Mine" }), "Own answer");
 });
 
-test("FR-GWEB-04: Resolve gaps names the staged count; it is off with a reason when nothing is staged or the read failed, and busy while a rebuild runs", () => {
+test("Resolve gaps names the staged count; it is off with a reason when nothing is staged or the read failed, and busy while a rebuild runs", () => {
   assert.deepEqual(resolveView(3, false), {
     label: "Resolve 3 gaps",
     state: "ready",
@@ -455,7 +458,7 @@ test("FR-GWEB-04: Resolve gaps names the staged count; it is off with a reason w
   assert.equal(isNothingStaged(new DataError("conflict", false, { status: 409, apiCode: "gap_stale" })), false);
 });
 
-test("FR-GWEB-04: refusals in words: answer_invalid by field, gap_wrong_state by state, gap_stale, noise_rule_not_found", () => {
+test("refusals in words: answer_invalid by field, gap_wrong_state by state, gap_stale, noise_rule_not_found", () => {
   const e = (apiCode: string, more: Record<string, string> = {}) => new DataError("validation", false, { status: 400, apiCode, ...more });
   assert.equal(failureText(e("answer_invalid", { field: "own_text", reason: "length" })), "Your answer must be 1 to 4,000 characters.");
   assert.match(failureText(e("answer_invalid", { field: "placement", reason: "contradiction_amends" })), /contradiction is always fixed/);
@@ -470,7 +473,7 @@ test("FR-GWEB-04: refusals in words: answer_invalid by field, gap_wrong_state by
   assert.equal(failureText(e("noise_rule_not_found")), "This rule was already removed.");
 });
 
-test("FR-GWEB-04: section rule values and the plan's gap links", () => {
+test("section rule values and the plan's gap links", () => {
   const CHECKOUT = "FEAT::CHECKOUT";
   assert.equal(sectionRuleValue("upload:roadmap", ["Shop roadmap", "Release plan"]), "upload:roadmap › Shop roadmap › Release plan");
   const a = toGap(wireGap({ gap_id: "A", about: [{ spec_id: CHECKOUT, label: "", name: "" }] }));

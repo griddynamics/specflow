@@ -311,9 +311,12 @@ Deferred: upload (D3).
 ## Deferred designs
 
 Assignment (D2). Three ways were weighed: derived (gaps about the stories I hold, and gaps I raised), explicit (a
-`gap_assignment` table), or both. Explicit was chosen and is built on the web: a `gap_assignment` row per gap,
-`PUT /gaps/{gap_id}/assignee`, and `GET /gaps?assigned_to=me|none|<user id>` over `GapService.list_gaps(assigned_to=)`.
-For the agent, built: `browse_gaps` takes `assigned` (`me` or `unassigned`) or `assignee` (a member's name). The route
+`gap_assignment` table), or both. Explicit was chosen and is built service-side: a `gap_assignment` row per gap — a chat
+reply assigns the gap to the answerer when nobody holds it, and a follow-up gap takes the assignee of the gap it follows
+up ([../graph/gap/answers.md](../graph/gap/answers.md) "Who answers"); the web assignee route went with the V1 screens.
+`GapService.list_gaps(assigned_to=)` stays behind the web list read (`GET /projects/{pid}/gaps` with
+`assigned_to`: `me`, `none` or a member's user id). For the agent, built: `browse_gaps` takes `assigned` (`me` or
+`unassigned`) or `assignee` (a member's name). The route
 takes the agent's user (`AgentUserDep`), turns `me` into its user id and passes `assigned_to` to `list_gaps`; each
 row and each card names its assignee. Tools that
 assign (`take_gap`, `release_gap`) stay out of scope.

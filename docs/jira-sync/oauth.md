@@ -159,9 +159,10 @@ Under `/api/v1`, for the signed-in web user; every route acts on the caller's ow
 | `GET /integrations/atlassian` | - | 200 `AtlassianConnectionOut` | - |
 | `POST /integrations/atlassian/authorize` | `{return_to}` | 200 `{url}` | 422 `validation_failed`; 503 `atlassian_oauth_unavailable` (not `oauth` mode) |
 | `POST /integrations/atlassian/callback` | `{code, state}` | 200 `{connection: AtlassianConnectionOut, return_to}` | 400 `atlassian_state_invalid`; 400 `atlassian_code_invalid`; 403 `atlassian_site_not_granted`; 502 `atlassian_unreachable`; 422 `validation_failed`; 503 `atlassian_oauth_unavailable` |
-| `DELETE /integrations/atlassian` | - | 204 (also when there was no connection) | 503 `atlassian_oauth_unavailable` |
 
-Bodies forbid extra fields; `code` and `state` are 1 to 4096 characters.
+Bodies forbid extra fields; `code` and `state` are 1 to 4096 characters. The per-user `DELETE /integrations/atlassian`
+went with the V1 screens; removing the app from a project is `DELETE /projects/{pid}/integrations/atlassian`
+([integrations-api.md](../mission-control/integrations-api.md)).
 
 `AtlassianConnectionOut`: `mode` (`oauth`, `token`, or null when Jira is off), `connected` (bool), `status` (`active`,
 `expired`, or null), `account_name`, `connected_at`, `last_used_at` (null when not connected). `GET` answers in every

@@ -98,11 +98,12 @@ sequenceDiagram
 
 - Access ends first: after the commit the person's next request, web or MCP, answers 404.
 - `no_plan`: nothing to release, `claims_released: 0`, not a failure.
-- Any graph error (listing or a release): `claims_release_failed: true`; the removal stands. Members free what is left
-  on the claims board (`POST /projects/{pid}/plan/claims/{story_id}/release`).
+- Any graph error (listing or a release): `claims_release_failed: true`; the removal stands, and the claim stays on the
+  board. Release is agent-side now (`release_story`, `POST /agent/story-release`, the holder's claim token;
+  [../mcp-server/tools.md](../mcp-server/tools.md) "release_story"); the force-release route went with the V1 screens.
 - Claims of a task claimed on its own (`kind: "task"`) are not released (the plan service has no forced task release);
   they are counted in the log event.
-- Findings, documents and history of the person stay; their holder name shows as null ([../graph/gap.md](../graph/gap.md#web-routes)).
+- Findings, documents and history of the person stay; their holder name shows as null ([../mcp-server/tools.md](../mcp-server/tools.md#holders)).
 
 ## Rename
 

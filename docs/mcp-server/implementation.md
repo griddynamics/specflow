@@ -30,7 +30,7 @@ tags: [mcp]
 | MCP-M7 | Real-client QA with the end-to-end and agent tiers | done |
 | MCP-M8 | Bundle verification, security review and release check | done |
 | MCP-M9 | Workspace project binding | done |
-| MCP-M10 | Guides page and slim Develop tab | planned |
+| MCP-M10 | Guides page and slim Develop tab | not built (went with the V1 frontend) |
 | MCP-M11 | Keycloak as the local identity provider; dev login removed (CTORNDGAIN-2233) | done |
 
 ## Log

@@ -17,8 +17,8 @@ The rule-by-rule catalogue is in [RULES.md](RULES.md).
   falls in one of two groups: path facts (layers, `apiDir`, `apiClient`, `storage`,
   `entryPoints`, `router`, `localeModules`, `components`, `pages`) default to the conventional
   layout and the rule is on; data and design facts (type-only packages, wire types, mutation
-  feedback, raw metrics, served verdicts, localisation, `designSystem.*`, the banned-terms rule, the semgrep
-  design-system facts file) are off until the adopter supplies them. The `Default` column of the
+  feedback, raw metrics, served verdicts, localisation, `designSystem.*`, the banned-terms
+  rule) are off until the adopter supplies them. The `Default` column of the
   "Configurable rules" table in RULES.md says which is which.
 - Be isolated: nothing here imports or resolves a file outside this folder. Tools are installed
   from this folder's `package.json` and `pyproject.toml`.

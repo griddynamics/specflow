@@ -384,8 +384,9 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
   ports, settings, plan view, the build runner as `BuildRequests` (`use_builds`) and one `Gateway` for `gap_edits`
   (closed with the runner).
 - **Answers.** Answers are staged: a person's and the AI answers a run records alike. Nothing applies them on a
-  timer; "Resolve gaps" (`POST /gaps/apply`, `apply_now`) applies the staged answers of the project, and only a
-  development gap that blocks its story applies at once, inside `answer_gap`.
+  timer; apply is a service-level call (`GapService.apply_now`, no HTTP route since the writes went with the V1
+  screens): a channel answer applies in one step (`record_and_apply`, [answers.md](answers.md) "Applying answers"), and
+  only a development gap that blocks its story applies at once, inside `answer_gap`.
 - **Recovery.** At startup `start_recovery` calls `recover(project_id)` for every project of the application
   database in the background. `recover` reads `pending_answers`, requests the update build of an apply that has none
   (`api.gap.recovered` with `build`) and queues the `update` gap run a finished apply build missed; staged answers

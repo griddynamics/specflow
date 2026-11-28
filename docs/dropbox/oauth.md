@@ -134,9 +134,9 @@ Downloads run at most four at a time per import.
 | `GET /integrations/dropbox` | 200 `DropboxConnectionOut` (`enabled`, `connected`, `status`, `name`, `team_name`, `connected_at`, `last_used_at`) | - |
 | `POST /integrations/dropbox/authorize` `{return_to}` | 200 `DropboxUrlOut` | 503 `dropbox_unavailable`; 422 `validation_failed` |
 | `POST /integrations/dropbox/callback` `{code, state}` | 200 `DropboxCallbackOut` (`connection`, `return_to`) | 400 `dropbox_state_invalid`, `dropbox_code_invalid`; 502 `dropbox_unreachable`, `dropbox_auth_failed`; 503 `dropbox_unavailable` |
-| `DELETE /integrations/dropbox` | 204 | 503 `dropbox_unavailable` |
 
-All need a signed-in user. Binding to a project is `PUT /projects/{pid}/integrations/dropbox`
+All need a signed-in user. The per-user disconnect went with the V1 screens. Binding to a project is
+`PUT /projects/{pid}/integrations/dropbox`, removing it is `DELETE` of the same path
 ([../mission-control/integrations-api.md](../mission-control/integrations-api.md)).
 
 ## Data
