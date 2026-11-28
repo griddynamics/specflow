@@ -1,9 +1,9 @@
-// FR-GWEB-04, FR-GWEB-06, FR-GRTE-06: the production gaps port over `/projects/{pid}/gaps*` and `/projects/{pid}/gap/runs/latest` (reads
-// and writes, with the gap error codes in words), and the pure logic of the Gaps screen and the Plan's gap links.
+// FR-GWEB-04, FR-GWEB-06, FR-GRTE-06: the production gaps port over `/projects/{pid}/gaps` and `/projects/{pid}/gap/runs/latest`
+// (reads; the writes moved to the agents and the Slack bot, D10), and the pure logic of the former Gaps screen and the Plan's gap links.
 // Layer U: the wire parsers and the words. Layer P: the port against a fake `fetch`.
 import { test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { answerWire, createHttpGaps, gapQueryString, toGap, toNoise, toPreview } from "@/lib/data/http/gaps";
+import { createHttpGaps, gapQueryString, toGap } from "@/lib/data/http/gaps";
 import { DataError, isDataError } from "@/lib/domain/errors";
 import type { Gap } from "@/lib/domain/gaps";
 import type { Member } from "@/lib/domain/members";
@@ -133,35 +133,6 @@ test("FR-GWEB-04: a list item has no options and no reach; a second recommendati
   assert.throws(() => toGap(wireGap({ about: [{ spec_id: 1 }] })), invalid);
 });
 
-test("FR-GWEB-04: toNoise reads the latest finished run's sections; before any finished run there is none", () => {
-  const n = toNoise({
-    status: "completed",
-    run_id: "run-1",
-    result: {
-      run_id: "run-1",
-      mode: "full",
-      status: "completed",
-      noise: {
-        sections: [
-          {
-            lineage: "L1",
-            heading_path: ["Meeting notes"],
-            relevance: "tracking",
-            by: "rules",
-            signals: ["dated heading"],
-            removed: ["A", "B"],
-          },
-        ],
-      },
-    },
-  });
-  assert.equal(n.runId, "run-1");
-  assert.equal(n.sections[0].relevance, "tracking");
-  assert.deepEqual(n.sections[0].removed, ["A", "B"]);
-  assert.deepEqual(toNoise({ status: "idle", result: null }), { status: "idle", runId: null, sections: [] });
-  assert.throws(() => toNoise({ status: "sleeping" }), invalid);
-});
-
 test("FR-GWEB-04, FR-GRTE-06: the inbox query asks for the open gaps of route ask, every one a run found (no held_back); list filters repeat", () => {
   assert.equal(gapQueryString(gapQuery(DEFAULT_GAP_FILTERS)), "status=open&route=ask");
   const f = {
@@ -268,30 +239,17 @@ test("FR-GWEB-04, FR-GRTE-06: list sends the filters and reads the page and its 
   await assert.rejects(createHttpGaps().list(PID, {}), invalid);
 });
 
-test("FR-GWEB-04: get reads one gap; an unknown gap is not_found; gap runs not configured reject as unavailable with gap_unavailable", async () => {
-  answer(200, wireGap());
-  const gaps = createHttpGaps();
-  assert.equal((await gaps.get(PID, "GAP::1")).options.length, 3);
-  assert.deepEqual(calls, [`GET /projects/${PID}/gaps/GAP%3A%3A1`]);
-  answer(404, apiError("gap_not_found"));
-  await assert.rejects(gaps.get(PID, "GAP::9"), (e) => isDataError(e) && e.code === "not_found");
+test("FR-GWEB-04: a list read when gap runs are not configured rejects as unavailable with gap_unavailable", async () => {
   answer(503, apiError("gap_unavailable"));
   let caught: unknown;
   try {
-    await gaps.list(PID, {});
+    await createHttpGaps().list(PID, {});
   } catch (e) {
     caught = e;
   }
   assert.ok(isDataError(caught) && caught.code === "unavailable");
   assert.equal(failureOf(caught), "unavailable");
   assert.equal(failureOf(new Error("boom")), "failed");
-});
-
-test("FR-GWEB-04: noise reads the latest gap run", async () => {
-  answer(200, { status: "idle", result: null });
-  const gaps = createHttpGaps();
-  assert.equal((await gaps.noise(PID)).runId, null);
-  assert.deepEqual(calls, [`GET /projects/${PID}/gap/runs/latest`]);
 });
 
 const member = (userId: string, name: string | null, isYou = false): Member => ({
@@ -337,25 +295,6 @@ test("FR-GWEB-06: the Assigned filter's options, the assignee menu's choices, th
   assert.equal(toGap(wireGap({ assigned_to: "u-2" })).assignedTo, "u-2");
   assert.throws(() => toGap(wireGap({ assigned_to: 7 })), invalid);
 });
-
-// ---- FR-GWEB-04 writes: Layer U ----
-
-const EDIT = {
-  placement: "amend",
-  target: { fragment_id: "FRAG::orders::3", anchor_quote: "A customer may cancel an order." },
-  operation: "insert_after",
-  text: "Refund in full.",
-};
-const PREVIEW = {
-  gap_id: "GAP::1",
-  placement: "amend",
-  edits: [EDIT],
-  sections: [
-    { fragment_id: "FRAG::orders::3", lineage: "doc:1", heading_path: ["Orders", "Cancel"], before: "A", after: "A\nRefund in full." },
-  ],
-  drafted: false,
-  fallback: null,
-};
 
 test("FR-GWEB-04: toGap reads updated_at, the witness's document and section, the clarification's id, placement, basis and confidence, and the history in time order", () => {
   const g = toGap(
@@ -421,21 +360,6 @@ test("FR-GWEB-04: toGap reads updated_at, the witness's document and section, th
     () => toGap(wireGap({ clarification: { answered_by: "a", answered_at: "t", mode: "option", status: "pending", confidence: "high" } })),
     invalid,
   );
-});
-
-test("FR-GWEB-04: the preview and the answer body: the edits go back exactly, with the placement and the gap's updated_at", () => {
-  const p = toPreview(PREVIEW);
-  assert.equal(p.placement, "amend");
-  assert.deepEqual(p.sections[0].headingPath, ["Orders", "Cancel"]);
-  assert.deepEqual(answerWire({ choice: { optionRank: 1 }, placement: p.placement, edits: p.edits, updatedAt: "T1" }), {
-    option_rank: 1,
-    placement: "amend",
-    edits: [EDIT],
-    updated_at: "T1",
-  });
-  assert.deepEqual(answerWire({ choice: { ownText: "Mine" }, edits: [], updatedAt: "T1" }), { own_text: "Mine", updated_at: "T1" });
-  assert.throws(() => toPreview({ ...PREVIEW, placement: "elsewhere" }), invalid);
-  assert.throws(() => toPreview({ ...PREVIEW, edits: [{ ...EDIT, operation: "delete" }] }), invalid);
 });
 
 test("FR-GWEB-04: the recommended option is preselected only for a major gap; the recorded option wins; unstage and withdraw fit pending, applied and absorbed, never while a rebuild runs", () => {
@@ -575,152 +499,4 @@ test("FR-GWEB-04: section rule values and the plan's gap links", () => {
   );
   assert.equal(openGapsText(1), "1 open gap");
   assert.equal(openGapsText(2), "2 open gaps");
-});
-
-// ---- FR-GWEB-04 writes: Layer P ----
-
-const bodies: unknown[] = [];
-const headers: Headers[] = [];
-function answerWrite(status: number, body: unknown) {
-  calls.length = 0;
-  bodies.length = 0;
-  headers.length = 0;
-  mock.method(globalThis, "fetch", (url: string, init?: RequestInit) => {
-    calls.push(`${init?.method ?? "GET"} ${url.slice(BASE.length)}`);
-    bodies.push(typeof init?.body === "string" ? JSON.parse(init.body) : undefined);
-    headers.push(new Headers(init?.headers));
-    return Promise.resolve(new Response(status === 204 ? null : JSON.stringify(body), { status }));
-  });
-}
-const G = "GAP%3A%3A1";
-
-test("FR-GWEB-04: previewEdits and answer post the choice; the answer carries the edits and updated_at; writes carry the CSRF header", async () => {
-  const gaps = createHttpGaps();
-  answerWrite(200, PREVIEW);
-  const p = await gaps.previewEdits(PID, "GAP::1", { ownText: "Refund in full." }, "document");
-  assert.equal(p.edits.length, 1);
-  assert.deepEqual(calls, [`POST /projects/${PID}/gaps/${G}/edits_preview`]);
-  assert.deepEqual(bodies[0], { own_text: "Refund in full.", placement: "document" });
-  assert.equal(headers[0].get("X-Requested-With"), "specflow");
-  answerWrite(200, {
-    gap_id: "GAP::1",
-    clr_id: "CLR::1",
-    replaced: null,
-    placement: "amend",
-    amendments: ["AMD::1"],
-    apply_at: null,
-    immediate: false,
-  });
-  const r = await gaps.answer(PID, "GAP::1", { choice: { optionRank: 1 }, placement: "amend", edits: p.edits, updatedAt: "T1" });
-  assert.equal(r.clrId, "CLR::1");
-  assert.equal(r.applyAt, null); // staged: it waits for Resolve gaps
-  assert.deepEqual(calls, [`POST /projects/${PID}/gaps/${G}/answer`]);
-  assert.deepEqual(bodies[0], { option_rank: 1, placement: "amend", edits: [EDIT], updated_at: "T1" });
-});
-
-test("FR-GWEB-04: 409 gap_stale, 409 gap_wrong_state and 400 answer_invalid keep the API code, field, reason and state", async () => {
-  const gaps = createHttpGaps();
-  const input = { choice: { optionRank: 1 }, edits: [], updatedAt: "T0" };
-  answerWrite(409, apiError("gap_stale"));
-  await assert.rejects(
-    gaps.answer(PID, "GAP::1", input),
-    (e) => isDataError(e) && e.code === "conflict" && e.detail?.apiCode === "gap_stale",
-  );
-  answerWrite(409, { error: { code: "gap_wrong_state", message: "x", details: { status: "resolved", allowed: ["open"] } } });
-  await assert.rejects(gaps.dismiss(PID, "GAP::1", "not a gap"), (e) => isDataError(e) && e.detail?.state === "resolved");
-  answerWrite(400, { error: { code: "answer_invalid", message: "x", details: { field: "own_text", reason: "length" } } });
-  await assert.rejects(
-    gaps.answer(PID, "GAP::1", { ...input, choice: { ownText: "x" } }),
-    (e) => isDataError(e) && e.code === "validation" && e.detail?.field === "own_text" && e.detail.reason === "length",
-  );
-  answerWrite(404, apiError("noise_rule_not_found"));
-  await assert.rejects(
-    gaps.removeNoiseRule(PID, "r1"),
-    (e) => isDataError(e) && e.code === "not_found" && e.detail?.apiCode === "noise_rule_not_found",
-  );
-  answerWrite(200, { gap_id: 1 });
-  await assert.rejects(gaps.answer(PID, "GAP::1", input), invalid);
-});
-
-test("FR-GWEB-04: dismiss (204), raise (201), Resolve gaps (apply) and revert", async () => {
-  const gaps = createHttpGaps();
-  answerWrite(204, null);
-  await gaps.dismiss(PID, "GAP::1", "not spec");
-  assert.deepEqual(calls, [`POST /projects/${PID}/gaps/${G}/dismiss`]);
-  assert.deepEqual(bodies[0], { reason: "not spec" });
-  answerWrite(201, { gap_id: "GAP::9", created: true });
-  assert.deepEqual(await gaps.raise(PID, { question: "Who may cancel?", kind: "missing", about: ["REQ::A"] }), {
-    gapId: "GAP::9",
-    created: true,
-  });
-  assert.deepEqual(calls, [`POST /projects/${PID}/gaps`]);
-  assert.deepEqual(bodies[0], { question: "Who may cancel?", kind: "missing", about: ["REQ::A"] });
-  answerWrite(200, { gap_ids: ["GAP::1"], clr_ids: ["CLR::1"], amendments: [], build: "gb-3" });
-  assert.deepEqual(await gaps.applyNow(PID), { gapIds: ["GAP::1"], clrIds: ["CLR::1"], amendments: [], build: "gb-3" });
-  assert.deepEqual(calls, [`POST /projects/${PID}/gaps/apply`]);
-  answerWrite(200, { clr_id: "CLR::1", gap_id: "GAP::2", follow_up: true, amendments: ["A"], build: "gb-4" });
-  assert.equal((await gaps.revert(PID, "CLR::1", "wrong")).followUp, true);
-  assert.deepEqual(calls, [`POST /projects/${PID}/gaps/clarifications/CLR%3A%3A1/revert`]);
-  assert.deepEqual(bodies[0], { reason: "wrong" });
-});
-
-test("FR-GWEB-04: the AI answers, the noise rules (list, add, remove)", async () => {
-  const gaps = createHttpGaps();
-  answerWrite(200, {
-    answers: [
-      {
-        gap_id: "GAP::1",
-        title: "Prices are shown in euro",
-        question: "Which currency?",
-        gap_status: "resolved",
-        clarification: {
-          clr_id: "CLR::1",
-          mode: "ai",
-          placement: "amend",
-          status: "reverted",
-          option_label: "Euro",
-          text: null,
-          answered_by: "ai",
-          answered_at: T0,
-          applied_build_id: "gb-1",
-          basis: [{ fragment_id: "F", quote: "All prices are in EUR." }],
-          confidence: 0.9,
-        },
-        follow_up: "GAP::2",
-      },
-    ],
-  });
-  const ai = await gaps.aiAnswers(PID);
-  assert.equal(ai[0].followUp, "GAP::2");
-  assert.equal(ai[0].clarification.basis?.[0].quote, "All prices are in EUR.");
-  assert.deepEqual(calls, [`GET /projects/${PID}/gaps/ai_answers?limit=50`]);
-  answerWrite(200, {
-    rules: [{ rule_id: "r1", scope: "section", value: "doc:1 › Notes", reason: "not spec", created_by: "u", created_at: "t" }],
-  });
-  assert.equal((await gaps.noiseRules(PID))[0].scope, "section");
-  assert.deepEqual(calls, [`GET /projects/${PID}/gaps/noise_rules`]);
-  answerWrite(201, { rule_id: "r2" });
-  assert.equal(await gaps.addNoiseRule(PID, { scope: "pattern", value: "^Sprint", reason: "tracking" }), "r2");
-  assert.deepEqual(bodies[0], { scope: "pattern", value: "^Sprint", reason: "tracking" });
-  answerWrite(204, null);
-  await gaps.removeNoiseRule(PID, "r 2");
-  assert.deepEqual(calls, [`DELETE /projects/${PID}/gaps/noise_rules/r%202`]);
-  answerWrite(200, { rules: [{ rule_id: "r1", scope: "chapter" }] });
-  await assert.rejects(gaps.noiseRules(PID), invalid);
-});
-
-test("FR-GWEB-06: assign puts the member or null with the CSRF header and reads the gap back; a refusal keeps its API code", async () => {
-  const gaps = createHttpGaps();
-  answerWrite(200, wireGap({ assigned_to: "u-2" }));
-  assert.equal((await gaps.assign(PID, "GAP::1", "u-2")).assignedTo, "u-2");
-  assert.deepEqual(calls, [`PUT /projects/${PID}/gaps/${G}/assignee`]);
-  assert.deepEqual(bodies[0], { user_id: "u-2" });
-  assert.equal(headers[0].get("X-Requested-With"), "specflow");
-  answerWrite(200, wireGap({ assigned_to: null }));
-  assert.equal((await gaps.assign(PID, "GAP::1", null)).assignedTo, null);
-  assert.deepEqual(bodies[0], { user_id: null });
-  answerWrite(400, apiError("assignee_not_member"));
-  await assert.rejects(gaps.assign(PID, "GAP::1", "u-9"), (e) => isDataError(e) && e.detail?.apiCode === "assignee_not_member");
-  answerWrite(200, { gap_id: 1 });
-  await assert.rejects(gaps.assign(PID, "GAP::1", "u-2"), invalid);
 });

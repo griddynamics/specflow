@@ -57,7 +57,7 @@ test("toLinearConnection: not connected, active and expired read; a status that 
 
 // ---- Layer P ----
 
-test("connection reads the caller's state: off, then connected through the callback, then disconnected", async () => {
+test("connection reads the caller's state: off, then connected through the callback", async () => {
   assert.equal((await linear.connection()).status, "none");
   assert.deepEqual(last(), { method: "GET", path: "/api/backend/integrations/linear", body: null });
 
@@ -72,10 +72,6 @@ test("connection reads the caller's state: off, then connected through the callb
   ctx.api.linear.callback({ code: "c", state: url.searchParams.get("state") });
   const mine = await linear.connection();
   assert.deepEqual([mine.status, mine.userName, mine.workspace?.name], ["active", "dev", "Acme"]);
-
-  await linear.disconnect();
-  assert.deepEqual(last(), { method: "DELETE", path: "/api/backend/integrations/linear", body: null });
-  assert.equal((await linear.connection()).status, "none");
 });
 
 test("an expired connection reads as expired; a server without Linear says unavailable and refuses the rest", async () => {
@@ -84,7 +80,6 @@ test("an expired connection reads as expired; a server without Linear says unava
   ctx.api.linear.seed({ available: false });
   assert.equal((await linear.connection()).available, false);
   await rejects(linear.authorize(BACK), "unavailable", "linear_unavailable");
-  await rejects(linear.disconnect(), "unavailable", "linear_unavailable");
 });
 
 test("authorize refuses a return that is not a path of this site before any consent", async () => {

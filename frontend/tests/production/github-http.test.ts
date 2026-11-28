@@ -176,7 +176,7 @@ test("available: not connected and expired are conflicts; connected lists the re
   assert.equal(last().path, "/api/backend/integrations/github/repositories");
 });
 
-test("add, clone again and remove a project repository; the owner rule and the refusals carry their API codes", async () => {
+test("add and remove a project repository; the owner rule and the refusals carry their API codes", async () => {
   const pid = await ownerProject();
   ctx.api.github.state.connection = ACTIVE;
   const added = await github.add(pid, 101);
@@ -191,9 +191,6 @@ test("add, clone again and remove a project repository; the owner rule and the r
   await rejects(github.add(pid, 101), "conflict", "repository_exists");
   await rejects(github.add(pid, 103), "validation", "github_repo_too_large");
   await rejects(github.add(pid, 999), "not_found", "github_repo_not_accessible");
-  const again = await github.clone(pid, added.id);
-  assert.equal(again.id, added.id);
-  assert.equal(last().path, `/api/backend/projects/${pid}/repositories/${added.id}/clone`);
   await github.remove(pid, added.id);
   assert.deepEqual(last(), { method: "DELETE", path: `/api/backend/projects/${pid}/repositories/${added.id}`, body: null });
   assert.equal((await github.list(pid)).repositories.length, 0);
@@ -205,28 +202,14 @@ test("add, clone again and remove a project repository; the owner rule and the r
   await rejects(github.add(other.id, 101), "forbidden", "owner_required");
 });
 
-test("a clone check moves from pending to cloned with its snapshot facts, or to failed with the code", async () => {
+test("the clone check a repository add starts moves it from pending to cloned with its snapshot facts", async () => {
   const pid = await ownerProject();
   ctx.api.github.state.connection = ACTIVE;
   ctx.api.github.state.cloneMs = 20;
-  const added = await github.add(pid, 102);
+  await github.add(pid, 102);
   await new Promise((r) => setTimeout(r, 60));
   const done = (await github.list(pid)).repositories[0];
   assert.equal(done.cloneState, "cloned");
   assert.equal(done.fileCount, 1204);
   assert.ok(done.headSha !== null && done.snapshotBytes !== null && done.clonedAt !== null);
-  ctx.api.github.state.cloneOutcome = "github_repo_not_accessible";
-  await github.clone(pid, added.id);
-  await new Promise((r) => setTimeout(r, 60));
-  const failed = (await github.list(pid)).repositories[0];
-  assert.equal(failed.cloneState, "failed");
-  assert.equal(failed.failureCode, "github_repo_not_accessible");
-  assert.equal(failed.headSha, done.headSha); // the last good snapshot stays
-});
-
-test("disconnect: DELETE, then the connection is gone", async () => {
-  ctx.api.github.state.connection = ACTIVE;
-  await github.disconnect();
-  assert.deepEqual(last(), { method: "DELETE", path: "/api/backend/integrations/github", body: null });
-  assert.equal((await github.connection()).connected, false);
 });

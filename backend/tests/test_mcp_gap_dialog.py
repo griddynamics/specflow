@@ -41,7 +41,7 @@ def card(
             )
         ),
         updated_at=datetime(2026, 11, 18, 9, 0, tzinfo=UTC),
-        web_url="https://app.example.test/projects/p/gaps?gap=GAP::7C2A91E04B3D",
+        web_url="https://app.example.test/projects/p",
         card="(the card)",
     )
 

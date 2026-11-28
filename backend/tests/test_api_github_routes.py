@@ -236,7 +236,7 @@ async def test_the_install_link_and_the_setup_check(rig) -> None:
     assert error_of(refused) == (400, "github_state_invalid")
 
 
-async def test_the_caller_lists_the_repositories_they_can_read_and_disconnects(rig) -> None:
+async def test_the_caller_lists_the_repositories_they_can_read(rig) -> None:
     assert error_of(await call(rig, "GET", "integrations/github/repositories")) == (409, "github_not_connected")
     await connect(rig)
 
@@ -244,9 +244,6 @@ async def test_the_caller_lists_the_repositories_they_can_read_and_disconnects(r
 
     assert [r["full_name"] for r in listed["repositories"]] == ["octo/app", "octo/huge"]
     assert [r["too_large"] for r in listed["repositories"]] == [False, True] and listed["truncated"] is False
-    assert (await call(rig, "DELETE", "integrations/github")).status_code == 204
-    assert rig.github.revoked == ["access-1"]
-    assert (await call(rig, "GET", "integrations/github")).json()["connected"] is False
 
 
 async def test_github_down_is_502(rig) -> None:
@@ -265,7 +262,6 @@ async def test_with_the_integration_off_the_routes_answer_503_and_the_list_says_
         ("POST", "integrations/github/install", {"return_to": RETURN}),
         ("POST", "integrations/github/callback", {"code": "c", "state": "s"}),
         ("POST", "integrations/github/setup", {"state": "s"}),
-        ("DELETE", "integrations/github", None),
         ("GET", "integrations/github/repositories", None),
         ("POST", f"projects/{ALPHA}/repositories", {"github_repo_id": 7}),
     ):
@@ -344,7 +340,7 @@ async def test_adding_needs_the_project_to_be_connected_to_github_by_a_member(ri
     assert rig.db.rows == {} and rig.started == []
 
 
-async def test_a_start_that_fails_marks_the_repository_failed_so_a_member_can_retry(rig) -> None:
+async def test_a_start_that_fails_marks_the_repository_failed(rig) -> None:
     await connect(rig)
     await bind(rig)
     rig.state.start_fails = True
@@ -352,11 +348,6 @@ async def test_a_start_that_fails_marks_the_repository_failed_so_a_member_can_re
     body = (await call(rig, "POST", f"projects/{ALPHA}/repositories", body={"github_repo_id": 7})).json()
 
     assert (body["clone_state"], body["failure_code"]) == ("failed", "github_clone_failed")
-    rig.state.start_fails = False
-    retried = await call(rig, "POST", f"projects/{ALPHA}/repositories/{body['id']}/clone")
-    assert retried.status_code == 202
-    assert (retried.json()["clone_state"], retried.json()["failure_code"]) == ("pending", None)
-    assert rig.started == [(rig.alpha, uuid.UUID(body["id"]))]
 
 
 async def test_removing_a_repository_deletes_its_snapshots(rig) -> None:
@@ -375,9 +366,8 @@ async def test_removing_a_repository_deletes_its_snapshots(rig) -> None:
     assert (await call(rig, "DELETE", f"projects/{ALPHA}/repositories/{rid}", BEN)).status_code == 204  # D6
 
     assert rig.db.rows == {} and not await rig.runtime.store.exists(key)
-    for path in (f"repositories/{rid}", "repositories/not-a-uuid", f"repositories/{rid}/clone"):
-        method = "POST" if path.endswith("clone") else "DELETE"
-        assert error_of(await call(rig, method, f"projects/{ALPHA}/{path}")) == (404, "repository_not_found")
+    for path in (f"repositories/{rid}", "repositories/not-a-uuid"):
+        assert error_of(await call(rig, "DELETE", f"projects/{ALPHA}/{path}")) == (404, "repository_not_found")
 
 
 def test_the_fakes_keep_the_signatures_of_db_github() -> None:

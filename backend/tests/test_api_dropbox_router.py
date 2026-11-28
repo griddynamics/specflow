@@ -1,5 +1,5 @@
 """The Dropbox connection routes over the REST app (docs/dropbox/oauth.md "Routes"): what W0 froze (auth, the
-integration off, the return path rule, the closed error map) and the connect, callback and disconnect flow over a
+integration off, the return path rule, the closed error map) and the connect and callback flow over a
 scripted Dropbox and an in-memory connection store (as ``test_api_box_router.py``)."""
 
 from __future__ import annotations
@@ -56,7 +56,6 @@ async def test_every_route_needs_a_signed_in_user(rig) -> None:
         ("GET", "integrations/dropbox", None),
         ("POST", "integrations/dropbox/authorize", {"return_to": RETURN}),
         ("POST", "integrations/dropbox/callback", {"code": "c", "state": "s"}),
-        ("DELETE", "integrations/dropbox", None),
         ("POST", "projects/p/sources/dropbox/check", {"link": "x"}),
         ("POST", "projects/p/sources/dropbox", {"link": "x"}),
     ):
@@ -79,7 +78,6 @@ async def test_with_the_integration_off_get_says_so_and_the_rest_is_503(rig) -> 
     for method, path, body in (
         ("POST", "integrations/dropbox/authorize", {"return_to": RETURN}),
         ("POST", "integrations/dropbox/callback", {"code": "c", "state": "s"}),
-        ("DELETE", "integrations/dropbox", None),
     ):
         assert error_of(await call(rig, method, path, body=body)) == (503, "dropbox_unavailable"), path
 
@@ -131,7 +129,7 @@ async def connect(rig: Any, who: str = ALICE) -> httpx.Response:
     return await call(rig, "POST", "integrations/dropbox/callback", who, {"code": CODE_CANARY, "state": state_of(url)})
 
 
-async def test_connect_get_and_disconnect(live, caplog) -> None:
+async def test_connect_and_get_show_the_connection(live, caplog) -> None:
     before = (await call(live, "GET", "integrations/dropbox")).json()
     with caplog.at_level(logging.DEBUG):
         answer = await connect(live)
@@ -147,11 +145,6 @@ async def test_connect_get_and_disconnect(live, caplog) -> None:
     assert (await call(live, "GET", "integrations/dropbox", BEN)).json()["connected"] is False
     for canary in (CODE_CANARY, CLIENT_CANARY, "sl.access-1", "refresh-1", NAME_CANARY, EMAIL_CANARY):
         assert canary not in caplog.text
-
-    assert (await call(live, "DELETE", "integrations/dropbox")).status_code == 204
-    assert live.dropbox.revoked == ["sl.access-1"]
-    assert (await call(live, "GET", "integrations/dropbox")).json()["connected"] is False
-    assert (await call(live, "DELETE", "integrations/dropbox")).status_code == 204  # idempotent
 
 
 async def test_a_business_member_shows_the_team_name(live) -> None:

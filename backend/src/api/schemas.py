@@ -332,7 +332,7 @@ class PlanFeatureOut(BaseModel):
 
 
 class PlanPreview(BaseModel):
-    """``/plan/preview``: what a plan run would start from, before it runs.
+    """What a plan run would start from, before it runs.
 
     ``features`` are the spec nodes that anchor feature stories; ``calls`` and ``input_tokens`` are the
     estimate of the run (none without a finished graph build or when the estimate failed).

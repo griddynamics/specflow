@@ -154,13 +154,6 @@ test("authorize posts the return path and answers a Box sign-in URL that asks fo
   await rejects(box.authorize("/x"), "unavailable", "box_unavailable");
 });
 
-test("disconnect forgets the connection", async () => {
-  ctx.api.box.seed({ connection: { status: "active" } });
-  await box.disconnect();
-  assert.equal(last().method, "DELETE");
-  assert.equal((await box.connection()).connected, false);
-});
-
 // ---- the source routes ----
 
 test("check posts {link} and answers a folder: its name, the listed files, the skipped ones and the cap only when hit", async () => {

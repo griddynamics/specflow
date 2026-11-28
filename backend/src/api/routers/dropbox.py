@@ -6,7 +6,7 @@ who asked for the URL. Events carry the user id and a code only.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 
 from api.deps import RuntimeDep, UserDep
 from api.dropbox import dropbox_connections, dropbox_error
@@ -60,11 +60,3 @@ async def dropbox_callback(body: DropboxCallbackIn, runtime: RuntimeDep, user: U
     except DropboxError as error:
         raise dropbox_error(_refused(user.id, error, "callback")) from None
     return DropboxCallbackOut(connection=_out(runtime, view), return_to=return_to)
-
-
-@router.delete("", status_code=204)
-async def disconnect_dropbox(runtime: RuntimeDep, user: UserDep) -> Response:
-    """Delete the caller's connection and revoke the app's grant at Dropbox (best effort)."""
-
-    await dropbox_connections(runtime).disconnect(user.id)
-    return Response(status_code=204)

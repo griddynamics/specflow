@@ -98,20 +98,27 @@ async def test_an_upload_through_the_server_lands_in_gcs_and_a_real_disconnect_l
     base = f"http://127.0.0.1:{port}"
     async with httpx.AsyncClient(base_url=base) as http:
         pid = (await http.post("/api/v1/projects", json={"name": "g"}, headers=bearer())).json()["id"]
+        sid = (
+            await http.post(
+                f"/api/v1/projects/{pid}/sources/uploads",
+                json={"expected_files": 3},
+                headers=bearer(),
+            )
+        ).json()["source"]["id"]
+        files = f"/api/v1/projects/{pid}/sources/{sid}/files"
         ok = await http.post(
-            f"/api/v1/projects/{pid}/documents?filename=live.pdf",
+            f"{files}?filename=live.pdf",
             content=PDF,
             headers={**bearer(), "Content-Type": "application/pdf"},
         )
-        assert ok.status_code == 201 and ok.json()["document"]["size_bytes"] == len(PDF)
-        assert count() == 1 and len(fake.documents) == 1
+        assert ok.status_code == 201 and count() == 1 and len(fake.documents) == 1
 
         # A client that announces 50 MiB, sends 5.5 MiB (one full resumable chunk) and vanishes.
         token = bearer()["Authorization"]
         _, writer = await asyncio.open_connection("127.0.0.1", port)
         writer.write(
             (
-                f"POST /api/v1/projects/{pid}/documents?filename=cut.pdf HTTP/1.1\r\n"
+                f"POST {files}?filename=cut.pdf HTTP/1.1\r\n"
                 f"Host: 127.0.0.1\r\nAuthorization: {token}\r\n"
                 f"Content-Type: application/pdf\r\nContent-Length: {50 * MiB}\r\n\r\n"
             ).encode()
@@ -126,7 +133,7 @@ async def test_an_upload_through_the_server_lands_in_gcs_and_a_real_disconnect_l
         await wait_until(lambda: count() == 1, 15.0)  # only the first, complete object
         # the server is still healthy and serves the next upload
         again = await http.post(
-            f"/api/v1/projects/{pid}/documents?filename=n.pdf",
+            f"{files}?filename=n.pdf",
             content=PDF + b"2",
             headers={**bearer(), "Content-Type": "application/pdf"},
         )

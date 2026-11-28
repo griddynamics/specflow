@@ -1,4 +1,4 @@
-"""The caller's Linear connection (plans/LINEAR/LINEAR-PLAN.md, stream S1): status, authorize, callback, disconnect.
+"""The caller's Linear connection (plans/LINEAR/LINEAR-PLAN.md, stream S1): status, authorize, callback.
 
 The web app's route handler forwards the consent's ``code`` and ``state`` here; ``state`` binds the callback to the
 member who asked for the URL. No Linear text, token, code, ``state`` or name is logged or answered in an error: events
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 
 from api.deps import RuntimeDep, UserDep
 from api.errors import ApiError
@@ -77,11 +77,3 @@ async def linear_callback(body: LinearCallbackIn, runtime: RuntimeDep, user: Use
         log_event(logger, INFO, "api.linear.callback.refused", user_id=str(user.id), code=error.code.value)
         raise ApiError(status, error.code.value, message) from None
     return LinearCallbackOut(connection=_out(runtime, view), return_to=return_to)
-
-
-@router.delete("", status_code=204)
-async def disconnect_linear(runtime: RuntimeDep, user: UserDep) -> Response:
-    """Delete the caller's connection and revoke the tokens at Linear (best effort)."""
-
-    await _connections(runtime).disconnect(user.id)
-    return Response(status_code=204)

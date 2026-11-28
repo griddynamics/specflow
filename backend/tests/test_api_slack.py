@@ -69,7 +69,7 @@ def detail(gap_id: str = "G-1", *, kind: str = "missing", title: str = "Order li
             "assignee": None,
             "answerable": True,
             "updated_at": STAMP,
-            "web_url": "https://specflow.example.test/projects/p/gaps?gap=G-1",
+            "web_url": "https://specflow.example.test/projects/p",
             "card": "",
         }
     )
@@ -103,7 +103,7 @@ def test_a_contradiction_offers_no_own_answer_and_links_the_web_card():
     [radio] = [b for b in view["blocks"] if b.get("block_id") == "choice:G-1"]
     assert OWN not in [o["value"] for o in radio["element"]["options"]]
     assert not [b for b in view["blocks"] if b.get("block_id") == "own:G-1"]
-    assert "gaps?gap=G-1|on the web card" in json.dumps(view)
+    assert "https://specflow.example.test/projects/p|on the web card" in json.dumps(view)
 
 
 def test_the_modal_shows_at_most_five_gaps_within_slack_block_limits():

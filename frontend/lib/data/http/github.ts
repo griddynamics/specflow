@@ -4,8 +4,6 @@
 import {
   addProjectRepository,
   authorizeGitHub,
-  cloneProjectRepository,
-  disconnectGitHub,
   getGitHubConnection,
   installGitHub,
   listGitHubRepositories,
@@ -143,9 +141,6 @@ export function createHttpGitHub(): GitHubPort {
       const body = await guard(() => installGitHub(returnTo));
       return checked(() => urlOf(body));
     },
-    disconnect: async () => {
-      await guard(() => disconnectGitHub());
-    },
     available: async () => {
       const body = await guard(() => listGitHubRepositories());
       return checked(() => toGitHubRepositoryList(body));
@@ -160,10 +155,6 @@ export function createHttpGitHub(): GitHubPort {
     },
     remove: async (projectId, repositoryId) => {
       await guard(() => removeProjectRepository(projectId, repositoryId));
-    },
-    clone: async (projectId, repositoryId) => {
-      const body = await guard(() => cloneProjectRepository(projectId, repositoryId));
-      return checked(() => toProjectRepository(body));
     },
   };
 }

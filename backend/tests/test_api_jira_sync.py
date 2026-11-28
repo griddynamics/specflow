@@ -860,7 +860,7 @@ async def test_the_remote_link_is_made_only_with_a_public_url(monkeypatch):
     await synced(with_url)
     assert len(with_url.gateway.remote_links) == 9
     url, title = with_url.gateway.remote_links[(with_url.key(T1), f"specflow:{with_url.project_id}:{T1}")]
-    assert (url, title) == (f"https://app.example/projects/{with_url.project_id}/plan", "Specflow plan")
+    assert (url, title) == (f"https://app.example/projects/{with_url.project_id}", "Specflow plan")
     mark = len(with_url.gateway.calls)
     await with_url.sync()
     assert names(with_url, mark) == []

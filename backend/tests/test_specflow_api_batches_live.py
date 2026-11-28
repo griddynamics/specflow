@@ -40,10 +40,9 @@ from specflow_live import (
 from specflow_sources_live_support import add_item
 from test_specflow_api_live_db import (
     make_project,
-    put,
     select_all,
 )
-from test_specflow_api_sources_live import FOLDER, post, status
+from test_specflow_api_sources_live import FOLDER, post
 
 # The Drive import stack pulls in the PDF parser, so the conftest does not load it for every run.
 pytest_plugins = ["specflow_drive_import_support"]
@@ -135,23 +134,6 @@ async def test_add_outcomes_on_the_real_database(live):
     assert doc.original_key in live.store.objects  # the moved document keeps its own object
     assert set(live.store.objects) == {doc.original_key}  # every new object was deleted
     assert uuid.UUID(one) not in {c.id for c in await select_all(live, select(Connection))}
-
-
-async def test_the_legacy_upload_fills_one_ended_day_batch(live):
-    pid = await make_project(live)
-    assert (await put(live, pid, pdf(1))).status_code == 201
-    assert (await put(live, pid, pdf(2))).status_code == 201
-    assert (await put(live, pid, pdf(1))).json()["outcome"] == "duplicate"
-    [batch] = await select_all(live, select(Connection))
-    assert batch.kind == "upload" and batch.external_id.startswith("legacy-")
-    assert batch.ended_at is not None
-    docs = await select_all(live, select(Document))
-    assert {d.source_id for d in docs} == {batch.id}  # no upload leaves source_id NULL
-    card = (await live.client.get(src(pid, "?batches=1"), headers=bearer())).json()["sources"][0]
-    assert (card["open"], card["total"]) == (False, 2)
-    legacy = (await status(live, pid)).json()  # the old shape is unchanged
-    assert set(legacy) == {"progress", "sources", "uploads", "processed_documents"}
-    assert legacy["sources"] == [] and legacy["uploads"]["documents"] == 2
 
 
 async def test_removing_a_batch_deletes_rows_and_objects_and_counts_the_files(live):

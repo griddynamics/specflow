@@ -1,6 +1,6 @@
 // docs/box/oauth.md "Routes": the production `BoxPort` over the caller's Box connection. Every body is shape-checked (like the GitHub port): any other
 // shape is `invalid_response`. Failures are `DataError`s whose `detail.apiCode` is the API code. The URL the browser follows must be `https:` on box.com.
-import { authorizeBox, disconnectBox, getBoxConnection } from "@/lib/api";
+import { authorizeBox, getBoxConnection } from "@/lib/api";
 import type { BoxConnection, BoxPort } from "@/lib/domain/box";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
 
@@ -52,9 +52,6 @@ export function createHttpBox(): BoxPort {
         expectShape(isRecord(body));
         return boxUrl(body.url);
       });
-    },
-    disconnect: async () => {
-      await guard(() => disconnectBox());
     },
   };
 }

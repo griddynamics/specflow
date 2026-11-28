@@ -1,4 +1,4 @@
-"""Tier 1: ``/api/v1/projects/{pid}/plan`` (start, state), ``/plan/tasks`` and ``/plan/preview``.
+"""Tier 1: ``/api/v1/projects/{pid}/plan`` (start, state) and ``/plan/tasks``.
 
 The runner is a fake on ``Runtime.plans``; handlers never touch the graph store, so the harness's
 ``FakeGraphStore`` must see no query.
@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 import pytest
 
 from api.plan.state import NoGraphBuildError, PlanState
-from api.schemas import PlanContent, PlanFeatureOut, PlanPreview, PlanTaskOut
+from api.schemas import PlanContent, PlanTaskOut
 from logger_harness import events, fields
 from specflow_api_support import bearer
 
@@ -28,7 +28,6 @@ class FakeRunner:
         self.state = PlanState("idle")
         self.built: set[str] = set()
         self.plan: PlanContent | None = None
-        self.preview_value = PlanPreview()
 
     def running(self, project_id: str) -> bool:
         return project_id in self.active
@@ -48,9 +47,6 @@ class FakeRunner:
 
     async def content(self, _project_id: str) -> PlanContent | None:
         return self.plan
-
-    async def preview(self, _project_id: str) -> PlanPreview:
-        return self.preview_value
 
 
 class Builds:
@@ -179,24 +175,11 @@ async def test_tasks_answer_the_plan_or_404(harness):
     assert [task["task_id"] for task in found.json()["tasks"]] == ["TASK::1"]
 
 
-async def test_preview_answers_the_features_and_the_estimate(harness):
-    runner, pid = await built_project(harness)
-    runner.preview_value = PlanPreview(
-        build_id="build-1", mode="first", calls=4, input_tokens=900, features=[PlanFeatureOut(spec_id="F", name="Pay")]
-    )
-
-    response = await harness.client.get(url(pid, "/preview"), headers=bearer())
-
-    assert response.status_code == 200
-    assert response.json()["features"] == [{"spec_id": "F", "name": "Pay"}]
-    assert response.json()["calls"] == 4
-
-
 async def test_a_non_member_gets_404(harness):
     runner, pid = await built_project(harness)
     stranger = bearer("bob@example.com")
 
-    for method, tail in (("POST", ""), ("GET", ""), ("GET", "/tasks"), ("GET", "/preview")):
+    for method, tail in (("POST", ""), ("GET", ""), ("GET", "/tasks")):
         response = await harness.client.request(method, url(pid, tail), headers=stranger)
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "project_not_found"
@@ -208,9 +191,9 @@ async def test_without_graph_settings_the_plan_answers_503_and_logs_it(harness, 
     pid = await project(harness)
 
     with caplog.at_level("INFO"):
-        for method, tail in (("POST", ""), ("GET", ""), ("GET", "/tasks"), ("GET", "/preview")):
+        for method, tail in (("POST", ""), ("GET", ""), ("GET", "/tasks")):
             response = await harness.client.request(method, url(pid, tail), headers=bearer())
             assert response.status_code == 503
             assert response.json()["error"]["code"] == "plan_unavailable"
 
-    assert len(events(caplog, "api.plan.unavailable")) == 4
+    assert len(events(caplog, "api.plan.unavailable")) == 3

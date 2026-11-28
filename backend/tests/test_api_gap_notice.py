@@ -61,14 +61,14 @@ class Hook:
 
 
 def test_the_payload_holds_the_project_counts_and_link_as_text():
-    payload = notice_payload(result(), project="Shop", url="https://x.test/projects/p/gaps")
+    payload = notice_payload(result(), project="Shop", url="https://x.test/projects/p")
 
     assert payload == {
         "project": "Shop",
         "new_questions": "3",
         "blockers": "1",
         "majors": "2",
-        "url": "https://x.test/projects/p/gaps",
+        "url": "https://x.test/projects/p",
     }
 
 
@@ -97,19 +97,18 @@ async def test_a_listed_project_posts_its_notice_to_the_hook(caplog):
         "new_questions": "3",
         "blockers": "1",
         "majors": "2",
-        "url": f"https://specflow.example.test/projects/{PROJECT}/gaps",
+        "url": f"https://specflow.example.test/projects/{PROJECT}",
     }
     [sent] = events(caplog, "api.gap.notice_sent")
     assert (fields(sent)["project_id"], fields(sent)["new_questions"]) == (PROJECT, 3)
 
 
-def test_the_incoming_webhook_text_escapes_the_project_and_links_the_gaps_screen():
-    payload = notice_payload(result(), project="R&D <shop>", url="https://x.test/projects/p/gaps")
+def test_the_incoming_webhook_text_escapes_the_project_and_links_the_canvas():
+    payload = notice_payload(result(), project="R&D <shop>", url="https://x.test/projects/p")
 
     assert payload is not None
     assert notice_text(payload) == (
-        "R&amp;D &lt;shop&gt;: 3 new questions (1 blockers, 2 major). "
-        "<https://x.test/projects/p/gaps|Answer in SpecFlow>"
+        "R&amp;D &lt;shop&gt;: 3 new questions (1 blockers, 2 major). <https://x.test/projects/p|Answer in SpecFlow>"
     )
     assert notice_text({**payload, "url": ""}).endswith("(1 blockers, 2 major).")
 
@@ -124,7 +123,7 @@ async def test_an_incoming_webhook_gets_the_text_instead_of_the_variables():
     assert str(request.url) == incoming
     assert json.loads(request.content) == {
         "text": f"Shop: 3 new questions (1 blockers, 2 major). "
-        f"<https://specflow.example.test/projects/{PROJECT}/gaps|Answer in SpecFlow>"
+        f"<https://specflow.example.test/projects/{PROJECT}|Answer in SpecFlow>"
     }
 
 

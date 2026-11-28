@@ -1,17 +1,9 @@
 // FE-PLAN-01 (TECH-SPECS §2.15): the production plan port over `/projects/{pid}/plan*`.
 // Layer U (pure): the wire parsers, the creating state, the events, the task Markdown. Layer P (the port against a fake `fetch`):
-// state per stage, create with replan, polling from creating to ready or failed, leave, preview, the disabled edit.
+// state per stage, create with replan, polling from creating to ready or failed, leave, the disabled edit.
 import { test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import {
-  createHttpPlan,
-  creatingOf,
-  eventOf,
-  toPlanPreview,
-  toPlanSnapshot,
-  toPlanStatus,
-  type PlanStatusWire,
-} from "@/lib/data/http/plan";
+import { createHttpPlan, creatingOf, eventOf, toPlanSnapshot, toPlanStatus, type PlanStatusWire } from "@/lib/data/http/plan";
 import { taskMarkdown } from "@/lib/domain/logic/plan";
 import { isDataError } from "@/lib/domain/errors";
 import type { PlanEvent, PlanState } from "@/lib/domain/plan";
@@ -180,15 +172,6 @@ test("taskMarkdown: title, description, done when, then the graph sections; empt
   assert.equal(taskMarkdown({ title: "T", description: "", doneWhen: [], implements: [], waitsFor: [] }, new Map()), "# T\n");
 });
 
-test("toPlanPreview reads the features and the estimate; the estimate may be unknown", () => {
-  assert.deepEqual(toPlanPreview({ features: [{ spec_id: "F", name: "Pay" }], calls: 3, input_tokens: 900 }), {
-    features: [{ specId: "F", name: "Pay" }],
-    calls: 3,
-    inputTokens: 900,
-  });
-  assert.deepEqual(toPlanPreview({ features: [], calls: null, input_tokens: null }), { features: [], calls: null, inputTokens: null });
-});
-
 // ---- Layer P ----
 
 type Route = (method: string, path: string, body: unknown) => { status: number; body: unknown };
@@ -289,15 +272,10 @@ test("a run that fails while creating moves the listener back to idle with its c
   port.leave(PID);
 });
 
-test("create rejects with the API's refusal; preview reads the features; updateTaskBody is not available", async () => {
+test("create rejects with the API's refusal; updateTaskBody is not available", async () => {
   const port = createHttpPlan();
-  fakeFetch((method) =>
-    method === "POST"
-      ? { status: 409, body: { error: { code: "no_graph_build", message: "x" } } }
-      : { status: 200, body: { features: [{ spec_id: "F", name: "Pay" }], calls: null, input_tokens: null } },
-  );
+  fakeFetch(() => ({ status: 409, body: { error: { code: "no_graph_build", message: "x" } } }));
 
   await assert.rejects(port.create(PID), (e) => isDataError(e) && e.code === "conflict" && e.detail?.apiCode === "no_graph_build");
-  assert.deepEqual((await port.preview(PID)).features, [{ specId: "F", name: "Pay" }]);
   await assert.rejects(port.updateTaskBody(PID, "t", { start: 0, end: 1 }, "x", 1), (e) => isDataError(e) && e.code === "not_available");
 });

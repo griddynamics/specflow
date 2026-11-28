@@ -2,9 +2,9 @@
 channel (docs/slack/gap-answering.md "Before the app is approved"): the webhook trigger of a Workflow Builder workflow
 (``/triggers/``, paid plans) gets the variables, an app's incoming webhook (``/services/``, any plan) a ready text.
 
-The notice holds the project name, counts and the link to the Gaps screen: no gap text reaches Slack (decision O2).
-Only the projects in ``SLACK_WORKFLOW_PROJECTS`` are announced. A failed POST is logged and never fails the run;
-the webhook URL is a secret and never logged.
+The notice holds the project name, counts and the link to the project's canvas in the web app: no gap text reaches
+Slack (decision O2). Only the projects in ``SLACK_WORKFLOW_PROJECTS`` are announced. A failed POST is logged and never
+fails the run; the webhook URL is a secret and never logged.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ class GapNotice:
         """The webhook's response and the number of new questions; ``None`` when the run asked nobody anything."""
 
         name = await self._project_name(project_id) or project_id
-        payload = notice_payload(result, project=name, url=self._gaps_url(project_id))
+        payload = notice_payload(result, project=name, url=self._canvas_url(project_id))
         if payload is None:
             return None
         hook = self._settings.webhook_url.get_secret_value()
@@ -111,9 +111,9 @@ class GapNotice:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    def _gaps_url(self, project_id: str) -> str:
+    def _canvas_url(self, project_id: str) -> str:
         base = self._settings.public_url
-        return "" if base is None else f"{base}/projects/{project_id}/gaps"
+        return "" if base is None else f"{base}/projects/{project_id}"
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

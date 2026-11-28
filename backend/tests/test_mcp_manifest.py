@@ -1,18 +1,11 @@
-"""The tool manifest rendered from the registry stays equal to the file the web app's guide reads (FR-MCP-UI-06)."""
+"""The manifest the MCP registry renders: one-line summaries, no description text, the declaration order and the
+read-only flags. (The committed-manifest comparison went with the guide page that read the file.)"""
 
 from __future__ import annotations
 
 import json
 
-from mcp_manifest_support import MANIFEST_PATH
 from mcp_server.registry import PROMPTS, TOOLS, render_manifest, render_manifest_json
-
-
-def test_the_committed_manifest_matches_the_registry() -> None:
-    committed = MANIFEST_PATH.read_bytes()
-    assert committed == render_manifest_json().encode("utf-8"), (
-        "frontend/lib/guides/mcp-tools.json is stale: run `make mcp-manifest`"
-    )
 
 
 def test_every_declaration_has_a_short_one_line_summary() -> None:

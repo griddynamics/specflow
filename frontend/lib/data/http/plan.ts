@@ -4,9 +4,9 @@
 //  - `create` POSTs `/plan` (`replan` from "Recreate Plan"); the screen then follows the run by polling: while a screen listens and the
 //    last state is `creating`, `GET /plan` is read every `pollMs` (2 s) and each change is an event (`plan.step`, `plan.ready`,
 //    `plan.failed`). A read that fails keeps the last state and is tried again at the next tick. `leave` stops the polling.
-//  - `preview` reads `GET /plan/preview`. Task text editing is not available: `updateTaskBody` rejects with `not_available`.
+//  - Task text editing is not available: `updateTaskBody` rejects with `not_available`.
 // Bodies are parsed strictly: any other shape is `invalid_response`.
-import { getPlan, getPlanPreview, getPlanTasks, startPlan } from "@/lib/api";
+import { getPlan, getPlanTasks, startPlan } from "@/lib/api";
 import type { Unsubscribe } from "@/lib/domain/common";
 import { DataError } from "@/lib/domain/errors";
 import { taskMarkdown } from "@/lib/domain/logic/plan";
@@ -19,7 +19,6 @@ import {
   type PlanEvent,
   type PlannedBy,
   type PlanPort,
-  type PlanPreview,
   type PlanQuality,
   type PlanReviewIssue,
   type PlanSnapshot,
@@ -232,25 +231,6 @@ export function toPlanSnapshot(body: unknown): PlanSnapshot {
   });
 }
 
-/** `GET /plan/preview` body -> `PlanPreview`. */
-export function toPlanPreview(body: unknown): PlanPreview {
-  return checked(() => {
-    expectShape(isRecord(body));
-    const count = (v: unknown): number | null => {
-      expectShape(v === null || v === undefined || isCount(v));
-      return isCount(v) ? v : null;
-    };
-    return {
-      features: records(body.features).map((f) => {
-        expectShape(isString(f.spec_id) && isString(f.name));
-        return { specId: f.spec_id, name: f.name };
-      }),
-      calls: count(body.calls),
-      inputTokens: count(body.input_tokens),
-    };
-  });
-}
-
 /** Stage 1 of a running run: the step being run (1-based, never past the total) and its label. */
 export function creatingOf(s: PlanStatusWire): Extract<PlanState, { phase: "creating" }> {
   const total = s.stepsTotal > 0 ? s.stepsTotal : Object.keys(STEP_LABELS).length;
@@ -335,7 +315,6 @@ export function createHttpPlan(opts?: { pollMs?: number }): PlanPort {
   }
 
   return {
-    preview: async (projectId) => toPlanPreview(await guard(() => getPlanPreview(projectId))),
     async state(projectId) {
       const w = watchOf(projectId);
       const next = await read(projectId);

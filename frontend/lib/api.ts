@@ -250,16 +250,12 @@ export const checkNotionPlanAccess = (pid: string, link: string) =>
 export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);
 export const authorizeAtlassian = (returnTo: string) =>
   httpPost("/integrations/atlassian/authorize", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectAtlassian = () => httpDelete("/integrations/atlassian").then((r) => r.status);
 
 // Linear (plans/LINEAR, stream S1): the caller's connection. Bodies stay `unknown`; the Linear port (lib/data/http/linear.ts) checks their shape. The
 // OAuth callback is not here: the route handler app/api/integrations/linear/callback calls the API on the server.
 export const getLinearConnection = () => httpGet("/integrations/linear").then((r) => r.body);
 export const authorizeLinear = (returnTo: string) =>
   httpPost("/integrations/linear/authorize", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectLinear = () => httpDelete("/integrations/linear").then((r) => r.status);
 
 // GitHub (docs/github/api.md): the caller's connection, the repositories it can read and the repositories of a
 // project. Bodies stay `unknown`; the GitHub port (lib/data/http/github.ts) checks their shape. The OAuth callback and the setup return
@@ -269,8 +265,6 @@ export const authorizeGitHub = (returnTo: string) =>
   httpPost("/integrations/github/authorize", json({ return_to: returnTo })).then((r) => r.body);
 export const installGitHub = (returnTo: string) =>
   httpPost("/integrations/github/install", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectGitHub = () => httpDelete("/integrations/github").then((r) => r.status);
 export const listGitHubRepositories = () => httpGet("/integrations/github/repositories").then((r) => r.body);
 export const listProjectRepositories = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/repositories`).then((r) => r.body);
 export const addProjectRepository = (pid: string, githubRepoId: number) =>
@@ -278,24 +272,18 @@ export const addProjectRepository = (pid: string, githubRepoId: number) =>
 /** 204: resolves with the HTTP status. */
 export const removeProjectRepository = (pid: string, rid: string) =>
   httpDelete(`/projects/${encodeURIComponent(pid)}/repositories/${encodeURIComponent(rid)}`).then((r) => r.status);
-export const cloneProjectRepository = (pid: string, rid: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/repositories/${encodeURIComponent(rid)}/clone`).then((r) => r.body);
 
 // Box (docs/box/oauth.md "Routes"): the caller's connection. Bodies stay `unknown`; the Box port (lib/data/http/box.ts) checks their shape. The OAuth
 // callback is not here: the route handler app/api/integrations/box/callback calls the API on the server.
 export const getBoxConnection = () => httpGet("/integrations/box").then((r) => r.body);
 export const authorizeBox = (returnTo: string) =>
   httpPost("/integrations/box/authorize", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectBox = () => httpDelete("/integrations/box").then((r) => r.status);
 
 // Dropbox (docs/dropbox/oauth.md "Routes"): the caller's connection. Bodies stay `unknown`; the Dropbox port (lib/data/http/dropbox.ts) checks their shape.
 // The OAuth callback is not here: the route handler app/api/integrations/dropbox/callback calls the API on the server.
 export const getDropboxConnection = () => httpGet("/integrations/dropbox").then((r) => r.body);
 export const authorizeDropbox = (returnTo: string) =>
   httpPost("/integrations/dropbox/authorize", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectDropbox = () => httpDelete("/integrations/dropbox").then((r) => r.status);
 
 // The caller's Notion connection (docs/notion/oauth.md "Routes"). The consent callback is not here: the route handler
 // app/api/integrations/notion/callback calls the API on the server.
@@ -381,45 +369,15 @@ export const addDrawioSource = (pid: string, link: string) =>
 export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);
 export const startGraphBuild = (pid: string, reasoningLevel: number) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/graph_build`, json({ reasoning_level: reasoningLevel })).then((r) => r.body);
-// Plan (`/plan`, `graph.plan`): the GET is the state of the latest run, the POST starts a run (`replan` re-plans every area), `/plan/tasks` is
-// the persisted plan and `/plan/preview` the features to plan with the run estimate. Bodies stay `unknown`; the plan port
-// (lib/data/http/plan.ts) checks their shape.
+// Plan (`/plan`, `graph.plan`): the GET is the state of the latest run, the POST starts a run (`replan` re-plans every area) and
+// `/plan/tasks` is the persisted plan. Bodies stay `unknown`; the plan port (lib/data/http/plan.ts) checks their shape.
 export const getPlan = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan`).then((r) => r.body);
 export const startPlan = (pid: string, replan: boolean) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/plan`, json({ replan })).then((r) => r.body);
 export const getPlanTasks = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/tasks`).then((r) => r.body);
-export const getPlanPreview = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/preview`).then((r) => r.body);
 
-// The Gaps screen (FR-GWEB-04, FR-GWEB-06): the gap list (`query` is the encoded `list_gaps` filters, never empty: the screens always
-// send a status; a list filter repeating its parameter), one gap, the latest gap run with its noise report, and the writes: edits
-// preview, answer, dismiss, assign, raise, apply now, the "Answered by AI" list and revert, and the noise rules. Bodies stay `unknown`;
-// the gaps port (lib/data/http/gaps.ts) checks their shape. POSTs, PUTs and DELETEs go through `call`, so they carry the CSRF header
-// (the BFF adds nothing; the browser sends the Origin).
+// The canvas gaps inbox (FR-GWEB-04): the gap list (`query` is the encoded `list_gaps` filters, never empty: the screen always sends
+// a status; a list filter repeating its parameter) and the latest gap run (with `GET .../graph_build` the gap check status line — the
+// writes moved to the agents and the Slack bot, D10). Bodies stay `unknown`; the gaps port (lib/data/http/gaps.ts) checks their shape.
 export const getGaps = (pid: string, query: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps?${query}`).then((r) => r.body);
-export const getGap = (pid: string, gid: string) =>
-  httpGet(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}`).then((r) => r.body);
 export const getLatestGapRun = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gap/runs/latest`).then((r) => r.body);
-export const previewGapEdits = (pid: string, gid: string, body: Record<string, unknown>) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/edits_preview`, json(body)).then((r) => r.body);
-export const answerGap = (pid: string, gid: string, body: Record<string, unknown>) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/answer`, json(body)).then((r) => r.body);
-/** Resolves with the HTTP status (204 = dismissed). */
-export const dismissGap = (pid: string, gid: string, reason: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/dismiss`, json({ reason })).then((r) => r.status);
-export const raiseGap = (pid: string, body: Record<string, unknown>) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps`, json(body)).then((r) => r.body);
-export const applyGapAnswers = (pid: string) => httpPost(`/projects/${encodeURIComponent(pid)}/gaps/apply`).then((r) => r.body);
-export const getAiAnswers = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps/ai_answers?limit=50`).then((r) => r.body);
-export const revertClarification = (pid: string, clr: string, reason: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/clarifications/${encodeURIComponent(clr)}/revert`, json({ reason })).then(
-    (r) => r.body,
-  );
-export const getNoiseRules = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules`).then((r) => r.body);
-export const addNoiseRule = (pid: string, body: Record<string, unknown>) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules`, json(body)).then((r) => r.body);
-/** Resolves with the HTTP status (204 = removed). */
-export const removeNoiseRule = (pid: string, rid: string) =>
-  httpDelete(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules/${encodeURIComponent(rid)}`).then((r) => r.status);
-/** Assigns a gap to a member, or clears it (`userId` null); resolves with the gap. */
-export const assignGap = (pid: string, gid: string, userId: string | null) =>
-  httpPut(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/assignee`, json({ user_id: userId })).then((r) => r.body);

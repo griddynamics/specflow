@@ -19,6 +19,4 @@ export interface DropboxPort {
   connection(): Promise<DropboxConnection>;
   /** The Dropbox sign-in URL; the browser returns to `returnTo` (a same-site path) through the callback route with `?dropbox=<code>`. */
   authorize(returnTo: string): Promise<string>;
-  /** Forgets the caller's Dropbox connection (and revokes the grant at Dropbox). */
-  disconnect(): Promise<void>;
 }

@@ -424,7 +424,7 @@ class _Pass:
             await self.gateway.upsert_remote_link(
                 key,
                 global_id=f"specflow:{self.project_id}:{node}",
-                url=f"{self.deps.public_url.rstrip('/')}/projects/{self.project_id}/plan",
+                url=f"{self.deps.public_url.rstrip('/')}/projects/{self.project_id}",
                 title=REMOTE_TITLE,
             )
 

@@ -19,6 +19,4 @@ export interface BoxPort {
   connection(): Promise<BoxConnection>;
   /** The Box sign-in URL; the browser returns to `returnTo` (a same-site path) through the callback route with `?box=<code>`. */
   authorize(returnTo: string): Promise<string>;
-  /** Forgets the caller's Box connection (and revokes the grant at Box). */
-  disconnect(): Promise<void>;
 }

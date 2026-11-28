@@ -56,7 +56,7 @@ def _words(text: str) -> str:
 
 def test_the_requirements_file_lists_every_unit_once() -> None:
     ids = [unit.unit_id for unit in requirement_units()]
-    assert len(ids) == len(set(ids)) == 103
+    assert len(ids) == len(set(ids)) == 102
 
 
 def test_every_unit_has_exactly_one_acceptance_test_and_every_test_names_a_unit() -> None:

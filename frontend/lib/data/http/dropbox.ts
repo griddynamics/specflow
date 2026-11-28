@@ -1,6 +1,6 @@
 // docs/dropbox/oauth.md "Routes": the production `DropboxPort` over the caller's Dropbox connection. Every body is shape-checked (like the GitHub port): any other
 // shape is `invalid_response`. Failures are `DataError`s whose `detail.apiCode` is the API code. The URL the browser follows must be `https:` on dropbox.com (www.dropbox.com).
-import { authorizeDropbox, disconnectDropbox, getDropboxConnection } from "@/lib/api";
+import { authorizeDropbox, getDropboxConnection } from "@/lib/api";
 import type { DropboxConnection, DropboxPort } from "@/lib/domain/dropbox";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
 
@@ -52,9 +52,6 @@ export function createHttpDropbox(): DropboxPort {
         expectShape(isRecord(body));
         return dropboxUrl(body.url);
       });
-    },
-    disconnect: async () => {
-      await guard(() => disconnectDropbox());
     },
   };
 }

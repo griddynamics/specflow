@@ -47,13 +47,12 @@ async def test_every_route_needs_a_signed_in_user(rig) -> None:
         ("GET", "integrations/box", None),
         ("POST", "integrations/box/authorize", {"return_to": RETURN}),
         ("POST", "integrations/box/callback", {"code": "c", "state": "s"}),
-        ("DELETE", "integrations/box", None),
     ):
         answer = await rig.http.request(method, f"/api/v1/{path}", json=body)
         assert answer.status_code == 401, path
 
 
-async def test_connect_get_and_disconnect(rig, caplog) -> None:
+async def test_connect_and_get_show_the_connection(rig, caplog) -> None:
     before = (await call(rig, "GET", "integrations/box")).json()
     with caplog.at_level(logging.DEBUG):
         answer = await connect(rig)
@@ -69,11 +68,6 @@ async def test_connect_get_and_disconnect(rig, caplog) -> None:
     assert (await call(rig, "GET", "integrations/box", BEN)).json()["connected"] is False
     for canary in (CODE_CANARY, CLIENT_CANARY, "access-1", "refresh-1", NAME_CANARY):
         assert canary not in caplog.text
-
-    assert (await call(rig, "DELETE", "integrations/box")).status_code == 204
-    assert rig.box.revoked == ["access-1"]
-    assert (await call(rig, "GET", "integrations/box")).json()["connected"] is False
-    assert (await call(rig, "DELETE", "integrations/box")).status_code == 204  # idempotent
 
 
 async def test_a_callback_with_a_foreign_state_or_a_bad_code_gets_a_closed_code(rig, caplog) -> None:
@@ -121,6 +115,5 @@ async def test_with_the_integration_off_get_says_so_and_the_rest_is_503(rig) -> 
     for method, path, body in (
         ("POST", "integrations/box/authorize", {"return_to": RETURN}),
         ("POST", "integrations/box/callback", {"code": "c", "state": "s"}),
-        ("DELETE", "integrations/box", None),
     ):
         assert error_of(await call(rig, method, path, body=body)) == (503, "box_unavailable"), path

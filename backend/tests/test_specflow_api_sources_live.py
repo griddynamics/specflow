@@ -112,7 +112,7 @@ async def test_status_counts_drive_files_and_uploads_and_an_upload_starts_its_pa
     # K5: the upload itself marks processing and starts the workflow.
     uploaded = await put(live, pid)
     assert uploaded.status_code == 201
-    assert uploaded.json()["document"]["status"] == "processing"
+    assert uploaded.json()["file"]["state"] == "processing"
     # the save started the import workflow (05); the upload started the parse
     assert [c["workflow"] for c in live.temporal.calls] == [
         "DriveImportWorkflow",
@@ -128,5 +128,3 @@ async def test_status_counts_drive_files_and_uploads_and_an_upload_starts_its_pa
         "failed": 0,
     }
     assert body["progress"] == {"listing_finished": True, "total": 5, "finished": 2}
-    docs = (await live.client.get(f"/api/v1/projects/{pid}/documents", headers=bearer())).json()
-    assert docs["items"][0]["status"] == "processing"

@@ -17,17 +17,6 @@ export type PlannedBy = "model" | "rules";
 export type ReviewSeverity = "blocking" | "advisory";
 export const PHASE_ORDER: readonly TaskPhase[] = ["setup", "contract", "data", "logic", "integration", "quality", "acceptance"];
 
-/** A spec node that anchors a feature story: what a plan run plans, shown before the first plan. */
-export interface PlanFeature {
-  specId: string;
-  name: string;
-}
-/** What a plan run would start from: the features and the estimate of the run (null when it is not known). */
-export interface PlanPreview {
-  features: PlanFeature[];
-  calls: number | null;
-  inputTokens: number | null;
-}
 /** A member of an area the planner holds as no code work (a process, governance or policy rule). */
 export interface NotBuildable {
   specId: string;
@@ -109,7 +98,6 @@ export interface PlanEvent {
   runId: string;
 }
 export interface PlanPort {
-  preview(projectId: string): Promise<PlanPreview>; // no finished build → no features, no estimate
   state(projectId: string): Promise<PlanState>; // no plan and no run → idle
   subscribe(projectId: string, listener: (e: PlanEvent, next: PlanState) => void): Unsubscribe;
   /** Starts a run: idle → creating. `replan` re-plans every area of an existing plan ("Recreate Plan"). */
