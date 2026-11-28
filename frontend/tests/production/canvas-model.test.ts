@@ -1,6 +1,7 @@
 // The canvas view model (06a Do 1; AC9, AC10; README "The canvas", "Colour", "The flow" scenes 1-8): what each hub, node and wire shows for the
 // state of the ports. Pure: no React, no DOM. The colour rules are asserted here as data: yellow only on the two decisions, never a status;
 // a wire moves only while data moves; the stopped badge only for what the API reports.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildCanvasModel, graphDecisionOf, revealOf, stagesOf } from "@/components/v2/canvas/canvas-model";

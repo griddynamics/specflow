@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ReactElement } from "react";
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import { renderToStaticMarkup } from "react-dom/server";
 import { NotionSetup } from "@/components/v2/integrations/NotionSetup";
 import { integrationFailure, isLinked, notionToast, returnToast } from "@/components/v2/integrations/integration-logic";

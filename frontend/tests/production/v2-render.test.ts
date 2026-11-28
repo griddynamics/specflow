@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ReactElement } from "react";
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import { renderToStaticMarkup } from "react-dom/server";
 import { AtlassianSetup } from "@/components/v2/integrations/AtlassianSetup";
 import { GitHubSetup } from "@/components/v2/integrations/GitHubSetup";

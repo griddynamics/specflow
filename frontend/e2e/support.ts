@@ -10,7 +10,6 @@ import {
   test as base,
   expect,
   type BrowserContext,
-  type FileChooser,
   type Locator,
   type Page,
   type Request,
@@ -174,51 +173,6 @@ export async function signOut(page: Page): Promise<void> {
   await page.getByRole("button", { name: /^Account/ }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(keycloakUsername(page), "the Keycloak session ended: its form is shown").toBeVisible();
-}
-
-/** Creates a project through the top bar's "New" modal (name only, A9) and returns its id from the Mission Control URL. */
-export async function createProject(page: Page, name: string): Promise<string> {
-  const before = page.url(); // usually another project's Mission Control already: wait for a NEW one
-  await page.getByTestId("topbar-new").click();
-  await page.getByLabel("Name").fill(name);
-  await page.getByTestId("cp-create").click();
-  await page.waitForURL((u) => /^\/projects\/[0-9a-f-]{36}\/mission-control$/.test(u.pathname) && u.href !== before);
-  await expect(page.getByTestId("topbar-project-name")).toHaveText(name);
-  await expect(page.getByTestId("mc-empty")).toBeVisible();
-  return defined(/\/projects\/([0-9a-f-]{36})\//.exec(page.url()))[1];
-}
-
-/**
- * Picks files in the Mission Control Empty state and starts the run ("Create project" on the Files selected card). The files
- * go in through the picker that the Empty state's "Upload files" button opens, as a user would choose them.
- */
-export async function uploadInMissionControl(page: Page, files: Parameters<FileChooser["setFiles"]>[0]): Promise<void> {
-  const chooser = page.waitForEvent("filechooser");
-  await page.getByTestId("mc-empty").getByRole("button", { name: "Upload files" }).click();
-  await (await chooser).setFiles(files);
-  await page.getByRole("button", { name: "Create project" }).click();
-}
-
-/**
- * Waits until Mission Control is Ready, failing fast when a row or the graph step fails (no retry: every Retry of a summary
- * spends model calls). A stuck row (10 min) keeps waiting: the adapter still polls it at the back-off rate.
- */
-export async function waitForReady(page: Page, timeout: number): Promise<void> {
-  const screen = page.getByTestId("screen-mission-control");
-  await expect
-    .poll(
-      async () => {
-        if ((await screen.getAttribute("data-phase")) === "ready") return "ready";
-        const failed = await page
-          .getByTestId("mc-file-row")
-          .or(page.getByTestId("mc-graph"))
-          .evaluateAll((items) => items.filter((item) => item.getAttribute("data-state") === "failed").length);
-        return failed > 0 ? "failed" : "waiting";
-      },
-      { timeout, intervals: [2_000, 5_000] },
-    )
-    .toMatch(/^(ready|failed)$/);
-  await expect(screen, "Mission Control ends Ready (a row or the graph step failed otherwise)").toHaveAttribute("data-phase", "ready");
 }
 
 /** Calls the BFF the way the browser would (session cookie, Origin, X-Requested-With). */

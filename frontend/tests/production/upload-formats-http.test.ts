@@ -4,9 +4,8 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHttpAdapter } from "@/lib/data/http";
-import { createHttpDocuments } from "@/lib/data/http/documents";
-import { contentTypeFor, UPLOAD_FORMATS } from "@/lib/domain/upload-formats";
-import { documentFile, startEnv, stubCalls, type Env } from "./p16-support";
+import { UPLOAD_FORMATS } from "@/lib/domain/upload-formats";
+import { documentFile, startEnv, type Env } from "./p16-support";
 import { defined } from "../support/defined";
 
 let env: Env;
@@ -37,15 +36,6 @@ test("each accepted type is added to a Local files batch with its canonical Cont
     filesOf(pid).map((e) => [new URLSearchParams(e.path.split("?")[1]).get("filename"), e.contentType]),
     UPLOAD_FORMATS.map((f) => [`doc${f.extension}`, f.mediaType]),
   );
-});
-
-test("the single-document upload sends the canonical type too (a .md the browser called empty)", async () => {
-  const http = createHttpAdapter();
-  const docs = createHttpDocuments();
-  const pid = (await http.createProject.create({ name: "Docs md" })).id;
-  const r = await docs.upload(pid, documentFile("notes.md", ""));
-  assert.equal(r.outcome, "created");
-  assert.equal(defined(stubCalls(env.api, pid, "upload").at(-1)).contentType, contentTypeFor("notes.md"));
 });
 
 test("a legacy type that reaches the port is refused by the API (415), counted as not added, and the others stay", async () => {

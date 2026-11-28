@@ -1,5 +1,6 @@
 // The Linear plan destination on the canvas: what the node says in each state the API reports (counts, the link to the Linear project), the words
 // of a refusal, the line of a passed check, the registry entry and the form. Server-rendered: no browser.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";

@@ -121,6 +121,40 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await expect(page).toHaveURL(CANVAS(pid));
   });
 
+  test("OIDC sign-in lands on `/`, which opens the newest project's canvas", async ({ page }) => {
+    await loginV2(page);
+    await expect(page).not.toHaveURL(/\/login/);
+    await createProjectApi(page, unique("Older"));
+    const newest = await createProjectApi(page, unique("Newest"));
+    await page.goto("/");
+    await expect(page).toHaveURL(new RegExp(`/projects/${newest}$`));
+    await expect(projectsButton(page)).toHaveText(/^Newest /);
+  });
+
+  test("with no project `/` shows the first-run window, which cannot be closed; Create posts the name only", async ({ page, requests }) => {
+    await loginV2(page);
+    // The stub is shared by the run, so "no project yet" is the list endpoint answering an empty page for this one load.
+    await page.route("**/api/backend/projects?limit=100", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null }) }),
+    );
+    await page.goto("/");
+    const first = dialog(page, "Create your first project");
+    await expect(first).toBeVisible();
+    await page.unroute("**/api/backend/projects?limit=100");
+    await expect(first.getByRole("button", { name: "Close" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(first).toBeVisible();
+    const name = unique("Created in the browser");
+    await first.getByLabel("Project name").fill(name);
+    await expect(first.getByRole("textbox")).toHaveCount(1); // the name only: the people are invited from Members
+    await first.getByRole("button", { name: "Create project" }).click();
+    await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}$/);
+    const posts = requests.filter((r) => r.method === "POST" && r.path === "/api/backend/projects");
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0].postData ?? "{}")).toEqual({ name });
+    await expect(projectsButton(page)).toHaveText(name);
+  });
+
   test("the project menu lists the projects with the current one checked; picking one opens its canvas; Create new project opens a closable dialog", async ({
     page,
   }) => {
@@ -205,6 +239,9 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await loginV2(page);
     const res = await page.goto("/projects/00000000-0000-4000-8000-000000000000");
     expect(res?.status()).toBe(404);
+    await expect(page.getByText("This project does not exist, or you are not a member of it.")).toBeVisible();
+    const plain = await page.goto("/projects/not-a-uuid"); // a non-UUID id answers 404 the same way; the shell stays
+    expect(plain?.status()).toBe(404);
     await expect(page.getByText("This project does not exist, or you are not a member of it.")).toBeVisible();
 
     const name = unique("Collaborating");
@@ -391,5 +428,34 @@ test.describe("Mission Control V2: header, Members, Integrations", { tag: "@prod
     await expect(card(page, "Slack")).toHaveAttribute(STATE, "unavailable");
     await expect(card(page, "Slack").getByRole("button", { name: "Unavailable" })).toBeDisabled();
     await expect(card(page, "Slack")).toContainText("Not on this server");
+  });
+
+  test("/login shows one fixed message for a failed sign-in and never echoes the error parameter", async ({ page }) => {
+    await page.goto("/login?error=%3Cb%3EX-INJECTED%3C%2Fb%3E");
+    await expect(page.getByTestId("login-error")).toHaveText("Sign-in did not work. Try again.");
+    await expect(page.getByTestId("login-page").getByRole("alert")).toHaveCount(1);
+    // The rendered page never shows the value (Next.js keeps the URL in its own router payload; that is not page content).
+    expect(await page.getByRole("document").innerText()).not.toContain("X-INJECTED");
+    expect(await page.getByTestId("login-page").innerHTML()).not.toContain("X-INJECTED");
+    await page.goto("/login?error=CredentialsSignin");
+    await expect(page.getByTestId("login-error")).toBeVisible();
+  });
+
+  test("a failed sign-in shows the card and does not start another sign-in (no loop)", async ({ page, requests }) => {
+    await page.goto("/login?error=x");
+    await expect(page.getByTestId("login-error")).toBeVisible();
+    await networkQuiet(page, 1_500);
+    await expect(page).toHaveURL(/\/login\?error=x$/);
+    expect(requests.filter((r) => r.path.startsWith("/api/auth/signin") || r.origin !== new URL(page.url()).origin)).toHaveLength(0);
+  });
+
+  test("/login?signedout=1 with a session that is still valid shows a note instead of bouncing back to `/`", async ({ page }) => {
+    await loginV2(page);
+    await page.goto("/login?signedout=1");
+    await expect(page).toHaveURL(/\/login\?signedout=1$/);
+    await expect(page.getByTestId("login-still-signed-in")).toContainText("You are still signed in");
+    await page.goto("/login?signedout=idp");
+    await expect(page).toHaveURL(/\/login\?signedout=idp$/);
+    await expect(page.getByTestId("login-still-signed-in")).toBeVisible(); // the same guard for the provider's return: no loop
   });
 });

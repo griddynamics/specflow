@@ -1,10 +1,10 @@
 // D21 brand polish on the PRODUCTION routes (FE-BP-03.AC5, FE-DS-08.AC1/AC2, FE-PLAN-01.AC2), against the stub API through the real BFF.
 // No paid model call (R11). P1 the /login card: title and Graphico wordmark per theme, no Grid Dynamics logo; P2 /login?signedout=1
-// without a session says "You are signed out." and stays; P4 signed in: the tab title is Graphico.
+// without a session says "You are signed out." and stays; P4 signed in: the tab title is Graphico on `/` and the canvas.
 // D22 P5 signed out: the apple-touch link on /login and the three icon files answer 200 without a redirect (AC2, AC3).
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { createProjectApi, expect, login, setTheme, test, defined, v2Header } from "./support";
+import { createProjectApi, expect, loginV2, setTheme, test, defined, v2Header } from "./support";
 
 /**
  * The document head's `<link>` elements with this exact `rel`, as their href, sizes and type. Head metadata is not rendered and has
@@ -53,12 +53,12 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
     await expect(page).toHaveURL(/\/login\?signedout=1$/); // no automatic sign-in after a local-only sign-out
   });
 
-  test("AC8 (P4): signed in, / and a project's Mission Control have the tab title Graphico", async ({ page }) => {
-    await login(page);
+  test("AC8 (P4): signed in, `/` and a project's canvas have the tab title Graphico", async ({ page }) => {
+    await loginV2(page);
     await expect(page).toHaveTitle("Graphico");
     const pid = await createProjectApi(page, unique("Brand"));
-    await page.goto(`/projects/${pid}/mission-control`);
-    await expect(page.getByTestId("screen-mission-control")).toBeVisible();
+    await page.goto(`/projects/${pid}`);
+    await expect(v2Header(page)).toBeVisible();
     await expect(page).toHaveTitle("Graphico");
     await page.goto("/");
     await expect(v2Header(page)).toBeVisible();

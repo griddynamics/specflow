@@ -3,10 +3,11 @@
 // `/login?signedout=1`, a card that waits, when it does not (the Google case). The stub issuer (scripts/serve-production.mjs) records every
 // end-session call; the switch is the control port's `POST /oidc/end-session`. Never a token value is read here.
 import type { Page } from "@playwright/test";
-import { expect, login, oidcObservations, resetOidc, setEndSession, test, v2Header } from "./support";
+import { canvas, unique } from "./canvas-support";
+import { expect, oidcObservations, resetOidc, setEndSession, test, v2Header } from "./support";
 
 async function signOutFromMenu(page: Page): Promise<void> {
-  await page.getByRole("button", { name: /^Account:/ }).click();
+  await page.getByRole("button", { name: "Account" }).click();
   await page.getByRole("menu", { name: "Account" }).getByRole("menuitem", { name: "Sign out" }).click();
 }
 
@@ -20,7 +21,9 @@ test.describe("RP-initiated logout", { tag: "@production" }, () => {
     baseURL,
   }) => {
     await setEndSession(true);
-    await login(page);
+    // A project of its own, so the header (and its Account menu) is the canvas': with no project at all, `/` is the
+    // un-closeable first-run window and there is no Account to press behind it.
+    await canvas(page, unique("Logout end-session"));
     await resetOidc();
     await signOutFromMenu(page);
     // The stub issuer keeps no session, so the automatic sign-in that follows the return lands on the canvas again.
@@ -43,7 +46,7 @@ test.describe("RP-initiated logout", { tag: "@production" }, () => {
     page,
   }) => {
     await setEndSession(false);
-    await login(page);
+    await canvas(page, unique("Logout without endpoint"));
     await resetOidc();
     await signOutFromMenu(page);
     await expect(page).toHaveURL(/\/login\?signedout=1$/);

@@ -2,6 +2,7 @@
 // route query. The DOM-measuring hook of `canvas-geometry.ts` is exercised in the browser (e2e-production/canvas-production.spec.ts).
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import { backdropOf } from "@/components/v2/canvas/canvas-backdrop";
 import { summarizeGaps } from "@/components/v2/canvas/canvas-gaps";
 import { wirePath, type Box } from "@/components/v2/canvas/canvas-geometry";

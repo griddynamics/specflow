@@ -1,5 +1,6 @@
 // The diagrams.net link source on the canvas: what its nodes say in each state the sources API reports, the words of a failed check or add
 // (with the storage named), the line of a passed check, the registry entry and the form before any answer. Pure and server-rendered: no browser.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ReactElement } from "react";

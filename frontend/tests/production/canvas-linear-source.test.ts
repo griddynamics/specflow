@@ -1,5 +1,6 @@
 // The Linear source on the canvas: what its nodes say in each state the sources API reports, the words of a failed check or add, the line of a
 // passed check and of the selection, the registry entry and the form. Pure and server-rendered: no browser.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ReactElement } from "react";

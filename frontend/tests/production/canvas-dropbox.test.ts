@@ -1,6 +1,7 @@
 // The Dropbox link source on the canvas: what its nodes say in each state the sources API reports, where a node opens, the words of a failed check or add,
 // the line of a passed check, the selection line, the toast of the way back from Dropbox, the form before any answer and the registry entry. Pure and
 // server-rendered: no browser.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ReactElement } from "react";

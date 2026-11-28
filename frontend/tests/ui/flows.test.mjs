@@ -1,25 +1,29 @@
-// P17 s06 (FE-BP-09.AC1, D09): the hello UI tests ported to the new screens on the production routes. UI behaviour (AC-12.2,
-// AC-12.3, AC-6.5 OIDC sign-in, AC-6.7 logout; FE-BP-03, FE-BP-08) driven with the already installed Playwright chromium against the
-// BUILT server, the stub issuer + stub API (no backend, no model call). Ports 3213-3216. Time-dependent checks use Playwright's fake clock.
-// Mapping (TECH-SPECS §1.7): `/` project list + create form -> `/` (the V2 start page: the newest project's canvas, or the first-run window);
-// `/projects/<id>` upload -> Mission Control, now the sources screen (GDRIVE plan 07): Local files card, parse on the server.
+// P17 s06 (FE-BP-03, FE-BP-09.AC1, D09): the UI tests of the production routes that stayed after the legacy screens went. UI behaviour
+// (AC-6.5 OIDC sign-in, AC-6.7 logout, AC-12.2) driven with the already installed Playwright chromium against the BUILT server, the stub
+// issuer + stub API (no backend, no model call). Ports 3213-3216. `/` is V2Home (D12): its first-run window, its project menu, and what
+// it says when the projects cannot be read.
+//
+// The Mission Control upload/build coverage that lived here was deleted, not ported: the V2 path is already covered — the Upload form
+// and its Content-Types, refusals and cap in upload-formats-production.spec.ts, the upload node and its files in
+// feedback-1-production.spec.ts, the Build dialog (Medium the default, High posts {reasoning_level: 3}, Cancel posts nothing) in
+// canvas-connectors-production.spec.ts, the whole build/gaps/plan journey in v2-journey-production.spec.ts, and the unknown-project
+// gates of v2-production.spec.ts. The one assertion without a V2 home was the body of a build started on the DEFAULT reasoning level
+// ({"reasoning_level":2}); canvas-connectors proves Medium is the default selection and the level numbering is the backend contract.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
 import { frontendEnv, startFrontend } from "../support/servers.mjs";
 import { startOidcStack } from "../support/oidc-stack.mjs";
 import { oidcLogin } from "../support/session.mjs";
-import { syntheticPdf } from "../support/pdf.mjs";
 
 const FE_PORT = 3213;
 const API_PORT = 3214;
 const ISSUER_PORT = 3216;
 const EMAIL = "ui.user@example.test";
-const TIMING = { parseMs: 1500, summarizeMs: 1500, parseOutcome: "parsed" };
 let stack, api, fe, browser, jar;
 
 before(async () => {
-  stack = await startOidcStack({ issuerPort: ISSUER_PORT, apiPort: API_PORT, defaultEmail: EMAIL, api: TIMING });
+  stack = await startOidcStack({ issuerPort: ISSUER_PORT, apiPort: API_PORT, defaultEmail: EMAIL });
   api = stack.api;
   fe = await startFrontend({ port: FE_PORT, env: frontendEnv(FE_PORT, { APP_ENV: "local", ...stack.env }) });
   jar = await oidcLogin(fe.base, EMAIL);
@@ -32,7 +36,7 @@ after(async () => {
   await stack?.close();
 });
 
-async function newPage({ loggedIn = true, clock = false } = {}) {
+async function newPage({ loggedIn = true } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   if (loggedIn) {
     const cookies = jar
@@ -47,28 +51,8 @@ async function newPage({ loggedIn = true, clock = false } = {}) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
-  if (clock) await page.clock.install();
   return { context, page, errors };
 }
-
-const bff = (path, init = {}) =>
-  fetch(`${fe.base}/api/backend${path}`, {
-    ...init,
-    headers: { cookie: jar.header(), origin: fe.base, "x-requested-with": "specflow", "content-type": "application/json", ...init.headers },
-  });
-
-async function seedProject(name) {
-  return (await (await bff("/projects", { method: "POST", body: JSON.stringify({ name }) })).json()).id;
-}
-const mc = (pid) => `${fe.base}/projects/${pid}/mission-control`;
-const fileInput = (page) => page.getByTestId("mcs-upload-input");
-const calls = (pid, action) =>
-  api.log.filter((e) => e.method === "POST" && e.path.startsWith(`/api/v1/projects/${pid}/documents/`) && e.path.endsWith(`/${action}`))
-    .length;
-// The project's source cards; the tests below add Local files only, and they check that the card is the upload kind.
-const card = (page) => page.getByTestId("source-card");
-// The card once the server parsed its files and the poll read it: its state text (from the same state as `data-state`) is "Done".
-const doneCard = (page) => card(page).filter({ has: page.getByTestId("source-state-text").filter({ hasText: /^Done$/ }) });
 
 test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: OIDC sign-in button, the first-run window of `/` creates a project, sign out ends the session", async () => {
   const { context, page, errors } = await newPage({ loggedIn: false });
@@ -96,131 +80,6 @@ test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: OIDC sign-in button, the first-run
     assert.equal(back.pathname + back.search, "/login?signedout=idp", "the provider returns to /login, which signs in again at once");
     // The stub issuer keeps no session of its own, so that sign-in lands on `/` and the newest canvas again; the app session was replaced.
     await page.getByRole("button", { name: "Account" }).waitFor();
-    assert.deepEqual(errors, []);
-  } finally {
-    await context.close();
-  }
-});
-
-test("AC-12.2, K4, K5: Local files through the sources screen send the raw PDF, show the Local files card, the server parses (no browser parse), and the Build button unlocks and starts the knowledge build after the confirm (AC-U17)", async () => {
-  const pid = await seedProject(`Upload ${Date.now()}`);
-  const { context, page, errors } = await newPage();
-  try {
-    const uploads = [];
-    page.on("request", (r) => {
-      if (r.method() === "POST" && r.url().includes("/files?filename=")) uploads.push(r);
-    });
-    await page.goto(mc(pid));
-    await page.getByTestId("mcs-empty").waitFor();
-    assert.equal(await card(page).count(), 0);
-    const pdf = syntheticPdf(4096);
-    await fileInput(page).setInputFiles({ name: "spec one.pdf", mimeType: "application/pdf", buffer: pdf });
-    await card(page).waitFor();
-    assert.equal(await card(page).getAttribute("data-kind"), "upload");
-    await doneCard(page).waitFor({ timeout: 20_000 }); // parsed by the server, read by the poll
-    assert.equal(uploads.length, 1);
-    const headers = await uploads[0].allHeaders();
-    assert.equal(headers["content-type"], "application/pdf");
-    assert.equal(headers["x-requested-with"], "specflow");
-    assert.ok(uploads[0].url().includes("filename=spec%20one.pdf"));
-    const stored = api.log.filter((e) => e.path.includes("/files?filename=")).at(-1);
-    assert.equal(stored.bytes, pdf.length);
-    assert.equal(stored.head, "%PDF-", "raw body: the first bytes are the PDF, not a multipart boundary");
-    assert.equal(calls(pid, "parse"), 0, "the browser never calls parse (K5)");
-    assert.equal(calls(pid, "summarize"), 0, "the browser never calls summarize (K1, K5)");
-    assert.equal(await page.getByTestId("screen-mission-control").getAttribute("data-phase"), "ready_to_build");
-    // AC-U17: unlocked, a click opens the confirm and sends nothing; Build starts POST graph_build; "Not available yet" is gone.
-    const before = api.log.length;
-    await page.getByTestId("kb-build").click();
-    await page.getByTestId("kb-build-dialog").waitFor();
-    assert.deepEqual(
-      api.log.slice(before).filter((e) => e.method !== "GET"),
-      [],
-      "the click sent no write (the confirm comes first); the screen's own polling GETs are fine",
-    );
-    assert.equal(await page.getByText("Not available yet").count(), 0);
-    assert.equal(await page.getByText(/\bdemo\b/i).count(), 0, "production never says demo");
-    // The button shows Building… before the stub has logged the POST, so wait for the response of that POST itself.
-    const buildPosted = page.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith(`/projects/${pid}/graph_build`));
-    await page.getByTestId("kb-build-dialog-confirm").click();
-    await buildPosted;
-    await page.getByTestId("kb-build-dialog").waitFor({ state: "detached" });
-    // The button shows the build (Building…, or already Update knowledge once the stub finished it); then the POST is in the log.
-    await page
-      .getByTestId("kb-build")
-      .filter({ hasText: /Building…|Update knowledge/ })
-      .waitFor();
-    const started = api.log.filter((e) => e.method === "POST" && e.path === `/api/v1/projects/${pid}/graph_build`);
-    assert.equal(started.length, 1, "one POST graph_build");
-    assert.equal(started[0].bodyText, '{"reasoning_level":2}', "the default level (Medium) is sent");
-    assert.equal(await page.getByText("Not available yet").count(), 0);
-    // K3: GitHub is not offered in Add source; Google Drive and Local files are.
-    await page.getByTestId("mcs-add-source").click();
-    await page.getByRole("menuitem", { name: /Google Drive/ }).waitFor();
-    assert.equal(await page.getByRole("menuitem", { name: /GitHub/ }).count(), 0);
-    assert.equal(await page.getByRole("menuitem", { name: /Local files/ }).count(), 1);
-    assert.equal(await page.getByText("Upload PDF, Office, HTML, Markdown or CSV files").count(), 1);
-    assert.match(await fileInput(page).getAttribute("accept"), /^\.pdf,application\/pdf,\.docx,/);
-    assert.deepEqual(errors, []);
-  } finally {
-    await context.close();
-  }
-});
-
-test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second document; an unsupported type is not sent (the refusal toast names it) and the good file stays", async () => {
-  const pdf = syntheticPdf(300);
-  const pid = await seedProject(`Dup and non-PDF ${Date.now()}`);
-  const { context, page, errors } = await newPage();
-  try {
-    await page.goto(mc(pid));
-    await page.getByTestId("mcs-empty").waitFor();
-    await fileInput(page).setInputFiles([
-      { name: "same.pdf", mimeType: "application/pdf", buffer: pdf },
-      { name: "same copy.pdf", mimeType: "application/pdf", buffer: pdf },
-      { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a pdf") },
-    ]);
-    await page
-      .getByText(
-        /notes\.txt was not added\. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV, Diagram, Diagram SVG or Diagram PNG files/,
-      )
-      .waitFor({ timeout: 15_000 });
-    // The success toast does not call the duplicate "added".
-    await page.getByText("1 file added", { exact: true }).waitFor({ timeout: 15_000 });
-    await page.getByText("1 file is already in this project; nothing new was added.").waitFor({ timeout: 15_000 });
-    const uploadsOf = (p) =>
-      api.log.filter(
-        (e) => e.method === "POST" && e.path.startsWith(`/api/v1/projects/${p}/sources/`) && e.path.includes("/files?filename="),
-      );
-    for (const end = Date.now() + 5000; uploadsOf(pid).length < 2 && Date.now() < end;) await new Promise((r) => setTimeout(r, 50));
-    assert.equal(uploadsOf(pid).length, 2, "the PDFs went to the API, one request each; the text file never did");
-    assert.equal(uploadsOf(pid).at(-1).contentType, "application/pdf");
-    const docs = (await (await bff(`/projects/${pid}/documents`)).json()).items;
-    assert.equal(docs.length, 1, "the duplicate and the rejected file add no document");
-    await doneCard(page).waitFor({ timeout: 20_000 }); // parsed by the server, read by the poll
-    assert.equal(await card(page).getAttribute("data-kind"), "upload");
-    assert.equal(await card(page).getByTestId("source-counts").textContent(), "1 file"); // FR-SRC-0003
-    assert.equal(calls(pid, "parse"), 0);
-    assert.deepEqual(errors, []);
-  } finally {
-    await context.close();
-  }
-});
-
-test("FE-BP-03.AC10, AC7: an unknown or non-UUID project id leads to `/` (the newest canvas), `/projects/<id>` is that canvas and the old document route still redirects", async () => {
-  const pid = await seedProject(`Newest ${Date.now()}`);
-  const { context, page, errors } = await newPage();
-  try {
-    for (const bad of ["00000000-0000-0000-0000-000000000000", "not-a-uuid"]) {
-      await page.goto(`${fe.base}/projects/${bad}/gaps`);
-      await page.waitForURL(`${fe.base}/projects/${pid}`, { timeout: 15_000 }); // -> `/` -> the newest project's canvas (O12, V2 AC1)
-    }
-    const canvas = await fetch(`${fe.base}/projects/${pid}`, { redirect: "manual", headers: { cookie: jar.header() } });
-    assert.equal(canvas.status, 200, "the canvas of the project");
-    for (const old of [`/projects/${pid}/documents/00000000-0000-0000-0000-000000000001`]) {
-      const res = await fetch(fe.base + old, { redirect: "manual", headers: { cookie: jar.header() } });
-      assert.equal(res.status, 307, old);
-      assert.equal(new URL(res.headers.get("location"), fe.base).pathname, `/projects/${pid}/mission-control`, old);
-    }
     assert.deepEqual(errors, []);
   } finally {
     await context.close();

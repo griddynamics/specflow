@@ -1,10 +1,10 @@
-// The gap check status line of the Gaps screen: `GapsPort.check` over `GET .../gap/runs/latest` and `GET .../graph_build`, and its words.
-// Layer U: the wire parser and the words. Layer P: the port against a fake `fetch`.
+// The gap check the V2 canvas hub reads: `GapsPort.check` over `GET .../gap/runs/latest` and `GET .../graph_build`.
+// Layer U: the wire parser (the status line's words were the V1 Gaps screen's and went with it). Layer P: the port against a fake `fetch`.
 import { test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createHttpGaps, toGapCheck } from "@/lib/data/http/gaps";
+import { checkProgress } from "@/components/shared/gaps/gaps-logic";
 import type { GapCheck } from "@/lib/domain/gaps";
-import { checkActive, checkFoundText, checkProgress, checkStepText, checkText, whenText } from "@/components/shared/gaps/gaps-logic";
 
 const PID = "11111111-1111-4111-8111-111111111111";
 const RESULT = { run_id: "run-1", counts: { gaps_new: { total: 2 }, gaps_updated: { total: 9 }, close: { resolved: 1 } } };
@@ -34,10 +34,7 @@ test("a running gap run is running, with its step, items and the last run's coun
   assert.equal(c.phase, "running");
   assert.deepEqual([c.step, c.stepsDone, c.stepsTotal, c.itemsDone, c.itemsTotal], ["investigate", 5, 7, 7, 21]);
   assert.deepEqual([c.newGaps, c.updatedGaps, c.resolvedGaps], [2, 9, 1]);
-  assert.equal(checkActive(c), true);
-  assert.equal(checkStepText(c), "Step 6 of 7: Investigating · 7 of 21 sites");
   assert.equal(checkProgress(c), 76); // (5 + 7/21) of 7
-  assert.deepEqual(checkText(c), { title: "Looking for gaps", detail: "Step 6 of 7: Investigating · 7 of 21 sites" });
 });
 
 test("a running build before its gap run is building; a queued or running gap run wins over the build", () => {
@@ -45,54 +42,32 @@ test("a running build before its gap run is building; a queued or running gap ru
   assert.equal(toGapCheck({ ...completed, status: "queued" }, { status: "running" }).phase, "queued");
   assert.equal(toGapCheck(running, { status: "running" }).phase, "running");
   assert.equal(toGapCheck(completed, null).phase, "done"); // the build state could not be read
-  assert.equal(checkText(toGapCheck(completed, { status: "running" })).title, "Waiting for the knowledge build");
 });
 
-test("a finished run says when it finished and what it found", () => {
+test("a finished run keeps its counts; a result without some counts reads them as unknown", () => {
   const c = toGapCheck(completed, { status: "succeeded" });
   assert.equal(c.phase, "done");
-  assert.equal(checkActive(c), false);
-  assert.equal(checkFoundText(c), "2 new gaps, 9 updated, 1 resolved");
-  assert.deepEqual(checkText(c), {
-    title: `Gaps checked ${whenText("2026-11-17T12:28:46Z")}`,
-    detail: "2 new gaps, 9 updated, 1 resolved",
-  });
+  assert.deepEqual([c.newGaps, c.updatedGaps, c.resolvedGaps], [2, 9, 1]);
   const none = toGapCheck({ ...completed, result: { run_id: "run-3", counts: { gaps_new: { total: 0 } } } }, null);
-  assert.equal(checkFoundText(none), "No new gaps");
+  assert.deepEqual([none.newGaps, none.updatedGaps, none.resolvedGaps], [0, null, null]);
 });
 
-test("before the first run, a failed run and a degraded run say so in words", () => {
-  assert.deepEqual(checkText(toGapCheck({ status: "idle", result: null }, { status: "idle" })), {
-    title: "No gap check yet",
-    detail: "Specflow looks for gaps after each knowledge build.",
-  });
-  const failed = checkText(toGapCheck({ status: "failed", error_code: "gap_run_failed", result: null }, null));
-  assert.equal(failed.title, "The last gap check failed");
-  assert.match(failed.detail, /^Error code: gap_run_failed\. /);
-  const degraded = checkText(toGapCheck({ ...completed, status: "degraded" }, null));
-  assert.match(degraded.title, /^Gap check finished with problems /);
-  assert.match(degraded.detail, /Some parts could not be checked/);
+test("before the first run, a failed run and a degraded run are their own phases", () => {
+  assert.equal(toGapCheck({ status: "idle", result: null }, { status: "idle" }).phase, "never");
+  const failed = toGapCheck({ status: "failed", error_code: "gap_run_failed", result: null }, null);
+  assert.equal(failed.phase, "failed");
+  assert.equal(failed.errorCode, "gap_run_failed");
+  assert.equal(toGapCheck({ ...completed, status: "degraded" }, null).phase, "degraded");
 });
 
 test("an unknown status is an invalid response", () => {
   assert.throws(() => toGapCheck({ status: "sleeping" }, null));
 });
 
-test("progress stays within 0..100 and a run without steps shows only its step", () => {
+test("progress stays within 0..100", () => {
   const base: GapCheck = toGapCheck(running, null);
   assert.equal(checkProgress({ ...base, stepsTotal: 0 }), 0);
   assert.equal(checkProgress({ ...base, stepsDone: 7, itemsDone: 30 }), 100);
-  assert.equal(checkStepText({ ...base, stepsTotal: 0, itemsTotal: null }), "Investigating");
-  assert.equal(checkStepText({ ...base, step: null, itemsTotal: null }), "Step 6 of 7: Starting");
-  assert.equal(checkStepText({ ...base, itemsTotal: 0 }), "Step 6 of 7: Investigating"); // a step with no sites
-});
-
-test("only investigate counts sites; the last step is Finishing; a step not named shows its name and bare counts, never more done than in all", () => {
-  const base: GapCheck = toGapCheck(running, null);
-  assert.equal(checkStepText({ ...base, step: "finish", stepsDone: 6, itemsDone: null, itemsTotal: null }), "Step 7 of 7: Finishing");
-  assert.equal(checkStepText({ ...base, step: "merge", stepsDone: 6, itemsDone: 2, itemsTotal: 4 }), "Step 7 of 7: merge · 2 of 4");
-  assert.equal(checkStepText({ ...base, itemsDone: 30 }), "Step 6 of 7: Investigating · 21 of 21 sites");
-  assert.equal(checkStepText({ ...base, stepsTotal: 9 }), "Step 6 of 9: Investigating · 7 of 21 sites"); // another step count reads the same way
 });
 
 // ---- Layer P ----

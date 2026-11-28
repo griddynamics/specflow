@@ -13,7 +13,6 @@ import {
   type PlanStatusWire,
 } from "@/lib/data/http/plan";
 import { taskMarkdown } from "@/lib/domain/logic/plan";
-import { progressValue, stepRows } from "@/components/plan/progress/creating-steps";
 import { isDataError } from "@/lib/domain/errors";
 import type { PlanEvent, PlanState } from "@/lib/domain/plan";
 
@@ -301,19 +300,4 @@ test("create rejects with the API's refusal; preview reads the features; updateT
   await assert.rejects(port.create(PID), (e) => isDataError(e) && e.code === "conflict" && e.detail?.apiCode === "no_graph_build");
   assert.deepEqual((await port.preview(PID)).features, [{ specId: "F", name: "Pay" }]);
   await assert.rejects(port.updateTaskBody(PID, "t", { start: 0, end: 1 }, "x", 1), (e) => isDataError(e) && e.code === "not_available");
-});
-
-test("the running row of a long step shows its parts; the bar moves within the step and never reaches the next one", () => {
-  const known = { 1: READING, 2: "Writing the tasks" };
-  assert.deepEqual(stepRows(known, 2, { done: 84, total: 105 }), [
-    { label: READING, status: "done" },
-    { label: "Writing the tasks · 84 of 105 parts", status: "running" },
-  ]);
-  assert.deepEqual(stepRows(known, 2), [
-    { label: READING, status: "done" },
-    { label: "Writing the tasks", status: "running" },
-  ]);
-  assert.equal(progressValue(5, 10), 40);
-  assert.equal(progressValue(5, 10, { done: 50, total: 100 }), 45);
-  assert.ok(progressValue(5, 10, { done: 100, total: 100 }) < 50);
 });
