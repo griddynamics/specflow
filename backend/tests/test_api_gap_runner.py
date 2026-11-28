@@ -15,7 +15,6 @@ import pytest
 
 from api.gap.plan_view import PlanReaderView
 from api.gap.runner import RunnerClosedError
-from api.plan.state import NoGraphBuildError
 from gap_host_support import (
     NOISE,
     OTHER,
@@ -392,31 +391,7 @@ async def finished_run(runs: MemoryGapRunStore, run_id: str, build_id: str, *, s
     await runs.finish_run(PROJECT, GapRunResult(run_id=run_id, mode="update", build_id=build_id, status=status))
 
 
-# Full runs, noise reports, closing ---------------------------------------------------------------------------------
-
-
-async def test_a_full_run_needs_a_finished_build(tmp_path):
-    runner = make_gap_runner(tmp_path)
-
-    with pytest.raises(NoGraphBuildError):
-        await runner.start_full(PROJECT)
-
-
-async def test_a_full_run_runs_on_the_latest_build_and_a_second_start_joins_it(tmp_path):
-    await store_build(tmp_path, "build-1", minutes=0)
-    await store_build(tmp_path, "build-2", minutes=5)
-    run = StubGapRun(block=True)
-    runner = make_gap_runner(tmp_path, run)
-
-    first = await runner.start_full(PROJECT)
-    await asyncio.wait_for(run.started.wait(), 5)
-    second = await runner.start_full(PROJECT)
-    run.release.set()
-    await drained(runner)
-
-    assert first.status in {"queued", "running"} and second.status == "running"
-    assert run.modes == ["full"]
-    assert run.contexts[0].build.build_id == "build-2"
+# Noise reports, closing ---------------------------------------------------------------------------------
 
 
 async def test_the_noise_report_of_a_finished_run(tmp_path):
@@ -444,7 +419,7 @@ async def test_closing_cancels_the_running_run_and_refuses_new_ones(tmp_path):
     await runner.after_build(PROJECT, "build-1")
 
     with pytest.raises(RunnerClosedError):
-        await runner.start_full(PROJECT)
+        await runner.start_site(PROJECT, "GAP::1")
     assert len(run.contexts) == 1
     assert (await runner.status(PROJECT)).error_code == "interrupted"
 
@@ -491,6 +466,7 @@ class ApplyService:
 async def test_a_raised_gap_queues_a_site_run_at_the_head_on_the_build_of_the_last_gap_run_when_it_starts(tmp_path):
     await store_build(tmp_path, "build-1", minutes=0)
     await store_build(tmp_path, "build-2", minutes=5, report=REPORT)
+    await store_build(tmp_path, "build-3", minutes=10)
     runs = MemoryGapRunStore()
     await finished_run(runs, "run-1", "build-1")
     run = StubGapRun(block=True)
@@ -498,17 +474,17 @@ async def test_a_raised_gap_queues_a_site_run_at_the_head_on_the_build_of_the_la
 
     await runner.after_build(PROJECT, "build-2")
     await asyncio.wait_for(run.started.wait(), 5)
-    await runner.start_full(PROJECT)
+    await runner.after_build(PROJECT, "build-3")
     await runner.start_site(PROJECT, "GAP::NEW")
     queued = await runner.status(PROJECT)
     run.release.set()
     await drained(runner)
 
     assert queued.queued == 2
-    assert run.modes == ["update", "site", "full"]  # the site run goes before the waiting full run
+    assert run.modes == ["update", "site", "update"]  # the site run goes before the waiting update run
     assert run.site_ids == [(), ("GAP::NEW",), ()]
     # The site run reads the build of the latest finished gap run when it starts: the update run on build-2.
-    assert [context.build.build_id for context in run.contexts] == ["build-2", "build-2", "build-2"]
+    assert [context.build.build_id for context in run.contexts] == ["build-2", "build-2", "build-3"]
 
 
 async def test_a_site_run_without_a_gap_run_runs_on_the_latest_build(tmp_path):
@@ -540,7 +516,7 @@ async def test_a_run_with_ai_answers_leaves_them_staged_for_resolve_gaps(tmp_pat
     builds = BuildPort()
     runner.use_builds(builds)
 
-    await runner.start_full(PROJECT)
+    await runner.after_build(PROJECT, "build-1")
     await drained(runner)
 
     assert (await runner.status(PROJECT)).counts["ai_answered"] == 2

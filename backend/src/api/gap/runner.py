@@ -16,16 +16,14 @@ wait for the process's run slot. Triggers:
   are set and the build neither failed nor lists ``documents_incomplete`` in its settlement. A queued update that has
   not started is replaced by a newer one (its change reports start from the same gap run). It never raises into the
   build.
-- ``start_full``: ``POST .../gap/runs`` queues a ``full`` run on the latest finished build (once: a full run queued or
-  running is joined).
 - ``wait_idle``: the plan runner waits until the project's queue is drained before it plans, so the order after a
   build is build, gap run, plan run (lifecycle.md "Plan link"); a failed gap run is logged and never stops the plan.
 
-- ``start_site``: a gap a person raised (``POST .../gaps``) queues a ``site`` run on it at the head of the queue (never
-  beside the running run), on the build of the project's latest finished gap run, so the next update run's change
-  reports still start there.
+- ``start_site``: a gap raised on a project (a coding agent's ``add_finding``, ``agent_writes``) queues a ``site``
+  run on it at the head of the queue (never beside the running run), on the build of the project's latest finished
+  gap run, so the next update run's change reports still start there.
 - Answers (a person's, and the AI answers a run records) are staged: nothing applies them on a timer. "Resolve
-  gaps" (``POST /gaps/apply``, ``GapService.apply_now``) makes the staged amendments active and requests one update
+  gaps" (``GapService.apply_now``, called after an answer) makes the staged amendments active and requests one update
   build through the build runner (``use_builds``; answers.md "Applying answers"); only a development gap that blocks
   its story applies at once, inside ``answer_gap``.
 - ``start_recovery``: once per process, in the background, ``recover`` looks at every project of the application
@@ -300,24 +298,6 @@ class GapRunner:
                 error_code=error_code(hooked.error) if hooked.error is not None else None,
                 error_type=hooked.error_type,
             )
-
-    async def start_full(self, project_id: str) -> GapRunState:
-        """Queue a ``full`` run, or join the one queued or running (a double click is safe).
-
-        Raises ``NoGraphBuildError`` when the project has no finished graph build.
-        """
-
-        if self._closed:
-            raise RunnerClosedError("the gap runner is closed")
-        if await self._builds().latest_build(project_id, finished_only=True) is None:
-            raise NoGraphBuildError(project_id)
-        project = self._project(project_id)
-        joined = any(request.mode == "full" for request in project.queue) or (
-            project.active is not None and project.active.request.mode == "full"
-        )
-        if not joined:
-            self._enqueue(project_id, _Request("full"))
-        return await self.status(project_id)
 
     async def start_site(self, project_id: str, gap_id: str) -> None:
         """Queue a ``site`` run on one gap at the head of the queue (a raised gap gets its options at once)."""

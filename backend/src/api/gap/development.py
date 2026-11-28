@@ -1,8 +1,8 @@
 """Development gaps as the first-slice finding shapes (docs/graph/gap/lifecycle.md "Development gaps", api.md "MCP
 tools", "Web routes").
 
-A coding agent's ``add_finding`` is a development gap; its answer and the ``/projects/{pid}/findings`` alias routes
-still speak the finding shapes of the first slice. The mapping both ways:
+A coding agent's ``add_finding`` is a development gap; the agent routes and their views still speak the finding
+shapes of the first slice. The mapping both ways:
 
 | Finding kind | Gap kind |
 |---|---|

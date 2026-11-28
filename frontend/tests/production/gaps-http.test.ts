@@ -1,5 +1,5 @@
-// FR-GWEB-04, FR-GWEB-06, FR-GRTE-06: the production gaps port over `/projects/{pid}/gaps` and `/projects/{pid}/gap/runs/latest`
-// (reads; the writes moved to the agents and the Slack bot, D10), and the pure logic of the former Gaps screen and the Plan's gap links.
+// FR-GWEB-04, FR-GRTE-06: the production gaps port over `/projects/{pid}/gaps` and `/projects/{pid}/gap/runs/latest`
+// (reads only; the writes moved to the agents and the Slack bot, D10), and the pure logic of the shared gap helpers and the Plan's gap links.
 // Layer U: the wire parsers and the words. Layer P: the port against a fake `fetch`.
 import { test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
