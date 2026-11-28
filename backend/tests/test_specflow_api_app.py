@@ -139,7 +139,7 @@ async def test_probe_requests_make_no_spans_but_other_requests_do(monkeypatch, v
 def test_the_exclude_hook_names_only_the_two_probes():
 
     assert untraced({"path": "/healthz"}) and untraced({"path": "/readyz"})
-    assert not untraced({"path": "/api/v1/projects/x/documents/y/summarize"})
+    assert not untraced({"path": "/api/v1/projects/x/gaps"})
     assert not untraced({})
 
 

@@ -1,7 +1,7 @@
 // The words and rules of the Box link source (docs/box/source.md), free of React: what a failed check or add says (the closed codes of the API), what a
 // passed check says, what a node says when its import stopped, and the toast of `?box=` on the way back from Box.
 import { isDataError } from "@/lib/domain/errors";
-import { bytesText } from "@/components/settings/github-logic";
+import { bytesText } from "@/components/shared/settings/github-logic";
 import type { BoxCheck, BoxCheckFile } from "@/lib/domain/sources";
 import { V2_COPY } from "../v2-copy";
 import { CANVAS_COPY } from "./canvas-copy";

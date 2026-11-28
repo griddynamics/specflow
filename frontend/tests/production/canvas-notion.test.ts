@@ -1,6 +1,7 @@
 // The Notion pages source on the canvas (stream D2, docs/notion/source.md): the checklist of what the bound member shared, the words of every
 // closed code of the list and the add, what the API's check says, and the same words reached through the http port against the stub API (tests/support/stub-notion.mjs).
 // Port 3342 (stub API). Pure and server-rendered: no browser.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";

@@ -16,7 +16,7 @@ import {
   clock,
   estimateText,
   when,
-} from "@/components/mission-control/sources/kb-logic";
+} from "@/components/shared/sources/kb-logic";
 import { defined } from "../support/defined";
 import { GRAPH_DEFAULTS, EXISTING_ENDPOINTS, jsonResponse, pdfFile, startEnv, waitFor, withHook, type Env } from "./p16-support";
 

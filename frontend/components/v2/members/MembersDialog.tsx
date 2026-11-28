@@ -5,7 +5,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { Button, Dialog, Row } from "@graphico/ui";
-import { useMembersController } from "@/components/settings/use-members-controller";
+import { useMembersController } from "@/components/shared/settings/use-members-controller";
 import { useRoutes } from "@/lib/data/provider";
 import { V2_COPY } from "../v2-copy";
 import { MembersNotice, MembersView } from "./MembersView";

@@ -1,7 +1,7 @@
 // docs/jira-sync/api.md#web-routes, ui.md#ports, oauth.md#routes: the production `JiraPort` over the three Jira routes of a project and
 // the caller's Atlassian connection. Every body is shape-checked (like `toMembersState`): any other shape is `invalid_response`. Failures
 // are `DataError`s whose `detail.apiCode` is the API code; a failed access check is an answer.
-import { authorizeAtlassian, checkJiraAccess, disconnectAtlassian, getAtlassianConnection, getJira, putJira } from "@/lib/api";
+import { authorizeAtlassian, checkJiraAccess, getAtlassianConnection, getJira, putJira } from "@/lib/api";
 import type {
   AtlassianConnection,
   JiraAccess,
@@ -141,9 +141,6 @@ export function createHttpJira(): JiraPort {
         expectShape(isRecord(body) && isString(body.url) && URL.canParse(body.url) && new URL(body.url).protocol === "https:");
         return body.url;
       });
-    },
-    disconnect: async () => {
-      await guard(() => disconnectAtlassian());
     },
   };
 }

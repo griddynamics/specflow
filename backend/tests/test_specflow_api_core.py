@@ -13,23 +13,7 @@ AUTH_ROUTES = [
     ("GET", "/api/v1/projects"),
     ("POST", "/api/v1/projects"),
     ("GET", "/api/v1/projects/00000000-0000-0000-0000-000000000001"),
-    ("GET", "/api/v1/projects/00000000-0000-0000-0000-000000000001/documents"),
-    (
-        "POST",
-        "/api/v1/projects/00000000-0000-0000-0000-000000000001/documents?filename=a.pdf",
-    ),
-    (
-        "GET",
-        "/api/v1/projects/00000000-0000-0000-0000-000000000001/documents/00000000-0000-0000-0000-000000000002",
-    ),
-    (
-        "POST",
-        "/api/v1/projects/00000000-0000-0000-0000-000000000001/documents/00000000-0000-0000-0000-000000000002/parse",
-    ),
-    (
-        "POST",
-        "/api/v1/projects/00000000-0000-0000-0000-000000000001/documents/00000000-0000-0000-0000-000000000002/summarize",
-    ),
+    ("GET", "/api/v1/projects/00000000-0000-0000-0000-000000000001/gaps"),
     ("POST", "/api/v1/projects/00000000-0000-0000-0000-000000000001/graph_build"),
     ("GET", "/api/v1/projects/00000000-0000-0000-0000-000000000001/graph_build"),
 ]
@@ -128,14 +112,11 @@ async def test_other_users_projects_are_404_never_403(harness):
     listing = (await harness.client.get("/api/v1/projects", headers=bob)).json()
     assert listing["items"] == []
     for method, path in (
-        ("GET", f"/api/v1/projects/{pid}/documents"),
-        (
-            "GET",
-            f"/api/v1/projects/{pid}/documents/00000000-0000-0000-0000-000000000002",
-        ),
-        ("POST", f"/api/v1/projects/{pid}/documents?filename=a.pdf"),
+        ("GET", f"/api/v1/projects/{pid}/plan"),
+        ("GET", f"/api/v1/projects/{pid}/gaps"),
+        ("GET", f"/api/v1/projects/{pid}/graph_build"),
     ):
-        response = await harness.client.request(method, path, headers={**bob, "Content-Type": "application/pdf"})
+        response = await harness.client.request(method, path, headers=bob)
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "project_not_found"
 
@@ -144,7 +125,7 @@ async def test_an_unknown_route_and_a_bad_uuid_use_the_envelope(harness):
     missing = await harness.client.get("/api/v1/nope", headers=bearer())
     assert missing.status_code == 404 and missing.json()["error"]["code"] == "not_found"
     # ``GET /projects/{pid}`` is a membership route now (a malformed id is its 404, B2); a typed path id still is 422.
-    bad = await harness.client.get("/api/v1/projects/not-a-uuid/documents", headers=bearer())
+    bad = await harness.client.get("/api/v1/projects/not-a-uuid/gaps", headers=bearer())
     assert bad.status_code == 422 and bad.json()["error"]["code"] == "validation_failed"
 
 

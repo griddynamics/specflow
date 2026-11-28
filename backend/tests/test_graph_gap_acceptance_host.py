@@ -18,7 +18,7 @@ from gap_agent_support import ALPHA, API_STORY, QUESTION, serve_gaps
 from gap_host_support import StubGapRun, drained, make_gap_runner, store_build
 from specflow_api_agent_support import agent_env
 from specflow_api_support import bearer
-from test_api_gap_routes import READ_ROUTES, WRITE_ROUTES, gap_project, url
+from test_api_gap_routes import READ_ROUTES, gap_project, url
 
 FRONTEND: Final = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -58,9 +58,10 @@ async def test_fr_gweb_01_host_run_gap_runs_process_at_time(harness, tmp_path) -
 async def test_fr_gweb_02_web_routes_serve_members_only(harness, monkeypatch) -> None:
     """Route tests: each route answers for a member and refuses a non-member.
 
-    Every route of ``api.routers.gaps`` is one of the route tables of ``test_api_gap_routes``; a member's call
-    reaches the gap service (any answer but ``project_not_found``), a non-member's answers ``404 project_not_found``
-    and calls nothing.
+    Every route of ``api.routers.gaps`` (the reads the canvas polls; the writes are service-layer calls behind the
+    Slack bot and the agent routes) is one of the route tables of ``test_api_gap_routes``; a member's call reaches
+    the gap service (any answer but ``project_not_found``), a non-member's answers ``404 project_not_found`` and
+    calls nothing.
     """
 
     async def no_document(*_: object) -> None:
@@ -70,18 +71,14 @@ async def test_fr_gweb_02_web_routes_serve_members_only(harness, monkeypatch) ->
     monkeypatch.setattr("api.routers.gaps.sources_repo.graph_corpus_document", no_document)
 
     templates = {(method, route.path) for route in gaps_router.routes for method in getattr(route, "methods", ())}
-    covered = {(method, _template(tail)) for method, tail in READ_ROUTES} | {
-        (method, _template(tail)) for method, tail, *_ in WRITE_ROUTES
-    }
+    covered = {(method, _template(tail)) for method, tail in READ_ROUTES}
     assert {(method, path.removeprefix("/projects/{pid}")) for method, path in templates} == covered
-    calls = [(method, tail, None) for method, tail in READ_ROUTES]
-    calls += [(method, tail, body) for method, tail, body, *_ in WRITE_ROUTES]
-    for method, tail, body in calls:
+    for method, tail in READ_ROUTES:
         runner, pid = await gap_project(harness)
-        stranger = await harness.client.request(method, url(pid, tail), json=body, headers=bearer("bob@example.com"))
+        stranger = await harness.client.request(method, url(pid, tail), headers=bearer("bob@example.com"))
         assert (stranger.status_code, stranger.json()["error"]["code"]) == (404, "project_not_found"), tail
         assert runner.gap_service.calls == [] and runner.starts == []
-        member = await harness.client.request(method, url(pid, tail), json=body, headers=bearer())
+        member = await harness.client.request(method, url(pid, tail), headers=bearer())
         assert member.status_code < 500, (tail, member.text)
         if member.status_code >= 400:
             assert member.json()["error"]["code"] != "project_not_found", tail
@@ -130,44 +127,20 @@ async def test_fr_gweb_03_mcp_tool_list_gaps(monkeypatch, valid_env) -> None:
     assert {item["finding_id"]: item["severity"] for item in node["findings"]}[gap_id] == "major"
 
 
-def test_fr_gweb_04_gaps_screen_show_inbox_filters_question_card() -> None:
+def test_fr_gweb_04_the_canvas_gaps_hub_counts_the_open_gaps() -> None:
     """End-to-end test on the built frontend with the shop corpus fixture.
 
-    The browser tests run in ``make e2e-production`` (Playwright on the built frontend, stub API with the shop-corpus
-    gaps of ``e2e-production/gaps-fixtures.ts``); here: they exist under the production config and cover the inbox,
-    the filters and the question card.
+    The browser test of ``make e2e-production`` (``canvas-connectors-production.spec.ts``): with the shop-corpus gaps
+    of ``gaps-fixtures.ts`` seeded through the stub API, the Gaps hub counts the open gaps by category, read-only.
     """
-
-    titles = _e2e_titles("FR-GWEB-04")
-    assert any("inbox" in title for title in titles)
-    assert any("filters" in title for title in titles)
-    assert any("question card" in title for title in titles)
-    assert any("Stage answer" in title for title in titles)
-    assert any("Resolve gaps" in title for title in titles)
-    assert any("'Answered by AI' tab" in title and "Revert" in title for title in titles)
-    assert any("noise report" in title for title in titles)
-
-
-def test_fr_gweb_06_the_gaps_screen_assigns_and_filters_by_assignee() -> None:
-    """End-to-end test: a member assigns a gap to a member from the menu in its row without opening the card, and the
-    Assigned filter and column show it.
-
-    The browser test of ``make e2e-production`` (``gaps-write-production.spec.ts``); here: it exists under the
-    production config.
-    """
-
-    titles = _e2e_titles("FR-GWEB-06")
-    assert any("assigns" in title and "Assigned" in title for title in titles)
-
-
-def _e2e_titles(unit_id: str) -> list[str]:
-    """The titles of the production browser tests that name ``unit_id`` (``playwright.production.config.ts``)."""
 
     config = (FRONTEND / "playwright.production.config.ts").read_text(encoding="utf-8")
     assert "e2e-production" in config
-    return [
+    titles = [
         match.group(1)
-        for spec in sorted((FRONTEND / "e2e-production").glob("gaps*-production.spec.ts"))
-        for match in re.finditer(r"test\(\s*[\"`]([^\"`]+)[\"`]", spec.read_text(encoding="utf-8"))
-        if unit_id in match.group(1)
+        for match in re.finditer(
+            r"test\(\s*[\"`]([^\"`]+)[\"`]",
+            (FRONTEND / "e2e-production" / "canvas-connectors-production.spec.ts").read_text(encoding="utf-8"),
+        )
     ]
+    assert any("Gaps hub counts the open gaps by category" in title for title in titles)

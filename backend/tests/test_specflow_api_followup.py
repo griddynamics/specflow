@@ -1,7 +1,7 @@
 """Tier 1 (+ one tier-2 check): the S7 follow-up fixes.
 
-Summarize model allow-list, filename classes, database outage as 503, the
-``Allow`` header on 405, the uvicorn server header and the storage prime.
+Database outage as 503, the ``Allow`` header on 405, the uvicorn server header
+and the storage prime.
 """
 
 from __future__ import annotations
@@ -28,135 +28,14 @@ from health import Readiness
 from logger_harness import events, fields
 from settings import load_settings
 from specflow_api_support import (
-    PDF,
     FakeGraphStore,
     FakeRepo,
     FakeTemporal,
     bearer,
 )
 from specflow_live import requires_live
-from test_specflow_api_workflows import post, row, uploaded
 
-# ---- 1. the summarize model ------------------------------------------------
-
-
-async def parsed(harness):
-    pid, did = await uploaded(harness)
-    row(harness, did).status = "parsed"
-    return pid, did
-
-
-async def test_an_absent_model_uses_agent_model(harness):
-    pid, did = await parsed(harness)
-    assert (await post(harness, pid, did, "summarize", json={})).status_code == 202
-    assert harness.temporal.calls[0]["arg"].model == "test/model"
-
-
-@pytest.mark.parametrize("model", ["other/model", "test/model ", " test/model", "TEST/MODEL", ""])
-async def test_a_different_model_is_422_model_not_allowed(harness, model):
-    pid, did = await parsed(harness)
-    response = await post(harness, pid, did, "summarize", json={"model": model})
-    assert response.status_code == 422
-    error = response.json()["error"]
-    assert error["code"] == "model_not_allowed"
-    assert model.strip() not in error["message"] or not model.strip()
-    assert "other" not in str(response.json())
-    assert not harness.temporal.calls
-    assert row(harness, did).summarization_status != "running"
-
-
-@pytest.mark.parametrize("model", ["x" * 200_000, "x" * 201, "a\r\nb", "a\nb", "a\x00b", "a\x7fb", "a\x85b"])
-async def test_an_oversized_or_control_character_model_is_422_validation(
-    harness,
-    model,
-):
-    pid, did = await parsed(harness)
-    response = await post(harness, pid, did, "summarize", json={"model": model})
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "validation_failed"
-    assert model not in response.text
-    assert not harness.temporal.calls
-
-
-async def test_the_workflow_input_never_holds_a_client_string(harness):
-    pid, did = await parsed(harness)
-    await post(harness, pid, did, "summarize", json={"model": "test/model"})
-    [call] = harness.temporal.calls
-    assert call["arg"].model is harness.runtime.settings.agent_run.model or (
-        call["arg"].model == harness.runtime.settings.agent_run.model
-    )
-    harness.temporal.calls.clear()
-    harness.runtime.settings = replace(
-        harness.runtime.settings,
-        agent_run=harness.runtime.settings.agent_run.model_copy(update={"model": "server/chosen"}),
-    )
-    row(harness, did).summarization_status = "idle"
-    rejected = await post(harness, pid, did, "summarize", json={"model": "test/model"})
-    assert rejected.status_code == 422  # only the server's current value is allowed
-    assert (await post(harness, pid, did, "summarize", json={})).status_code == 202
-    assert harness.temporal.calls[0]["arg"].model == "server/chosen"
-
-
-async def test_the_client_model_is_not_logged(harness, caplog):
-    pid, did = await parsed(harness)
-    hidden_model = "sneaky/model-name"
-    with caplog.at_level("DEBUG"):
-        await post(harness, pid, did, "summarize", json={"model": hidden_model})
-    assert hidden_model not in caplog.text
-
-
-# ---- 2. filenames ----------------------------------------------------------
-
-
-async def upload_named(harness, pid, filename):
-    return await harness.client.post(
-        f"/api/v1/projects/{pid}/documents",
-        params={"filename": filename},
-        content=PDF,
-        headers={**bearer(), "Content-Type": "application/pdf"},
-    )
-
-
-async def project(harness) -> str:
-    response = await harness.client.post("/api/v1/projects", json={"name": "p"}, headers=bearer())
-    return response.json()["id"]
-
-
-@pytest.mark.parametrize(
-    "filename",
-    [
-        "a\u202etxt.pdf",  # right-to-left override (Cf)
-        "a\u200bb.pdf",  # zero-width space (Cf)
-        "a\u2066b.pdf",  # bidi isolate (Cf)
-        "a\u0085b.pdf",  # next line (Cc)
-        "a\u2028b.pdf",  # line separator (Zl)
-        "a\u2029b.pdf",  # paragraph separator (Zp)
-        "a\tb.pdf",
-        "..",
-        ".",
-        "x/..",
-    ],
-)
-async def test_unsafe_filenames_are_422(harness, filename):
-    pid = await project(harness)
-    response = await upload_named(harness, pid, filename)
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "validation_failed"
-    assert not harness.repo.documents
-
-
-@pytest.mark.parametrize(
-    "filename",
-    ["zażółć gęślą jaźń.pdf", "報告書 2026.pdf", "Ünïcode-ñame.pdf", "a b.pdf"],
-)
-async def test_international_filenames_are_accepted(harness, filename):
-    pid = await project(harness)
-    response = await upload_named(harness, pid, filename)
-    assert response.status_code == 201
-    assert response.json()["document"]["original_filename"] == filename
-
-
-# ---- 3. database outage ----------------------------------------------------
+# ---- 1. database outage ----------------------------------------------------
 
 
 def raising_factory(error: BaseException):
@@ -268,7 +147,7 @@ async def test_a_real_unreachable_database_is_503(configured_database, valid_env
         await engine.dispose()
 
 
-# ---- 4. Allow header -------------------------------------------------------
+# ---- 2. Allow header -------------------------------------------------------
 
 
 async def test_a_405_keeps_the_allow_header(harness):
@@ -285,7 +164,7 @@ async def test_a_401_keeps_www_authenticate(harness):
     assert response.headers["www-authenticate"] == "Bearer"
 
 
-# ---- 5. server header ------------------------------------------------------
+# ---- 3. server header ------------------------------------------------------
 
 
 def test_the_uvicorn_config_hides_the_server_header_and_keeps_date(monkeypatch, valid_env):
@@ -304,7 +183,7 @@ def test_the_uvicorn_config_hides_the_server_header_and_keeps_date(monkeypatch, 
     assert seen["config"].date_header is True
 
 
-# ---- 6. storage prime ------------------------------------------------------
+# ---- 4. storage prime ------------------------------------------------------
 
 
 class Store:

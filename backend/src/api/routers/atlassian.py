@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 
 from api.deps import RuntimeDep, UserDep
 from api.errors import ApiError
@@ -95,11 +95,3 @@ async def atlassian_callback(body: AtlassianCallbackIn, runtime: RuntimeDep, use
         log_event(logger, INFO, "api.atlassian.callback.refused", user_id=str(user.id), code=code.value)
         raise ApiError(status, code.value, message) from None
     return AtlassianCallbackOut(connection=_out(runtime, view), return_to=return_to)
-
-
-@router.delete("", status_code=204)
-async def disconnect_atlassian(runtime: RuntimeDep, user: UserDep) -> Response:
-    """Delete the caller's connection; Atlassian's own grant is removed at id.atlassian.com/manage-profile/apps."""
-
-    await _connections(runtime).disconnect(user.id)
-    return Response(status_code=204)

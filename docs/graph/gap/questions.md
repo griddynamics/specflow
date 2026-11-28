@@ -62,6 +62,6 @@ with the design, each with its reason. Every spec file is written as decided; th
 | Agent runtime | An `Investigator` port; the default adapter is a bounded loop of structured calls through the core gateway; an optional host adapter uses the existing OpenAI Agents SDK runtime with graph reads as function tools | The loop runs in process with exact cost and caching; the tool agent reuses existing code where freer exploration pays off |
 | When gap runs | Automatically after every build that returns, before the plan run, incrementally; a full run on demand | Detectors are cheap; agents see only new or changed sites |
 | Dismissed gaps | Quiet until their signature changes | No nagging; a real change asks again |
-| Findings from coding agents | A finding is a gap with origin `development`, investigated at once; when it blocks a task, its answer is applied without waiting | One inbox and one answer path; the agent reads the updated spec |
+| Findings from coding agents | A finding is a gap with origin `development`, investigated at once; when it blocks a task, its answer is applied without waiting | One list and one answer path; the agent reads the updated spec |
 | Change-report wiring of the plan | The host passes build change reports to the plan run; ships first, as its own change | The plan library supports partial re-planning, but the host passes no reports, so every newer build re-plans everything |
 | First-slice findings | Replaced by `Gap`; existing findings are migrated | One gap type, one inbox |

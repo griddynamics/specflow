@@ -1,7 +1,7 @@
 ---
 type: Requirements
 title: "Jira sync requirements"
-description: "Requirement units of the Jira sync (compact form): settings, runs, mapping, update rules, reliability, MCP tools, Settings UI, non-functional"
+description: "Requirement units of the Jira sync (compact form): settings, runs, mapping, update rules, reliability, MCP tools, destination UI, non-functional"
 status: stable
 tags: [jira]
 ---
@@ -91,15 +91,15 @@ rows state behaviour and link the section that defines it; values live only ther
 | FR-JIRA-MCP-02 | `jira_sync_status` shall answer the last status, counts and the node-to-key items, paged as the list tools page (D34). | After a pass of 6 issues: counts `created` 6; `limit` 4 gives 4 items with keys and URLs and a `next_cursor`, the next page 2 items and `next_cursor` null; a forged cursor is `invalid_cursor`. |
 | FR-JIRA-MCP-03 | The tools shall answer `jira_unavailable` and `jira_not_configured` as tool errors with the messages of [tools.md](../mcp-server/tools.md#error-codes). | Both codes reach the agent as those codes, not `internal_error`. |
 
-## Settings UI ([ui.md](ui.md))
+## Destination UI ([ui.md](ui.md))
 
 | ID | Requirement | Acceptance |
 |---|---|---|
-| FR-JIRA-UI-01 | The Settings header shall offer the tab "Jira" and `?tab=jira` shall open it. | Render and browser e2e: the header has "General" and "Jira"; the URL selects the tab. |
-| FR-JIRA-UI-02 | The primary button shall read "Check access" until a check of the current values passes, then "Save" (D22). | Render: after an ok check the button reads "Save"; typing in a field brings "Check access" back. |
-| FR-JIRA-UI-03 | The Switch shall be disabled until the target is saved and shall save `enabled` at once (D22). | Render: no target, the switch is disabled; browser e2e: typing the keys, "Check access", "Save", then the switch on sends one `PUT` with `enabled` true. |
-| FR-JIRA-UI-04 | The status line shall show the status as a word, never by colour alone. | Render: `partial` shows "Synced with errors". |
-| FR-JIRA-UI-05 | A collaborator shall see the tab read-only, and every user shall see the not available notice while `available` is false. | Render: collaborator view has no enabled control; `available: false` shows the notice and disables the form. |
+| FR-JIRA-UI-01 | The canvas Plan stage shall offer the "Send the plan to Jira" connector (space key, optional Epic key), and the Integrations page's Atlassian card shall connect the project's Atlassian account. | Render: the Plan stage's plus lists the Jira connector; the Integrations page holds the Atlassian card. |
+| FR-JIRA-UI-02 | The primary button shall read "Check access" until a check of the current values passes, then "Add destination" (D22). | Render: after an ok check the button reads "Add destination"; typing in a field brings "Check access" back. |
+| FR-JIRA-UI-03 | Add destination shall save the target with `enabled` true at once; there is no switch, and the plan syncs to the target once it exists (D22). | Browser e2e: typing the keys, "Check access", "Add destination" sends one `PUT` with `enabled` true. |
+| FR-JIRA-UI-04 | The Jira node shall show the destination and its status as a word, never by colour alone. | Render: `partial` shows "Synced with errors". |
+| FR-JIRA-UI-05 | A caller the server answers `editable` false shall see the form read-only, and every user shall see the not available line while `available` is false. | Render: the read-only gate has no fields; `available: false` shows the line and no form. |
 
 ## Non-functional
 

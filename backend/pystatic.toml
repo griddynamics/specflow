@@ -155,8 +155,9 @@ files = ["tests/fixtures/runtime-defaults.json"]
 
 # ---------------------------------------------------------------- docs-bundle
 # The repository documentation tree (../docs): the graph library specification (docs/graph), the file
-# parsers (docs/file-parsers; each has its table of contents in INDEX.md) and the GD Liquid Glass design
-# system (docs/design-system).
+# parsers (docs/file-parsers), the product area specifications (projects, jira-sync, slack, mcp-server,
+# mission-control, github, notion, linear, sources, box, dropbox; most with their table of contents in
+# INDEX.md) and the configuration reference (configuration.md).
 [docs-bundle]
 root = "../docs"
 index-name = "INDEX.md"

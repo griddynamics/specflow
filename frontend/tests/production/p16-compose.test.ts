@@ -70,63 +70,46 @@ const http: HttpPorts = {
     addDrawio: never,
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
-  plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
-  work: { findings: never, close: never, claims: never, release: never },
+  plan: { state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
   gaps: {
     list: never,
-    get: never,
-    noise: never,
     check: never,
-    previewEdits: never,
-    answer: never,
-    dismiss: never,
-    assign: never,
-    raise: never,
-    applyNow: never,
-    aiAnswers: never,
-    revert: never,
-    noiseRules: never,
-    addNoiseRule: never,
-    removeNoiseRule: never,
   },
   members: { list: never, add: never, remove: never, cancelInvite: never, leave: never, suggest: never },
-  jira: { get: never, save: never, checkAccess: never, connection: never, authorize: never, disconnect: never },
+  jira: { get: never, save: never, checkAccess: never, connection: never, authorize: never },
   githubProjects: { get: never, projects: never, save: never, checkAccess: never },
   notionPlan: { get: never, save: never, checkAccess: never },
   notionConnection: { connection: never, authorize: never, disconnect: never },
   jiraGaps: { get: never, save: never, checkAccess: never },
   slack: { get: never, unbind: never, test: never },
   integrations: { list: never, connect: never, disconnect: never },
-  linear: { connection: never, authorize: never, disconnect: never },
+  linear: { connection: never, authorize: never },
   linearPlan: { get: never, teams: never, projects: never, save: never, checkAccess: never },
   linearSource: { check: never, add: never },
-  box: { connection: never, authorize: never, disconnect: never },
+  box: { connection: never, authorize: never },
   linearGaps: { get: never, save: never, checkAccess: never },
-  dropbox: { connection: never, authorize: never, disconnect: never },
+  dropbox: { connection: never, authorize: never },
   github: {
     connection: never,
     authorize: never,
     install: never,
-    disconnect: never,
     available: never,
     list: never,
     add: never,
     remove: never,
-    clone: never,
   },
 };
 const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github, integrations, linear, box, dropbox", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, gaps, members, jira, slack, github, integrations, linear, box, dropbox", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
   assert.equal(ports.sources, http.sources);
   assert.equal(ports.knowledge, http.knowledge);
   assert.equal(ports.plan, http.plan);
-  assert.equal(ports.work, http.work);
   assert.equal(ports.gaps, http.gaps); // FR-GWEB-04: the Gaps screen reads the real gap routes (no unavailable port)
   assert.equal(ports.members, http.members);
   assert.equal(ports.jira, http.jira);
@@ -234,7 +217,6 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "projects",
       "slack",
       "sources",
-      "work",
     ],
   );
 });

@@ -5,5 +5,3 @@ out/
 build/
 playwright-report/
 test-results/
-# Copy of the GD Liquid Glass design system: read-only.
-styles/ds/

@@ -6,7 +6,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button, Notice, PickList, PickRow } from "@graphico/ui";
-import { githubFailureOf, githubRowOf, pickRowsOf, type PickRow as Pick } from "@/components/settings/github-logic";
+import { githubFailureOf, githubRowOf, pickRowsOf, type PickRow as Pick } from "@/components/shared/settings/github-logic";
 import type { GitHubRepositoryList } from "@/lib/domain/github";
 import type { FormProps } from "../connector-types";
 import { HowTo } from "../HowTo";

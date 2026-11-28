@@ -235,20 +235,7 @@ async def test_the_authorize_url_is_atlassians_with_a_state_bound_to_the_caller(
     assert rig.connections._states.verify(state, str(rig.alice.id)) == "/p"
 
 
-async def test_disconnect_deletes_the_connection_and_logs_it(rig, caplog) -> None:
-    caplog.set_level("DEBUG")
-    rig.db.add(rig.alice.id)
-
-    answer = await call(rig, "DELETE", "integrations/atlassian")
-
-    assert answer.status_code == 204 and answer.content == b""
-    assert rig.db.rows == {}
-    assert [r for r in caplog.records if getattr(r, "event", None) == "api.atlassian.disconnected"]
-
-
-@pytest.mark.parametrize(
-    ("method", "path"), [("GET", ""), ("POST", "/authorize"), ("POST", "/callback"), ("DELETE", "")]
-)
+@pytest.mark.parametrize(("method", "path"), [("GET", ""), ("POST", "/authorize"), ("POST", "/callback")])
 async def test_the_connection_routes_need_a_signed_in_user(rig, method, path) -> None:
     body = {"return_to": "/p"} if path == "/authorize" else {"code": "c", "state": "s"} if path else None
 
@@ -269,10 +256,9 @@ async def test_outside_oauth_mode_the_connection_routes_answer_503_and_get_names
 
     authorize_answer = await call(rig, "POST", "integrations/atlassian/authorize", body={"return_to": "/p"})
     callback_answer = await call(rig, "POST", "integrations/atlassian/callback", body={"code": "c", "state": "s"})
-    delete_answer = await call(rig, "DELETE", "integrations/atlassian")
     get_answer = await call(rig, "GET", "integrations/atlassian")
 
-    for answer in (authorize_answer, callback_answer, delete_answer):
+    for answer in (authorize_answer, callback_answer):
         assert error_of(answer) == (503, "atlassian_oauth_unavailable")
     assert get_answer.json()["mode"] == (None if mode == "off" else "token")
     assert get_answer.json()["connected"] is False

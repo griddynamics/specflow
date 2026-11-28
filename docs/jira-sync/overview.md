@@ -22,7 +22,7 @@ overwritten, they get one comment per change instead.
 
 | In scope | Where |
 |---|---|
-| Per-project target: Jira project key, optional Epic key, on/off switch, access check | [api.md](api.md#web-routes), [ui.md](ui.md) |
+| Per-project target: Jira project key, optional Epic key, access check, saved on | [api.md](api.md#web-routes), [ui.md](ui.md) |
 | Automatic sync after each plan run that does not fail | [sync.md](sync.md#triggers-and-runs) |
 | Manual sync and status over MCP (`sync_to_jira`, `jira_sync_status`) | [api.md](api.md#agent-routes), [../mcp-server/tools.md](../mcp-server/tools.md#sync_to_jira) |
 | Mapping Epic, Story, Sub-task, labels, story points, description, `Blocks` links, rank, remote link | [sync.md](sync.md#mapping) |

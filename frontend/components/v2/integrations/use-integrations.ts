@@ -3,7 +3,7 @@
 // owner may disconnect what another member connected, AC6). `connect` and `disconnect` run the port call, say the result in a toast and
 // read the list again. Ports only.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { usePorts } from "@/lib/data/provider";
 import type { BindableApp, Integration, IntegrationApp } from "@/lib/domain/integrations";
 import { V2_COPY } from "../v2-copy";

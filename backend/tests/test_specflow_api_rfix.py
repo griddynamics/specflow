@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from types import SimpleNamespace
 
 import db.session as session_module
@@ -20,11 +19,10 @@ MUTATIONS = (
     "api.project.created",
     "api.document.uploaded",
     "api.document.parse_started",
-    "api.summary.started",
 )
 
 
-async def test_the_four_mutation_events_log_the_acting_user_and_no_email_or_token(
+async def test_the_mutation_events_log_the_acting_user_and_no_email_or_token(
     harness,
     caplog,
 ):
@@ -34,26 +32,25 @@ async def test_the_four_mutation_events_log_the_acting_user_and_no_email_or_toke
     with caplog.at_level("DEBUG"):
         created = await harness.client.post("/api/v1/projects", json={"name": "p"}, headers=headers)
         pid = created.json()["id"]
-        up = await harness.client.post(
-            f"/api/v1/projects/{pid}/documents?filename=a.pdf",
+        started = await harness.client.post(
+            f"/api/v1/projects/{pid}/sources/uploads", json={"expected_files": 1}, headers=headers
+        )
+        sid = started.json()["source"]["id"]
+        added = await harness.client.post(
+            f"/api/v1/projects/{pid}/sources/{sid}/files?filename=a.pdf",
             content=PDF,
             headers={**headers, **PDF_HEADERS},
         )
-        did = up.json()["document"]["id"]
-        base = f"/api/v1/projects/{pid}/documents/{did}"
-        assert (await harness.client.post(f"{base}/parse", headers=headers, json={})).status_code == 202
-        harness.repo.documents[uuid.UUID(did)].status = "parsed"
-        assert (await harness.client.post(f"{base}/summarize", headers=headers, json={})).status_code == 202
+        assert added.status_code == 201
 
+    [document] = harness.repo.documents.values()
+    did = str(document.id)
     [user] = harness.repo.users.values()
     for event in MUTATIONS:
-        # K5: the upload starts a parse, then the explicit click starts it again.
-        records = events(caplog, event)
-        assert len(records) == (2 if event == "api.document.parse_started" else 1)
-        for record in records:
-            logged = fields(record)
-            assert logged["user_id"] == str(user.id), event
-            assert logged["project_id"] == pid, event
+        [record] = events(caplog, event)
+        logged = fields(record)
+        assert logged["user_id"] == str(user.id), event
+        assert logged["project_id"] == pid, event
     for event in MUTATIONS[1:]:
         assert fields(events(caplog, event)[0])["document_id"] == did
     assert "carol.secret" not in caplog.text

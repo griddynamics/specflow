@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { createHttpAdapter, type HttpPorts } from "@/lib/data/http";
 import { deriveStatus, isReady, toStatus } from "@/lib/data/http/knowledge";
 import { sourceState } from "@/lib/domain/source-state";
-import { buildButtonView } from "@/components/mission-control/sources/kb-logic";
+import { buildButtonView } from "@/components/shared/sources/kb-logic";
 import { isDataError, type DataError } from "@/lib/domain/errors";
 import type { DriveReason } from "@/lib/domain/sources";
 import { jsonResponse, pdfFile, sleep, startEnv, stubCalls, textFile, waitFor, withHook, type Env } from "./p16-support";

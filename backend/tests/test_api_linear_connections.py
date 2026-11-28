@@ -1,4 +1,4 @@
-"""The ``/integrations/linear`` routes over the REST app: status, authorize, callback and disconnect, on a scripted
+"""The ``/integrations/linear`` routes over the REST app: status, authorize and callback, on a scripted
 Linear and an in-memory connection store. Without the Linear app configured they answer 503 ``linear_unavailable``."""
 
 from __future__ import annotations
@@ -126,16 +126,6 @@ async def test_get_shows_a_connection_the_workspace_revoked_as_revoked(rig) -> N
     assert shown.status_code == 200 and shown.json()["status"] == "revoked"
 
 
-async def test_delete_disconnects_the_caller_and_revokes_the_tokens(rig) -> None:
-    await connect(rig)
-
-    gone = await call(rig, "DELETE", "integrations/linear")
-    shown = await call(rig, "GET", "integrations/linear")
-
-    assert gone.status_code == 204 and shown.json()["status"] == "none"
-    assert sorted(rig.linear.revoked) == [("access-1", "access_token"), ("refresh-1", "refresh_token")]
-
-
 async def test_the_routes_answer_503_when_linear_is_not_configured(rig) -> None:
     rig.runtime.linear = None
 
@@ -143,8 +133,7 @@ async def test_the_routes_answer_503_when_linear_is_not_configured(rig) -> None:
         await call(rig, "GET", "integrations/linear"),
         await call(rig, "POST", "integrations/linear/authorize", ALICE, {"return_to": RETURN}),
         await call(rig, "POST", "integrations/linear/callback", ALICE, {"code": "c", "state": "s"}),
-        await call(rig, "DELETE", "integrations/linear"),
     ]
 
     assert answers[0].json() == {"available": False, "status": "none", "user_name": None, "workspace": None}
-    assert [error_of(a) for a in answers[1:]] == [(503, "linear_unavailable")] * 3
+    assert [error_of(a) for a in answers[1:]] == [(503, "linear_unavailable")] * 2

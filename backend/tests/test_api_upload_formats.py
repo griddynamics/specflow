@@ -1,8 +1,8 @@
 """Upload API for every accepted format: types, aliases, first bytes, byte caps.
 
-Both routes (legacy ``POST /documents`` and the batch ``POST /sources/{sid}/files``) share one path:
-the file extension picks the canonical type, the header must agree (or be a browser quirk of the
-table), the stream checks the first bytes and counts the bytes against the cap of the format.
+The batch ``POST /sources/{sid}/files`` route: the file extension picks the canonical type, the header
+must agree (or be a browser quirk of the table), the stream checks the first bytes and counts the bytes
+against the cap of the format.
 
 Sequence of one accepted upload (the stream never holds more than one buffer):
 
@@ -17,7 +17,6 @@ Sequence of one accepted upload (the stream never holds more than one buffer):
 from __future__ import annotations
 
 import hashlib
-from uuid import UUID
 
 import pytest
 
@@ -60,18 +59,6 @@ CANONICAL = [pytest.param(spec, id=spec.extension) for spec in FORMATS]
 async def project(harness) -> str:
     response = await harness.client.post("/api/v1/projects", json={"name": "p"}, headers=bearer(ALICE))
     return response.json()["id"]
-
-
-async def legacy(harness, pid, body, name, content_type):
-    headers = {
-        **bearer(ALICE),
-        **({} if content_type is None else {"Content-Type": content_type}),
-    }
-    return await harness.client.post(
-        f"/api/v1/projects/{pid}/documents?filename={name}",
-        content=body,
-        headers=headers,
-    )
 
 
 async def batch(harness, pid, body, name, content_type, *, sid=None):
@@ -121,25 +108,7 @@ def test_the_byte_caps_equal_the_parsers_own_file_caps():
 
 
 @pytest.mark.parametrize("spec", CANONICAL)
-async def test_the_legacy_upload_of_each_format_stores_the_canonical_type_and_key(harness, spec):
-    pid, body = await project(harness), BODIES[spec.format]
-    response = await legacy(harness, pid, body, f"file{spec.extension}", spec.media_type)
-    assert response.status_code == 201
-    document = response.json()["document"]
-    key = f"projects/{pid}/documents/{document['id']}/original{spec.extension}"
-    assert harness.store.objects == {key: body}
-    assert harness.store.content_types[key] == spec.media_type
-    row = harness.repo.documents[UUID(document["id"])]
-    assert (row.media_type, row.original_key, row.size_bytes) == (
-        spec.media_type,
-        key,
-        len(body),
-    )
-    assert row.content_hash == hashlib.sha256(body).hexdigest()
-
-
-@pytest.mark.parametrize("spec", CANONICAL)
-async def test_the_batch_upload_of_each_format_stores_the_type_key_and_category(harness, spec):
+async def test_the_batch_upload_of_each_format_stores_the_type_key_category_and_hash(harness, spec):
     pid, body = await project(harness), BODIES[spec.format]
     response = await batch(harness, pid, body, f"file{spec.extension}", spec.media_type)
     assert response.status_code == 201
@@ -147,13 +116,9 @@ async def test_the_batch_upload_of_each_format_stores_the_type_key_and_category(
     (document,) = harness.repo.documents.values()
     assert document.media_type == spec.media_type
     assert document.original_key == f"projects/{pid}/documents/{document.id}/original{spec.extension}"
+    assert (document.size_bytes, document.content_hash) == (len(body), hashlib.sha256(body).hexdigest())
     assert list(harness.store.objects) == [document.original_key]
-
-
-async def test_the_pdf_key_is_still_original_pdf(harness):
-    pid = await project(harness)
-    response = await legacy(harness, pid, PDF, "a.pdf", "application/pdf")
-    assert f"projects/{pid}/documents/{response.json()['document']['id']}/original.pdf" in harness.store.objects
+    assert harness.store.content_types[document.original_key] == spec.media_type
 
 
 # ---- browser quirks and the extension -------------------------------------------------------
@@ -194,12 +159,11 @@ QUIRKS = [
 
 
 @pytest.mark.parametrize(("name", "header", "media_type", "format_"), QUIRKS)
-@pytest.mark.parametrize("route", [legacy, batch], ids=["legacy", "batch"])
 async def test_browser_quirks_are_accepted_and_stored_with_the_canonical_type(
-    harness, route, *, name, header, media_type, format_
+    harness, *, name, header, media_type, format_
 ):
     pid = await project(harness)
-    response = await route(harness, pid, BODIES[format_], name, header)
+    response = await batch(harness, pid, BODIES[format_], name, header)
     assert response.status_code == 201
     (document,) = harness.repo.documents.values()
     assert document.media_type == media_type
@@ -208,16 +172,16 @@ async def test_browser_quirks_are_accepted_and_stored_with_the_canonical_type(
 
 async def test_a_known_extension_decides_over_a_trusted_but_different_header(harness):
     pid = await project(harness)
-    response = await legacy(harness, pid, PDF, "notes.pdf", "text/markdown")
+    response = await batch(harness, pid, PDF, "notes.pdf", "text/markdown")
     assert response.status_code == 415 and nothing_kept(harness)
 
 
 async def test_an_unknown_extension_needs_a_trusted_header_type(harness):
     pid = await project(harness)
-    assert (await legacy(harness, pid, BODIES[DocumentFormat.MARKDOWN], "notes.txt", "")).status_code == 415
-    assert (await legacy(harness, pid, BODIES[DocumentFormat.MARKDOWN], "notes.txt", "text/plain")).status_code == 415
+    assert (await batch(harness, pid, BODIES[DocumentFormat.MARKDOWN], "notes.txt", "")).status_code == 415
+    assert (await batch(harness, pid, BODIES[DocumentFormat.MARKDOWN], "notes.txt", "text/plain")).status_code == 415
     assert nothing_kept(harness)
-    accepted = await legacy(harness, pid, BODIES[DocumentFormat.MARKDOWN], "notes.txt", "text/markdown")
+    accepted = await batch(harness, pid, BODIES[DocumentFormat.MARKDOWN], "notes.txt", "text/markdown")
     assert accepted.status_code == 201
     (document,) = harness.repo.documents.values()
     assert document.media_type == "text/markdown" and document.original_key.endswith("/original.md")
@@ -225,10 +189,11 @@ async def test_an_unknown_extension_needs_a_trusted_header_type(harness):
 
 async def test_a_filename_cannot_choose_the_key(harness):
     pid = await project(harness)
-    response = await legacy(harness, pid, PDF, "..%2F..%2Fx.pdf", "application/pdf")
+    response = await batch(harness, pid, PDF, "..%2F..%2Fx.pdf", "application/pdf")
     assert response.status_code == 201
+    (document,) = harness.repo.documents.values()
     (key,) = harness.store.objects
-    assert key == f"projects/{pid}/documents/{response.json()['document']['id']}/original.pdf"
+    assert key == f"projects/{pid}/documents/{document.id}/original.pdf"
 
 
 # ---- 415 ------------------------------------------------------------------------------------
@@ -258,17 +223,16 @@ async def test_a_filename_cannot_choose_the_key(harness):
         ("sheet.xlsx", "application/vnd.ms-excel"),
     ],
 )
-@pytest.mark.parametrize("route", [legacy, batch], ids=["legacy", "batch"])
-async def test_an_unsupported_file_is_415_unsupported_format_and_leaves_nothing(harness, route, name, header):
+async def test_an_unsupported_file_is_415_unsupported_format_and_leaves_nothing(harness, name, header):
     pid = await project(harness)
-    response = await route(harness, pid, PDF, name, header)
+    response = await batch(harness, pid, PDF, name, header)
     assert response.status_code == 415 and code(response) == "unsupported_format"
     assert nothing_kept(harness)
 
 
 async def test_the_415_message_names_every_accepted_type(harness):
     pid = await project(harness)
-    message = (await legacy(harness, pid, PDF, "old.doc", "application/msword")).json()["error"]["message"]
+    message = (await batch(harness, pid, PDF, "old.doc", "application/msword")).json()["error"]["message"]
     for spec in FORMATS:
         assert spec.media_type in message and spec.extension in message
 
@@ -310,25 +274,23 @@ async def test_a_batch_415_is_answered_before_the_batch_state_matters(harness):
         ("a.md", "", b"\xc3"),  # a cut multi-byte character at the end of the body
     ],
 )
-@pytest.mark.parametrize("route", [legacy, batch], ids=["legacy", "batch"])
-async def test_a_body_that_does_not_fit_its_extension_is_415_and_leaves_nothing(harness, route, name, header, body):
+async def test_a_body_that_does_not_fit_its_extension_is_415_and_leaves_nothing(harness, name, header, body):
     pid = await project(harness)
-    response = await route(harness, pid, body, name, header)
+    response = await batch(harness, pid, body, name, header)
     assert response.status_code == 415 and code(response) == "unsupported_format"
     assert nothing_kept(harness)
 
 
-@pytest.mark.parametrize("route", [legacy, batch], ids=["legacy", "batch"])
-async def test_an_empty_body_is_400_empty_file(harness, route):
+async def test_an_empty_body_is_400_empty_file(harness):
     pid = await project(harness)
-    response = await route(harness, pid, b"", "a.md", "")
+    response = await batch(harness, pid, b"", "a.md", "")
     assert response.status_code == 400 and code(response) == "empty_file"
     assert nothing_kept(harness)
 
 
 async def test_a_one_byte_text_file_is_accepted(harness):
     pid = await project(harness)
-    assert (await legacy(harness, pid, b"#", "a.md", "")).status_code == 201
+    assert (await batch(harness, pid, b"#", "a.md", "")).status_code == 201
 
 
 async def test_utf8_with_a_bom_and_a_multibyte_character_at_the_chunk_edge_is_accepted(
@@ -337,15 +299,22 @@ async def test_utf8_with_a_bom_and_a_multibyte_character_at_the_chunk_edge_is_ac
     pid = await project(harness)
     text = b"\xef\xbb\xbf" + ("ż" * (uploads.TEXT_HEAD_BYTES * 2)).encode()
     pieces = chunks(text, uploads.TEXT_HEAD_BYTES + 1)  # the first piece ends inside a character
-    response = await legacy(harness, pid, pieces, "a.md", "")
+    response = await batch(harness, pid, pieces, "a.md", "")
     assert response.status_code == 201
     assert next(iter(harness.store.objects.values())) == text
 
 
 async def test_a_missing_filename_is_400_before_the_type_is_looked_at(harness):
     pid = await project(harness)
+    sid = (
+        await harness.client.post(
+            f"/api/v1/projects/{pid}/sources/uploads",
+            json={"expected_files": 3},
+            headers=bearer(ALICE),
+        )
+    ).json()["source"]["id"]
     response = await harness.client.post(
-        f"/api/v1/projects/{pid}/documents",
+        f"/api/v1/projects/{pid}/sources/{sid}/files",
         content=PDF,
         headers={**bearer(ALICE), "Content-Type": "application/pdf"},
     )
@@ -373,13 +342,12 @@ def test_the_byte_caps_are_the_n2_values():
 
 
 @pytest.mark.parametrize("spec", CANONICAL)
-@pytest.mark.parametrize("route", [legacy, batch], ids=["legacy", "batch"])
-async def test_a_body_over_the_cap_is_413_counted_while_streaming_and_leaves_nothing(harness, monkeypatch, route, spec):
+async def test_a_body_over_the_cap_is_413_counted_while_streaming_and_leaves_nothing(harness, monkeypatch, spec):
     monkeypatch.setitem(uploads.MAX_BYTES, spec.format, 5000)
     pid = await project(harness)
     body = BODIES[spec.format]
     body = body + b"a" * (5001 - len(body))  # one byte over the cap
-    response = await route(
+    response = await batch(
         harness, pid, chunks(body, 700), f"file{spec.extension}", spec.media_type
     )  # no length header
     assert response.status_code == 413 and code(response) == "file_too_large"
@@ -393,7 +361,7 @@ async def test_a_body_exactly_at_the_cap_is_accepted(harness, monkeypatch, spec)
     pid = await project(harness)
     body = BODIES[spec.format]
     body = body + b"a" * (5000 - len(body))
-    response = await legacy(harness, pid, chunks(body, 700), f"file{spec.extension}", spec.media_type)
+    response = await batch(harness, pid, chunks(body, 700), f"file{spec.extension}", spec.media_type)
     assert response.status_code == 201
 
 
@@ -408,7 +376,7 @@ async def test_an_oversized_declared_length_is_413_before_any_byte_is_read(harne
         return await original(key, **kw)
 
     monkeypatch.setattr(harness.store, "open_writer", spy)
-    response = await legacy(harness, pid, b"a,b\n" * 100, "t.csv", "text/csv")  # httpx sends Content-Length: 400
+    response = await batch(harness, pid, b"a,b\n" * 100, "t.csv", "text/csv")  # httpx sends Content-Length: 400
     assert response.status_code == 413 and code(response) == "file_too_large"
     assert opened == [] and nothing_kept(harness)
 
@@ -444,7 +412,7 @@ async def test_an_over_cap_stream_aborts_its_writer_and_never_buffers_the_body(h
         for _ in range(cap // len(piece) + 4):  # about 3 MiB past the cap
             yield piece
 
-    response = await legacy(harness, pid, body(), "big.pdf", "application/pdf")
+    response = await batch(harness, pid, body(), "big.pdf", "application/pdf")
     assert response.status_code == 413
     assert aborted == [True] and nothing_kept(harness)
     assert writes and max(writes) <= CHUNK_SIZE + len(piece)  # one buffer, not the whole body
@@ -454,7 +422,7 @@ async def test_an_over_cap_stream_aborts_its_writer_and_never_buffers_the_body(h
 async def test_the_413_message_names_the_limit_in_megabytes(harness, monkeypatch):
     monkeypatch.setitem(uploads.MAX_BYTES, DocumentFormat.HTML, 2 * MiB)
     pid = await project(harness)
-    response = await legacy(harness, pid, chunks(b"<p>" + b"a" * (2 * MiB), 600_000), "a.html", "text/html")
+    response = await batch(harness, pid, chunks(b"<p>" + b"a" * (2 * MiB), 600_000), "a.html", "text/html")
     assert response.status_code == 413
     assert "2 MB" in response.json()["error"]["message"]
 
@@ -477,14 +445,14 @@ def test_an_unknown_media_type_falls_into_other_files():
 async def test_a_drawio_png_must_start_with_the_png_signature_and_the_text_ones_must_not(harness):
     pid = await project(harness)
     text = BODIES[DocumentFormat.DRAWIO]
-    assert (await legacy(harness, pid, text, "a.drawio.png", "image/png")).status_code == 415
+    assert (await batch(harness, pid, text, "a.drawio.png", "image/png")).status_code == 415
     png = BODIES[DocumentFormat.DRAWIO_PNG]
     for name, header in (("a.drawio", "text/xml"), ("a.drawio.svg", "image/svg+xml")):
-        assert (await legacy(harness, pid, png, name, header)).status_code == 415
+        assert (await batch(harness, pid, png, name, header)).status_code == 415
     assert nothing_kept(harness)
 
 
 async def test_a_plain_png_or_svg_is_not_a_diagram_upload(harness):
     pid = await project(harness)
     for name, header in (("a.png", "image/png"), ("a.svg", "image/svg+xml")):
-        assert (await legacy(harness, pid, BODIES[DocumentFormat.DRAWIO_SVG], name, header)).status_code == 415
+        assert (await batch(harness, pid, BODIES[DocumentFormat.DRAWIO_SVG], name, header)).status_code == 415

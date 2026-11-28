@@ -85,15 +85,13 @@ test("a check answer keeps the listed files and the counts; any other shape is i
   }
 });
 
-test("the connection, the sign-in URL (https on dropbox.com) and the disconnect go through the API", async () => {
+test("the connection and the sign-in URL (https on dropbox.com) go through the API", async () => {
   assert.equal((await dropbox.connection()).connected, false);
   const url = await dropbox.authorize("/projects/p1/integrations");
   assert.equal(new URL(url).hostname, "www.dropbox.com");
   assert.deepEqual(JSON.parse(String(last().body)), { return_to: "/projects/p1/integrations" });
   ctx.api.dropbox.state.connection = { status: "active", name: "Dana Example", team_name: null };
   assert.equal((await dropbox.connection()).status, "active");
-  await dropbox.disconnect();
-  assert.deepEqual([last().method, last().path], ["DELETE", "/api/backend/integrations/dropbox"]);
 });
 
 test("a check lists the files; an add sends the unchecked ids as exclude; a refusal carries the API code", async () => {

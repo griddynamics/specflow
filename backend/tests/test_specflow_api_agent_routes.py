@@ -683,7 +683,7 @@ async def test_rest_responses_never_carry_the_user_id_header(monkeypatch, env):
         answers = [
             await rig.client.get("/api/v1/me", headers=web),
             await rig.client.get("/api/v1/projects", headers=web),
-            await rig.client.get(f"/api/v1/projects/{UNKNOWN_PROJECT}/documents", headers=web),  # a REST 404
+            await rig.client.get(f"/api/v1/projects/{UNKNOWN_PROJECT}/gaps", headers=web),  # a REST 404
             await rig.client.get("/api/v1/projects", params={"limit": 0}, headers=web),  # a REST 422
             await rig.client.get("/api/v1/projects"),  # a REST 401
         ]

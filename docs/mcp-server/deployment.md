@@ -1,11 +1,11 @@
 ---
 type: Design
 title: "MCP server deployment"
-description: "Running the mcp role, the public endpoint, identity provider setup, developer setup in Claude Code, the Guides pages of the web app, the local stack with Keycloak, and troubleshooting"
+description: "Running the mcp role, the public endpoint, identity provider setup, developer setup in Claude Code, the web app's MCP dialog, the local stack with Keycloak, and troubleshooting"
 status: stable
 tags: [mcp, deployment]
 ---
-# deployment.md: role and ingress, IdP setup, Claude Code setup, web app guides, the local stack with Keycloak and troubleshooting
+# deployment.md: role and ingress, IdP setup, Claude Code setup, the web app's MCP dialog, the local stack with Keycloak and troubleshooting
 
 ## Role and process
 
@@ -133,7 +133,7 @@ run it without an argument.
 Use `localhost`, never `127.0.0.1` (refused by the Host rule of [architecture.md](architecture.md#transport)). The server is named `specflow-local`, so it does not clash with a
 production `specflow` entry; its prompt is `/mcp__specflow-local__select_project`, and the `server` value in the
 binding file is `http://localhost:8002/mcp`. The local stack gives the web app `MCP_SERVER_NAME=specflow-local`, so the
-Guides page shows this name ([Guides in the web app](#guides-in-the-web-app)).
+MCP dialog shows this name ([The MCP dialog in the web app](#the-mcp-dialog-in-the-web-app)).
 
 The local endpoint signs in through the bundled Keycloak, like production through its IdP. After `make env-local` and
 `make up` ([Local stack](#local-stack)), add the server once:
@@ -152,29 +152,29 @@ Keycloak keeps no data between container creations ([Local stack](#local-stack))
 authenticate again. A static token or a `headersHelper` entry no longer exists; do not put a token in the tracked
 `.mcp.json`.
 
-### Guides in the web app
+### The MCP dialog in the web app
 
-The web app shows this developer setup with the deployment's own values, so a developer copies commands instead of
-editing placeholders.
+The web app shows this developer setup with the deployment's own values in the Integrations page's MCP dialog
+("Coding agents", **Connect**, or `?setup=mcp` with `next`), so a developer copies commands instead of editing
+placeholders.
 
-| Page | What it shows |
+| Where | What it shows |
 |---|---|
-| Guides › MCP server (`/guides/mcp-server`) | The steps of this section for Claude Code, with the address and client id inside the commands and the team file: add the server, sign in, bind a repository, check it. Each command has a copy button. A tools table lists the tools and the prompt ([architecture.md](architecture.md#tool-registry)) |
-| Plan › Develop | Per project: `/mcp__specflow__select_project <project id>` with the id filled in, the binding file as JSON ([tools.md](tools.md#the-binding-file)), and a link to the guide |
+| Step 1 | Add the server: the `claude mcp add` command with the address and client id inside ([Developer setup in Claude Code](#developer-setup-in-claude-code)) |
+| Step 2 | Sign in: `/mcp` |
+| Step 3 | Bind the project: `/mcp__<name>__select_project <project id>` with the open project's id filled in; the binding file is the JSON of [tools.md](tools.md#the-binding-file) |
 
-Only Claude Code has setup steps; Codex and Cursor show "Setup is in progress" until each is tested end to end
-([later.md](later.md)). `/guides/mcp-server?agent=claude-code`, `codex` or `cursor` selects the agent.
-
-The page has one set of steps in every deployment: add the server, sign in through the IdP, bind a repository, check it,
-and the team `.mcp.json`. Only the values come from configuration: the server name from `MCP_SERVER_NAME` (default
+Each command has a copy box. A note about other clients follows the steps, then Done. There is no agent picker: the
+steps are Claude Code's, the note names the other clients. The dialog has one set of steps in every deployment; only
+the values come from configuration: the server name from `MCP_SERVER_NAME` (default
 `specflow`; the local stack sets `specflow-local`), the address from `MCP_PUBLIC_URL` and the client id from
 `MCP_CLIENT_ID`. The server name is used in the add command, the team `.mcp.json` and the prompt
 `/mcp__<name>__select_project`.
 
-### Web app settings for the guides
+### Web app settings for the MCP dialog
 
 Operators set up to three settings on the web app, two from the same values as the `mcp` role. All are read on the server only:
-no `NEXT_PUBLIC_` variable exists, and the pages pass the values to the browser as props.
+no `NEXT_PUBLIC_` variable exists, and the Integrations page passes the values to the browser as props.
 
 | Web app setting | Same value as the `mcp` role | Default | Rule |
 |---|---|---|---|
@@ -208,7 +208,7 @@ person everywhere. There is no dev login and no `AUTH_MODE`. `make up WITH=keycl
 | Keys from containers | `AUTH_JWKS_URL` and the web app's `OIDC_INTERNAL_URL` on the compose network name `specflow-keycloak:8080` (accepted in local only) |
 | `mcp` | `APP_ENV=local`, `OIDC_ISSUER` and `AUTH_JWKS_URL` as above, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `API_INTERNAL_URL=http://specflow-api:8000`, `AUTH_ALLOWED_EMAIL_DOMAINS` from `.env.local` (your domain and `example.com`); no database or graph store variables |
 | `api` | the same issuer, JWKS URL, claim profile, email domains and `MCP_RESOURCE_URL` as `mcp`, so the agent routes are on |
-| Web app guide values | compose gives the web app `MCP_PUBLIC_URL=http://localhost:8002/mcp` (the web app's `PUBLIC_URL` is `http://localhost:3001`, so the default would be wrong here), `MCP_SERVER_NAME=specflow-local` and leaves `MCP_CLIENT_ID` at its default. Guides › MCP server at `http://localhost:3001/guides/mcp-server` shows the same steps as production with these values ([Guides in the web app](#guides-in-the-web-app)) |
+| Web app MCP values | compose gives the web app `MCP_PUBLIC_URL=http://localhost:8002/mcp` (the web app's `PUBLIC_URL` is `http://localhost:3001`, so the default would be wrong here), `MCP_SERVER_NAME=specflow-local` and leaves `MCP_CLIENT_ID` at its default. The Integrations page's MCP dialog at `http://localhost:3001/projects/<id>/integrations?setup=mcp` shows the same steps as production with these values ([The MCP dialog in the web app](#the-mcp-dialog-in-the-web-app)) |
 
 `make up` refuses to start (`check-keycloak-env`) when the env file lacks one of `KEYCLOAK_ADMIN_PASSWORD`,
 `KEYCLOAK_QA_PASSWORD`, `KEYCLOAK_WEB_CLIENT_SECRET`, `LOCAL_TEST_USER_EMAIL`, `LOCAL_TEST_USER_PASSWORD` or

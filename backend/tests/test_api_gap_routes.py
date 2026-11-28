@@ -1,7 +1,7 @@
-"""Tier 1: the gap routes (``api.routers.gaps``): the read routes, the full run, the run status, the noise report and
-the writes (raise, edits preview, answer, dismiss, assign, apply now, noise rules).
+"""Tier 1: the gap read routes (``api.routers.gaps``): the list with every filter and the latest run's status.
 
 The runner is a fake on ``Runtime.gaps`` and its ``GapService`` a fake too; handlers never touch the graph store.
+The writes are service-layer calls behind the Slack bot and the agent routes, not web routes.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from graph.gap import (
     GapNotFoundError,
     GapPage,
     GapRunResult,
-    GapStateError,
     GapView,
     NewGap,
     NoiseReport,
@@ -33,9 +32,8 @@ from graph.gap import (
     NoiseSection,
     RaisedGap,
     RevertResult,
-    StaleGapError,
 )
-from logger_harness import events, fields
+from logger_harness import events
 from specflow_api_support import bearer
 
 NOW = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
@@ -199,12 +197,13 @@ async def gap_project(harness) -> tuple[FakeGapRunner, uuid.UUID]:
     return runner, pid
 
 
+def user_id(harness, email: str = "alice@example.com") -> str:
+    return str(harness.repo.users[f"user:{email}"].id)
+
+
 READ_ROUTES = (
     ("GET", "/gaps"),
-    ("GET", "/gaps/GAP::A"),
-    ("POST", "/gap/runs"),
     ("GET", "/gap/runs/latest"),
-    ("GET", "/gap/runs/run-1/noise"),
 )
 
 
@@ -320,43 +319,6 @@ async def test_a_refused_cursor_or_argument_gets_400(harness, field, code):
     assert response.json()["error"]["code"] == code
 
 
-async def test_one_gap_and_an_unknown_one(harness):
-    _, pid = await gap_project(harness)
-
-    found = await harness.client.get(url(pid, "/gaps/GAP::A"), headers=bearer())
-    missing = await harness.client.get(url(pid, "/gaps/GAP::NONE"), headers=bearer())
-
-    assert found.status_code == 200 and found.json()["question"] == "Who provides it?"
-    assert missing.status_code == 404 and missing.json()["error"]["code"] == "gap_not_found"
-
-
-async def test_post_queues_a_full_run_and_answers_202(harness, caplog):
-    runner, pid = await gap_project(harness)
-
-    with caplog.at_level("INFO"):
-        response = await harness.client.post(url(pid, "/gap/runs"), headers=bearer())
-
-    assert response.status_code == 202
-    assert (response.json()["status"], response.json()["queued"]) == ("queued", 1)
-    assert runner.starts == [str(pid)]
-    [requested] = events(caplog, "api.gap.requested")
-    assert {key: fields(requested)[key] for key in ("project_id", "mode", "status")} == {
-        "project_id": str(pid),
-        "mode": "full",
-        "status": "queued",
-    }
-
-
-async def test_a_full_run_without_a_finished_build_gets_409(harness):
-    harness.runtime.gaps = FakeGapRunner()
-    pid = await project(harness)
-
-    response = await harness.client.post(url(pid, "/gap/runs"), headers=bearer())
-
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "no_graph_build"
-
-
 async def test_the_latest_run_answers_its_status_and_result(harness):
     _, pid = await gap_project(harness)
 
@@ -371,18 +333,6 @@ async def test_the_latest_run_answers_its_status_and_result(harness):
         {"gaps_new": 2},
     )
     assert body["result"]["counts"] == {"gaps_new": 2} and body["finished_at"] == "2026-11-05T09:00:00Z"
-
-
-async def test_the_noise_report_of_a_run_and_of_an_unknown_one(harness):
-    _, pid = await gap_project(harness)
-
-    found = await harness.client.get(url(pid, "/gap/runs/run-1/noise"), headers=bearer())
-    missing = await harness.client.get(url(pid, "/gap/runs/run-9/noise"), headers=bearer())
-    bad = await harness.client.get(url(pid, "/gap/runs/.hidden/noise"), headers=bearer())
-
-    assert found.status_code == 200 and found.json()["sections"][0]["relevance"] == "tracking"
-    assert missing.status_code == 404 and missing.json()["error"]["code"] == "gap_run_not_found"
-    assert bad.status_code == 422
 
 
 async def test_a_non_member_gets_404_on_every_route(harness):
@@ -406,355 +356,3 @@ async def test_without_a_gap_runner_every_route_answers_503(harness, caplog):
             assert response.status_code == 503, tail
             assert response.json()["error"]["code"] == "gap_unavailable"
     assert len(events(caplog, "api.gap.unavailable")) == len(READ_ROUTES)
-
-
-# Writes ----------------------------------------------------------------------------------------------------------
-
-ANSWER = {"option_rank": 1, "updated_at": "2026-11-05T09:00:00Z"}
-WRITE_ROUTES = (
-    ("POST", "/gaps", {"question": "Who provides the payment gateway?", "about": ["REQ-1"]}, 201, "raise_gap"),
-    ("POST", "/gaps/GAP::A/edits_preview", {"option_rank": 1}, 200, "preview_edits"),
-    ("POST", "/gaps/GAP::A/answer", ANSWER, 200, "answer_gap"),
-    ("POST", "/gaps/GAP::A/dismiss", {"reason": "not a gap"}, 204, "dismiss_gap"),
-    ("PUT", "/gaps/GAP::A/assignee", {"user_id": None}, 200, "assign_gap"),
-    ("POST", "/gaps/apply", None, 200, "apply_now"),
-    ("GET", "/gaps/noise_rules", None, 200, "noise_rules"),
-    ("POST", "/gaps/noise_rules", {"scope": "section", "value": "Status", "reason": "tracking"}, 201, "add_noise_rule"),
-    ("DELETE", f"/gaps/noise_rules/{RULE_ID}", None, 204, "remove_noise_rule"),
-    ("GET", "/gaps/ai_answers", None, 200, "ai_answers"),
-    ("POST", "/gaps/clarifications/CLR::1/revert", {"reason": "wrong"}, 200, "revert_clarification"),
-)
-WRITE_IDS = [call for *_, call in WRITE_ROUTES]
-
-
-def user_id(harness, email: str = "alice@example.com") -> str:
-    return str(harness.repo.users[f"user:{email}"].id)
-
-
-@pytest.mark.parametrize("route", WRITE_ROUTES, ids=WRITE_IDS)
-async def test_a_member_calls_every_write_route(harness, route):
-    method, tail, body, status, call = route
-    runner, pid = await gap_project(harness)
-
-    response = await harness.client.request(method, url(pid, tail), json=body, headers=bearer())
-
-    assert response.status_code == status, response.text
-    [(name, args, _)] = runner.gap_service.calls
-    assert (name, args[0]) == (call, str(pid))
-
-
-@pytest.mark.parametrize("route", WRITE_ROUTES, ids=WRITE_IDS)
-async def test_a_non_member_gets_404_on_every_write_route(harness, route):
-    method, tail, body, *_ = route
-    runner, pid = await gap_project(harness)
-
-    response = await harness.client.request(method, url(pid, tail), json=body, headers=bearer("bob@example.com"))
-
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "project_not_found"
-    assert runner.gap_service.calls == []
-    assert runner.sites == []
-
-
-@pytest.mark.parametrize("route", WRITE_ROUTES, ids=WRITE_IDS)
-async def test_without_a_gap_runner_every_write_route_answers_503(harness, route):
-    method, tail, body, *_ = route
-    assert harness.runtime.gaps is None
-    pid = await project(harness)
-
-    response = await harness.client.request(method, url(pid, tail), json=body, headers=bearer())
-
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "gap_unavailable"
-
-
-async def test_a_member_who_is_not_the_owner_answers_as_themselves(harness):
-    runner, pid = await gap_project(harness)
-    assert (await harness.client.get("/api/v1/projects", headers=bearer("bob@example.com"))).status_code == 200
-    bob = harness.repo.users["user:bob@example.com"].id
-    harness.repo.members.add((pid, bob))  # membership is the only access rule (FR-GANS-13)
-
-    answered = await harness.client.post(
-        url(pid, "/gaps/GAP::A/answer"), json=ANSWER, headers=bearer("bob@example.com")
-    )
-    dismissed = await harness.client.post(
-        url(pid, "/gaps/GAP::B/dismiss"), json={"reason": "duplicate"}, headers=bearer("bob@example.com")
-    )
-
-    assert answered.status_code == 200 and dismissed.status_code == 204
-    [(_, (_, answer), _), (_, dismiss_args, dismiss_kwargs)] = runner.gap_service.calls
-    assert answer.answered_by == str(bob) != user_id(harness)
-    assert (answer.gap_id, answer.option_rank, answer.updated_at) == ("GAP::A", 1, NOW)
-    assert dismiss_args == (str(pid), "GAP::B")
-    assert dismiss_kwargs == {"reason": "duplicate", "by": str(bob)}
-
-
-async def test_an_answer_is_staged_until_resolve_gaps(harness):
-    runner, pid = await gap_project(harness)
-
-    response = await harness.client.post(url(pid, "/gaps/GAP::A/answer"), json=ANSWER, headers=bearer())
-
-    assert response.status_code == 200
-    assert (response.json()["clr_id"], response.json()["immediate"], response.json()["apply_at"]) == (
-        "CLR::1",
-        False,
-        None,
-    )
-    [(name, (_, answer), _)] = runner.gap_service.calls
-    assert (name, answer.answered_by) == ("answer_gap", user_id(harness))
-
-
-async def test_an_immediate_answer_says_when_it_was_applied(harness):
-    runner, pid = await gap_project(harness)
-    runner.gap_service.immediate = True
-
-    response = await harness.client.post(url(pid, "/gaps/GAP::A/answer"), json=ANSWER, headers=bearer())
-
-    assert response.status_code == 200 and response.json()["immediate"] is True
-    assert datetime.fromisoformat(response.json()["apply_at"]) == NOW
-    assert [name for name, *_ in runner.gap_service.calls] == ["answer_gap"]
-
-
-async def test_resolve_gaps_applies_the_staged_answers_as_the_member(harness):
-    runner, pid = await gap_project(harness)
-
-    response = await harness.client.post(url(pid, "/gaps/apply"), headers=bearer())
-
-    assert response.status_code == 200
-    assert response.json()["gap_ids"] == ["GAP::A"]
-    [(name, (project_id,), kwargs)] = runner.gap_service.calls
-    assert (name, project_id, kwargs) == ("apply_now", str(pid), {"by": user_id(harness)})
-
-
-async def test_apply_now_with_nothing_pending_gets_409(harness):
-    runner, pid = await gap_project(harness)
-    runner.gap_service.fail["apply_now"] = GapStateError(status="none", allowed=("answered",))
-
-    response = await harness.client.post(url(pid, "/gaps/apply"), headers=bearer())
-
-    assert response.status_code == 409 and response.json()["error"]["code"] == "gap_wrong_state"
-
-
-@pytest.mark.parametrize(("created", "sites"), [(True, 1), (False, 0)])
-async def test_raising_a_gap_queues_a_site_run_only_when_it_is_new(harness, created, sites):
-    runner, pid = await gap_project(harness)
-    runner.gap_service.created = created
-    body = {"question": "Who provides the payment gateway?", "about": ["REQ-1"], "severity": "blocker"}
-
-    response = await harness.client.post(url(pid, "/gaps"), json=body, headers=bearer())
-
-    assert response.status_code == 201
-    assert response.json() == {"gap_id": "GAP::NEW", "created": created, "held": []}
-    [(_, (_, new), _)] = runner.gap_service.calls
-    assert (new.origin, new.created_by, new.about, new.severity) == ("person", user_id(harness), ("REQ-1",), "blocker")
-    assert runner.sites == [(str(pid), "GAP::NEW")] * sites
-
-
-async def test_the_edits_preview_passes_the_answer(harness):
-    runner, pid = await gap_project(harness)
-    body = {"own_text": "Stripe provides it.", "placement": "amend"}
-
-    response = await harness.client.post(url(pid, "/gaps/GAP::A/edits_preview"), json=body, headers=bearer())
-
-    assert response.status_code == 200 and response.json()["gap_id"] == "GAP::A"
-    [(_, args, kwargs)] = runner.gap_service.calls
-    assert args == (str(pid), "GAP::A")
-    assert kwargs == {"option_rank": None, "own_text": "Stripe provides it.", "placement": "amend"}
-
-
-@pytest.mark.parametrize("path", ["/gaps/GAP::A/edits_preview", "/gaps/GAP::A/answer"])
-@pytest.mark.parametrize("answer", [{}, {"option_rank": 1, "own_text": "Both."}], ids=["none", "both"])
-async def test_an_answer_needs_exactly_one_of_option_and_text(harness, path, answer):
-    runner, pid = await gap_project(harness)
-    body = {**answer, "updated_at": ANSWER["updated_at"]} if path.endswith("answer") else answer
-
-    response = await harness.client.post(url(pid, path), json=body, headers=bearer())
-
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "answer_invalid"
-    assert response.json()["error"]["details"] == {"field": "answer", "reason": "one_of_option_or_text"}
-    assert not runner.gap_service.calls
-
-
-@pytest.mark.parametrize(
-    "route",
-    [
-        ("/gaps/GAP::A/edits_preview", {"option_rank": 1}, "preview_edits"),
-        ("/gaps/GAP::A/answer", ANSWER, "answer_gap"),
-        ("/gaps/GAP::A/dismiss", {"reason": "not a gap"}, "dismiss_gap"),
-        ("/gaps/clarifications/CLR::1/revert", {"reason": "wrong"}, "revert_clarification"),
-    ],
-    ids=["preview", "answer", "dismiss", "revert"],
-)
-@pytest.mark.parametrize(
-    "refusal",
-    [
-        (GapNotFoundError(gap_id="GAP::A"), 404, "gap_not_found", {}),
-        (
-            GapStateError(status="resolved", allowed=("open", "answered")),
-            409,
-            "gap_wrong_state",
-            {"status": "resolved", "allowed": ["open", "answered"]},
-        ),
-        (
-            AnswerInvalidError(field="own_text", reason="too_long"),
-            400,
-            "answer_invalid",
-            {"field": "own_text", "reason": "too_long"},
-        ),
-    ],
-    ids=["not-found", "wrong-state", "invalid"],
-)
-async def test_a_refused_write_maps_to_its_error(harness, route, refusal):
-    tail, body, call = route
-    error, status, code, details = refusal
-    runner, pid = await gap_project(harness)
-    runner.gap_service.fail[call] = error
-
-    response = await harness.client.post(url(pid, tail), json=body, headers=bearer())
-
-    assert response.status_code == status
-    assert response.json()["error"]["code"] == code
-    assert (response.json()["error"].get("details") or {}) == details
-
-
-async def test_a_stale_answer_gets_409_gap_stale(harness):
-    runner, pid = await gap_project(harness)
-    runner.gap_service.fail["answer_gap"] = StaleGapError(gap_id="GAP::A")
-
-    response = await harness.client.post(url(pid, "/gaps/GAP::A/answer"), json=ANSWER, headers=bearer())
-
-    assert response.status_code == 409 and response.json()["error"]["code"] == "gap_stale"
-
-
-async def test_a_refused_raise_or_noise_rule_gets_400_answer_invalid(harness):
-    runner, pid = await gap_project(harness)
-    runner.gap_service.fail["raise_gap"] = AnswerInvalidError(field="about", reason="unknown_id")
-    runner.gap_service.fail["add_noise_rule"] = AnswerInvalidError(field="value", reason="invalid_pattern")
-    rule = {"scope": "pattern", "value": "(", "reason": "status lines"}
-
-    raised = await harness.client.post(
-        url(pid, "/gaps"), json={"question": "Who provides the payment gateway?"}, headers=bearer()
-    )
-    added = await harness.client.post(url(pid, "/gaps/noise_rules"), json=rule, headers=bearer())
-
-    assert raised.status_code == added.status_code == 400
-    assert raised.json()["error"]["details"] == {"field": "about", "reason": "unknown_id"}
-    assert added.json()["error"]["details"] == {"field": "value", "reason": "invalid_pattern"}
-    assert runner.sites == []
-
-
-async def test_noise_rules_are_listed_added_and_removed_by_the_member(harness):
-    runner, pid = await gap_project(harness)
-    rule = {"scope": "section", "value": "Status", "reason": "tracking"}
-
-    listed = await harness.client.get(url(pid, "/gaps/noise_rules"), headers=bearer())
-    added = await harness.client.post(url(pid, "/gaps/noise_rules"), json=rule, headers=bearer())
-    removed = await harness.client.delete(url(pid, f"/gaps/noise_rules/{RULE_ID}"), headers=bearer())
-
-    assert listed.status_code == 200 and [row["rule_id"] for row in listed.json()["rules"]] == [RULE_ID]
-    assert added.status_code == 201 and added.json() == {"rule_id": RULE_ID}
-    assert removed.status_code == 204
-    me = user_id(harness)
-    assert [(name, args) for name, args, _ in runner.gap_service.calls] == [
-        ("noise_rules", (str(pid),)),
-        ("add_noise_rule", (str(pid), "section", "Status", "tracking", me)),
-        ("remove_noise_rule", (str(pid), RULE_ID, me)),
-    ]
-
-
-async def test_removing_an_unknown_noise_rule_gets_404(harness):
-    runner, pid = await gap_project(harness)
-    runner.gap_service.removed = False
-
-    response = await harness.client.delete(url(pid, f"/gaps/noise_rules/{RULE_ID}"), headers=bearer())
-    malformed = await harness.client.delete(url(pid, "/gaps/noise_rules/NR::nope"), headers=bearer())
-
-    assert response.status_code == 404 and response.json()["error"]["code"] == "noise_rule_not_found"
-    assert malformed.status_code == 422
-
-
-async def test_the_review_list_and_a_revert_name_the_member_and_the_limit(harness):
-    runner, pid = await gap_project(harness)
-
-    listed = await harness.client.get(url(pid, "/gaps/ai_answers?limit=7"), headers=bearer())
-    reverted = await harness.client.post(
-        url(pid, "/gaps/clarifications/CLR::1/revert"), json={"reason": "wrong"}, headers=bearer()
-    )
-    too_many = await harness.client.get(url(pid, "/gaps/ai_answers?limit=500"), headers=bearer())
-
-    assert listed.status_code == 200 and listed.json() == {"answers": []}
-    assert reverted.status_code == 200 and reverted.json()["gap_id"] == "GAP::FOLLOW"
-    assert too_many.status_code == 422
-    [(_, _, list_kwargs), (_, revert_args, revert_kwargs)] = runner.gap_service.calls
-    assert list_kwargs == {"limit": 7}
-    assert revert_args == (str(pid), "CLR::1") and revert_kwargs == {"by": user_id(harness), "reason": "wrong"}
-
-
-async def test_the_noise_rules_route_is_not_read_as_a_gap_id(harness):
-    runner, pid = await gap_project(harness)
-
-    response = await harness.client.get(url(pid, "/gaps/noise_rules"), headers=bearer())
-
-    assert response.status_code == 200 and "rules" in response.json()
-    assert [name for name, _, _ in runner.gap_service.calls] == ["noise_rules"]
-
-
-# Assignment ------------------------------------------------------------------------------------------------------
-
-
-async def test_a_member_assigns_a_gap_to_another_member_and_clears_it(harness, caplog):
-    runner, pid = await gap_project(harness)
-    assert (await harness.client.get("/api/v1/projects", headers=bearer("bob@example.com"))).status_code == 200
-    bob = harness.repo.users["user:bob@example.com"].id
-    harness.repo.members.add((pid, bob))
-
-    with caplog.at_level("INFO"):
-        assigned = await harness.client.put(
-            url(pid, "/gaps/GAP::A/assignee"), json={"user_id": str(bob)}, headers=bearer()
-        )
-        cleared = await harness.client.put(
-            url(pid, "/gaps/GAP::A/assignee"), json={"user_id": None}, headers=bearer("bob@example.com")
-        )
-
-    assert assigned.status_code == 200 and assigned.json()["assigned_to"] == str(bob)
-    assert cleared.status_code == 200 and cleared.json()["assigned_to"] is None
-    assert [(args, kwargs) for _, args, kwargs in runner.gap_service.calls] == [
-        ((str(pid), "GAP::A", str(bob)), {"by": user_id(harness)}),
-        ((str(pid), "GAP::A", None), {"by": str(bob)}),
-    ]
-    logged = events(caplog, "api.gap.assigned")
-    assert [fields(record)["assigned"] for record in logged] == [True, False]
-
-
-async def test_assigning_to_someone_who_is_not_a_member_gets_400_and_changes_nothing(harness):
-    runner, pid = await gap_project(harness)
-    assert (await harness.client.get("/api/v1/projects", headers=bearer("bob@example.com"))).status_code == 200
-    stranger = harness.repo.users["user:bob@example.com"].id
-
-    response = await harness.client.put(
-        url(pid, "/gaps/GAP::A/assignee"), json={"user_id": str(stranger)}, headers=bearer()
-    )
-    malformed = await harness.client.put(url(pid, "/gaps/GAP::A/assignee"), json={"user_id": "bob"}, headers=bearer())
-    missing = await harness.client.put(url(pid, "/gaps/GAP::A/assignee"), json={}, headers=bearer())
-
-    assert response.status_code == 400 and response.json()["error"]["code"] == "assignee_not_member"
-    assert malformed.status_code == missing.status_code == 422
-    assert runner.gap_service.calls == []
-
-
-@pytest.mark.parametrize(
-    ("error", "status", "code"),
-    [
-        (GapNotFoundError(gap_id="GAP::A"), 404, "gap_not_found"),
-        (GapStateError(status="resolved", allowed=("open", "answered", "applying")), 409, "gap_wrong_state"),
-    ],
-    ids=["not-found", "resolved"],
-)
-async def test_a_refused_assignment_maps_to_its_error(harness, error, status, code):
-    runner, pid = await gap_project(harness)
-    runner.gap_service.fail["assign_gap"] = error
-
-    response = await harness.client.put(url(pid, "/gaps/GAP::A/assignee"), json={"user_id": None}, headers=bearer())
-
-    assert response.status_code == status and response.json()["error"]["code"] == code

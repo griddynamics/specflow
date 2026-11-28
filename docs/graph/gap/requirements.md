@@ -183,10 +183,9 @@ slice of agent findings.
 | ID | Requirement | Acceptance |
 |---|---|---|
 | FR-GWEB-01 | The host shall run gap runs in process, one at a time per project, with a polled status. | Given two builds in quick succession, then gap runs do not overlap for the project and the status route reports each. |
-| FR-GWEB-02 | The web routes of [api.md](api.md) "Web routes" shall list, read, answer, preview, dismiss, revert, raise and apply gaps, start a full run, read runs and noise reports, manage noise rules and assign gaps, each for project members only. | Route tests: each route answers for a member and refuses a non-member. |
+| FR-GWEB-02 | The web routes of [api.md](api.md) "Web routes" shall list the gaps and read the latest run's status, each for project members only; the answer, preview, dismiss, revert, raise, apply, run, noise and assignee routes went with the V1 screens, and answering and applying run as service-layer calls behind the chat channels and the agent routes. | Route tests: each route answers for a member and refuses a non-member. |
 | FR-GWEB-03 | The MCP tool `list_gaps` shall list open gaps for a story or nodes, and briefs shall include open gaps with severity. | Given an open gap on a story, then `list_gaps` returns it and the story brief lists it. |
-| FR-GWEB-04 | The Gaps screen shall show the inbox with filters, the question card with one option marked recommended and an own-answer field, the AI-answered review list with revert, and the noise report. | End-to-end test on the built frontend with the shop corpus fixture. |
-| FR-GWEB-06 | A project member shall assign a gap that is not resolved to one member of the project, or clear its assignee, in the gap's row of the Gaps screen, and the Gaps screen shall show the assignee in a column and filter the inbox by assignee (unassigned, one member). | End-to-end test: a member assigns a gap to a member from the menu in its row without opening the card, and the Assigned filter and column show it. |
+| FR-GWEB-04 | The canvas's Gaps hub shall open a dialog that counts the open gaps of the latest run by kind and severity, read-only, with the critical (blocker) ones called out. | End-to-end test on the built frontend with the shop corpus fixture. |
 
 ## Non-functional
 

@@ -1,67 +1,74 @@
 // FR-GDUI-0002..0021 on the PRODUCTION routes (GDRIVE plan 07), against the stub API through the real BFF (scripts/serve-production.mjs;
-// no Google, no model call). The modal, the card and the lock are the same components as in the UI; here: the real adapter end to end (Add source -> Test connection -> Save -> card), the reasons by the envelope code, the lock,
-// and the Drive source reaching the project's status. The stub keeps a saved source in `listing`.
-import { randomBytes } from "node:crypto";
-import type { Page } from "@playwright/test";
-import { createViaNew, expect, expectSourceCard, login, test } from "./support";
+// no Google, no model call). The V2 `?add=gdrive` deep link opens the same Drive form the plus dialog does: the file checklist of a tested
+// folder (the skipped categories are not listed), the files left out go to the save as `exclude`, and the saved folder is the canvas node
+// that keeps the Graph hub waiting. A reason in the test envelope shows its message, never the server text (INT-GDUI-0002).
+import { bodiesOf, canvas, dialog, FOLDER, hub, nodes, STATE, unique } from "./canvas-support";
+import { expect, test } from "./support";
 
-const unique = (p: string) => `${p} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
 const folder = (id: string) => `https://drive.google.com/drive/folders/${id}`;
 
-async function openDialog(page: Page) {
-  await page.getByTestId("mcs-add-source").click();
-  await page.getByRole("menuitem", { name: /Google Drive/ }).click();
-  const dialog = page.getByRole("dialog", { name: "Connect a Google Drive folder" });
-  await expect(dialog).toBeVisible();
-  return dialog;
-}
+test.describe("Google Drive on the V2 canvas", { tag: "@production" }, () => {
+  test("FR-GDUI-0009, FR-GDUI-0017, FR-GDUI-0018: ?add=gdrive opens the form; the checklist starts checked, the files left out are excluded, and the folder becomes its node", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await canvas(page, unique("Drive"));
+    await page.goto(`/projects/${pid}?add=gdrive`);
+    const form = dialog(page, "Connect a Google Drive folder");
+    await expect(form).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}$`)); // the deep link leaves the address clean
 
-test(
-  "FR-GDUI-0009, FR-GDUI-0017, FR-GDUI-0018, FR-GDUI-0021: Add source -> Google Drive -> Test -> Save: the card lists files, Build knowledge is locked with its reason",
-  { tag: "@production" },
-  async ({ page, requests }) => {
-    await login(page);
-    const pid = await createViaNew(page, unique("Drive"));
-    const dialog = await openDialog(page);
-    await dialog.getByTestId("drive-link").fill(folder("fake-synthetic-30"));
-    await dialog.getByTestId("drive-primary").click();
-    await expect(dialog.getByTestId("drive-summary")).toContainText("We found 11 files in 3 folders.");
-    await dialog.getByTestId("drive-primary").click(); // Save
-    await expect(dialog).toHaveCount(0);
-    const card = await expectSourceCard(page, "gdrive");
-    await expect(card).toContainText("Recorded folder");
-    await expect(card.getByTestId("source-counts")).toContainText("Listing files");
-    await expect(page.getByTestId("kb-build")).toHaveAttribute("aria-disabled", "true");
-    await expect(page.getByTestId("kb-detail")).toContainText("Build knowledge starts after all files are imported. Listing files");
-    // The calls: identity, test and save, each once, as POSTs with the CSRF header and the link only in the body.
-    const mine = requests.filter(
-      (r) => r.path.startsWith(`/api/backend/projects/${pid}/sources`) || r.path === "/api/backend/drive/identity",
-    );
-    expect(mine.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([
+    await form.getByLabel("Google Drive folder link").fill(FOLDER);
+    await form.getByRole("button", { name: "Test connection" }).click();
+    await expect(form.getByText(/Recorded folder\. We found 11 files in 3 folders\./)).toBeVisible();
+    const list = form.getByRole("group", { name: "Files to add" });
+    await expect(list.getByRole("checkbox")).toHaveCount(10); // the shortcut is not offered
+    await expect(list.getByRole("checkbox", { checked: true })).toHaveCount(10);
+    await expect(form.getByText("10 of 10 files")).toBeVisible();
+
+    await form.getByRole("button", { name: "Select none" }).click();
+    await expect(form.getByText("No files")).toBeVisible();
+    await expect(form.getByRole("button", { name: "Add source" })).toBeDisabled();
+    await form.getByRole("button", { name: "Select all" }).click();
+    await list.getByRole("checkbox", { name: /Contract\.pdf/ }).uncheck();
+    await list.getByRole("checkbox", { name: /Letter\.docx/ }).uncheck();
+    await expect(form.getByText("8 of 10 files")).toBeVisible();
+
+    await form.getByRole("button", { name: "Add source" }).click();
+    await expect(form).toBeHidden();
+    const node = nodes(page).filter({ hasText: "Recorded folder" });
+    await expect(node).toHaveAttribute(STATE, "busy");
+    await expect(node).toContainText("Listing files…");
+    await expect(hub(page, "graph")).toHaveAttribute(STATE, "wait"); // the build waits for the import
+
+    const posts = requests.filter((r) => r.method === "POST" && r.path.startsWith(`/api/backend/projects/${pid}/sources/gdrive`));
+    expect(posts.map((r) => r.path)).toEqual([
       `/api/backend/projects/${pid}/sources/gdrive/test`,
       `/api/backend/projects/${pid}/sources/gdrive`,
     ]);
-    expect(mine.filter((r) => r.method === "POST").every((r) => r.headers["x-requested-with"] === "specflow" && !r.search)).toBe(true);
-  },
-);
+    expect(posts.every((r) => r.headers["x-requested-with"] === "specflow" && !r.search)).toBe(true);
+    expect(bodiesOf(posts)).toEqual([
+      { link: FOLDER }, // Test connection sends the link alone
+      { link: FOLDER, exclude: ["fake-synthetic-30-f3", "fake-synthetic-30-f10"] }, // the save names the files left out
+    ]);
+  });
 
-test(
-  "FR-GDUI-0012, INT-GDUI-0002: a Drive reason in the envelope shows its message in the modal; the server text never does",
-  { tag: "@production" },
-  async ({ page }) => {
-    await login(page);
-    await createViaNew(page, unique("Drive reasons"));
-    const dialog = await openDialog(page);
-    const failure = dialog.getByTestId("drive-failure");
+  test("FR-GDUI-0012, INT-GDUI-0002: a Drive reason in the envelope shows its message in the form; the server text never does", async ({
+    page,
+  }) => {
+    const pid = await canvas(page, unique("Drive reasons"));
+    await page.goto(`/projects/${pid}?add=gdrive`);
+    const form = dialog(page, "Connect a Google Drive folder");
+    const failure = form.getByRole("alert");
     const messages: string[] = [];
     for (const id of ["fake-reason-no_access", "fake-reason-drive_unavailable", "fake-reason-not_a_folder"]) {
-      await dialog.getByTestId("drive-link").fill(folder(id));
-      await dialog.getByTestId("drive-primary").click();
+      await form.getByLabel("Google Drive folder link").fill(folder(id));
+      await form.getByRole("button", { name: "Test connection" }).click();
       await expect(failure).toBeVisible();
       const text = await failure.innerText();
       expect(text).not.toMatch(/SERVER TEXT|fake-reason|http_/i);
       expect(messages, "each reason has its own message").not.toContain(text);
       messages.push(text);
     }
-  },
-);
+  });
+});

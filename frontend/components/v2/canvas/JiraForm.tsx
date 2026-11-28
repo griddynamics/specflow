@@ -3,7 +3,7 @@
 // `jira-logic.ts`). The target is saved on, and the plan syncs to it once it exists; the acting account is the project's Atlassian integration.
 import { useEffect, useId, useState } from "react";
 import { Button, Field, Notice, TextInput } from "@graphico/ui";
-import { outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/settings/jira-logic";
+import { outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/shared/settings/jira-logic";
 import { COPY } from "@/lib/copy";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";

@@ -74,6 +74,41 @@ test('no theme stylesheet: no findings', () => {
   );
 });
 
+test('--tokens-selector reads a class-rooted palette; --src accepts several roots', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'tokens-selector-'));
+  try {
+    mkdirSync(path.join(root, 'styles'), { recursive: true });
+    mkdirSync(path.join(root, 'app'), { recursive: true });
+    mkdirSync(path.join(root, 'lib'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'styles', 'tokens.css'),
+      '.theme {\n  --accent: oklch(0.5 0 0);\n}\n',
+    );
+    writeFileSync(path.join(root, 'app', 'a.css'), '.a { color: var(--accent); }\n');
+    writeFileSync(path.join(root, 'lib', 'b.css'), '.b { color: var(--missing); }\n');
+    const options = { 'tokens-css': 'styles/tokens.css', src: 'app,lib' };
+    // Without the selector the reader sees no :root block: every reference is undeclared.
+    assert.deepEqual(
+      check({ root, options })
+        .map((f) => [f.rule, f.path])
+        .sort(),
+      [
+        ['tokens-undeclared-reference', 'app/a.css'],
+        ['tokens-undeclared-reference', 'lib/b.css'],
+      ],
+    );
+    const findings = check({ root, options: { ...options, 'tokens-selector': '.theme' } });
+    assert.deepEqual(
+      findings.map((f) => [f.rule, f.path, f.line]),
+      [['tokens-undeclared-reference', 'lib/b.css', 1]],
+    );
+    assert.match(findings[0].message, /--missing/);
+    assert.match(findings[0].message, /\.theme/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('--tokens-spec: a listed token that :root lacks or declares with another value is reported', () => {
   const findings = check({
     root: path.join(FIXTURES, 'positive'),

@@ -142,7 +142,7 @@ async def test_the_card_text_holds_the_question_the_options_the_quotes_and_the_w
     item = (await cards.get(GAP_CARD_ROUTE, project_id=ALPHA, gap_id=gap_id)).json()
 
     assert (item["severity"], item["kind"], item["title"]) == (whole.severity, whole.kind, whole.title)
-    assert item["web_url"] == f"{WEB}/projects/{ALPHA}/gaps?gap={gap_id}"
+    assert item["web_url"] == f"{WEB}/projects/{ALPHA}"
     card = item["card"]
     assert card.startswith(f"**{whole.title}** ({whole.severity} open question, found by analysis, `{gap_id}`)")
     assert f"**Question:** {QUESTION}" in card
@@ -191,7 +191,7 @@ async def test_the_gap_card_has_the_parts_the_dialog_shows(cards: GapRig) -> Non
         for index, option in enumerate(sorted(whole.options, key=lambda option: option.rank))
     ]
     assert card["updated_at"].startswith(whole.updated_at.strftime("%Y-%m-%dT%H:%M:%S"))
-    assert card["web_url"] == f"{WEB}/projects/{ALPHA}/gaps?gap={gap_id}" and card["card"].startswith("**")
+    assert card["web_url"] == f"{WEB}/projects/{ALPHA}" and card["card"].startswith("**")
 
 
 async def test_the_gap_card_is_only_for_a_gap_that_waits_for_an_answer(cards: GapRig) -> None:
@@ -438,7 +438,7 @@ async def test_open_gap_shows_an_open_gap_whole_as_its_web_card_does(cards: GapR
     assert "**Status:** open · **Assigned to:** nobody" in card and f"**Question:** {QUESTION}" in card
     assert f"`{whole.about[0].spec_id}`" in card and "- **Other**: your own answer" in card
     assert "  - Changes " in card and "**History:**\n- " in card and "Gap found (SpecFlow)" in card
-    assert card.endswith(f"Web card: {WEB}/projects/{ALPHA}/gaps?gap={gap_id}")
+    assert card.endswith(f"Web card: {WEB}/projects/{ALPHA}")
 
 
 async def test_open_gap_reads_an_answered_gap_with_its_answer_and_its_history_in_words(cards: GapRig) -> None:

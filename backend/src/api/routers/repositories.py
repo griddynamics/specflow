@@ -1,11 +1,11 @@
 """The GitHub repositories of a project (docs/github/api.md "Project repository routes").
 
-Any member reads them, adds, removes or re-checks one. A repository is added when the GitHub connection of the project
+Any member reads them, adds or removes one. A repository is added when the GitHub connection of the project
 (the member ``PUT /projects/{pid}/integrations/github`` bound, docs/mission-control/integrations-api.md) can read it
 through the app (the list of ``GET /integrations/github/repositories``, as that member); every clone check then uses
 that member's connection (``added_by``, kept equal to the bound member). The clone check runs on the agents worker
-(``GithubSnapshotWorkflow``); a start that fails marks the repository ``failed`` with ``github_clone_failed`` so the
-owner can try again. Events carry ids and codes only.
+(``GithubSnapshotWorkflow``); a start that fails marks the repository ``failed`` with ``github_clone_failed``. Events
+carry ids and codes only.
 """
 
 from __future__ import annotations
@@ -160,19 +160,3 @@ async def remove_project_repository(rid: str, membership: MemberDep, runtime: Ru
     else:
         log_event(logger, INFO, "api.github.repository_removed", repository_id=rid, objects=removed)
     return Response(status_code=204)
-
-
-@router.post("/{rid}/clone", status_code=202, response_model=ProjectRepositoryOut)
-async def clone_project_repository(
-    rid: str, membership: MemberDep, runtime: RuntimeDep, user: UserDep
-) -> ProjectRepositoryOut:
-    """Check the clone again: ``pending`` (unless a check is ``cloning`` now) and start the workflow."""
-
-    github_connections(runtime)
-    pid, repository_id = membership.project.id, _repository_id(rid)
-    async with runtime.transaction() as session:
-        found = await github_db.request_clone(session, pid, repository_id)
-    if not found:
-        raise repository_not_found()
-    await _start(runtime, pid, repository_id)
-    return await _read(runtime, pid, repository_id, user.id)

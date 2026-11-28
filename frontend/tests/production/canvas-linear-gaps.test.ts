@@ -1,5 +1,6 @@
 // The Linear gap sub-issues on the canvas: what the node says in each state the API reports, the registry entry, the form's fields and the
 // outcome of a check. Pure and server-rendered: no browser.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";

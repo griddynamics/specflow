@@ -15,5 +15,4 @@ export interface LinearPort {
   connection(): Promise<LinearConnection>;
   /** The consent URL to send the browser to; `returnTo` is the same-site path the callback returns to. */
   authorize(returnTo: string): Promise<string>;
-  disconnect(): Promise<void>;
 }

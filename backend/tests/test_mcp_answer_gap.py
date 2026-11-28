@@ -116,7 +116,7 @@ async def test_the_dialog_holds_the_question_and_a_box_per_option_and_records_th
     outcome = result.structured_content
     assert not result.is_error and outcome is not None
     assert (outcome["answered"], outcome["action"], outcome["note"]) == (True, "accept", STAGED)
-    assert outcome["choice"] == f"A) {options[0].label}" and outcome["web_url"].endswith(f"gaps?gap={gap_id}")
+    assert outcome["choice"] == f"A) {options[0].label}" and outcome["web_url"] == f"{WEB}/projects/{ALPHA}"
     gap = await served.gaps.gaps.get_gap(ALPHA, gap_id)
     assert gap.status == "answered" and gap.clarification is not None
     assert (gap.clarification.clr_id, gap.clarification.option_label) == (outcome["clr_id"], options[0].label)
@@ -153,7 +153,7 @@ async def test_a_declined_or_cancelled_dialog_records_nothing_and_gives_the_web_
     outcome = result.structured_content
     assert outcome is not None and not result.is_error
     assert (outcome["answered"], outcome["action"], outcome["note"]) == (False, action, NOT_SHOWN)
-    assert outcome["web_url"] == f"{WEB}/projects/{ALPHA}/gaps?gap={gap_id}"
+    assert outcome["web_url"] == f"{WEB}/projects/{ALPHA}"
     assert (await served.gaps.gaps.get_gap(ALPHA, gap_id)).status == "open"
 
 
@@ -281,7 +281,7 @@ async def test_an_own_answer_to_a_contradiction_records_nothing_and_points_to_an
     outcome = result.structured_content
     assert not result.is_error and outcome is not None
     assert (outcome["answered"], outcome["action"], outcome["note"]) == (False, "accept", CONTRADICTION_OWN)
-    assert outcome["web_url"].endswith(f"gaps?gap={gap_id}")
+    assert outcome["web_url"] == f"{WEB}/projects/{ALPHA}"
     assert (await served.gaps.gaps.get_gap(ALPHA, gap_id)).status == "open"
 
 

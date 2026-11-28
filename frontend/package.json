@@ -20,15 +20,10 @@
   "dependencies": {
     "@graphico/ui": "*",
     "@phosphor-icons/react": "2.1.10",
-    "github-slugger": "2.0.0",
     "next": "16.3.7",
     "next-auth": "5.0.0-beta.32",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "react-markdown": "10.1.0",
-    "rehype-slug": "6.0.0",
-    "remark-gfm": "4.0.1",
-    "simple-icons": "16.34.0"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

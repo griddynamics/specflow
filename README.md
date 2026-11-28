@@ -69,7 +69,7 @@ commands are in [**QUICKSTART.md**](QUICKSTART.md).
 - [QUICKSTART.md](QUICKSTART.md): run it, how it fits together, develop
 - [docs/configuration.md](docs/configuration.md): every setting
 - [docs/graph/](docs/graph/INDEX.md): how the knowledge graph is built; [docs/graph/plan/](docs/graph/plan/INDEX.md): implementation plans on the graph
-- [docs/projects/](docs/projects/INDEX.md): project collaborators and the Settings screen
+- [docs/projects/](docs/projects/INDEX.md): project collaborators and the Members dialog
 - [docs/mission-control/](docs/mission-control/README.md): the canvas (the prototype, [the screens as built](docs/mission-control/ui.md), the decisions, the integrations API)
 - [docs/jira-sync/](docs/jira-sync/INDEX.md): the automatic export of a project's plan to Jira, and the Jira gap channel
 - [docs/github/](docs/github/INDEX.md): per-user GitHub connections, the project repositories with their clone check, and the GitHub Projects plan destination

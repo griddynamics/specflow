@@ -2,7 +2,7 @@
 // The files inside a source node (upload, Drive folder, Confluence link, Jira epic): the first page, then "Show more". It is the V1 reader
 // (`use-source-files.ts`: paging, the 5 s refresh while something is still working), shown with the Graphico list, not the V1 rows.
 import { Button, FileList, Notice, SectionHead } from "@graphico/ui";
-import { useSourceFiles } from "@/components/mission-control/sources/use-source-files";
+import { useSourceFiles } from "@/components/shared/sources/use-source-files";
 import type { SourceKind } from "@/lib/domain/sources";
 import { useV2Ports } from "../use-v2-data";
 import { CANVAS_COPY } from "./canvas-copy";

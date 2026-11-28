@@ -78,6 +78,4 @@ export interface JiraPort {
   connection(): Promise<AtlassianConnection>;
   /** The Atlassian consent URL; the browser returns to `returnTo` (a same-site path) through the callback route. */
   authorize(returnTo: string): Promise<string>;
-  /** Forgets the caller's Atlassian connection. */
-  disconnect(): Promise<void>;
 }

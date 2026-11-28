@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -82,4 +84,25 @@ test('no derivable pair skips instead of passing clean; --pairs avoids the skip'
   assert.equal(skipped.status, 0);
   assert.match(skipped.stderr, /^skipped: no targets: no foreground\/background token pairs in /);
   assert.doesNotMatch(run('--pairs', 'pairs.json').stderr, /^skipped/);
+});
+
+test('--tokens-selector reads a class-rooted palette (the .gx pattern)', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'contrast-selector-'));
+  try {
+    writeFileSync(
+      path.join(root, 'tokens.css'),
+      '.gx {\n  --paper: oklch(1 0 0);\n  --ink: oklch(0.3 0 0);\n}\n',
+    );
+    writeFileSync(path.join(root, 'pairs.json'), '{"pairs": [["--paper", "--ink"]]}');
+    const options = { 'tokens-css': 'tokens.css', 'tokens-selector': '.gx', pairs: 'pairs.json' };
+    assert.deepEqual(check({ root, options }), []); // the pair is ~12.7:1, above AA
+    const findings = check({ root, options: { ...options, 'min-ratio': '21' } });
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].rule, 'contrast-below-aa');
+    assert.equal(findings[0].path, 'tokens.css');
+    assert.equal(findings[0].line, 3);
+    assert.match(findings[0].message, /--ink on --paper/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

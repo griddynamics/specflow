@@ -4,7 +4,7 @@
 // the app is used for (a page or database link, the plan's database) is added on the canvas.
 import { useCallback, useEffect, useState } from "react";
 import { Button, ConfirmPanel, Notice, Row } from "@graphico/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useToast } from "@/components/shared/ui/Toast";
 import { usePorts } from "@/lib/data/provider";
 import type { NotionConnection } from "@/lib/domain/notion-connection";
 import { HowTo } from "../HowTo";

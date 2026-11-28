@@ -73,13 +73,13 @@ screen, "Tools"); the view is not.
 |---|---|
 | Answer contract | `answer_gap(AnswerInput)`: exactly one of `option_rank` (2 to 4 options, one Recommended, preselected for `major`) and `own_text` (1 to 4,000 characters); optional `edits` from `preview_edits`; `placement` `amend` or `document`; `updated_at` is required (`409 gap_stale`) ([../graph/gap/answers.md](../graph/gap/answers.md)) |
 | Card | Chips, title, question, why, `ABOUT` and `IMPACTS` nodes, quoted lines with document, section and lines, options with an edits preview, Other, placement ([../graph/gap/answers.md](../graph/gap/answers.md) "The question card") |
-| MCP gap tools | `list_gaps` reads, `add_finding` raises a development gap, `browse_gaps` lists the gaps as the web Gaps screen does (a table; status, kind, severity and assignee filters) and `open_gap` reads one whole, `answer_gap` lets the person answer one in a dialog (D6). AC12: only people answer, resolve or dismiss gaps ([tools.md](tools.md), [access-control.md](access-control.md)) |
+| MCP gap tools | `list_gaps` reads, `add_finding` raises a development gap, `browse_gaps` lists the gaps as a table (status, kind, severity and assignee filters) and `open_gap` reads one whole, `answer_gap` lets the person answer one in a dialog (D6). AC12: only people answer, resolve or dismiss gaps ([tools.md](tools.md), [access-control.md](access-control.md)) |
 | MCP server | `MCPServer` of `mcp` 2.3.0, stateless HTTP with JSON responses (no event stream), a 1 MiB request limit, a thin proxy to the API's agent routes with the caller's token, one tool registry, no resources ([architecture.md](architecture.md)) |
 | Identity | OAuth through the organization's identity provider. The user is the token's subject. No tool takes a user argument (AC9) |
 | OAuth client | One public client, `specflow-mcp`, with loopback redirects on port 8765 only ([auth.md](auth.md)) |
 | Assignment | None. A gap has `created_by` and, for a development gap, `story_id`. Stories have claims with one holder ([../graph/gap/data-model.md](../graph/gap/data-model.md)) |
 | Members | A project has one owner and collaborators ([../projects/overview.md](../projects/overview.md)); any member may answer a gap |
-| Web app | The Gaps screen already does the full answer flow with the GD Liquid Glass design system ([../design-system/USAGE.md](../design-system/USAGE.md)) |
+| Web app | The canvas shows the gaps as read-only counts in its Gaps dialog (D10); people answer in Slack or Jira, coding agents over MCP — there is no web answer screen ([../mission-control/ui.md](../mission-control/ui.md)) |
 | Deferred items | [later.md](later.md) already lists "MCP Apps tables" and "Streamed responses" (elicitation) |
 
 ## Interaction model
@@ -104,7 +104,7 @@ goes into the spec) and adds what the coding agent knows: the repository.
 
 One resource, `ui://specflow/gaps` (one bundle, one content security policy), has two screens. Every tool returns
 structured content and one text block with the same JSON, as the tools do today. Each gap row and card has `web_url`,
-the web gap card (`/projects/{pid}/gaps?gap=<id>`).
+the project's canvas in the web app (`/projects/{pid}`).
 
 | Tool | Visibility | Screen | Agent route | Purpose |
 |---|---|---|---|---|
@@ -311,9 +311,12 @@ Deferred: upload (D3).
 ## Deferred designs
 
 Assignment (D2). Three ways were weighed: derived (gaps about the stories I hold, and gaps I raised), explicit (a
-`gap_assignment` table), or both. Explicit was chosen and is built on the web: a `gap_assignment` row per gap,
-`PUT /gaps/{gap_id}/assignee`, and `GET /gaps?assigned_to=me|none|<user id>` over `GapService.list_gaps(assigned_to=)`.
-For the agent, built: `browse_gaps` takes `assigned` (`me` or `unassigned`) or `assignee` (a member's name). The route
+`gap_assignment` table), or both. Explicit was chosen and is built service-side: a `gap_assignment` row per gap — a chat
+reply assigns the gap to the answerer when nobody holds it, and a follow-up gap takes the assignee of the gap it follows
+up ([../graph/gap/answers.md](../graph/gap/answers.md) "Who answers"); the web assignee route went with the V1 screens.
+`GapService.list_gaps(assigned_to=)` stays behind the web list read (`GET /projects/{pid}/gaps` with
+`assigned_to`: `me`, `none` or a member's user id). For the agent, built: `browse_gaps` takes `assigned` (`me` or
+`unassigned`) or `assignee` (a member's name). The route
 takes the agent's user (`AgentUserDep`), turns `me` into its user id and passes `assigned_to` to `list_gaps`; each
 row and each card names its assignee. Tools that
 assign (`take_gap`, `release_gap`) stay out of scope.

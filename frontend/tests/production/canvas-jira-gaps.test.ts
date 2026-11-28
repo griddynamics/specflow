@@ -1,5 +1,6 @@
 // The Jira gap sub-tasks on the canvas (10F): what the node says in each state the API reports, the registry entry, the form before and
 // after its read, and the shared read gate. Pure and server-rendered: no browser.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";

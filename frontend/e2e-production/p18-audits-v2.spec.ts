@@ -111,7 +111,9 @@ test.describe("P18 audits on the V2 routes", { tag: "@production" }, () => {
         await setTheme(page, theme);
         await sc.setup(page);
         const r = await colourViolations(page, ".gx");
-        expect(r.tokens, "colour tokens found").toBeGreaterThan(10);
+        // After the GD removal the Graphico palette resolves to exactly 10 distinct token colours per scheme
+        // (inv-bg≡ink and on-yellow≡ink dedupe): a sanity floor, not a threshold above it.
+        expect(r.tokens, "colour tokens found").toBeGreaterThanOrEqual(10);
         expect(r.looked, "distinct colours looked at").toBeGreaterThanOrEqual(2);
         expect(r.bad, "colours that are not a token value").toEqual([]);
       });

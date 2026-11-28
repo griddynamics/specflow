@@ -6,7 +6,7 @@ asked for the URL. Events carry the user id and a code only.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 
 from api.box import box_connections, box_error
 from api.deps import RuntimeDep, UserDep
@@ -60,11 +60,3 @@ async def box_callback(body: BoxCallbackIn, runtime: RuntimeDep, user: UserDep) 
     except BoxError as error:
         raise box_error(_refused(user.id, error, "callback")) from None
     return BoxCallbackOut(connection=_out(runtime, view), return_to=return_to)
-
-
-@router.delete("", status_code=204)
-async def disconnect_box(runtime: RuntimeDep, user: UserDep) -> Response:
-    """Delete the caller's connection and revoke the app's grant at Box (best effort)."""
-
-    await box_connections(runtime).disconnect(user.id)
-    return Response(status_code=204)

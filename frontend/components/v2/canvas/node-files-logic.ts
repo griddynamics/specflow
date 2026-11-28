@@ -1,5 +1,5 @@
 // What the node dialog shows of the files inside a source and of renaming an upload: pure, over the V1 words (`source-logic.ts`).
-import { reasonText, STATE_LABEL } from "@/components/mission-control/sources/source-logic";
+import { reasonText, STATE_LABEL } from "@/components/shared/sources/source-logic";
 import { isDataError } from "@/lib/domain/errors";
 import { CATEGORY_LABEL, type SourceFile } from "@/lib/domain/sources";
 import type { FileRowView } from "@graphico/ui";

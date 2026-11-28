@@ -1,0 +1,98 @@
+/*
+ * The styling of the three shared UI atoms in the Graphico way (packages/ui; decision D14): flat
+ * ink-on-paper surfaces, hard offset shadows, no glass, no transitions. Hand-written because
+ * @graphico/ui ships no equivalent primitives; every colour is a `--gx-*` token of `.gx`. Fira Sans
+ * and the 2px ink focus ring are inherited from `.gx` (packages/ui base.css). The legacy screens
+ * that still rendered these atoms without a GraphicoRoot are gone (Task 6 removed them); the atoms
+ * now render only in the V2 screens, always under a GraphicoRoot.
+ */
+
+/* GlassSurface: the surface every other component builds on. */
+.sui-glass {
+  position: relative;
+  isolation: isolate;
+  background: var(--gx-wash);
+  border: 1px solid var(--gx-rule);
+  border-radius: 12px; /* tokens-ok: the Graphico card radius (.gx-card); the palette declares no radius token */
+}
+.sui-glass--strong {
+  background: var(--gx-paper);
+  border: 1.5px solid var(--gx-ink);
+}
+.sui-glass--subtle {
+  background: none;
+}
+.sui-glass--tint {
+  background: var(--gx-yellow);
+  border-color: var(--gx-ink);
+  color: var(--gx-on-yellow);
+}
+.sui-glass--float {
+  box-shadow: 6px 6px 0 var(--gx-ink); /* tokens-ok: the Graphico hard offset shadow (.gx-dialog); no shadow token in the palette */
+}
+.sui-glass--ribbed::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  background: repeating-linear-gradient(90deg, var(--gx-rule) 0 1px, transparent 1px 6px);
+}
+
+/* Icon. */
+.sui-icon {
+  flex: none;
+  display: block;
+}
+
+/* Toast: the bottom-right stack inside the Graphico root; the surface is GlassSurface strong and
+   floating. No entry animation: nothing to cover for prefers-reduced-motion. */
+.sui-toasts {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 80;
+  display: grid;
+  gap: 8px;
+  width: min(380px, calc(100vw - 32px));
+}
+.sui-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 12px 14px;
+}
+.sui-toast__icon {
+  flex: none;
+  padding-top: 2px;
+  color: var(--gx-ink);
+}
+.sui-toast__text {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.sui-toast__text span {
+  color: var(--gx-ink-2);
+}
+
+/* The icon-only dismiss button of a toast (the close of .gx-dialog in the package). */
+.sui-iconbtn {
+  appearance: none;
+  border: 1px solid var(--gx-rule);
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 999px; /* tokens-ok: the Graphico round icon button (.gx-dialog__close); no radius token in the palette */
+  background: var(--gx-paper);
+  color: var(--gx-ink-2);
+  cursor: pointer;
+}
+.sui-iconbtn:hover {
+  background: var(--gx-wash);
+  color: var(--gx-ink);
+}

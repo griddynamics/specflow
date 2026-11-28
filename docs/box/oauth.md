@@ -125,9 +125,9 @@ count too (discovery.md "Rate limits and plans").
 | `GET /integrations/box` | 200 `BoxConnectionOut` (`enabled`, `connected`, `status`, `name`, `enterprise_name`, `connected_at`, `last_used_at`) | - |
 | `POST /integrations/box/authorize` `{return_to}` | 200 `BoxUrlOut` | 503 `box_unavailable`; 422 `validation_failed` |
 | `POST /integrations/box/callback` `{code, state}` | 200 `BoxCallbackOut` (`connection`, `return_to`) | 400 `box_state_invalid`, `box_code_invalid`; 502 `box_unreachable`, `box_auth_failed`; 503 `box_unavailable` |
-| `DELETE /integrations/box` | 204 | 503 `box_unavailable` |
 
-All need a signed-in user. Binding to a project is `PUT /projects/{pid}/integrations/box`
+All need a signed-in user. The per-user disconnect went with the V1 screens. Binding to a project is
+`PUT /projects/{pid}/integrations/box`, removing it is `DELETE` of the same path
 ([../mission-control/integrations-api.md](../mission-control/integrations-api.md)).
 
 ## Data

@@ -25,7 +25,7 @@ answer does not hold, a follow-up gap opens and points back to it, so the histor
 | `answered`, `applying` | `open` | Person, `revert_clarification` of the pending answer | The clarification becomes `reverted`, its amendments are reverted, the gap's route becomes `ask` (an AI answer goes to a person); an update build is requested when its amendments were already active |
 | `answered` | `answered` | Person, answers again before it is applied | The new pending clarification replaces the old one, which is deleted with its amendments (answers.md "Changing an answer") |
 | `resolved` | `resolved` | Person, answers again after it is applied | A new pending clarification `REPLACES` the applied one, which becomes `superseded` when the answers are applied |
-| `answered` | `applying` | Apply ("Resolve gaps", `apply_now`, or an immediate development answer) | Amendments become active, the clarifications document holds the answer from the next corpus read, `BuildRequests.request_update_build` is called |
+| `answered` | `applying` | Apply (`apply_now`, or an immediate development answer) | Amendments become active, the clarifications document holds the answer from the next corpus read, `BuildRequests.request_update_build` is called |
 | `applying` | `resolved` | Close check, fixed | Clarification `applied`, `GROUNDED_IN` set; resolution `answered` or `ai_answered`; held tasks released |
 | `applying` | `resolved` | Close check, not fixed | Resolution `follow_up`; a new open gap `FOLLOWS_UP` it with reason `not_fixed` |
 | `resolved` | `resolved` | Reconcile, conflict or orphaned (read by the next run's close step) | The clarification becomes `conflict` or `orphaned`; a follow-up gap opens with fixed options ([reconcile.md](reconcile.md)) |
@@ -120,7 +120,7 @@ A follow-up is a new gap: new id, status `open`, origin of the old gap, `FOLLOWS
 (`not_fixed`, `orphaned`, `conflict`, `reverted`). Its `ABOUT` set starts from the old gap's, and its card
 shows the old question, the old answer and why it did not hold. The old gap stays `resolved` and keeps its
 clarification, so walking `FOLLOWS_UP` backwards gives the full history of one topic. A follow-up of a
-follow-up is allowed; the inbox shows the chain as one thread.
+follow-up is allowed; the chain shows as one thread.
 
 ## Dismissals and suppression
 
@@ -239,14 +239,14 @@ with origin `development`.
 4. **Already answered.** If the investigation finds the answer in the spec, AI resolves the gap with a
    `pointer` clarification that cites the answering lines. No build runs; the held tasks are released at once
    and the brief shows the answering lines.
-5. **Answer.** Otherwise the gap tops the inbox. When a person answers a development gap that holds tasks,
-   the answer is applied immediately (`request_update_build(..., immediate=True)`), without waiting for "Resolve gaps".
+5. **Answer.** Otherwise the gap tops the list. When a person answers a development gap that holds tasks,
+   the answer is applied immediately (`request_update_build(..., immediate=True)`), without waiting for a channel apply.
 6. **Release.** When the close check resolves the gap, the held tasks return to `pending`. The agent claims
    again and reads a brief built from the updated spec.
 7. **Not spec.** If the investigation returns `not_spec` (a library bug, a failing test, a tooling issue),
    the gap is closed as obsolete with a `gap_note`, and the held tasks are released.
 
-A development gap uses the same inbox, card, answer path and close check as any other gap. The differences:
+A development gap uses the same card, answer path and close check as any other gap. The differences:
 it is investigated and applied at once, and it holds only the tasks of the story that reported it (even when
 its severity is not blocker).
 

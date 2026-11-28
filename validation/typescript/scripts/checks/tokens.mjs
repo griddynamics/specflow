@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 /**
  * `tokens.mjs`: every `var(--x)` reference under the source directory names a
- * custom property that the theme stylesheet's `:root` block declares.
+ * custom property that the theme stylesheet's palette block declares.
  *
  * A reference to an undeclared name is not a syntax error and not a type
  * error -- CSS resolves it to nothing and the declaration silently renders
- * transparent. The declared set is the `:root` block of the theme stylesheet
- * (`--tokens-css`, default `src/styles/tokens.css`), not "every `--name:`
- * anywhere", which would let a component mint a private theme token beside
- * the palette. A reference with a fallback (`var(--columns, 1)`) is not the
- * defect this looks for: the declaration renders the fallback, visibly and on
- * purpose. A `var(--x)` inside a CSS comment renders nothing either and is not
- * a reference.
+ * transparent. The declared set is the palette block of the theme stylesheet
+ * (`--tokens-css`, default `src/styles/tokens.css`; its selector is `:root`
+ * unless `--tokens-selector` names a class root such as `.gx`), not "every
+ * `--name:` anywhere", which would let a component mint a private theme
+ * token beside the palette. A reference with a fallback (`var(--columns, 1)`)
+ * is not the defect this looks for: the declaration renders the fallback,
+ * visibly and on purpose. A `var(--x)` inside a CSS comment renders nothing
+ * either and is not a reference.
  *
  * Rule: `tokens-undeclared-reference`, reported at the referencing file and
  * line, because that is the line that renders nothing.
@@ -20,20 +21,20 @@
  * token list, a JSON file `{ "tokens": [ { "name": "--background", "value":
  * "oklch(0.97 0 0)" }, { "name": "--accent" } ] }` (see
  * `examples/tokens.spec.example.json`). Every listed token must be declared in
- * `:root`, and a listed `value` must equal the declared one (whitespace
- * collapsed).
- * - `tokens-missing`: a listed token is not declared in `:root`.
+ * the palette block, and a listed `value` must equal the declared one
+ * (whitespace collapsed).
+ * - `tokens-missing`: a listed token is not declared in the palette block.
  * - `tokens-value-mismatch`: the declared value differs from the listed one.
  *
- * usage: node tokens.mjs [--root <dir>] [--src <dir>] [--tokens-css <file>]
- *        [--tokens-spec <file>]
+ * usage: node tokens.mjs [--root <dir>] [--src <dir,...>] [--tokens-css <file>]
+ *        [--tokens-selector <selector>] [--tokens-spec <file>]
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { finding } from './lib/report.mjs';
-import { runScript, isMainModule, stringOption } from './lib/main.mjs';
+import { runScript, isMainModule, stringOption, listOption } from './lib/main.mjs';
 import { listFiles, relPath } from './lib/files.mjs';
 import { readJsonInput, requireArray } from './lib/spec-input.mjs';
 import { readTokensCss } from './lib/tokens-css.mjs';
@@ -84,7 +85,10 @@ function lineColOf(text, index) {
 function pathsOf(root, options) {
   return {
     cssPath: path.resolve(root, stringOption(options, 'tokens-css', DEFAULT_TOKENS_CSS)),
-    srcRoot: path.resolve(root, stringOption(options, 'src', 'src')),
+    selector: stringOption(options, 'tokens-selector', ':root'),
+    // One directory, or several as a comma-separated list: the live source tree of an app whose
+    // legacy half still references the retired palette.
+    srcRoots: listOption(options, 'src', ['src']).map((dir) => path.resolve(root, dir)),
   };
 }
 
@@ -106,7 +110,7 @@ export function parseTokenSpec(data, label = '--tokens-spec') {
 }
 
 /** One finding per listed token that is undeclared or has a different value. */
-function specFindings(root, cssPath, declared, specFile) {
+function specFindings(root, cssPath, selector, declared, specFile) {
   const relFile = relPath(root, cssPath);
   const findings = [];
   for (const token of parseTokenSpec(readJsonInput(root, specFile, '--tokens-spec'), specFile)) {
@@ -116,7 +120,7 @@ function specFindings(root, cssPath, declared, specFile) {
       token.value !== undefined &&
       normalizeCss(entry.value) !== normalizeCss(token.value);
     if (!entry) {
-      const message = `listed token "${token.name}" is not declared in :root`;
+      const message = `listed token "${token.name}" is not declared in ${selector}`;
       findings.push(finding(relFile, 1, 1, 'tokens-missing', message));
     } else if (differs) {
       findings.push(
@@ -126,7 +130,7 @@ function specFindings(root, cssPath, declared, specFile) {
           1,
           'tokens-value-mismatch',
           `token "${token.name}" is "${entry.value}" but the token list gives "${token.value}"`,
-          { fix: `set :root { ${token.name}: ${token.value}; }` },
+          { fix: `set ${selector} { ${token.name}: ${token.value}; }` },
         ),
       );
     }
@@ -135,29 +139,33 @@ function specFindings(root, cssPath, declared, specFile) {
 }
 
 export function check({ root, options = {} }) {
-  const { cssPath, srcRoot } = pathsOf(root, options);
+  const { cssPath, selector, srcRoots } = pathsOf(root, options);
   if (!existsSync(cssPath)) return [];
-  const declaredEntries = readTokensCss(cssPath);
+  const declaredEntries = readTokensCss(cssPath, selector);
   const declared = new Set(Object.keys(declaredEntries));
   const specFile = stringOption(options, 'tokens-spec', '');
-  const findings = specFile ? specFindings(root, cssPath, declaredEntries, specFile) : [];
-  for (const file of listFiles(srcRoot, { extensions: REFERENCE_EXTENSIONS })) {
-    const raw = readFileSync(file, 'utf8');
-    const text = file.endsWith('.css') ? blankCssComments(raw) : raw;
-    for (const match of text.matchAll(VAR_REFERENCE_RE)) {
-      const name = match[1];
-      if (declared.has(name) || match[2] === ',') continue;
-      const { line, col } = lineColOf(text, match.index);
-      findings.push(
-        finding(
-          relPath(root, file),
-          line,
-          col,
-          'tokens-undeclared-reference',
-          `var(${name}) references a custom property that :root does not declare; it resolves to nothing`,
-          { fix: `use a declared token, or declare ${name} in :root of ${relPath(root, cssPath)}` },
-        ),
-      );
+  const findings = specFile ? specFindings(root, cssPath, selector, declaredEntries, specFile) : [];
+  for (const srcRoot of srcRoots) {
+    for (const file of listFiles(srcRoot, { extensions: REFERENCE_EXTENSIONS })) {
+      const raw = readFileSync(file, 'utf8');
+      const text = file.endsWith('.css') ? blankCssComments(raw) : raw;
+      for (const match of text.matchAll(VAR_REFERENCE_RE)) {
+        const name = match[1];
+        if (declared.has(name) || match[2] === ',') continue;
+        const { line, col } = lineColOf(text, match.index);
+        findings.push(
+          finding(
+            relPath(root, file),
+            line,
+            col,
+            'tokens-undeclared-reference',
+            `var(${name}) references a custom property that ${selector} does not declare; it resolves to nothing`,
+            {
+              fix: `use a declared token, or declare ${name} in ${selector} of ${relPath(root, cssPath)}`,
+            },
+          ),
+        );
+      }
     }
   }
   return findings;

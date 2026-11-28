@@ -1,7 +1,7 @@
 // docs/mission-control/integrations-api.md, DECISIONS D1-D4, D6, README "Integrations": the rules of the Integrations page, free of React.
 // What a card shows from the API's answer (health words come from the API), who may disconnect, and what a failed call means.
-import { atlassianToast } from "@/components/settings/jira-logic";
-import { githubToast } from "@/components/settings/github-logic";
+import { atlassianToast } from "@/components/shared/settings/jira-logic";
+import { githubToast } from "@/components/shared/settings/github-logic";
 import { boxToast } from "../canvas/box-logic";
 import { LINEAR_FAILURE, linearToast } from "./linear-logic";
 import { dropboxToast } from "../canvas/dropbox-logic";

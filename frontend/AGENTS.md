@@ -10,13 +10,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Screen header rule
 
-Every screen puts its heading in the shell's header row, on the same horizontal line as the project picker:
-its tab bar, view switch or breadcrumb goes into `<ShellHeader tabs=... tools=...>`
-(`components/shell/ShellHeader.tsx`), as Plan, Decisions, Connections and Guides do. Do not put a page title
-(`<h1>`) or a tab row at the top of the screen body. The body starts with the screen's content. Mockups follow
-the same rule.
+Every screen puts its actions in the V2 header row (`components/v2/shell/V2Header.tsx`, the "App" navigation):
+the brand, the theme switch, the account, the project menu and the Members and Integrations links live there,
+on the same horizontal line. Do not put a page title (`<h1>`) or a tab row at the top of the screen body. The
+body starts with the screen's content; a dialog's title lives in the dialog. Mockups follow the same rule.
 
-Exception for Mission Control V2 (`app/(v2)/`, `components/v2/`; decision D14 in `docs/mission-control/DECISIONS.md`):
-these screens follow the Graphico style of `packages/ui`, not the GD design system, and the semgrep `ds-*` rules skip
-those two paths. The header rule applies to V2 as: the V2 header holds the project menu, Members and Integrations;
-no `<h1>` or tab row in the body. Every other screen keeps the rules above.
+Every screen is Graphico: the UI kit of `packages/ui`, its source `docs/mission-control/landing.css`
+(decision D14 in `docs/mission-control/DECISIONS.md`).

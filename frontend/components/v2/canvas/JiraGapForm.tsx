@@ -3,7 +3,7 @@
 // may add it. The open questions are posted in the background once it is saved; the node counts what was posted and answered.
 import { useEffect, useId, useState } from "react";
 import { Button, Field, Notice, Select } from "@graphico/ui";
-import { outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/settings/jira-logic";
+import { outcomeOf, phaseOf, targetOf, type Outcome } from "@/components/shared/settings/jira-logic";
 import type { JiraGapGrouping } from "@/lib/domain/jira-gaps";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";

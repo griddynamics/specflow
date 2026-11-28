@@ -1,5 +1,6 @@
 // Mission Control V2, README "Integrations" and DECISIONS D1-D6: the rules of the Integrations page (what a card shows from the API's
 // answer, who may disconnect, what a failure says), the Slack set-up texts and the V2 route builder. Pure: no React, no server.
+import "../support/css-stub-first.mjs"; // before the component imports: the canvas parts pull Graphico styles (.css)
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -117,7 +118,6 @@ test("V2 routes: the canvas and the Integrations page; `/` stays home", () => {
     routes.integrations("p1", { setup: "github", next: "/projects/p1?add=github" }),
     "/projects/p1/integrations?setup=github&next=%2Fprojects%2Fp1%3Fadd%3Dgithub",
   );
-  assert.equal(routes.missionControl("p1"), "/projects/p1/mission-control"); // V1 stays where it was
 });
 
 test("the Integrations query: return codes, the app to open and a same-site `next` only", () => {

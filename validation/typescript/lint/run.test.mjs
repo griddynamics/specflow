@@ -2,7 +2,8 @@
  * Self-test of the orchestrator: the kit's own folder is left out of the scans when it lives in
  * the project, Prettier falls back to the project's ignores, and the Size Limit step finds its
  * plugin and the project's build output from a project that declares no Size Limit dependency.
- * The design-system semgrep rules are loaded only when the project supplies its facts.
+ * The design-system rules are retired: no `--design-system` flag, no builder, and the shipped
+ * `semgrep/` holds no `ds-*` rules.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -81,26 +82,17 @@ test('arguments: unknown steps and flags are refused', () => {
   assert.equal(parseArguments(['--size-limit']).sizeLimit, true);
 });
 
-test('the design-system rules are off by default and built on request', () => {
+test('the design-system rules are retired: no flag, no builder, none shipped in semgrep/', () => {
   const configs = (command) =>
     command.flatMap((part, index) => (command[index - 1] === '--config' ? [part] : []));
-  const withoutFacts = plan(scratch, { sizeLimit: false }).semgrep();
-  assert.deepEqual(configs(withoutFacts.command), [path.join(KIT, 'semgrep')]);
+  const semgrep = plan(scratch, { sizeLimit: false }).semgrep();
+  assert.deepEqual(configs(semgrep.command), [path.join(KIT, 'semgrep')]);
+  assert.equal('cleanup' in semgrep, false);
   const shipped = readdirSync(path.join(KIT, 'semgrep'));
   assert.ok(!shipped.some((name) => name.startsWith('ds-')));
   assert.ok(!shipped.includes('banned-terms.yml'));
-
-  const factsFile = path.join(KIT, 'design-system.example.json');
-  assert.equal(parseArguments(['--design-system', factsFile]).designSystem, factsFile);
-  assert.throws(() => parseArguments(['--design-system']), /needs a value/u);
-  const withFacts = plan(scratch, { sizeLimit: false, designSystem: factsFile }).semgrep();
-  try {
-    const built = configs(withFacts.command).filter((dir) => dir !== path.join(KIT, 'semgrep'));
-    assert.equal(built.length, 1);
-    assert.ok(readdirSync(built[0]).includes('ds-components.yml'));
-  } finally {
-    withFacts.cleanup();
-  }
+  assert.throws(() => parseArguments(['--design-system', 'facts.json']), /unknown argument/u);
+  assert.throws(() => parseArguments(['--design-system']), /unknown argument/u);
 });
 
 test('the size-limit step runs from the kit against the project build output', () => {

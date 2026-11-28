@@ -1,6 +1,7 @@
 // The dialogs and forms of 06b rendered on the server with plain props: a node's details (Remove, Reconnect), Build or Update the graph with
 // the reasoning levels, Build the plan or Replan, the read-only Gaps list, and the GitHub, Slack and Jira forms before any answer has come.
 // The presses, the ports and the stub round trips are in e2e-production/canvas-connectors-production.spec.ts.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ReactElement } from "react";

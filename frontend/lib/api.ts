@@ -10,16 +10,6 @@ export interface Project {
   created_at: string;
 }
 
-export interface DocumentSummary {
-  id: string;
-  original_filename: string;
-  size_bytes: number;
-  status: "uploaded" | "processing" | "parsed" | "failed";
-  error: string | null;
-  summarization_status: "none" | "running" | "succeeded" | "failed";
-  created_at: string;
-}
-
 export interface Page<T> {
   items: T[];
   next_cursor: string | null;
@@ -260,16 +250,12 @@ export const checkNotionPlanAccess = (pid: string, link: string) =>
 export const getAtlassianConnection = () => httpGet("/integrations/atlassian").then((r) => r.body);
 export const authorizeAtlassian = (returnTo: string) =>
   httpPost("/integrations/atlassian/authorize", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectAtlassian = () => httpDelete("/integrations/atlassian").then((r) => r.status);
 
 // Linear (plans/LINEAR, stream S1): the caller's connection. Bodies stay `unknown`; the Linear port (lib/data/http/linear.ts) checks their shape. The
 // OAuth callback is not here: the route handler app/api/integrations/linear/callback calls the API on the server.
 export const getLinearConnection = () => httpGet("/integrations/linear").then((r) => r.body);
 export const authorizeLinear = (returnTo: string) =>
   httpPost("/integrations/linear/authorize", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectLinear = () => httpDelete("/integrations/linear").then((r) => r.status);
 
 // GitHub (docs/github/api.md): the caller's connection, the repositories it can read and the repositories of a
 // project. Bodies stay `unknown`; the GitHub port (lib/data/http/github.ts) checks their shape. The OAuth callback and the setup return
@@ -279,8 +265,6 @@ export const authorizeGitHub = (returnTo: string) =>
   httpPost("/integrations/github/authorize", json({ return_to: returnTo })).then((r) => r.body);
 export const installGitHub = (returnTo: string) =>
   httpPost("/integrations/github/install", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectGitHub = () => httpDelete("/integrations/github").then((r) => r.status);
 export const listGitHubRepositories = () => httpGet("/integrations/github/repositories").then((r) => r.body);
 export const listProjectRepositories = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/repositories`).then((r) => r.body);
 export const addProjectRepository = (pid: string, githubRepoId: number) =>
@@ -288,24 +272,18 @@ export const addProjectRepository = (pid: string, githubRepoId: number) =>
 /** 204: resolves with the HTTP status. */
 export const removeProjectRepository = (pid: string, rid: string) =>
   httpDelete(`/projects/${encodeURIComponent(pid)}/repositories/${encodeURIComponent(rid)}`).then((r) => r.status);
-export const cloneProjectRepository = (pid: string, rid: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/repositories/${encodeURIComponent(rid)}/clone`).then((r) => r.body);
 
 // Box (docs/box/oauth.md "Routes"): the caller's connection. Bodies stay `unknown`; the Box port (lib/data/http/box.ts) checks their shape. The OAuth
 // callback is not here: the route handler app/api/integrations/box/callback calls the API on the server.
 export const getBoxConnection = () => httpGet("/integrations/box").then((r) => r.body);
 export const authorizeBox = (returnTo: string) =>
   httpPost("/integrations/box/authorize", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectBox = () => httpDelete("/integrations/box").then((r) => r.status);
 
 // Dropbox (docs/dropbox/oauth.md "Routes"): the caller's connection. Bodies stay `unknown`; the Dropbox port (lib/data/http/dropbox.ts) checks their shape.
 // The OAuth callback is not here: the route handler app/api/integrations/dropbox/callback calls the API on the server.
 export const getDropboxConnection = () => httpGet("/integrations/dropbox").then((r) => r.body);
 export const authorizeDropbox = (returnTo: string) =>
   httpPost("/integrations/dropbox/authorize", json({ return_to: returnTo })).then((r) => r.body);
-/** 204: resolves with the HTTP status. */
-export const disconnectDropbox = () => httpDelete("/integrations/dropbox").then((r) => r.status);
 
 // The caller's Notion connection (docs/notion/oauth.md "Routes"). The consent callback is not here: the route handler
 // app/api/integrations/notion/callback calls the API on the server.
@@ -338,7 +316,7 @@ export const startBatch = (pid: string, expectedFiles: number, name?: string) =>
 /** Renames an upload batch: 200 with the source summary, 422 for a bad name, 404 `source_not_found`, 409 `source_not_renamable`. */
 export const renameSource = (pid: string, sid: string, name: string) =>
   httpPatch(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}`, json({ name })).then((r) => r.body);
-/** Same wire form as `uploadDocument`: the File is the raw body; the `Content-Type` is the canonical type of its extension. */
+/** The File is the raw body; the `Content-Type` is the canonical type of its extension. */
 export const addBatchFile = (pid: string, sid: string, file: File) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}/files?filename=${encodeURIComponent(file.name)}`, {
     headers: { "Content-Type": contentTypeFor(file.name) },
@@ -391,80 +369,15 @@ export const addDrawioSource = (pid: string, link: string) =>
 export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);
 export const startGraphBuild = (pid: string, reasoningLevel: number) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/graph_build`, json({ reasoning_level: reasoningLevel })).then((r) => r.body);
-// Plan (`/plan`, `graph.plan`): the GET is the state of the latest run, the POST starts a run (`replan` re-plans every area), `/plan/tasks` is
-// the persisted plan and `/plan/preview` the features to plan with the run estimate. Bodies stay `unknown`; the plan port
-// (lib/data/http/plan.ts) checks their shape.
+// Plan (`/plan`, `graph.plan`): the GET is the state of the latest run, the POST starts a run (`replan` re-plans every area) and
+// `/plan/tasks` is the persisted plan. Bodies stay `unknown`; the plan port (lib/data/http/plan.ts) checks their shape.
 export const getPlan = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan`).then((r) => r.body);
 export const startPlan = (pid: string, replan: boolean) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/plan`, json({ replan })).then((r) => r.body);
 export const getPlanTasks = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/tasks`).then((r) => r.body);
-export const getPlanPreview = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/preview`).then((r) => r.body);
 
-/** `created` = a new document (201). `duplicate` = the project already has this content and nothing new happened; `retried` =
- * it had it in status `failed`, and the server started its parse again (both 200, with the existing document). */
-export type UploadOutcome = "created" | "duplicate" | "retried";
-
-/** AC-12.2: the File is the raw body, `Content-Type` = the canonical type of its extension (not `file.type`); no multipart. */
-export async function uploadDocument(pid: string, file: File): Promise<{ outcome: UploadOutcome; document: DocumentSummary }> {
-  const { status, body: raw } = await httpPost(`/projects/${encodeURIComponent(pid)}/documents?filename=${encodeURIComponent(file.name)}`, {
-    headers: { "Content-Type": contentTypeFor(file.name) },
-    body: file,
-  });
-  const body = raw as { outcome?: string; document: DocumentSummary };
-  let outcome: UploadOutcome = "created";
-  if (body.outcome === "retried") outcome = "retried";
-  else if (status === 200 || body.outcome === "duplicate") outcome = "duplicate";
-  return { outcome, document: body.document };
-}
-
-// Findings and claims of the Plan page (`/findings`, `/plan/claims`): people resolve or dismiss findings and force-release a story
-// claim. Bodies stay `unknown`; the work port (lib/data/http/work.ts) checks their shape.
-export const getFindings = (pid: string, status: string, node: string | undefined) => {
-  const query = new URLSearchParams({ limit: "200", status });
-  if (node !== undefined) query.set("node", node);
-  return httpGet(`/projects/${encodeURIComponent(pid)}/findings?${query.toString()}`).then((r) => r.body);
-};
-export const resolveFinding = (pid: string, fid: string, note: string | undefined) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/resolve`, json({ note: note ?? null })).then(
-    (r) => r.body,
-  );
-export const dismissFinding = (pid: string, fid: string, note: string | undefined) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/dismiss`, json({ note: note ?? null })).then(
-    (r) => r.body,
-  );
-// The Gaps screen (FR-GWEB-04, FR-GWEB-06): the gap list (`query` is the encoded `list_gaps` filters, never empty: the screens always
-// send a status; a list filter repeating its parameter), one gap, the latest gap run with its noise report, and the writes: edits
-// preview, answer, dismiss, assign, raise, apply now, the "Answered by AI" list and revert, and the noise rules. Bodies stay `unknown`;
-// the gaps port (lib/data/http/gaps.ts) checks their shape. POSTs, PUTs and DELETEs go through `call`, so they carry the CSRF header
-// (the BFF adds nothing; the browser sends the Origin).
+// The canvas gaps inbox (FR-GWEB-04): the gap list (`query` is the encoded `list_gaps` filters, never empty: the screen always sends
+// a status; a list filter repeating its parameter) and the latest gap run (with `GET .../graph_build` the gap check status line — the
+// writes moved to the agents and the Slack bot, D10). Bodies stay `unknown`; the gaps port (lib/data/http/gaps.ts) checks their shape.
 export const getGaps = (pid: string, query: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps?${query}`).then((r) => r.body);
-export const getGap = (pid: string, gid: string) =>
-  httpGet(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}`).then((r) => r.body);
 export const getLatestGapRun = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gap/runs/latest`).then((r) => r.body);
-export const previewGapEdits = (pid: string, gid: string, body: Record<string, unknown>) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/edits_preview`, json(body)).then((r) => r.body);
-export const answerGap = (pid: string, gid: string, body: Record<string, unknown>) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/answer`, json(body)).then((r) => r.body);
-/** Resolves with the HTTP status (204 = dismissed). */
-export const dismissGap = (pid: string, gid: string, reason: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/dismiss`, json({ reason })).then((r) => r.status);
-export const raiseGap = (pid: string, body: Record<string, unknown>) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps`, json(body)).then((r) => r.body);
-export const applyGapAnswers = (pid: string) => httpPost(`/projects/${encodeURIComponent(pid)}/gaps/apply`).then((r) => r.body);
-export const getAiAnswers = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps/ai_answers?limit=50`).then((r) => r.body);
-export const revertClarification = (pid: string, clr: string, reason: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/clarifications/${encodeURIComponent(clr)}/revert`, json({ reason })).then(
-    (r) => r.body,
-  );
-export const getNoiseRules = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules`).then((r) => r.body);
-export const addNoiseRule = (pid: string, body: Record<string, unknown>) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules`, json(body)).then((r) => r.body);
-/** Resolves with the HTTP status (204 = removed). */
-export const removeNoiseRule = (pid: string, rid: string) =>
-  httpDelete(`/projects/${encodeURIComponent(pid)}/gaps/noise_rules/${encodeURIComponent(rid)}`).then((r) => r.status);
-/** Assigns a gap to a member, or clears it (`userId` null); resolves with the gap. */
-export const assignGap = (pid: string, gid: string, userId: string | null) =>
-  httpPut(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/assignee`, json({ user_id: userId })).then((r) => r.body);
-export const getClaims = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/claims`).then((r) => r.body);
-export const releaseClaim = (pid: string, sid: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/plan/claims/${encodeURIComponent(sid)}/release`).then((r) => r.body);

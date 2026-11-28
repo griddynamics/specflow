@@ -1,5 +1,6 @@
 // The Jira epic source on the canvas (09F): what its nodes say in each state the sources API reports, the words of a failed check or add, the
 // line of a passed check, the form, and the stub's reserved keys through the production port. Pure and server-rendered: no browser.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ReactElement } from "react";

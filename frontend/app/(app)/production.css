@@ -1,6 +1,0 @@
-/* P17 fix1 (M1): the page while the sign-out routine runs (the screens are already unmounted). */
-.signing-out {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-}

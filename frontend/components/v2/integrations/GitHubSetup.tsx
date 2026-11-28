@@ -12,8 +12,8 @@ import {
   startPolling,
   withoutRepository,
   withRepository,
-} from "@/components/settings/github-logic";
-import { useToast } from "@/components/ui/Toast";
+} from "@/components/shared/settings/github-logic";
+import { useToast } from "@/components/shared/ui/Toast";
 import type { GitHubConnection, GitHubRepositoryList, ProjectRepositories, ProjectRepository } from "@/lib/domain/github";
 import { HowTo } from "../HowTo";
 import { useV2Ports } from "../use-v2-data";

@@ -7,19 +7,21 @@ ones); the SQL is covered by ``test_db_*_live.py`` and ``test_specflow_api_sourc
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from api import errors, schemas
-from db.batches import BatchEndedError, LockTimeoutError
+from db.batches import LockTimeoutError
 from logger_harness import events, fields
 from specflow_api_support import PDF, bearer
 from specflow_sources_support import new_project
+from storage.base import CHUNK_SIZE
 
 CONTRACT = json.loads((Path(__file__).parents[1] / "src/api/fixtures/sources-contract.json").read_text())
 PDF_HEADERS = {"Content-Type": "application/pdf"}
@@ -524,67 +526,130 @@ async def test_status_without_the_flag_keeps_the_legacy_shape(sources, query):
     assert set(response.json()) == {"progress", "sources", "uploads", "processed_documents"}
 
 
-# ---- legacy upload: the per-UTC-day batch -------------------------------------------
+# ---- the streamed file: chunks, the writer, the abort (AC-7.7) -----------------------
 
 
-async def legacy(harness, pid, content, name="a.pdf", email=ALICE):
-    return await harness.client.post(
-        f"/api/v1/projects/{pid}/documents?filename={name}",
-        content=content,
-        headers={**bearer(email), **PDF_HEADERS},
+async def pieces(data: bytes, size: int):
+    for start in range(0, len(data), size):
+        yield data[start : start + size]
+
+
+async def test_a_chunked_file_is_stored_whole_with_its_hash_and_content_type(harness):
+    pid = await project(harness)
+    sid = (await start(harness, pid)).json()["source"]["id"]
+    data = PDF * 5000  # ~700 KB in 1000-byte pieces, no Content-Length
+
+    response = await harness.client.post(
+        url(pid, f"/{sid}/files?filename=spec.pdf"),
+        content=pieces(data, 1000),
+        headers={**bearer(), **PDF_HEADERS},
+    )
+
+    assert response.status_code == 201
+    [doc] = harness.repo.documents.values()
+    key = f"projects/{pid}/documents/{doc.id}/original.pdf"
+    assert harness.store.objects[key] == data
+    assert harness.store.content_types[key] == "application/pdf"
+    assert (doc.size_bytes, doc.content_hash, doc.original_key) == (
+        len(data),
+        hashlib.sha256(data).hexdigest(),
+        key,
     )
 
 
-async def test_legacy_uploads_of_one_day_land_in_one_ended_day_batch(harness):
-
+async def test_the_writer_receives_chunks_of_at_most_a_small_multiple_of_4_mib(harness, monkeypatch):
     pid = await project(harness)
-    one = (await legacy(harness, pid, pdf(1))).json()["document"]
-    two = (await legacy(harness, pid, pdf(2), "b.pdf")).json()["document"]
-    [batch] = harness.batches.sources.values()
-    assert batch.external_id == f"legacy-{datetime.now(UTC):%Y%m%d}"
-    assert (batch.kind, batch.ended_at is not None) == ("upload", True)
-    for did in (one["id"], two["id"]):
-        assert harness.repo.documents[uuid.UUID(did)].source_id == batch.id
-    assert len(harness.batches.items_of(batch.id)) == 2  # no document without a holder
-    # the new status read shows it as a closed card with both files
-    [card] = (await harness.client.get(url(pid, "?batches=1"), headers=bearer())).json()["sources"]
-    assert (card["open"], card["total"]) == (False, 2)
-
-
-async def test_legacy_upload_outcomes_map_as_before(harness):
-    pid = await project(harness)
-    created = await legacy(harness, pid, pdf(1))
-    assert created.status_code == 201 and "outcome" not in created.json()
-    dup = await legacy(harness, pid, pdf(1), "again.pdf")
-    assert (dup.status_code, dup.json()["outcome"]) == (200, "duplicate")
-    # held by an open batch of the new flow: already_in_project -> duplicate
     sid = (await start(harness, pid)).json()["source"]["id"]
-    await add(harness, pid, sid, pdf(9))
-    [new_doc] = [
-        d
-        for d in harness.repo.documents.values()
-        if d.content_hash != created.json()["document"]["id"] and str(d.source_id) == sid
-    ]
-    other = await legacy(harness, pid, pdf(9), "x.pdf")
-    assert (other.status_code, other.json()["outcome"]) == (200, "duplicate")
-    assert other.json()["document"]["id"] == str(new_doc.id)
-    # a failed file of a new-flow batch is read again by the legacy route: retried
-    new_doc.status, new_doc.error = "failed", "pdf_parse_failed"
-    await end(harness, pid, sid)
-    retried = await legacy(harness, pid, pdf(9), "y.pdf")
-    assert (retried.status_code, retried.json()["outcome"]) == (200, "retried")
-    assert retried.json()["document"]["status"] == "processing"
+    sizes: list[int] = []
+    original = harness.store.open_writer
+
+    async def spy(key, *, content_type):
+        writer = await original(key, content_type=content_type)
+        inner = writer.write
+
+        async def write(chunk):
+            sizes.append(len(chunk))
+            await inner(chunk)
+
+        writer.write = write
+        return writer
+
+    monkeypatch.setattr(harness.store, "open_writer", spy)
+    data = PDF + b"x" * (CHUNK_SIZE * 2 + 123)
+
+    response = await harness.client.post(
+        url(pid, f"/{sid}/files?filename=spec.pdf"),
+        content=pieces(data, 64 * 1024),
+        headers={**bearer(), **PDF_HEADERS},
+    )
+
+    assert response.status_code == 201
+    assert sum(sizes) == len(data) and len(sizes) == 3
+    assert all(size < CHUNK_SIZE + 64 * 1024 for size in sizes)
 
 
-async def test_the_typed_batch_errors_have_answers_on_the_legacy_route_too(harness):
+async def call_asgi(app, path, messages, headers):
+    sent: list[dict] = []
+    queue = list(messages)
+
+    async def receive():
+        return queue.pop(0) if queue else {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "root_path": "",
+        "query_string": b"filename=cut.pdf",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+    }
+    await app(scope, receive, send)
+    return sent
+
+
+async def test_a_client_abort_mid_stream_leaves_no_object_and_no_row(harness, monkeypatch):
+    """AC-7.7: driven at the ASGI level so the disconnect is exact."""
+
     pid = await project(harness)
-    harness.batches.raises["add_batch_file"] = [BatchEndedError()]
-    response = await legacy(harness, pid, pdf(1))
-    assert response.status_code == 409 and code(response) == "batch_ended"
-    assert not harness.store.objects
-    harness.batches.conflicts = 2
-    response = await legacy(harness, pid, pdf(1))
-    assert response.status_code == 503 and not harness.store.objects
+    sid = (await start(harness, pid)).json()["source"]["id"]
+    aborted: list[str] = []
+    original = harness.store.open_writer
+
+    async def spy(key, *, content_type):
+        writer = await original(key, content_type=content_type)
+        inner = writer.abort
+
+        async def abort():
+            aborted.append(key)
+            await inner()
+
+        writer.abort = abort
+        return writer
+
+    monkeypatch.setattr(harness.store, "open_writer", spy)
+    body = [
+        {"type": "http.request", "body": PDF, "more_body": True},
+        {"type": "http.request", "body": b"y" * (CHUNK_SIZE + 10), "more_body": True},
+        # then the client goes away: the next receive() is http.disconnect
+    ]
+    sent = await call_asgi(
+        harness.app,
+        f"/api/v1/projects/{pid}/sources/{sid}/files",
+        body,
+        {**bearer(), **PDF_HEADERS, "host": "test"},
+    )
+    assert len(aborted) == 1
+    assert not harness.store.objects and not harness.repo.documents
+    assert sent[0]["status"] == 499
 
 
 # ---- membership and cross-project ids (NFR-SEC-0002) --------------------------------
@@ -661,14 +726,14 @@ async def test_the_legacy_status_lists_drive_rows_only_even_with_batches_present
     assert [s["id"] for s in body["sources"]] == [drive["id"]] and row.link is None
 
 
-async def test_the_legacy_upload_log_gains_the_source_id_and_the_batch_outcome(harness, caplog):
+async def test_the_upload_log_gains_the_source_id_and_the_batch_outcome(harness, caplog):
     pid = await project(harness)
+    sid = (await start(harness, pid)).json()["source"]["id"]
     with caplog.at_level("INFO"):
-        await legacy(harness, pid, pdf(1))
-        await legacy(harness, pid, pdf(1), "again.pdf")
-    [batch] = harness.batches.sources.values()
+        await add(harness, pid, sid, pdf(1))
+        await add(harness, pid, sid, pdf(1), "again.pdf")
     logged = [fields(r) for r in events(caplog, "api.document.uploaded")]
     assert [(f["outcome"], f["source_id"]) for f in logged] == [
-        ("added", str(batch.id)),
-        ("duplicate", str(batch.id)),
+        ("added", sid),
+        ("duplicate", sid),
     ]

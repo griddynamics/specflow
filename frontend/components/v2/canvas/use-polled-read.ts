@@ -2,7 +2,7 @@
 // One read of a port that the canvas shows: loaded at mount, read again when asked (`reload`) and, while `pollMs` says so, every few seconds.
 // A read that fails keeps what was shown (null before the first success): the canvas shows what it knows and invents nothing.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { startPolling } from "@/components/settings/github-logic";
+import { startPolling } from "@/components/shared/settings/github-logic";
 
 export function usePolledRead<T>(
   load: () => Promise<T>,

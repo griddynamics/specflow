@@ -1,13 +1,12 @@
-// FE-BP-02, FE-PPL-01.AC3, FE-BP-08.AC1 (TECH-SPECS §3.3, §10.4): the http adapter's projects, /me and documents calls through
-// the real lib/api.ts -> the real BFF (built server) -> the stub API. Ports 3250-3251. No model call (R11).
+// FE-BP-02, FE-PPL-01.AC3, FE-BP-08.AC1 (TECH-SPECS §3.3, §10.4): the http adapter's projects, /me and Local files batch calls
+// through the real lib/api.ts -> the real BFF (built server) -> the stub API. Ports 3250-3251. No model call (R11).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createProject as apiCreateProject } from "@/lib/api";
 import { createHttpAdapter } from "@/lib/data/http";
-import { createHttpDocuments } from "@/lib/data/http/documents";
 import { toDataError } from "@/lib/data/http/errors";
 import { isDataError, type DataError } from "@/lib/domain/errors";
-import { errorCode, isExistingEndpoint, pdfFile, startEnv, stubCalls, textFile, type Env } from "./p16-support";
+import { errorCode, isExistingEndpoint, pdfFile, startEnv, stubCalls, type Env } from "./p16-support";
 import { defined } from "../support/defined";
 
 let env: Env;
@@ -96,34 +95,41 @@ test("FE-BP-02.AC4: an invalid name rejects validation (locally, no request; and
   assert.equal(e.detail?.status, 422);
 });
 
-test("FE-BP-08.AC1: documents upload the raw file body with application/pdf and X-Requested-With, one file per request", async () => {
+test("FE-BP-08.AC1: the batch upload sends each file's raw body with its type and X-Requested-With, one file per request", async () => {
   const http = createHttpAdapter();
-  const docs = createHttpDocuments();
   const p = await http.createProject.create({ name: "Docs" });
   const file = pdfFile("spec one.pdf", 4096);
   const n = env.sent.length;
-  const first = await docs.upload(p.id, file);
-  assert.equal(first.outcome, "created");
-  assert.equal(first.document.original_filename, "spec one.pdf");
-  assert.equal(first.document.status, "processing", "K5: the server starts the parse itself");
-  const up = defined(env.sent.slice(n).find((s) => s.method === "POST"));
-  assert.equal(up.path, `/api/backend/projects/${p.id}/documents?filename=spec%20one.pdf`);
-  assert.equal(up.headers["content-type"], "application/pdf");
-  assert.equal(up.headers["x-requested-with"], "specflow");
-  assert.equal(up.bytes, file.size);
-  const stubUp = defined(stubCalls(env.api, p.id, "upload").at(-1));
+  const report = await http.sources.upload(p.id, [file]);
+  assert.deepEqual([report.added, report.alreadyInProject, report.duplicates, report.notAdded], [1, 0, 0, 0]);
+  assert.match(report.sourceId ?? "", /^[0-9a-f-]{36}$/);
+
+  const sent = env.sent.slice(n);
+  const starts = sent.filter((s) => s.method === "POST" && s.path === `/api/backend/projects/${p.id}/sources/uploads`);
+  assert.equal(starts.length, 1, "the batch opens once");
+  assert.equal(starts[0].body, JSON.stringify({ expected_files: 1 }));
+  const ups = sent.filter((s) => s.method === "POST" && s.path.includes("/files?"));
+  assert.equal(ups.length, 1, "one file per request");
+  assert.equal(ups[0].path, `/api/backend/projects/${p.id}/sources/${report.sourceId}/files?filename=spec%20one.pdf`);
+  assert.equal(ups[0].headers["content-type"], "application/pdf");
+  assert.equal(ups[0].headers["x-requested-with"], "specflow");
+  assert.equal(ups[0].bytes, file.size);
+  assert.equal(
+    sent.filter((s) => s.method === "POST" && s.path === `/api/backend/projects/${p.id}/sources/${report.sourceId}/end`).length,
+    1,
+    "the batch always ends",
+  );
+  const stubUps = env.api.log.filter((e) => e.method === "POST" && e.path.startsWith(`/api/v1/projects/${p.id}/sources/`) && e.path.includes("/files?"));
+  const stubUp = defined(stubUps.at(-1));
   assert.equal(stubUp.contentType, "application/pdf", "the BFF forwards the raw body as application/pdf");
   assert.equal(stubUp.bytes, file.size, "the raw body arrives whole (no multipart)");
   assert.equal(stubUp.head, "%PDF-");
-  // Duplicate: same bytes again -> 200 { outcome: "duplicate" } (FE-BP-08.AC9).
-  const again = await docs.upload(p.id, file);
-  assert.equal(again.outcome, "duplicate");
-  assert.equal(again.document.id, first.document.id);
-  // Non-PDF -> 415 unsupported_format, not retryable (FE-BP-08.AC9, AC12).
-  const bad = await rejection(docs.upload(p.id, textFile("notes.txt")));
-  assert.deepEqual([bad.code, bad.retryable, bad.detail?.status], ["unsupported_format", false, 415]);
-  assert.equal([...env.api.docs.values()].filter((d) => d.pid === p.id).length, 1, "the duplicate and the rejected file add no document");
-  assert.equal(stubCalls(env.api, p.id, "parse").length, 0, "the browser never calls parse (K5)");
+  assert.equal(stubCalls(env.api, p.id, "parse").length, 0, "the browser never calls parse (K5: the server starts it)");
+
+  // The same bytes through a second batch: already in the project, and no second document.
+  const again = await http.sources.upload(p.id, [file]);
+  assert.deepEqual([again.added, again.alreadyInProject, again.duplicates], [0, 1, 0]);
+  assert.equal([...env.api.docs.values()].filter((d) => d.pid === p.id).length, 1, "the re-upload adds no document");
 });
 
 test("FE-BP-02 (BFF rules): a mutation without X-Requested-With is refused by the BFF (403 csrf_rejected -> unknown); lib/api.ts always sends it", async () => {

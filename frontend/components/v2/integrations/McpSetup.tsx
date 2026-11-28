@@ -1,5 +1,5 @@
 "use client";
-// MCP on the Integrations page: how a coding agent connects, the three steps with their commands (the Guides' own, `lib/guides/snippets.ts`).
+// MCP on the Integrations page: how a coding agent connects, the three steps with their commands (`lib/guides/snippets.ts`).
 // MCP is not an integration of the project, so this dialog has nothing to bind or disconnect: it is the instructions and Done.
 import { Button, CopyRow, DialogFoot, Notice, StepList, Stack } from "@graphico/ui";
 import { bindCommand, claudeAddCommand, SIGN_IN_COMMAND } from "@/lib/guides/snippets";

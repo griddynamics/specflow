@@ -4,7 +4,7 @@
 // Step 3 posts the welcome message in the bound channel (`slack.test`), says where it went, and then the channel is added.
 import { useEffect, useState } from "react";
 import { Button, CopyRow, Notice, StepList } from "@graphico/ui";
-import { SETTINGS_COPY } from "@/components/settings/settings-copy";
+import { SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
 import { slackConnectCommand, type SlackChannel } from "@/lib/domain/slack";
 import { channelLabel, slackTestFailure, SLACK_POLL_MS } from "../integrations/slack-logic";
 import type { CheckLabels, FormProps } from "../connector-types";

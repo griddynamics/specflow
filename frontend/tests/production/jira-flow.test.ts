@@ -22,7 +22,7 @@ import {
   type Busy,
   type TabAction,
   type TabState,
-} from "../../components/settings/jira-logic";
+} from "@/components/shared/settings/jira-logic";
 
 const NONE: JiraSettings = {
   available: true,

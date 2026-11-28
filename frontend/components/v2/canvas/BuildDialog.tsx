@@ -4,7 +4,7 @@
 // API refuses (a build already running, the service down) shows here, as in the plan dialog, and the dialog stays open.
 import { useState } from "react";
 import { Button, DialogFoot, Notice, Stack } from "@graphico/ui";
-import { estimateText, plural, REASONING_LEVELS } from "@/components/mission-control/sources/kb-logic";
+import { estimateText, plural, REASONING_LEVELS } from "@/components/shared/sources/kb-logic";
 import { isDataError } from "@/lib/domain/errors";
 import { isReasoningLevel, type ProjectSourcesStatus, type ReasoningLevel } from "@/lib/domain/sources";
 import { useV2Ports } from "../use-v2-data";

@@ -1,5 +1,5 @@
 /* The header's project parts (DECISIONS.md D11, D12).
-   Members dialog: what the Settings screen's General tab does today (docs/projects/ui.md#general-tab), in one dialog opened from the header.
+   Members dialog: the project's people and name (docs/projects/ui.md), in one dialog opened from the header.
    The owner renames the project, adds people by email (with suggestions), removes members and cancels invites. A collaborator sees the
    list read-only and can leave the project. Every removal asks first.
    Project menu: the project name opens a list of projects with "Create new project" under it; a person with no project gets

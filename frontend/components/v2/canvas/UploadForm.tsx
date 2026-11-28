@@ -4,7 +4,7 @@
 // The dialog closes at once; the batch shows as a node when the status is read again.
 import { useId, useState } from "react";
 import { DropZone, Field, TextInput } from "@graphico/ui";
-import { useFailToast, useUpload } from "@/components/mission-control/sources/use-sources-actions";
+import { useFailToast, useUpload } from "@/components/shared/sources/use-sources-actions";
 import { limitsText, UPLOAD_ACCEPT } from "@/lib/domain/upload-formats";
 import type { FormProps } from "../connector-types";
 import { useV2Ports } from "../use-v2-data";

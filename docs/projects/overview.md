@@ -1,7 +1,7 @@
 ---
 type: Overview
 title: "Project collaborators overview"
-description: "Purpose, scope, actors, non-goals, boundaries and key terms of project collaborators and the per-project Settings screen"
+description: "Purpose, scope, actors, non-goals, boundaries and key terms of project collaborators and the project's Members dialog"
 status: stable
 tags: [projects, auth]
 ---
@@ -11,7 +11,7 @@ tags: [projects, auth]
 
 A project used to have one member, its creator. Collaborators let a team share a project: the creator (the owner) adds
 people by email, they see and work on the project in the web app and through their coding agents over MCP, and the
-owner can rename the project and remove people. Everything is managed on one per-project Settings screen.
+owner can rename the project and remove people. Everything is managed in the project's Members dialog.
 
 How it works, in short: the owner types an email; a person who already signed in becomes a collaborator at once, anyone
 else becomes an invite that turns into a collaborator the first time that email signs in. Removing someone ends their
@@ -28,7 +28,7 @@ access on their next request and frees the stories they had claimed.
 | Rename a project | [api.md](api.md#rename) |
 | Suggestions of people who already signed in while typing an email | [api.md](api.md#suggestions) |
 | Create Project with collaborator emails | [api.md](api.md#create-with-collaborators) |
-| Settings screen, tab "General" | [ui.md](ui.md) |
+| Members dialog of the V2 header (no Settings screen) | [ui.md](ui.md) |
 
 ## Actors
 
@@ -40,7 +40,7 @@ access on their next request and frees the stories they had claimed.
 | Non-member | any other signed-in user | nothing; the project answers 404 as if it did not exist |
 
 Membership stays the one access rule for reading and working on a project, on every web and agent route
-([../mcp-server/access-control.md](../mcp-server/access-control.md)). The role only gates the Settings actions.
+([../mcp-server/access-control.md](../mcp-server/access-control.md)). The role only gates the members actions.
 
 ## Non-goals
 
@@ -58,7 +58,7 @@ Membership stays the one access rule for reading and working on a project, on ev
 | `db.repositories.upsert_user` | also adopts pending invites (both surfaces call it) |
 | Graph store | none; removal calls the existing forced story release |
 | MCP server | none; collaborators reach projects because membership decides |
-| Frontend | Settings route and sidebar item, members port and adapter, Create Project emails ([ui.md](ui.md)) |
+| Frontend | the Members dialog and its ports, the Create Project dialog ([ui.md](ui.md)) |
 
 ## Key terms
 

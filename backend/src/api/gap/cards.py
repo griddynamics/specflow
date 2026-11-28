@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from typing import Final
-from urllib.parse import quote
 
 from agent_contracts import (
     GAP_STAGES,
@@ -43,13 +42,13 @@ NO_OPTIONS: Final = "**Options:** being prepared; you can give your own answer n
 NOBODY: Final = "nobody"
 
 
-def web_url(public_url: str | None, project_id: str, gap_id: str) -> str | None:
-    """The gap's card in the web app (``?gap=`` opens it, docs/graph/gap/api.md FR-GWEB-04), or None without the web
-    app's address."""
+def web_url(public_url: str | None, project_id: str) -> str | None:
+    """The project's canvas in the web app — the gap query is gone with the legacy Gaps screen, and the canvas has no
+    gap-card equivalent (D10) — or None without the web app's address."""
 
     if public_url is None:
         return None
-    return f"{public_url}/projects/{project_id}/gaps?gap={quote(gap_id, safe=':')}"
+    return f"{public_url}/projects/{project_id}"
 
 
 def _one_line(text: str) -> str:
@@ -141,7 +140,7 @@ def gap_card(gap: GapView, project_id: str, public_url: str | None, assignee: Ho
         quotes=[_quote(witness) for witness in gap.witness],
         options=options,
         updated_at=gap.updated_at,
-        web_url=web_url(public_url, project_id, gap.gap_id),
+        web_url=web_url(public_url, project_id),
         assignee=assignee,
         card="",
     )
@@ -420,7 +419,7 @@ def gap_detail(gap: GapView, project_id: str, public_url: str | None, holders: H
         assignee=holders.of(gap.assigned_to),
         answerable=gap.status == OPEN,
         updated_at=gap.updated_at,
-        web_url=web_url(public_url, project_id, gap.gap_id),
+        web_url=web_url(public_url, project_id),
         card="",
     )
     return detail.model_copy(update={"card": detail_text(detail)})

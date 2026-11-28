@@ -1,36 +1,30 @@
 ---
 type: Design
-title: "Project Settings UI"
-description: "Settings route, sidebar item, General tab in the shell header, owner and collaborator views, confirmations, Create Project emails, errors shown and the frontend ports"
+title: "Project members UI"
+description: "The Members dialog of the V2 header and the Create Project dialog of the project menu, owner and collaborator views, confirmations, errors shown and the frontend ports"
 status: stable
 tags: [projects, frontend]
 ---
-# ui.md: Settings route, sidebar, header tab, General tab views, confirmations, Create Project emails, errors, ports
+# ui.md: the Members dialog, the Create Project dialog, their views, confirmations, errors, ports
 
-The design system rules of [../design-system/USAGE.md](../design-system/USAGE.md) apply; no new design-system component.
+Every screen is Graphico: the UI kit of `packages/ui` ([../mission-control/ui.md](../mission-control/ui.md)); no design-system component of our own.
 
-## Route and sidebar
+## Where they live
 
 | Item | Value |
 |---|---|
-| Route | `/projects/{projectId}/settings`, optional `?tab=general` (missing or unknown: `general`) |
-| Route key | `settings` in `lib/routes.ts` (`ROUTES`, `RouteBuilder.settings(projectId, {tab?})`, `parseSettingsQuery`) |
-| Page | `app/(app)/projects/[projectId]/settings/page.tsx`, a server component like the Plan page: `readProjectName`, `notFound()` on `not_found` |
-| Sidebar | "Settings", icon `gear-six`, after SpecBot and before the Help group; in `SECTIONS` and `validation/nav-spec.json`; `sectionHref` gives the route |
+| Members | a dialog the V2 header's **Members** link opens, over any V2 screen (`components/v2/members/MembersDialog.tsx`); no route of its own |
+| Dialog body | mounts only while the dialog is open: it reads the members when opened and drops its state when closed |
+| Create project | the "Create new project" dialog of the header's project menu, and the uncloseable "Create your first project" window of a person with no project (`components/v2/shell/CreateProjectDialog.tsx`) |
+| Leaving | losing the project (left, or removed meanwhile) closes the dialog and opens `/`, which picks the next project |
 
-## Header
+## The dialog body
 
-The tab bar is in the shell header row through `<ShellHeader tabs={...}>`, level with the project picker, like Plan and
-Decisions: a `SegmentedControl` labelled "Settings section" with one option, "General"; a change pushes the URL with
-`?tab=`. The body has no H1, no page title and no tab row.
-
-## General tab
-
-Layout A2 (an inline form above one list card):
+An inline form above one list card:
 
 | Block | Owner | Collaborator |
 |---|---|---|
-| Project name | TextField + Save | not shown (the project picker shows the name) |
+| Project name | TextInput + Save | not shown (the project menu shows the name) |
 | Collaborators heading + "n of 50" | shown | shown |
 | Add row | email field + Add; suggestions under the field | not shown |
 | List card | rows with x | rows without x |
@@ -43,14 +37,12 @@ cancels the invite. Order: [api.md](api.md#shapes).
 Behavior:
 
 - Save is enabled when the trimmed name differs from the current one and passes the name rule; success refreshes the
-  project switcher.
+  project menu (the `ProjectsPort` rename notifies its subscribers).
 - Suggestions: from 3 typed characters, after a 200 ms pause, at most 8; ArrowUp/ArrowDown, Enter and the mouse pick one;
   a pick fills the field. Esc closes only the list. A stale answer (older query) is dropped.
 - Add (button or Enter) sends the typed or picked email; success adds the row and clears the field.
-- x opens a confirmation (DS `Modal`) naming the person or email; Confirm removes or cancels. Leave project also asks.
-- After leaving: the switcher list reloads and the app opens `/` (the newest remaining project, or the empty state).
-- When the members list no longer holds the caller (removed meanwhile), the next read answers 404 and the shell
-  redirects as for any inaccessible project.
+- x opens a confirmation (a `ConfirmPanel`) naming the person or email; Confirm removes or cancels. Leave project also asks.
+- After leaving: the dialog closes and the app opens `/` (the newest remaining project, or the first-run window).
 - Removal with `claims_release_failed`: a toast says some story claims could not be freed and points to Plan > Work.
 
 ## Errors shown
@@ -65,20 +57,20 @@ Behavior:
 | `member_not_found`, `invite_not_found`, `cannot_remove_owner` (the list was stale) | toast, then the list reloads | "The list changed. It is up to date now." |
 | `owner_required`, network, other | toast | "Could not save. Try again." |
 
-## Create Project modal
+## Create Project dialog
 
-The Contributors field becomes "Collaborators" by email: the `PeoplePicker` with typed-email chips (Enter or comma commits
-a valid email) and the same suggestions (without `project_id`). Local checks: format and duplicates. The modal sends
-`collaborators` only when it holds at least one email. A 422 marks the chip at `details.errors[].loc[2]` with the
-message of the table above; the modal stays open.
+The form is the name only: the collaborators are invited from Members once the project exists (D11). The rules and the
+failure texts are `components/shared/create-project/form-logic.ts`; a refused name is said in words under the field and
+the dialog stays open. The http port still accepts `collaboratorEmails` and sends them when a caller sets them
+(`lib/data/http/projects.ts`); the V2 dialog never does.
 
 ## Ports
 
 | Port | Members |
 |---|---|
-| `MembersPort` (new, `lib/domain/members.ts`) | `list(projectId)`, `add(projectId, email)`, `remove(projectId, userId)`, `cancelInvite(projectId, inviteId)`, `leave(projectId)`, `suggest(query, projectId?)` |
-| `ProjectsPort` | + `rename(projectId, name)`; notifies `subscribe` listeners |
-| `CreateProjectPort` | input `collaboratorEmails: string[]` replaces `contributorIds` |
+| `MembersPort` (`lib/domain/members.ts`) | `list(projectId)`, `add(projectId, email)`, `remove(projectId, userId)`, `cancelInvite(projectId, inviteId)`, `leave(projectId)`, `suggest(query, projectId?)` |
+| `ProjectsPort` | `rename(projectId, name)`; notifies `subscribe` listeners |
+| `CreateProjectPort` | input `collaboratorEmails: string[]` (empty from the V2 dialog) |
 
-The http adapter (`lib/data/http/members.ts`) checks every body's shape; `lib/api.ts` gains a PATCH helper. A 403 maps
-to the new `DataErrorCode` `forbidden`; the API code stays in `DataError.detail.apiCode`.
+The http adapter (`lib/data/http/members.ts`) checks every body's shape; `lib/api.ts` has the PATCH helper. A 403 maps
+to the `DataErrorCode` `forbidden`; the API code stays in `DataError.detail.apiCode`.

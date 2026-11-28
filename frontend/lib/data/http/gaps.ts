@@ -1,29 +1,9 @@
-// FR-GWEB-04, FR-GWEB-06 (docs/graph/gap/api.md "Web routes", "Models"): the production `GapsPort`. Reads: `GET /projects/{pid}/gaps` (the
-// filters as query parameters, a list filter repeating its parameter; the inbox sends `assigned_to` for the Assigned filter; the Plan
-// screens send none), `GET .../gaps/{gap_id}`, `GET .../gap/runs/latest` (the noise report of the latest finished run, and with
-// `GET .../graph_build` the gap check status line), `GET .../gaps/ai_answers` and `GET .../gaps/noise_rules`. Writes:
-// `POST .../gaps/{gap_id}/edits_preview`, `.../answer`, `.../dismiss`, `PUT .../gaps/{gap_id}/assignee`, `POST .../gaps` (raise),
-// `POST .../gaps/apply` ("Resolve gaps"), `POST .../gaps/clarifications/{clr_id}/revert`, `POST .../gaps/noise_rules` and
-// `DELETE .../gaps/noise_rules/{rule_id}`. Bodies are parsed strictly: any other shape is `invalid_response`. Failures are `DataError`s
-// with the API code and, for `400 answer_invalid` and `409 gap_wrong_state`, the `field`, `reason` and gap `state` of the envelope's
-// details; `503 gap_unavailable` rejects as `unavailable` (the screen's "not available" state).
-import {
-  addNoiseRule,
-  answerGap,
-  applyGapAnswers,
-  assignGap,
-  dismissGap,
-  getAiAnswers,
-  getGap,
-  getGaps,
-  getGraphBuild,
-  getLatestGapRun,
-  getNoiseRules,
-  previewGapEdits,
-  raiseGap,
-  removeNoiseRule,
-  revertClarification,
-} from "@/lib/api";
+// FR-GWEB-04 (docs/graph/gap/api.md "Web routes", "Models"): the production `GapsPort` — reads only (the writes are the agents' and the
+// Slack bot's, D10): `GET /projects/{pid}/gaps` (the filters as query parameters, a list filter repeating its parameter; the inbox sends
+// `assigned_to` for the Assigned filter) and `GET .../gap/runs/latest` (with `GET .../graph_build` the gap check status line). Bodies are
+// parsed strictly: any other shape is `invalid_response`. Failures are `DataError`s with the API code; `503 gap_unavailable` rejects as
+// `unavailable` (the screen's "not available" state).
+import { getGaps, getGraphBuild, getLatestGapRun } from "@/lib/api";
 import {
   CLARIFICATION_PLACEMENTS,
   CLARIFICATION_STATUSES,
@@ -32,42 +12,24 @@ import {
   GAP_ROUTES,
   GAP_SEVERITIES,
   GAP_STATUSES,
-  NOISE_SCOPES,
-  type AiAnswer,
-  type AnswerInput,
-  type AnswerResult,
-  type ApplyResult,
   type BasisQuote,
-  type EditPlacement,
-  type EditPreview,
   type Gap,
-  type GapAnswerChoice,
+  type GapCheck,
   type GapClarification,
-  type GapEdit,
   type GapEvent,
   type GapFollowUp,
   type GapHistory,
   type GapNode,
-  type GapCheck,
-  type GapNoise,
   type GapOption,
   type GapQuery,
   type GapQuote,
   type GapReach,
   type GapsPort,
-  type NoiseRule,
-  type NoiseSection,
-  type PreviewSection,
-  type RevertResult,
 } from "@/lib/domain/gaps";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
 
 const RUN_STATUSES = ["idle", "queued", "running", "completed", "degraded", "failed"] as const;
-const RELEVANCE = ["spec", "tracking", "mixed"] as const;
-const DECIDED_BY = ["rules", "model", "person"] as const;
 const CLARIFICATION_MODES = ["option", "own", "ai", "pointer"] as const;
-const EDIT_PLACEMENTS = ["amend", "document"] as const;
-const OPERATIONS = ["insert_after", "replace", "append_section"] as const;
 const DIRECTIONS = ["continues", "continued_by"] as const;
 
 const oneOf = <T extends string>(values: readonly T[], v: unknown): T => {
@@ -118,10 +80,6 @@ function toBasis(v: unknown): BasisQuote {
   return { fragmentId: v.fragment_id, quote: v.quote };
 }
 
-const flag = (v: unknown): boolean => {
-  expectShape(v === undefined || typeof v === "boolean");
-  return v === true;
-};
 const count = (v: unknown): number => {
   expectShape(v === undefined || (typeof v === "number" && Number.isInteger(v) && v >= 0));
   return typeof v === "number" ? v : 0;
@@ -224,29 +182,6 @@ export function toGap(v: unknown): Gap {
   };
 }
 
-function toSection(v: unknown): NoiseSection {
-  expectShape(isRecord(v) && isString(v.lineage));
-  return {
-    lineage: v.lineage,
-    headingPath: listOf(v.heading_path, text),
-    relevance: oneOf(RELEVANCE, v.relevance),
-    by: oneOf(DECIDED_BY, v.by),
-    signals: listOf(v.signals, text),
-    removed: listOf(v.removed, text),
-  };
-}
-
-/** `GapRunStatus`: the run status and, once a run finished, its noise report. */
-export function toNoise(v: unknown): GapNoise {
-  expectShape(isRecord(v));
-  const status = oneOf(RUN_STATUSES, v.status);
-  if (v.result === null || v.result === undefined) return { status, runId: null, sections: [] };
-  expectShape(isRecord(v.result) && isString(v.result.run_id));
-  const noise = v.result.noise;
-  expectShape(noise === undefined || isRecord(noise));
-  return { status, runId: v.result.run_id, sections: listOf(noise?.sections, toSection) };
-}
-
 /** A count of the run result (`counts.gaps_new.total`, `counts.close.resolved`): null when the run has no such number. */
 function resultCount(counts: unknown, group: string, key: string): number | null {
   if (!isRecord(counts)) return null;
@@ -309,118 +244,6 @@ export function gapQueryString(q: GapQuery): string {
   return params.toString();
 }
 
-// ---- writes ----
-
-function toEdit(v: unknown): GapEdit {
-  expectShape(isRecord(v) && isString(v.text) && isRecord(v.target));
-  const t = v.target;
-  return {
-    placement: oneOf(EDIT_PLACEMENTS, v.placement),
-    target: { fragmentId: textOrNull(t.fragment_id), anchorQuote: textOrNull(t.anchor_quote), heading: textOrNull(t.heading) },
-    operation: oneOf(OPERATIONS, v.operation),
-    text: v.text,
-  };
-}
-
-/** An edit back on the wire, exactly as the preview sent it (unset target fields are left out). */
-export function editWire(e: GapEdit): Record<string, unknown> {
-  const target: Record<string, string> = {};
-  if (e.target.fragmentId !== null) target.fragment_id = e.target.fragmentId;
-  if (e.target.anchorQuote !== null) target.anchor_quote = e.target.anchorQuote;
-  if (e.target.heading !== null) target.heading = e.target.heading;
-  return { placement: e.placement, target, operation: e.operation, text: e.text };
-}
-
-function toPreviewSection(v: unknown): PreviewSection {
-  expectShape(isRecord(v) && isString(v.after));
-  return {
-    fragmentId: textOrNull(v.fragment_id),
-    lineage: textOrNull(v.lineage),
-    headingPath: listOf(v.heading_path, text),
-    before: textOr(v.before, ""),
-    after: v.after,
-  };
-}
-
-/** `EditPreview`. */
-export function toPreview(v: unknown): EditPreview {
-  expectShape(isRecord(v) && isString(v.gap_id) && Array.isArray(v.edits) && Array.isArray(v.sections));
-  return {
-    gapId: v.gap_id,
-    placement: oneOf(EDIT_PLACEMENTS, v.placement),
-    edits: v.edits.map(toEdit),
-    sections: v.sections.map(toPreviewSection),
-    drafted: flag(v.drafted),
-    fallback: textOrNull(v.fallback),
-  };
-}
-
-/** The body of an answer or a preview: the option rank or the own text, and the placement when one is given. */
-export function choiceWire(choice: GapAnswerChoice, placement: EditPlacement | undefined): Record<string, unknown> {
-  const body: Record<string, unknown> = "optionRank" in choice ? { option_rank: choice.optionRank } : { own_text: choice.ownText };
-  if (placement !== undefined) body.placement = placement;
-  return body;
-}
-
-/** `POST .../answer`: the choice, the placement, the preview's edits when it has some, and the gap's `updated_at` as read. */
-export function answerWire(input: AnswerInput): Record<string, unknown> {
-  const body = choiceWire(input.choice, input.placement);
-  if (input.edits.length > 0) body.edits = input.edits.map(editWire);
-  body.updated_at = input.updatedAt;
-  return body;
-}
-
-const ids = (v: unknown): string[] => listOf(v, text);
-
-function toAnswerResult(v: unknown): AnswerResult {
-  expectShape(isRecord(v) && isString(v.gap_id) && isString(v.clr_id));
-  return {
-    gapId: v.gap_id,
-    clrId: v.clr_id,
-    replaced: textOrNull(v.replaced),
-    placement: oneOf(CLARIFICATION_PLACEMENTS, v.placement),
-    amendments: ids(v.amendments),
-    applyAt: textOrNull(v.apply_at),
-    immediate: flag(v.immediate),
-  };
-}
-
-function toApplyResult(v: unknown): ApplyResult {
-  expectShape(isRecord(v));
-  return { gapIds: ids(v.gap_ids), clrIds: ids(v.clr_ids), amendments: ids(v.amendments), build: textOrNull(v.build) };
-}
-
-function toAiAnswer(v: unknown): AiAnswer {
-  expectShape(isRecord(v) && isString(v.gap_id));
-  const c = toClarification(v.clarification);
-  expectShape(c?.clrId !== undefined);
-  return {
-    gapId: v.gap_id,
-    title: textOr(v.title, ""),
-    question: textOr(v.question, ""),
-    gapStatus: oneOf(GAP_STATUSES, v.gap_status),
-    clarification: { ...c, clrId: c.clrId },
-    followUp: textOrNull(v.follow_up),
-  };
-}
-
-function toRevertResult(v: unknown): RevertResult {
-  expectShape(isRecord(v) && isString(v.clr_id) && isString(v.gap_id) && typeof v.follow_up === "boolean");
-  return { clrId: v.clr_id, gapId: v.gap_id, followUp: v.follow_up, amendments: ids(v.amendments), build: textOrNull(v.build) };
-}
-
-function toNoiseRule(v: unknown): NoiseRule {
-  expectShape(isRecord(v) && isString(v.rule_id) && isString(v.value) && isString(v.reason) && isString(v.created_at));
-  return {
-    ruleId: v.rule_id,
-    scope: oneOf(NOISE_SCOPES, v.scope),
-    value: v.value,
-    reason: v.reason,
-    createdBy: textOr(v.created_by, ""),
-    createdAt: v.created_at,
-  };
-}
-
 export function createHttpGaps(): GapsPort {
   return {
     async list(projectId, query) {
@@ -430,76 +253,12 @@ export function createHttpGaps(): GapsPort {
         return { gaps: body.gaps.map(toGap), next: textOrNull(body.next) };
       });
     },
-    async get(projectId, gapId) {
-      const body = await guard(() => getGap(projectId, gapId));
-      return checked(() => toGap(body));
-    },
-    async noise(projectId) {
-      const body = await guard(() => getLatestGapRun(projectId));
-      return checked(() => toNoise(body));
-    },
     async check(projectId) {
       const [run, build] = await Promise.all([
         guard(() => getLatestGapRun(projectId)),
         guard(() => getGraphBuild(projectId)).catch(() => null), // the build's state only adds "building"
       ]);
       return checked(() => toGapCheck(run, build));
-    },
-    async previewEdits(projectId, gapId, choice, placement) {
-      const body = await guard(() => previewGapEdits(projectId, gapId, choiceWire(choice, placement)));
-      return checked(() => toPreview(body));
-    },
-    async answer(projectId, gapId, input) {
-      const body = await guard(() => answerGap(projectId, gapId, answerWire(input)));
-      return checked(() => toAnswerResult(body));
-    },
-    async dismiss(projectId, gapId, reason) {
-      await guard(() => dismissGap(projectId, gapId, reason));
-    },
-    async assign(projectId, gapId, userId) {
-      const body = await guard(() => assignGap(projectId, gapId, userId));
-      return checked(() => toGap(body));
-    },
-    async raise(projectId, input) {
-      const wire: Record<string, unknown> = { question: input.question, kind: input.kind, about: input.about };
-      if (input.severity !== undefined) wire.severity = input.severity;
-      const body = await guard(() => raiseGap(projectId, wire));
-      return checked(() => {
-        expectShape(isRecord(body) && isString(body.gap_id));
-        return { gapId: body.gap_id, created: body.created !== false };
-      });
-    },
-    async applyNow(projectId) {
-      const body = await guard(() => applyGapAnswers(projectId));
-      return checked(() => toApplyResult(body));
-    },
-    async aiAnswers(projectId) {
-      const body = await guard(() => getAiAnswers(projectId));
-      return checked(() => {
-        expectShape(isRecord(body));
-        return listOf(body.answers, toAiAnswer);
-      });
-    },
-    async revert(projectId, clrId, reason) {
-      const body = await guard(() => revertClarification(projectId, clrId, reason));
-      return checked(() => toRevertResult(body));
-    },
-    async noiseRules(projectId) {
-      const body = await guard(() => getNoiseRules(projectId));
-      return checked(() => {
-        expectShape(isRecord(body) && Array.isArray(body.rules));
-        return body.rules.map(toNoiseRule);
-      });
-    },
-    async addNoiseRule(projectId, rule) {
-      const body = await guard(() => addNoiseRule(projectId, { scope: rule.scope, value: rule.value, reason: rule.reason }));
-      return checked(() => {
-        expectShape(isRecord(body) && isString(body.rule_id));
-        return body.rule_id;
-      });
-    },
-    async removeNoiseRule(projectId, ruleId) {
-      await guard(() => removeNoiseRule(projectId, ruleId));
     },
   };
 }

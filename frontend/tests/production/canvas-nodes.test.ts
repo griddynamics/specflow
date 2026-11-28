@@ -1,5 +1,6 @@
 // The node mappers of 06b (GitHub repository, Slack channel, Jira plan) and the pieces around them: what each node says in each state the
 // APIs report, that a stop is only an API-reported one, and which hub presses open which dialog. Pure: no React.
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { gapCounts, openGapRows } from "@/components/v2/canvas/canvas-gaps";

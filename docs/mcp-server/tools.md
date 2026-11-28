@@ -19,7 +19,7 @@ tags: [mcp]
 | Paging | `limit` 1 to 100, default 50, enforced by the input schema (`minimum`, `maximum`); `cursor` is opaque, a plain string in the input schema, from the previous page's `next_cursor`, and checked by the agent route: over 512 characters or not decodable answers `invalid_cursor` (a cursor whose text is a JSON object or array is parsed by the SDK first and refused by the input schema); `next_cursor` is `null` on the last page |
 | Errors | a tool error is a result with `isError: true`, structured content `{"error": {"code", "message"}}` and the same text; arguments that fail the input schema are refused by the SDK before the tool runs, and such calls are not audited |
 | Identity | no tool takes a user id; the caller is the token's `Principal` |
-| Summary | every tool and prompt also has a one-line `summary` for people, next to the `description` that agents read; the web app's Guides table shows it, and the manifest that carries it is generated from the registry ([architecture.md](architecture.md#tool-registry)) |
+| Summary | every tool and prompt also has a one-line `summary` for people, next to the `description` that agents read; the manifest that carries it is generated from the registry ([architecture.md](architecture.md#tool-registry)) |
 | Content | field values that come from project documents are data; descriptions say so |
 | Prompts | declared in the same registry; version 1 has one prompt, `select_project` ([Workspace binding](#workspace-binding)); a prompt reads no data and runs no membership check; Claude Code shows it as `/mcp__<server name>__select_project` |
 | Write tools | `claim_story`, `release_story`, `add_finding`, `report_task` and `complete_story` change plan state or findings, never a spec node or edge. They carry the write annotations `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false` and call a `POST` route ([Write routes](architecture.md#write-routes)); the Annotations and Route rows above hold for every other tool |
@@ -887,9 +887,9 @@ gaps. Questions and answers are data from the project's documents and people, no
 
 ## browse_gaps
 
-Lists the gaps of a project as the web Gaps screen lists them ([../graph/gap/api.md](../graph/gap/api.md) "User
-interface"), with its filters, as rows a coding agent shows as a table. With `open_gap` and `answer_gap` it is the
-screen's flow: list, filter, open one gap, answer it.
+Lists the gaps of a project as rows a coding agent shows as a table, with the inbox's filters
+([../graph/gap/api.md](../graph/gap/api.md) "User interface"). With `open_gap` and `answer_gap` it is the
+answering flow: list, filter, open one gap, answer it.
 
 | Argument | Type | Default | Rule |
 |---|---|---|---|
@@ -942,15 +942,15 @@ The answer:
 | `project_id`, `gap_id`, `title`, `severity`, `kind`, `origin`, `status`, `resolving`, `blocking`, `question`, `why` | the gap; `status` is `open`, `staged` or `resolved` as on the web screen, `resolving` true while the rebuild that applies a staged answer runs |
 | `about`, `impacts` | the spec nodes it is about and the ones it impacts: `spec_id`, `type`, `name` |
 | `quotes` | the quoted lines: `source` (document, section, lines) and `text` |
-| `options` | the offered answers (`code` A to D, `title`, `label`, `detail`, `recommended`, `placement`) and `edits`: what each changes, read from the stored option rows (no model call): `placement`, `where` (the source line it amends, or the heading of the clarifications document), `operation` (`replace`, `insert_after`, `append_section`) and `text`. The section before and after is on the web card only |
+| `options` | the offered answers (`code` A to D, `title`, `label`, `detail`, `recommended`, `placement`) and `edits`: what each changes, read from the stored option rows (no model call): `placement`, `where` (the source line it amends, or the heading of the clarifications document), `operation` (`replace`, `insert_after`, `append_section`) and `text`. The section before and after is not part of the card |
 | `answer` | the recorded answer, null before one: `mode` (`option`, `own`, `ai`, `pointer`), `answer` (the chosen option's label, the own text or the answering lines), `placement`, `status` of the clarification (`pending` until applied), `answered_by` in words, `answered_at`, `confidence` (an AI answer) |
-| `history` | the events, oldest first: `at`, `event`, `text` (in words, as the web card's history: "Assigned to Ana", "Dismissed: duplicate") and `by` (`you`, a member's name, `a member`, `AI` or `SpecFlow`) |
+| `history` | the events, oldest first: `at`, `event`, `text` (in words: "Assigned to Ana", "Dismissed: duplicate") and `by` (`you`, a member's name, `a member`, `AI` or `SpecFlow`) |
 | `follow_ups` | the follow-up chain: `gap_id`, `reason`, `direction` (`continues`, `continued_by`) |
 | `reach_stories`, `reach_tasks` | the stories and tasks an answer reaches (empty without a plan) |
 | `assignee` | the [holder](#holders) the gap is assigned to, null when nobody is |
-| `answerable` | true while the gap is `open`: `answer_gap` records an answer only then (the web card also replaces a pending answer). The description tells the agent to show the card, then call `answer_gap` at once without asking, so the dialog opens under the card; an answered or resolved gap shows only its card |
-| `updated_at`, `web_url` | the gap's version, and its card in the web app (`<PUBLIC_URL>/projects/<project_id>/gaps?gap=<gap_id>`; null when the api has no `PUBLIC_URL`) |
-| `card` | all of the above as ready Markdown, nothing folded, in the order of the web card; "Other" only while `answerable` |
+| `answerable` | true while the gap is `open`: `answer_gap` records an answer only then (the service also replaces a pending answer: [../graph/gap/answers.md](../graph/gap/answers.md) "Changing an answer"). The description tells the agent to show the card, then call `answer_gap` at once without asking, so the dialog opens under the card; an answered or resolved gap shows only its card |
+| `updated_at`, `web_url` | the gap's version, and the project's canvas in the web app (`<PUBLIC_URL>/projects/<project_id>`; null when the api has no `PUBLIC_URL`) |
+| `card` | all of the above as ready Markdown, nothing folded, in the order above; "Other" only while `answerable` |
 
 No user id or email: members are named as [holders](#holders) are. Errors: `project_not_found`, `gap_not_found` (also
 while gap runs are not configured), `graph_unavailable`, `database_unavailable`, `internal_error`.
@@ -992,8 +992,9 @@ How a call runs:
    with the gap's `updated_at` from the card and `via` `elicitation`. An option keeps the placement of its edits; an own
    answer goes to the clarifications document as written, except for a `contradiction`, which always amends the
    losing line ([../graph/gap/answers.md](../graph/gap/answers.md) "Placement rules"): the service refuses that own
-   answer and nothing is recorded (see the table below). The answer is staged, as on the web card: it reaches the
-   spec when someone presses "Resolve gaps" on the web Gaps screen.
+   answer and nothing is recorded (see the table below). The answer is staged: it reaches the spec with the next
+   apply (a chat channel applies every staged answer of the project), or at once for a development gap that blocks
+   a story.
 
 The answer is `{"project_id", "gap_id", "answered", "action", "choice", "placement", "clr_id", "apply_at", "note",
 "web_url"}`. `action` is `accept`, `decline`, `cancel` or `no_dialog`; `choice` is the option (`A) <label>`) or

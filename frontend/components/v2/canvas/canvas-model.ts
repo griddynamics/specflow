@@ -2,7 +2,7 @@
 // canvas shows out. Colour has three jobs (docs/mission-control/README.md "Colour"): grey = not active, ink = working, yellow = a person
 // decides now. Yellow belongs to the two decisions (Build or Update graph, Build plan or Replan), never to a status; if both are open the
 // graph build keeps the yellow and the plan button is ink. A wire moves only while data moves on it. Nothing here reads a clock but `now`.
-import { buildButtonView, plural } from "@/components/mission-control/sources/kb-logic";
+import { buildButtonView, plural } from "@/components/shared/sources/kb-logic";
 import { sourceState } from "@/lib/domain/source-state";
 import type { ProjectSourcesStatus } from "@/lib/domain/sources";
 import type { WireMotion } from "@graphico/ui";

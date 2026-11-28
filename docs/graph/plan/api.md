@@ -224,9 +224,6 @@ the plan's own text, never document text.
 | `POST /api/v1/projects/{pid}/plan` | Starts a plan run and answers 202 with the state at once; a second call while it runs answers the same run. Body (optional): `{"replan": bool}`. 409 `no_graph_build` without a finished build, 409 `graph_build_running` while the graph builds |
 | `GET /api/v1/projects/{pid}/plan` | The state: `status` (`idle`, `running`, `succeeded`, `partially_succeeded`, `failed`), `has_plan`, `run_id`, `mode`, `replan`, `step` (the step that runs or last ran), `steps_done`, `steps_total`, `step_items_done` and `step_items_total` (while the Tasks step runs: its planning parts done and in all, reported through `PlanContext.on_progress`; null otherwise), `started_at`, `finished_at`, `unchanged`, `error_code` (`interrupted` for a run a stopped process left) |
 | `GET /api/v1/projects/{pid}/plan/tasks` | The persisted plan: `plan_id`, `last_build_id`, `updated_at`, `areas`, `stories` (with `progress`), `tasks` in phase order, then by area, story and id. Each area has `planned_by` and `not_buildable` (spec id, name, reason code, note); each task has its phase, status, complexity, `done_when`, `waits_for`, `implements` (spec id, label and name), `planned_by` (`model`, or `rules` when a fallback wrote it) and `ready` (pending with every wait completed). From the run that last wrote the plan: `quality` (`run_id`, `status`, `fallbacks` per planner, `tasks_planned`, `review` counts by severity, `review_failed`, `unplaced`, `oversized`; null when that run's result is gone) and `review`, its findings (`area_id`, `task_id`, `problem`, `severity`). 404 `no_plan` without a plan |
-| `GET /api/v1/projects/{pid}/plan/claims` | The claims board for people (`PlanService.claims`): `claims` oldest first, each with `kind` (`story` or `task`), `story_id`, `title`, `task_id`, `holder` (`name`, `you`, `agent_label`: a member's display name, never an id or email), `claimed_at`, `branch` and `tasks`. 404 `no_plan` without a plan |
-| `POST /api/v1/projects/{pid}/plan/claims/{story_id}/release` | Frees the story claim by force (`release_story(force=True)`): the claimed tasks return to `pending`, the holder's token then answers `claim_mismatch`. `{"released": n}`; 0 for a story nobody holds; 404 `story_not_found`. Any member of the project may do it ([../../mcp-server/access-control.md](../../mcp-server/access-control.md) AC12) |
-| `GET /api/v1/projects/{pid}/plan/preview` | What a run would start from, without a model call: `features` (the anchors of feature stories in the rules), `mode`, `unchanged`, and the run estimate summed over the steps, `calls` and `input_tokens` (null without a finished build or when the estimate fails) |
 
 The runner plans from the project's latest finished build. Without a plan the run is `first`. With a plan, it is
 an `update` that passes the change reports of every build after the plan's `last_build_id` up to that build
@@ -237,8 +234,10 @@ With `replan`, or when the chain cannot be completed (the plan's build or a buil
 missing, a failed build started `persist`, an edge ref does not parse), it is a `replan` without change reports,
 and the run logs `api.plan.change_reports_missing` with the reason and the build id. An unfinished run is resumed
 by the next start, with the build and the `replan` choice of its run record. Plan state lives in the file
-`PlanStore` under `GRAPH_STATE_DIR`, next to the build stores. The web app's Plan page reads `GET /plan` and `/plan/preview`, polls `GET /plan` every 2 s while a run
-goes, and reads `/plan/tasks` once a plan exists; "Recreate Plan" posts `replan`.
+`PlanStore` under `GRAPH_STATE_DIR`, next to the build stores. The web app's Plan page reads `GET /plan`, polls `GET /plan` every 2 s while a run
+goes, and reads `/plan/tasks` once a plan exists; "Recreate Plan" posts `replan`. The claims board and the preview went with the V1
+screens (the plan port keeps the ready and snapshot reads, `GET /plan` and `/plan/tasks`); story release survives agent-side
+(`release_story`, `POST /agent/story-release`, [../../mcp-server/tools.md](../../mcp-server/tools.md) "release_story").
 
 ## MCP tools (host)
 

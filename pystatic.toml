@@ -32,16 +32,6 @@ paths = ["validation/run-all.sh"]
 owner = "validation/ci"
 reason = "the kit's track runner; validation/ci/test_run_all.py runs it in make validate-ci-selftest"
 
-# The GD Liquid Glass design system is vendored into docs/design-system read-only (AGENTS.md:
-# tokens are the source of truth, the folder is not edited here). Its component bundle (built
-# JavaScript/CSS, the minified React and xyflow builds it ships with, the type declarations) and
-# tokens.css are third-party design-token and component source: no project of this repository
-# builds, lints or tests them. The frontend uses its own copy, frontend/styles/ds/tokens.css, which
-# validate-typescript-scripts checks (tokens, contrast).
-[[source-ownership.external]]
-paths = ["docs/design-system/components/**/*", "docs/design-system/tokens.css"]
-reason = "vendored read-only third-party design system (GD Liquid Glass components and design tokens); validated by nobody in this repository"
-
 # `make env-local` and `make check-keycloak-env` run this script; backend/tests/test_specflow_env_local.py and
 # the check-keycloak-env tests in backend/tests/test_specflow_images.py run it through make.
 [[source-ownership.external]]

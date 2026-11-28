@@ -184,10 +184,9 @@ The server instructions are passed to the SDK server when the app is built.
 
 Each tool and prompt declaration also carries a one-line `summary` for people, separate from the `description` that
 agents read ([tools.md](tools.md#conventions)). The registry renders a manifest from the declarations: the name, the
-summary, and for a tool whether it is read-only, for a prompt its argument. The manifest is committed as
-`frontend/lib/guides/mcp-tools.json`, and the web app's guide builds its tools table from it
-([deployment.md](deployment.md#guides-in-the-web-app)). A backend test fails when the committed file differs from the
-registry; `make mcp-manifest` regenerates it.
+summary, and for a tool whether it is read-only, for a prompt its argument. The manifest is plain data, and a backend
+test holds its shape: one-line summaries, no description text, the declaration order and the read-only flags. (The
+committed copy and the guide page's tools table that read it went with the V1 pages.)
 
 The API call of a read tool sends the validated arguments as query parameters (booleans `true`/`false`, integers as decimal strings,
 a list as a repeated parameter, `None` omitted), the caller's single `Authorization` header unchanged and the request id, and checks a `200` body

@@ -6,10 +6,10 @@ import { useId } from "react";
 import { Button, ConfirmPanel, DialogFoot, Field, Notice, PersonList, PersonRow, Split, SuggestionList, TextInput } from "@graphico/ui";
 import { COPY } from "@/lib/copy";
 import type { MembersState } from "@/lib/domain/members";
-import { activeOf, handleAddRowKey, showsList } from "@/components/settings/add-row-keys";
-import { countText, SETTINGS_COPY } from "@/components/settings/settings-copy";
-import { confirmText, rowsOf, type Confirm, type Row } from "@/components/settings/settings-logic";
-import { useAddRow, type AddOutcome } from "@/components/settings/use-add-row";
+import { activeOf, handleAddRowKey, showsList } from "@/components/shared/settings/add-row-keys";
+import { countText, SETTINGS_COPY } from "@/components/shared/settings/settings-copy";
+import { confirmText, rowsOf, type Confirm, type Row } from "@/components/shared/settings/settings-logic";
+import { useAddRow, type AddOutcome } from "@/components/shared/settings/use-add-row";
 import { V2_COPY } from "../v2-copy";
 
 export interface MembersViewProps {

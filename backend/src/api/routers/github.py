@@ -7,7 +7,7 @@ read. Events carry the user id and a code only.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 
 from api.deps import RuntimeDep, UserDep
 from api.github import github_connections, github_error
@@ -90,14 +90,6 @@ async def github_setup(body: GitHubSetupIn, runtime: RuntimeDep, user: UserDep) 
         return GitHubSetupOut(return_to=github_connections(runtime).check_setup(user.id, body.state))
     except GitHubError as error:
         raise github_error(_refused(user.id, error, "setup")) from None
-
-
-@router.delete("", status_code=204)
-async def disconnect_github(runtime: RuntimeDep, user: UserDep) -> Response:
-    """Delete the caller's connection and remove the app's grant on GitHub (best effort)."""
-
-    await github_connections(runtime).disconnect(user.id)
-    return Response(status_code=204)
 
 
 @router.get("/repositories", response_model=GitHubRepositoriesOut)

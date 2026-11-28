@@ -5,7 +5,7 @@
 // and on any app `/api/` path outside `/api/backend/` (the BFF), `/api/auth/` (sign-in, sign-out) and the Atlassian consent callback.
 import { randomBytes } from "node:crypto";
 import { request, type Locator, type Page } from "@playwright/test";
-import { test as base, expect, networkQuiet } from "../e2e/support";
+import { test as base, expect } from "../e2e/support";
 
 export const ALLOWED_EXTRA_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
 export const CONTROL = process.env.E2E_PRODUCTION_CONTROL_URL ?? "http://127.0.0.1:3262";
@@ -115,49 +115,6 @@ export async function loginV2(page: Page): Promise<void> {
   await expect(v2Header(page)).toBeVisible();
 }
 
-/**
- * Signs in and opens a project's V1 Mission Control, for the specs of the V1 screens (they stay at their own URLs until the clean-up).
- * `/` is V2 now, so the way in is the one `/` used to take: the newest project of the list, or a new one when the list is empty.
- */
-export async function login(page: Page): Promise<void> {
-  await loginV2(page);
-  const listed = (await bff(page, "GET", "/projects?limit=100")).json as { items: { id: string }[] };
-  const pid = listed.items.at(0)?.id ?? (await createProjectApi(page, `First project ${Date.now().toString(36)}`));
-  await page.goto(`/projects/${pid}/mission-control`);
-  await expect(page.getByTestId("app-shell")).toBeVisible();
-  await expect(page.getByTestId("screen-mission-control")).toBeVisible();
-}
-
-/** The top bar's current project name (inside the project switcher's trigger). */
-export const topbarProjectName = (page: Page): Locator => page.getByTestId("topbar-project-name");
-
-/** The top bar's project switcher: the button that shows the current project name and opens the "Switch project" menu. */
-export const projectSwitcher = (page: Page): Locator => page.getByRole("button").filter({ has: topbarProjectName(page) });
-
-/** The app shell's sidebar (the Sidebar landmark, labelled "Primary"). */
-export const rail = (page: Page): Locator => page.getByRole("complementary", { name: "Primary" });
-
-/** Owner decision 2026-10-15: "Create project" is the last item of the top bar's project dropdown (no separate New button). */
-export async function openCreateProject(page: Page): Promise<void> {
-  await projectSwitcher(page).click();
-  await page.getByRole("menuitem", { name: "Create project" }).click();
-}
-
-/**
- * Creates a project through the top bar's Create project modal (name only, A9) and returns its id. Waits for a NEW Mission Control
- * URL: the page usually sits on another project's Mission Control already, so "any Mission Control URL" would match too early.
- */
-export async function createViaNew(page: Page, name: string): Promise<string> {
-  const before = page.url();
-  await openCreateProject(page);
-  await page.getByLabel("Name").fill(name);
-  await page.getByTestId("cp-create").click();
-  await page.waitForURL((u) => /^\/projects\/[0-9a-f-]{36}\/mission-control$/.test(u.pathname) && u.href !== before);
-  await expect(topbarProjectName(page)).toHaveText(name);
-  await expect(page.getByTestId("mcs-empty")).toBeVisible();
-  return defined(/\/projects\/([0-9a-f-]{36})\//.exec(new URL(page.url()).pathname + "/"))[1];
-}
-
 /** Calls the BFF the way the browser does (the page's session cookie, Origin, X-Requested-With). The caller names the body's shape. */
 export async function bff(
   page: Page,
@@ -192,18 +149,6 @@ export async function seedDocument(page: Page, pid: string, filename: string): P
   return (up.json as { document: { id: string } }).document.id;
 }
 
-/** Local files: picks a PDF in the sources screen's hidden file input (the Add source menu opens the same picker). */
-export async function pickLocalPdf(page: Page, name: string, size = 4096): Promise<Buffer> {
-  const buffer = syntheticPdf(size);
-  await page.getByTestId("mcs-upload-input").setInputFiles({ name, mimeType: "application/pdf", buffer });
-  return buffer;
-}
-
-/** Local files: picks any file in the hidden input; `mimeType` is what the browser would say (it may be empty or odd). */
-export async function pickLocalFile(page: Page, name: string, mimeType: string, buffer: Buffer): Promise<void> {
-  await page.getByTestId("mcs-upload-input").setInputFiles({ name, mimeType, buffer });
-}
-
 /** A tiny synthetic file of an accepted type: the API's first-byte check, then filler; never a real document. */
 export function syntheticDocument(extension: string, size = 512): Buffer {
   const zip = Buffer.from("PK\x03\x04", "latin1");
@@ -215,46 +160,6 @@ export function syntheticDocument(extension: string, size = 512): Buffer {
   if (extension === ".pdf") return syntheticPdf(size);
   if (extension in text) return Buffer.concat([Buffer.from(text[extension]), Buffer.from(" ".repeat(size))]);
   return Buffer.concat([zip, randomBytes(size)]);
-}
-
-/** Saves a Drive folder through the BFF (the stub's reserved ids; the source stays in `listing`). */
-export const saveDriveApi = (page: Page, pid: string, folderId = "fake-synthetic-30") =>
-  bff(page, "POST", `/projects/${pid}/sources/gdrive`, { link: `https://drive.google.com/drive/folders/${folderId}` });
-
-type SourceCardKind = "upload" | "gdrive";
-type SourceCardState = "processing" | "done" | "done_with_problems" | "failed";
-
-/**
- * A source card found by the kind it shows: a Local files card is named "Local files" (its open button), a Drive card's second line
- * reads "Google Drive" (FR-SRC-0001).
- */
-function sourceCard(page: Page, kind: SourceCardKind): Locator {
-  const cards = page.getByTestId("source-card");
-  return kind === "upload"
-    ? cards.filter({ has: page.getByRole("button", { name: "Local files", exact: true }) })
-    : cards.filter({ has: page.getByText("Google Drive", { exact: true }) });
-}
-
-/** The source card whose open button (the card's name) reads `name`; source names are unique within a fresh project. */
-export const namedSourceCard = (page: Page, name: string): Locator =>
-  page.getByTestId("source-card").filter({ has: page.getByRole("button", { name, exact: true }) });
-
-/** Waits until the project's card of `kind` is visible, carries that kind and, when given, is in `state`. Returns the card. */
-export async function expectSourceCard(
-  page: Page,
-  kind: SourceCardKind,
-  { state, timeout }: { state?: SourceCardState; timeout?: number } = {},
-): Promise<Locator> {
-  const card = sourceCard(page, kind);
-  if (state !== undefined) await expect(card).toHaveAttribute("data-state", state, { timeout });
-  await expect(card).toHaveAttribute("data-kind", kind, { timeout });
-  await expect(card).toBeVisible({ timeout });
-  return card;
-}
-
-/** Waits until the project's Local files card is Done and the project is Ready (>= 1 processed document, stub parse 1.5 s). */
-export async function expectUploadReady(page: Page): Promise<void> {
-  await expectSourceCard(page, "upload", { state: "done", timeout: 30_000 });
 }
 
 /** A tiny synthetic "PDF" (magic bytes + filler): enough for the stub API, never a real document. */
@@ -334,14 +239,6 @@ export async function seedSource(pid: string, source: Record<string, unknown>): 
   return ((await control("POST", "/seed-source", { pid, source })) as { id: string }).id;
 }
 
-/** Seeds the findings and claims of a project in the stub (rows as the API answers them; see tests/support/stub-api.mjs `workRoute`). */
-export async function seedWork(
-  pid: string,
-  work: { findings?: Record<string, unknown>[]; claims?: Record<string, unknown>[] },
-): Promise<void> {
-  await control("POST", "/seed-work", { pid, work });
-}
-
 /** Seeds the gaps (full `GapView` rows, plus stub-only `stories` and `documents` id lists), the latest gap run, the noise rules and the
  *  corpus documents (`{document_id, lineage, path, title, markdown}`, the Documents tab) of a project in the stub. */
 export async function seedGaps(
@@ -354,16 +251,6 @@ export async function seedGaps(
   },
 ): Promise<void> {
   await control("POST", "/seed-gaps", { pid, ...seed });
-}
-
-/** A running gap run records one more site (stub): its gaps join the project's (same id replaces) and the run counts the site. */
-export async function recordGaps(pid: string, gaps: Record<string, unknown>[]): Promise<void> {
-  await control("POST", "/record-gaps", { pid, gaps });
-}
-
-/** The update build of the applied answers finished (stub): every applying gap of the project resolves with its answer applied. */
-export async function settleGaps(pid: string): Promise<void> {
-  await control("POST", "/settle-gaps", { pid });
 }
 
 /** The stub's collaborator knobs; `resetPeopleState` puts them back so one case never decides another. */
@@ -568,81 +455,4 @@ export async function setEndSession(enabled: boolean): Promise<void> {
 export function defined<T>(value: T | null | undefined, what = "value"): T {
   if (value === null || value === undefined) throw new Error(`expected ${what} to be present`);
   return value;
-}
-
-/** The requests that went to the backend through the BFF. */
-export const calls = <T extends { path: string }>(requests: T[]): T[] => requests.filter((r) => r.path.startsWith("/api/backend/"));
-
-/** The explicit allow-list while a Ready gate answers: the shell's project reads and ONE project-scoped GET of the sources status. */
-export function allowedGateCalls(pid: string): (r: { method: string; path: string }) => boolean {
-  const shell = new RegExp(`^/api/backend/projects(/${pid})?$`);
-  const docs = new RegExp(`^/api/backend/projects/${pid}/sources$`);
-  return (r) => r.method === "GET" && (shell.test(r.path) || docs.test(r.path));
-}
-
-/** After a gate screen: nothing keeps polling, the backend calls since `from` stay inside the allow-list (the gate's by default), no write, no parse or summarize. */
-export async function expectGateNetwork(
-  page: Page,
-  requests: RequestLog[],
-  from: number,
-  pid: string,
-  allowed: (r: { method: string; path: string }) => boolean = allowedGateCalls(pid),
-): Promise<void> {
-  await networkQuiet(page, 2_500); // no request for longer than a poll interval: nothing keeps polling
-  const made = calls(requests.slice(from));
-  expect(
-    made.filter((r) => !allowed(r)).map((r) => `${r.method} ${r.path}`),
-    "backend calls outside the allow-list",
-  ).toEqual([]);
-  expect(made.filter((r) => r.method !== "GET")).toEqual([]);
-  expect(made.filter((r) => /\/(?:parse|summarize)$/.test(r.path))).toEqual([]);
-  expect(
-    made.filter((r) => new RegExp(`^/api/backend/projects/${pid}/sources$`).test(r.path)).length,
-    "one GET of the sources status (the gate)",
-  ).toBeLessThanOrEqual(1);
-}
-
-// ---- the Build knowledge button (plans/connect-build-kg-button): helpers p17 and p18 share ----
-
-export type DocumentStatus = "uploaded" | "processing" | "parsed" | "failed" | "ingested" | "partially_ingested"; // backend DOCUMENT_STATUSES
-
-export const kbBuild = (page: Page): Locator => page.getByTestId("kb-build");
-export const confirmDialog = (page: Page): Locator => page.getByTestId("kb-build-dialog");
-
-/** A project with one parsed document (the stub parses at once), on its Mission Control with the first build offered. */
-export async function readyProject(page: Page, name: string): Promise<string> {
-  await login(page);
-  await stubTiming({ parseMs: 0 });
-  const pid = await createProjectApi(page, `${name} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`);
-  const id = await seedDocument(page, pid, "spec.pdf");
-  await expect
-    .poll(async () => ((await bff(page, "GET", `/projects/${pid}/documents/${id}`)).json as { status: DocumentStatus }).status)
-    .toBe("parsed");
-  await page.goto(`/projects/${pid}/mission-control`);
-  await expect(kbBuild(page)).toHaveAttribute("data-mode", "first");
-  return pid;
-}
-
-/** Opens the confirm the keyboard way: focus the button, press Enter. */
-export async function openConfirm(page: Page): Promise<void> {
-  await kbBuild(page).focus();
-  await page.keyboard.press("Enter");
-  await expect(confirmDialog(page)).toBeVisible();
-}
-
-/** Build -> Confirm, driven by the keyboard (focus the button, Enter; focus Confirm, Enter). */
-export async function startBuild(page: Page): Promise<void> {
-  await openConfirm(page);
-  await page.getByTestId("kb-build-dialog-confirm").focus();
-  await page.keyboard.press("Enter");
-}
-
-/**
- * Lets the page render twice (two animation frames, no timer). Call it after the event a negative check is about, so a toast or a
- * dialog that would appear one render later is already there when `toHaveCount(0)` runs.
- */
-export async function settled(page: Page): Promise<void> {
-  const nextFrame = () => page.evaluate(() => new Promise<number>((done) => requestAnimationFrame(done)));
-  await nextFrame();
-  await nextFrame();
 }

@@ -4,8 +4,10 @@
  * palette meets the WCAG 2.1 AA contrast ratio for normal text (4.5:1, or
  * `--min-ratio`).
  *
- * Pairs are derived structurally from the names the `:root` block of the theme
- * stylesheet (`--tokens-css`, default `src/styles/tokens.css`) declares: the
+ * Pairs are derived structurally from the names the palette block of the theme
+ * stylesheet (`--tokens-css`, default `src/styles/tokens.css`; its selector is
+ * `:root` unless `--tokens-selector` names a class root such as `.gx`)
+ * declares: the
  * base pair (`--foreground` on `--background`), and every `--x-foreground`
  * paired with its base `--x` when `--x` is itself declared (`--primary` /
  * `--primary-foreground`, `--muted` / `--muted-foreground`, ...). Values must
@@ -18,8 +20,8 @@
  * it never reports a clean pass for something it could not check. A pair that
  * names an undeclared token is a configuration error.
  *
- * usage: node contrast.mjs [--root <dir>] [--tokens-css <file>] [--min-ratio <n>]
- *        [--pairs <file>]
+ * usage: node contrast.mjs [--root <dir>] [--tokens-css <file>] [--tokens-selector <selector>]
+ *        [--min-ratio <n>] [--pairs <file>]
  */
 
 import { existsSync } from 'node:fs';
@@ -75,6 +77,11 @@ function cssPathOf(root, options) {
   return path.resolve(root, stringOption(options, 'tokens-css', DEFAULT_TOKENS_CSS));
 }
 
+/** The palette declared by the theme stylesheet's palette block (`--tokens-selector`, `:root` by default). */
+function paletteOf(cssPath, options) {
+  return readTokensCss(cssPath, stringOption(options, 'tokens-selector', ':root'));
+}
+
 export function check({ root, options = {} }) {
   const cssPath = cssPathOf(root, options);
   if (!existsSync(cssPath)) return [];
@@ -82,7 +89,7 @@ export function check({ root, options = {} }) {
   if (!Number.isFinite(minRatio) || minRatio < 1)
     throw new RangeError(`--min-ratio must be a number >= 1, got ${options['min-ratio']}`);
 
-  const palette = readTokensCss(cssPath);
+  const palette = paletteOf(cssPath, options);
   const findings = [];
   const relFile = relPath(root, cssPath);
 
@@ -109,7 +116,7 @@ export function check({ root, options = {} }) {
 function skipIf({ root, options }) {
   const cssPath = cssPathOf(root, options);
   if (!existsSync(cssPath)) return `no targets: ${relPath(root, cssPath)} does not exist`;
-  if (pairsOf(root, options, readTokensCss(cssPath)).length === 0)
+  if (pairsOf(root, options, paletteOf(cssPath, options)).length === 0)
     return `no targets: no foreground/background token pairs in ${relPath(root, cssPath)}`;
   return null;
 }

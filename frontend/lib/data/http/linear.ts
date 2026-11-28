@@ -1,7 +1,7 @@
 // plans/LINEAR/LINEAR-PLAN.md, stream S1: the production `LinearPort` over the caller's Linear connection (`/integrations/linear`). Every body is
 // shape-checked (like the GitHub port): any other shape is `invalid_response`. Failures are `DataError`s whose `detail.apiCode` is the API code.
 // The consent URL the browser follows must be `https:` on linear.app.
-import { authorizeLinear, disconnectLinear, getLinearConnection } from "@/lib/api";
+import { authorizeLinear, getLinearConnection } from "@/lib/api";
 import type { LinearConnection, LinearConnectionStatus, LinearPort } from "@/lib/domain/linear";
 import { checked, expectShape, guard, isRecord, isString } from "./errors";
 
@@ -51,9 +51,6 @@ export function createHttpLinear(): LinearPort {
         expectShape(isRecord(body));
         return linearUrl(body.url);
       });
-    },
-    disconnect: async () => {
-      await guard(() => disconnectLinear());
     },
   };
 }

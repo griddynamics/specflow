@@ -2,9 +2,18 @@
   "root": ".",
   "checks": {
     "html-scripts": { "html": "app/layout.tsx" },
-    "tokens": { "src": ".", "tokens-css": "styles/ds/tokens.css" },
-    "contrast": { "tokens-css": "styles/ds/tokens.css", "min-ratio": "4.5", "pairs": "validation/contrast-pairs.json" },
-    "css-usage": { "src": ".", "html": "app/layout.tsx", "css": "{app,components}/**/*.css" },
+    "tokens": {
+      "src": "app,components/v2,components/shared",
+      "tokens-css": "../packages/ui/src/styles/tokens.css",
+      "tokens-selector": ".gx"
+    },
+    "contrast": {
+      "tokens-css": "../packages/ui/src/styles/tokens.css",
+      "tokens-selector": ".gx",
+      "min-ratio": "4.5",
+      "pairs": "validation/contrast-pairs.json"
+    },
+    "css-usage": { "src": ".", "html": "app/layout.tsx", "css": "{app,components/v2,components/shared}/**/*.css" },
     "bundle-size": { "dist": ".next/static", "total-budget": "750000" },
     "api-contract-map": { "src": "lib", "contracts": "validation/api-contracts.json" },
     "nav-tree": { "src": "components", "nav-spec": "validation/nav-spec.json" },

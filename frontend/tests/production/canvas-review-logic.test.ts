@@ -2,6 +2,7 @@
 // dialog names, when the dialog's focus moves, and what a refused build start says. Pure: no React.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import "../support/css-stub-first.mjs"; // the components under test pull Graphico styles (.css)
 import { buildStartFailure } from "@/components/v2/canvas/BuildDialog";
 import { bodyKeyOf, destinationsOf } from "@/components/v2/canvas/CanvasDialogs";
 import type { NodeView } from "@/components/v2/canvas/canvas-types";

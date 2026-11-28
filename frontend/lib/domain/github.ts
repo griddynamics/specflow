@@ -68,12 +68,9 @@ export interface GitHubPort {
   authorize(returnTo: string): Promise<string>;
   /** The URL that installs the Specflow GitHub App (or picks its repositories); the browser returns through the setup route. */
   install(returnTo: string): Promise<string>;
-  /** Forgets the caller's GitHub connection. */
-  disconnect(): Promise<void>;
   /** The repositories the caller's connection can read. */
   available(): Promise<GitHubRepositoryList>;
   list(projectId: string): Promise<ProjectRepositories>;
   add(projectId: string, githubRepoId: number): Promise<ProjectRepository>; // owner only; starts the clone check
   remove(projectId: string, repositoryId: string): Promise<void>; // owner only
-  clone(projectId: string, repositoryId: string): Promise<ProjectRepository>; // owner only; runs the clone check again
 }

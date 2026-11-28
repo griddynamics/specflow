@@ -1,5 +1,5 @@
-// docs/jira-sync/oauth.md#routes: the caller's Atlassian connection through the production JiraPort (`connection`, `authorize`,
-// `disconnect`) and the `connection` of the Jira settings in the `oauth` mode, against the stub API (tests/support/stub-jira.mjs). The real
+// docs/jira-sync/oauth.md#routes: the caller's Atlassian connection through the production JiraPort (`connection`, `authorize`) and the
+// `connection` of the Jira settings in the `oauth` mode, against the stub API (tests/support/stub-jira.mjs). The real
 // `lib/api.ts` and the adapter run; only `fetch` is replaced (tests/support/stub-fetch.ts). Layer U: the wire parsers and the error map.
 // Layer P: each route's request, response and error rows. Port 3297 (stub API).
 import { test } from "node:test";
@@ -141,15 +141,6 @@ test("POST /integrations/atlassian/authorize {return_to}: the consent URL; outsi
   await rejects(jira.authorize("/"), "unavailable", "atlassian_oauth_unavailable");
 });
 
-test("DELETE /integrations/atlassian: 204 forgets the connection; outside the oauth mode 503", async () => {
-  ctx.api.jira.state.connection = ANN;
-  await jira.disconnect();
-  assert.deepEqual({ method: last().method, path: last().path }, { method: "DELETE", path: "/api/backend/integrations/atlassian" });
-  assert.equal((await jira.connection()).connected, false);
-  ctx.api.jira.state.mode = "token";
-  await rejects(jira.disconnect(), "unavailable", "atlassian_oauth_unavailable");
-});
-
 test("the oauth mode: the access check needs the caller's connection, a PUT 409s without an active one, and makes the saver the acting account", async () => {
   const pid = await ownerProject();
   assert.deepEqual(await jira.checkAccess(pid, { jiraProject: "PAY", epicKey: null }), {
@@ -169,6 +160,6 @@ test("the oauth mode: the access check needs the caller's connection, a PUT 409s
   assert.equal((await jira.get(pid)).connection, null); // no target yet
   const saved = await jira.save(pid, { jiraProject: "PAY", epicKey: null, enabled: true });
   assert.deepEqual(saved.connection, { connectedByName: "Ann Lee", connectedByMe: true, status: "active" });
-  await jira.disconnect();
+  ctx.api.jira.state.connection = null; // the caller's connection is gone
   assert.deepEqual((await jira.get(pid)).connection, { connectedByName: null, connectedByMe: true, status: "missing" });
 });

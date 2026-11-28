@@ -1,8 +1,7 @@
 """Implementation plan of a project: ``POST`` starts a plan run in the background, ``GET`` reads its state.
 
 The run happens in this process (``api.plan.runner``); the contract matches the graph build (``202`` at once,
-then poll), so it can move to Temporal unchanged. ``/plan/tasks`` reads the persisted plan and ``/plan/preview``
-what a run would plan, before it runs.
+then poll), so it can move to Temporal unchanged. ``/plan/tasks`` reads the persisted plan.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ from api.plan.start import (
 from api.plan.state import PlanRunner, PlanState
 from api.routers.documents import require_project
 from api.runtime import Runtime
-from api.schemas import PlanContent, PlanPreview, PlanStartRequest, PlanStatus
+from api.schemas import PlanContent, PlanStartRequest, PlanStatus
 from logger.logger import WARNING, get_logger, log_event
 from settings import GRAPH_BUILD_SWITCHES
 
@@ -99,9 +98,3 @@ async def plan_tasks(pid: uuid.UUID, runtime: RuntimeDep, user: UserDep) -> Plan
     if content is None:
         raise no_plan()
     return content
-
-
-@router.get("/preview", response_model=PlanPreview)
-async def plan_preview(pid: uuid.UUID, runtime: RuntimeDep, user: UserDep) -> PlanPreview:
-    await require_project(runtime, user.id, pid)
-    return await _runner(runtime).preview(str(pid))

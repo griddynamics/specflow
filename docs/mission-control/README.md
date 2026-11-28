@@ -54,8 +54,8 @@ The canvas is the only screen. The project name in the header opens a menu of pr
 **Create new project** under it. A person with no project gets a "Create your first project"
 window that cannot be closed (the prototype's "First run" button shows it).
 
-There is no Settings screen. **Members** in the header opens a dialog with what the Settings
-General tab has today (docs/projects/ui.md#general-tab): the owner renames the project, adds people
+There is no Settings screen. **Members** in the header opens a dialog with the project's people and name
+(docs/projects/ui.md): the owner renames the project, adds people
 by email with suggestions (a known person is added, any other email becomes an invite), removes
 members and cancels invites, each after a confirmation. A collaborator sees the list read-only and
 can leave the project. The dialog's "view as" switch is for the prototype only.
@@ -141,7 +141,7 @@ The screens as built, their words and the differences from this prototype: [ui.m
 ## Style
 
 The page reuses `landing.css` from the landing page (black and white, Fira Sans and Fira Code,
-1.5 px ink borders, offset shadows, light and dark). V2 uses this style, not the GD Liquid Glass
-design system in `docs/design-system/` (DECISIONS.md D14).
+1.5 px ink borders, offset shadows, light and dark). V2 uses this style (DECISIONS.md D14); the GD
+design system the V1 screens used is retired with them.
 Vendor marks are the `simple-icons` paths the app already uses, drawn in one colour. Slack has no
 mark there, so its tile shows a channel sign.

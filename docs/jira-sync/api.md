@@ -39,7 +39,7 @@ There is no web route that starts a sync (D24): the web app only configures. Bod
 - `jira_project` must match `^[A-Z][A-Z0-9_]{1,9}$`; `epic_key`, when not null, `^[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]*$` with the
   prefix `jira_project`; else 422 `validation_failed` with `details.errors[{loc, type}]`. Values are trimmed and upper-cased
   before the check; a blank `epic_key` is null.
-- `PUT` does not call Jira; the web app runs the access check before it ([ui.md](ui.md#jira-tab)).
+- `PUT` does not call Jira; the web app runs the access check before it ([ui.md](ui.md#the-form)).
 - `PUT` makes the caller the target's acting account (`connected_user_id`). In `oauth` mode the caller needs an `active`
   Atlassian connection of their own, else 409 `jira_not_connected` ([oauth.md](oauth.md#acting-account-of-a-target)).
 - A changed `jira_project` deletes the project's map rows in the same transaction ([data-model.md](data-model.md#issues)).

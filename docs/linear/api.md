@@ -23,7 +23,9 @@ connection.
 | `GET /integrations/linear` | - | 200 `LinearConnectionOut` | - |
 | `POST /integrations/linear/authorize` | `{return_to}` | 200 `{url}` | 422 `validation_failed`; 503 `linear_unavailable` |
 | `POST /integrations/linear/callback` | `{code, state}` (1 to 4096 characters) | 200 `{connection, return_to}` | 400 `linear_state_invalid`; 400 `linear_code_invalid`; 502 `linear_unreachable`; 502 `linear_auth_failed`; 503 `linear_unavailable` |
-| `DELETE /integrations/linear` | - | 204, also without a connection | 503 `linear_unavailable` |
+
+The per-user `DELETE /integrations/linear` went with the V1 screens; removing the app from a project is
+`DELETE /projects/{pid}/integrations/linear` ("Integration health" below).
 
 `LinearConnectionOut`: `available`, `status` (`none`, `active`, `expired`, `revoked`), `user_name`, `workspace`
 (`{id, name, url_key}` or null). `revoked` (the workspace withdrew the app, set by the webhook) is shown as `revoked`;

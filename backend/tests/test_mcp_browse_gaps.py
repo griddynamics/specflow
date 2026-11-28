@@ -37,7 +37,7 @@ async def test_my_gaps_as_rows_then_one_gap_whole_with_its_card(served) -> None:
     detail = opened.structured_content
     assert (detail["gap_id"], detail["question"], detail["answerable"]) == (gap_id, QUESTION, True)
     assert "**Status:** open · **Assigned to:** you" in detail["card"]
-    assert detail["web_url"] == f"{WEB}/projects/{ALPHA}/gaps?gap={gap_id}"
+    assert detail["web_url"] == f"{WEB}/projects/{ALPHA}"
 
 
 async def test_a_member_filter_by_name_and_an_unknown_gap(served) -> None:
