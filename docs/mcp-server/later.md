@@ -33,7 +33,7 @@ tags: [mcp]
 | Service-side rate limits | Per-user limits in the role instead of only at the edge |
 | Header binding | The fallback if agents ignore the server instructions: a request header set in the repository's `.mcp.json` carries the project id, and `project_id` becomes optional in the project tools. It changes the tool contract and repeats the binding in each agent's own config (AD7 of [architecture.md](architecture.md#decisions)) |
 | `init-specflow` command | One command that adds the server to the agent, signs in and selects a project, so a developer needs no separate setup steps ([deployment.md](deployment.md#developer-setup-in-claude-code)) |
-| Guides for Codex and Cursor | Once each is tested end to end with SpecFlow, the Guides page shows its setup ([deployment.md](deployment.md#guides-in-the-web-app)) |
+| Guides for Codex and Cursor | Once each is tested end to end with SpecFlow, the MCP dialog shows its setup ([deployment.md](deployment.md#the-mcp-dialog-in-the-web-app)) |
 | Codex compatibility check | Verify that Codex loads the server instructions and can use the binding file; version 1 covers Codex by the instructions only, and no test runs it |
 | Several projects per workspace | A binding file that holds more than one project, and a rule for choosing among them; needs a new format version |
 | Web app on other IdPs | The frontend requests the API audience or scope, so the claim profile serves the web app on Auth0, Okta or Entra ID too |

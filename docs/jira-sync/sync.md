@@ -67,7 +67,7 @@ recovery) ([oauth.md](oauth.md#acting-account-of-a-target)):
 | `expired` | the pass ends `failed` with `jira_reconnect_required`, no Jira call |
 | expires during the pass (Atlassian refuses the refresh token) | the pass stops `failed` with `jira_reconnect_required` |
 
-A member fixes either code by connecting or reconnecting Atlassian for the project (the Integrations page; in the V1 Jira tab, by saving the target).
+A member fixes either code by connecting or reconnecting Atlassian for the project (the Integrations page's Atlassian card).
 
 ### Target change during a pass
 

@@ -1,5 +1,5 @@
-// The words of the V2 shell, the Members dialog and the Integrations page. Texts the Settings screen already has (members, GitHub and Atlassian
-// toasts) stay in `lib/copy.ts` and `components/settings/settings-copy.ts`; this file adds the rest, once.
+// The words of the V2 shell, the Members dialog and the Integrations page. Texts inherited from the V1 Settings copy (members, GitHub and Atlassian
+// toasts) stay in `lib/copy.ts` and `components/shared/settings/settings-copy.ts`; this file adds the rest, once.
 export const V2_COPY = {
   brandName: "Graphico",
   navLabel: "App",

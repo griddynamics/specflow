@@ -47,7 +47,7 @@ is a later planning decision that the owner reviews in the pull request.
 | D31 | A change of the Jira project or Epic during a pass stops that pass before its next write (`target_changed`); the settings save never waits, and one more pass follows. | agent |
 | D32 | An issue deleted in Jira is marked removed and never called again; a deleted created Epic stops the pass. | agent |
 | D33 | A task whose story is no longer an active story is handled like a removed task (its Sub-task is labelled or commented, never deleted). | agent |
-| D34 | `jira_sync_status` pages its items like every list tool; `sync_to_jira` and the Settings screen get the status without items. | agent |
+| D34 | `jira_sync_status` pages its items like every list tool; `sync_to_jira` and the canvas's Jira node get the status without items. | agent |
 | D35 | A create, a comment and a link add are never sent again after a timeout or a 5xx (Jira may have done it): the call ends the run with `jira_unreachable` and the next pass recovers it; a 429 is still retried (refines the failure rule of D23). | agent |
 | D36 | A start on a project with no target or a disabled one queues nothing; the runner answers `skipped` with `jira_not_configured` and the agent route maps it to 409 (refines D15). | agent |
 | D37 | A `Blocks` link a person made before Specflow wanted the same wait is stored in `blocked_by` like a Specflow link and is deleted when the plan drops the wait; links never in `blocked_by` are never deleted (refines D5). | agent |

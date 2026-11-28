@@ -56,11 +56,12 @@ The shop spec says, under "Place order": "Can a customer cancel a paid order?". 
 5. **Check and route.** Code finds every quote in its fragment, resolves every id and confirms one
    recommended option. AI never answers an open question, so the route is `ask`.
 6. **Record.** One `Gap` node, `GAP::7C2A91E04B3D`, with `ABOUT`, `IMPACTS` and `CITES`. The three options
-   are rows in the relational store. The gap is in the inbox at once, while the run investigates the next site. The task that implements the requirement now shows the gap in its brief.
-7. **Answer.** The product owner picks option A in the Gaps inbox. A `Clarification` node `ANSWERS` the gap
+   are rows in the relational store. The gap is listed at once, while the run investigates the next site. The task that implements the requirement now shows the gap in its brief.
+7. **Answer.** The product owner answers with option A — a reply in the project's Slack channel, or the dialog of
+   the MCP tool `answer_gap`. A `Clarification` node `ANSWERS` the gap
    and is `PLACED_IN` orders-spec.md. Its edit, "replace the question line with the answer", is stored as an
    amendment.
-8. **Apply.** When someone presses "Resolve gaps", the host requests one update build for every staged answer. The corpus reader
+8. **Apply.** The answer applies as it is recorded (`record_and_apply`), and the host requests one update build for every staged answer. The corpus reader
    applies the amendment, so the build sees a new version of the "Place order" section and re-extracts only
    that fragment: the question node is removed and `REQ::FR::CANCEL_PAID_ORDER` is added.
 9. **Close.** The gap run after the build finds OQ-STATED silent on that line and the answer grounded in the
@@ -123,9 +124,9 @@ When owners copy answers into their files, reconcile finds them and the amendmen
 ## Gaps found while coding
 
 A coding agent that hits a hole while it builds a story reports a finding over MCP. That finding is a gap
-with origin `development`: same node, same inbox, same answer path. It is investigated at once rather than
+with origin `development`: same node, same list, same answer path. It is investigated at once rather than
 at the next build. If the spec already answers it, the agent gets the answering lines and its story is
-released. Otherwise the gap goes to the top of the inbox, the answer is applied without waiting, and the
+released. Otherwise the gap goes to the top of the list, the answer is applied without waiting, and the
 story's tasks return to pending once the build has the answer in the spec. The agent then reads a brief built from
 the updated spec, not from a note.
 

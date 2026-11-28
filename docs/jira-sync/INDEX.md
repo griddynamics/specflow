@@ -1,7 +1,8 @@
 # INDEX.md: table of contents of the Jira sync specification
 
 Specflow pushes a project's implementation plan into Jira on its own. Any project member sets a Jira project and,
-optionally, an Epic on the project's Settings screen (tab "Jira") and turns the sync on; after every plan run that does
+optionally, an Epic in the canvas Plan stage's "Send the plan to Jira" connector (the Atlassian account itself is
+connected on the Integrations page); after every plan run that does
 not fail, Specflow creates and updates one Epic, a Story per plan story and a Sub-task per task, with labels, story
 points, "Blocks" links and rank. Issues still in To Do are overwritten in the fields Specflow owns; any other issue gets
 one comment that lists what changed. Coding agents run the sync and read its status over MCP. Specflow calls Jira either
@@ -25,7 +26,7 @@ as the account of the member who connected the project to Atlassian, with OAuth,
 # gaps.md: the Jira gap channel: open gap questions posted as sub-tasks of one Story, answers read back by polling the comments
 - [gaps.md](gaps.md)
 
-# ui.md: the Jira tab of the Settings screen, its states, copy and ports
+# ui.md: the canvas Jira destination (connector form, node states, errors, ports) and the Integrations page's Atlassian card
 - [ui.md](ui.md)
 
 # requirements.md: requirement units FR-JIRA-CFG, RUN, MAP, UPD, REL, MCP, UI and NFR-JIRA

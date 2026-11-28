@@ -1,7 +1,7 @@
 ---
 type: Requirements
 title: "Project collaborators requirements"
-description: "Requirement units of project collaborators (compact form): roles, access, members and invites, adoption, removal and claims, rename, suggestions, Create Project, Settings UI, non-functional"
+description: "Requirement units of project collaborators (compact form): roles, access, members and invites, adoption, removal and claims, rename, suggestions, Create Project, Members UI, non-functional"
 status: stable
 tags: [projects]
 ---
@@ -85,19 +85,19 @@ and link the section that defines it; values live only there. Decisions (D1-D29)
 | FR-PRJ-CRT-02 | If any collaborator email fails a rule, then the API shall create nothing and answer 422 naming the index. | Given `["ok@example.com", "bad"]`, then 422 with `loc: ["body","collaborators",1]` and no project. |
 | FR-PRJ-CRT-03 | When `collaborators` is absent or empty, Create Project shall behave as before. | Given `{name}`, then 201 and one owner row. |
 
-## Settings UI ([ui.md](ui.md))
+## Members UI ([ui.md](ui.md))
 
 | ID | Requirement | Acceptance |
 |---|---|---|
-| FR-PRJ-UI-01 | The sidebar shall show "Settings" with icon `gear-six` after SpecBot, leading to the current project's Settings (D4, D28). | Given project P current, clicking Settings opens `/projects/P/settings`. |
-| FR-PRJ-UI-02 | The Settings screen shall show the tab bar "General" in the shell header row and no H1 or tab row in the body (D25). | Given the screen, then the header holds the "General" segment and the body has no `h1`. |
-| FR-PRJ-UI-03 | For the owner, the General tab shall show name + Save, the add row with suggestions, and the list with x on every row but the owner's (D24). | Given the owner, then these controls are present and the owner row has no x. |
-| FR-PRJ-UI-04 | For a collaborator, the General tab shall show the read-only list and "Leave project", without the name block, the add row or any x (D7, D29). | Given a collaborator, then no textbox, no Add, no x; "Leave project" present. |
+| FR-PRJ-UI-01 | The V2 header shall offer "Members", opening the current project's Members dialog over the page (D11). | Given project P current, clicking Members opens the dialog over the screen. |
+| FR-PRJ-UI-02 | The Members dialog shall need no route or tab of its own; the V2 header shall hold the project menu, Members and Integrations, and a screen body no H1 or tab row (D16, D25). | Given any V2 screen, then the header holds Members and Integrations and the body has no `h1`. |
+| FR-PRJ-UI-03 | For the owner, the Members dialog shall show name + Save, the add row with suggestions, and the list with x on every row but the owner's (D24). | Given the owner, then these controls are present and the owner row has no x. |
+| FR-PRJ-UI-04 | For a collaborator, the Members dialog shall show the read-only list and "Leave project", without the name block, the add row or any x (D7, D29). | Given a collaborator, then no textbox, no Add, no x; "Leave project" present. |
 | FR-PRJ-UI-05 | Remove, cancel and leave shall ask for confirmation first (D28). | Given x, then a dialog; Cancel sends no request. |
-| FR-PRJ-UI-06 | The General tab shall show the count "n of 50" (D28). | Given 3 members and 1 invite, then "4 of 50". |
-| FR-PRJ-UI-07 | When the owner renames the project, the project switcher shall show the new name without a reload. | Given Save, then the picker shows the new name. |
-| FR-PRJ-UI-08 | When a collaborator leaves, the app shall open `/` and the switcher shall no longer list the project. | Given Leave confirmed, then URL `/` and the project is not in the switcher. |
-| FR-PRJ-UI-09 | The Create Project modal shall take collaborator emails with suggestions and send them (D8, D9). | Given two chips, then the POST body is `{name, collaborators: [a, b]}`; given none, `{name}`. |
+| FR-PRJ-UI-06 | The Members dialog shall show the count "n of 50" (D28). | Given 3 members and 1 invite, then "4 of 50". |
+| FR-PRJ-UI-07 | When the owner renames the project, the project menu shall show the new name without a reload. | Given Save, then the menu shows the new name. |
+| FR-PRJ-UI-08 | When a collaborator leaves, the dialog shall close and the app shall open `/`, and the project menu shall no longer list the project. | Given Leave confirmed, then URL `/` and the project is not in the menu. |
+| FR-PRJ-UI-09 | The Create Project dialog shall take the name only; collaborators are invited from Members once the project exists (D11). The Create Project port shall still send `collaboratorEmails` when a caller sets them (D8, D9). | Given the dialog's Create, then the POST body is `{name}`; given the http port with two emails, `{name, collaborators: [a, b]}`. |
 | FR-PRJ-UI-10 | Errors shall show as [ui.md](ui.md#errors-shown) defines. | Given 409 `already_invited`, then "Already invited." under the field. |
 
 ## Non-functional

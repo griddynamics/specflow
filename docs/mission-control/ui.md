@@ -21,15 +21,15 @@ copy as it is in the code (`frontend/components/v2/`), and where it differs from
 | `/projects/<id>/integrations` | Integrations; `?setup=<app>&next=<path>` opens the app's set-up and returns to `next` (AC8, AC38) |
 
 A project the person is not a member of, or one that does not exist, shows "This project does not exist, or you are not a member of it."
-inside the shell. The V1 screens (`/projects/<id>/mission-control|gaps|plan|specbot|settings`, `/connections`, `/guides`) still work until the
-clean-up PR deletes them (AC1, D16).
+inside the shell. The V1 screens are gone (AC1, D16): their URLs (`/projects/<id>/mission-control|gaps|plan|specbot|settings`, `/connections`,
+`/guides`) answer 404, and the backend emitters now point a card's `web_url` at the canvas (`/projects/<id>`).
 
 ## Header and first run
 
 Brand, the project menu (**Projects**, with "+ Create new project" under the list), **Mission Control**, **Members** (a dialog), **Integrations**,
 the theme switch and the avatar menu (**Sign out**) (AC36). With no project only the brand, the theme switch and the avatar show.
 The first-run window ("Welcome to Graphico", "Create your first project") cannot be dismissed; the same dialog opened from the menu can.
-Members is the Settings General tab in a dialog: the owner renames the project, adds people by email (known people are added, other emails
+Members (a dialog) manages the project's people and name: the owner renames the project, adds people by email (known people are added, other emails
 become invites), removes members and cancels invites; a collaborator sees the list read-only and can leave.
 
 ## Integrations
@@ -103,7 +103,7 @@ Stopped nodes: a lost Atlassian or GitHub connection (reconnect), or the closed 
 | Linear, Telegram, Obsidian | Not in V2 | D20: each comes as its own pull request |
 | Integration state in localStorage | Project bindings from the API | D1, AC4 |
 | Slack `/graphico connect` | `/specflow connect <project id>` | Main wins (AC14) |
-| A Jira plus asks for space and epic keys only | Also Check access as the bound member | Same rules as the Jira tab on main |
+| A Jira plus asks for space and epic keys only | Also Check access as the bound member | Same rules as the V1 Jira tab had |
 | Decision buttons on a seam or a dock | On the hub (alternative A) | AC41 |
 | Gaps answered in the prototype's list | Read-only counts by category | D10 |
 | Slack added after a posted test only | A channel whose test failed is already a node; the form closes and says what to fix | The binding exists once the command ran (AC49) |

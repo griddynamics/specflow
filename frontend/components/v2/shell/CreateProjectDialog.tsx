@@ -1,7 +1,7 @@
 "use client";
 // D11, D12: the "Create new project" dialog of the project menu, and the "Create your first project" window of a person with no project,
 // which cannot be closed. The form is the name (the collaborators are invited from Members once the project exists); the rules and the
-// failure texts are `components/create-project/form-logic.ts`. On success `onCreated` gets the new project's id (the caller opens its canvas).
+// failure texts are `components/shared/create-project/form-logic.ts`. On success `onCreated` gets the new project's id (the caller opens its canvas).
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Button, Dialog, DialogFoot, Field, Notice, Stack, TextInput } from "@graphico/ui";
 import { buildInput, createFailure, initialForm, nameError } from "@/components/shared/create-project/form-logic";

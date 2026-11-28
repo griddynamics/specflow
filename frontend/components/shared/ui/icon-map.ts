@@ -1,5 +1,5 @@
-// FE-DS-06, FE-DS-02 (R5): the 64 design-system icon names (kebab-case, `IconProps['name']` in index.d.ts) mapped to
-// the @phosphor-icons/react exports. Regular weight only: Icon.tsx never passes `weight`. No other icon set (USAGE rule 7).
+// FE-DS-06, FE-DS-02 (R5): the 64 icon names of the shared kit (kebab-case, `IconProps['name']` in index.d.ts) mapped to
+// the @phosphor-icons/react exports. Regular weight only: Icon.tsx never passes `weight`. No other icon set.
 import {
   ArrowCounterClockwiseIcon,
   ArrowSquareOutIcon,

@@ -1,7 +1,6 @@
 /* The app's base sheet: box-sizing and the body margin only. The GD design-system sheets and the
-   `.gdg-root` frame left with Task 4: V2 paints itself through `.gx` (packages/ui, its `.gx-frame`
-   covers the window), and the legacy screens keep their own component styles until Task 6 removes
-   them. */
+   `.gdg-root` frame left with Task 4, the V1 screens and their component styles with Task 6: V2 paints
+   itself through `.gx` (packages/ui, its `.gx-frame` covers the window). */
 * {
   box-sizing: border-box;
 }

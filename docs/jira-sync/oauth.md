@@ -175,22 +175,22 @@ connection, null when `missing`; `connected_by_me` is true when the caller is th
 New codes: the sync and access-check codes `jira_not_connected` and `jira_reconnect_required`
 ([api.md](api.md#sync-codes)); the route codes above. `sync_to_jira` and `jira_sync_status` carry the sync codes in
 `error_code` like the other sync codes; their MCP descriptions tell the agent that the target's owner must connect or
-reconnect Atlassian in Settings, tab Jira ([../mcp-server/tools.md](../mcp-server/tools.md#sync_to_jira)).
+reconnect Atlassian ([../mcp-server/tools.md](../mcp-server/tools.md#sync_to_jira)).
 
 ## Jira tab
 
-The web app's part; the full layout is in [ui.md](ui.md#atlassian-connection).
+The V1 Settings "Jira" tab held this; it went with the V1 screens. The web app's part today — the full layout is in
+[ui.md](ui.md#where-it-lives):
 
 - A route handler `frontend/app/api/integrations/atlassian/callback/route.ts` (signed-in session required; no session
   goes to sign-in) forwards `code` and `state` to the API and redirects to `return_to` with `?atlassian=connected` or
   `?atlassian=<code>`; Atlassian's `?error=` becomes `?atlassian=atlassian_consent_denied`.
-- In `oauth` mode the tab shows, for members, a connection row above the fields: "Connected to Atlassian as *name*"
-  with **Disconnect**, or **Connect Atlassian**, or for an expired one "Your Atlassian connection expired" with
-  **Reconnect**. Below the target: "Syncs to Jira as *name*" (or "as you"), and a warning when the acting connection
-  is expired or missing.
-- Check access and Save are disabled until the project's connection is bound to a member.
-- `?atlassian=` shows one toast and is then removed from the URL.
-- In `token` mode the tab is unchanged.
+- In `oauth` mode the Integrations page's Atlassian card shows, for members, the connection: "Connected by *name*"
+  with **Disconnect**, or **Connect with Atlassian**, or for an expired one **Reconnect Atlassian**. The canvas's
+  Jira destination names the acting account in its node's dialog, and its access check answers `jira_not_connected`
+  ("Connect your Atlassian account first.") until the project's connection is bound to a member.
+- `?atlassian=` shows one toast on the Integrations page and is then removed from the URL.
+- In `token` mode there is no connection: the destination works with the server's token alone.
 
 ## Log events
 

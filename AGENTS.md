@@ -8,7 +8,7 @@ Rules for anyone, person or coding agent, who changes this repository.
   Rules: `backend/AGENTS.md`.
 - `frontend/` - Next.js web app. Rules: `frontend/AGENTS.md`.
 - `validation/` - the static checks that CI runs (`make validate`).
-- `docs/` - configuration reference, graph design, file parsers, design system.
+- `docs/` - configuration reference, graph design, file parsers.
 - Repo root - `docker-compose.yml`, `.env.example`, `config/`, the `Makefile` that runs
   everything and `scripts/` (shell scripts the `Makefile` calls, such as `env-local.sh`).
 
@@ -40,13 +40,9 @@ Run these from the repo root before you open a pull request:
 
 ## Frontend design system
 
-UI work follows the design system in `docs/design-system/`. Start with its `USAGE.md`.
-The tokens are the source of truth; do not edit that folder to make a screen fit.
-
-Exception: Mission Control V2 (routes under `frontend/app/(v2)/`, components under `frontend/components/v2/`),
-`packages/ui` and `site/` follow the Graphico style in `packages/ui` (source: `docs/mission-control/landing.css`),
-not `docs/design-system/` (decision D14 in `docs/mission-control/DECISIONS.md`). Every other screen keeps the GD
-design system, and the tokens folder stays untouched.
+Every screen is Graphico: the UI kit in `packages/ui`, its source of truth
+`docs/mission-control/landing.css` (decision D14 in `docs/mission-control/DECISIONS.md`). Start with
+`frontend/README.md` and the kit's own docs; do not restyle a screen by hand.
 
 ## Never commit
 

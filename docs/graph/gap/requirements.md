@@ -183,7 +183,7 @@ slice of agent findings.
 | ID | Requirement | Acceptance |
 |---|---|---|
 | FR-GWEB-01 | The host shall run gap runs in process, one at a time per project, with a polled status. | Given two builds in quick succession, then gap runs do not overlap for the project and the status route reports each. |
-| FR-GWEB-02 | The web routes of [api.md](api.md) "Web routes" shall list, read, answer, preview, dismiss, revert, raise and apply gaps, start a full run, read runs and noise reports, manage noise rules and assign gaps, each for project members only. | Route tests: each route answers for a member and refuses a non-member. |
+| FR-GWEB-02 | The web routes of [api.md](api.md) "Web routes" shall list the gaps and read the latest run's status, each for project members only; the answer, preview, dismiss, revert, raise, apply, run, noise and assignee routes went with the V1 screens, and answering and applying run as service-layer calls behind the chat channels and the agent routes. | Route tests: each route answers for a member and refuses a non-member. |
 | FR-GWEB-03 | The MCP tool `list_gaps` shall list open gaps for a story or nodes, and briefs shall include open gaps with severity. | Given an open gap on a story, then `list_gaps` returns it and the story brief lists it. |
 | FR-GWEB-04 | The canvas's Gaps hub shall open a dialog that counts the open gaps of the latest run by kind and severity, read-only, with the critical (blocker) ones called out. | End-to-end test on the built frontend with the shop corpus fixture. |
 

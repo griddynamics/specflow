@@ -18,12 +18,12 @@ documents the corpus reader already reads from there.
 | A gap and what it is about (`Gap`, `ABOUT`, `IMPACTS`, `CITES`) | Graph | Agents, trace, briefs and the plan see gaps next to the nodes; relations follow rekeyed and merged nodes |
 | An answer and where its text went (`Clarification`, `ANSWERS`, `PLACED_IN`, `GROUNDED_IN`) | Graph | "Why does this requirement exist?" is one walk: requirement, fragment, clarification, gap |
 | History between gaps and answers (`FOLLOWS_UP`, `REPLACES`) | Graph | Read with the gap |
-| Options offered for a gap | Relational | Only the inbox reads them; the chosen one is copied onto the Clarification |
+| Options offered for a gap | Relational | Only the gap lists read them; the chosen one is copied onto the Clarification |
 | Amendments | Relational | Read by the corpus reader beside the documents |
 | Runs, seeds, sites, verdict cache, section relevance cache | Relational | Operational data nobody traverses |
 | Suppressions and noise rules | Relational | Checked by detectors by key |
 | Gap event log | Relational | Audit of every transition, including gaps that left the graph |
-| Who resolves a gap (its assignee) | Relational | Only the inbox and the agent's list read it; assigning does not change the gap, so an answer form that is open does not go stale |
+| Who resolves a gap (its assignee) | Relational | Only the gap lists and the agent's list read it; assigning does not change the gap, so an answer form that is open does not go stale |
 | The applied answer as spec content | Graph, through the build | Ordinary spec text, extracted into ordinary spec nodes with evidence |
 
 ## Graph model

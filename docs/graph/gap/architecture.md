@@ -139,7 +139,7 @@ The plan's `FindingsReads` port is filled by `GapService`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `GAP_ENABLED` | `true` | Runs gap runs and serves the Gaps screen |
+| `GAP_ENABLED` | `true` | Runs gap runs and serves the gap reads |
 | `GAP_AUTO_RUN_AFTER_BUILD` | `true` | Runs an update gap run after each build, before the plan run |
 | `GAP_INVESTIGATOR` | `loop` | `loop` or `agents` |
 | `GAP_AI_ANSWERS` | `true` | Allows the `ai` route; when off, every gap is asked |
@@ -171,5 +171,5 @@ The build and plan ontologies do not change. These changes are needed elsewhere:
 | Gap runner (host, new) | `api/gap/runner.py`, the routes and their models |
 | Agent runtime (host) | `agent_runtime/gap_investigator.py`: the optional tool agent `Investigator` (`AgentsInvestigator`, [investigation.md](investigation.md) "Tool agent adapter") |
 | MCP server (host) | `add_finding` mapped to `raise_gap` (`api/routers/agent_writes.py`, kinds and shapes in `api/gap/development.py`, `refers_to` checks in `api/finding_refs.py`; a `note` to `add_note`); new read `list_gaps` (agent route `api/routers/agent_gaps.py`); briefs and `get_node` show gaps through the plan's findings port, filled by `api/gap/findings.py` (`OpenGaps`) |
-| Frontend | The Gaps screen from the decision components, with a recommended mark on option cards and the assignee of each gap; plan screens link to it |
-| First slice of `graph.gap` | `Finding`, `ExternalRef`, `FindingFlow` and their library are removed; the `/findings` web routes are aliases of the development gaps' routes; existing data is migrated ([lifecycle.md](lifecycle.md) "Migration of first-slice findings") |
+| Frontend | The canvas's Gaps hub opens a read-only dialog that counts the open gaps of the latest run (FR-GWEB-04); answering runs in the chat channels and over MCP |
+| First slice of `graph.gap` | `Finding`, `ExternalRef`, `FindingFlow` and their library are removed; the `/findings` web aliases went with the V1 screens (the agent route `POST /agent/findings` raises development gaps); existing data is migrated ([lifecycle.md](lifecycle.md) "Migration of first-slice findings") |

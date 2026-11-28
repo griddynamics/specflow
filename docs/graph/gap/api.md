@@ -411,45 +411,19 @@ The host also:
 
 ## Web routes
 
-Under `/projects/{pid}`, in the style of the existing project routers. Project membership is the access rule.
+Under `/projects/{pid}`, in the style of the existing project routers. Project membership is the access rule. The
+reads the canvas polls are all that is left on HTTP: the writes (answer, preview, dismiss, revert, raise, apply, run,
+noise rules, assignee) went with the V1 screens and run as service-layer calls behind the chat channels and the agent
+routes ([answers.md](answers.md), [../../mcp-server/tools.md](../../mcp-server/tools.md)).
 
 | Method and path | Call |
 |---|---|
 | `GET /projects/{pid}/gaps` | `list_gaps` (query: status, kind, severity, origin, route, about, story_id, document, assigned_to, cursor, limit; a list filter repeats its parameter; `assigned_to` is `me` (the caller), `none` or a member's user id; `document` takes the graph's document id, a lineage, or a document's id as the documents routes name it, which the route turns into its corpus lineage: `drive:<connection>:<file>` for a Drive document, else `doc:<id>`) |
-| `GET /projects/{pid}/gaps/{gap_id}` | `get_gap` |
-| `POST /projects/{pid}/gaps` | `raise_gap` (origin `person`) |
-| `POST /projects/{pid}/gaps/{gap_id}/edits_preview` | `preview_edits` |
-| `POST /projects/{pid}/gaps/{gap_id}/answer` | `answer_gap` |
-| `POST /projects/{pid}/gaps/{gap_id}/dismiss` | `dismiss_gap` |
-| `PUT /projects/{pid}/gaps/{gap_id}/assignee` | `assign_gap` (body `user_id`: a member's user id, or null to clear it), the caller as `by`; the `GapView`; `400 assignee_not_member` when `user_id` is not a member of the project |
-| `GET /projects/{pid}/gaps/ai_answers` | `ai_answers` (query `limit`, 1 to 200); registered before `GET .../gaps/{gap_id}` |
-| `POST /projects/{pid}/gaps/clarifications/{clr_id}/revert` | `revert_clarification` (body `reason`), the member as `by`; `RevertResult` |
-| `POST /projects/{pid}/gaps/apply` | `apply_now` |
-| `POST /projects/{pid}/gap/runs` | Start a full run (202, run status) |
-| `GET /projects/{pid}/gap/runs/latest` | Run status and the last `GapRunResult` |
-| `GET /projects/{pid}/gap/runs/{run_id}/noise` | The noise report of a finished run (`404 gap_run_not_found` otherwise) |
-| `GET /projects/{pid}/gaps/noise_rules` | `noise_rules` |
-| `POST /projects/{pid}/gaps/noise_rules` | `add_noise_rule` |
-| `DELETE /projects/{pid}/gaps/noise_rules/{rule_id}` | `remove_noise_rule` |
+| `GET /projects/{pid}/gap/runs/latest` | Run status and the last `GapRunResult` (the noise report ships inside it) |
 
-A write answers `400 answer_invalid` (`details`: `field`, `reason`), `409 gap_wrong_state` (`details`: `status`,
-`allowed`), `409 gap_stale` (the answer's `updated_at` is not the gap's: reload), `404 gap_not_found` or
-`404 noise_rule_not_found`; `POST .../gaps` answers `201` with the `RaisedGap`, `POST .../gaps/noise_rules` `201`
-with the rule id, dismiss and rule removal `204`. `GET .../gaps/noise_rules` is registered before
-`GET .../gaps/{gap_id}`. A non-member gets `404 project_not_found`, as on every project route. `get_gap` answers `404 gap_not_found` for an
-unknown gap; an invalid cursor `400 invalid_cursor`; a full run of a project without a finished build
-`409 no_graph_build`. Every gap route answers `503 gap_unavailable` while the gap runner is not configured (no graph
-build settings, or `GAP_ENABLED` off).
-
-The existing `/projects/{pid}/findings` routes stay as aliases of `GET .../gaps?origin=development` and of
-dismiss for one release, then go. As built (`api/routers/findings.py`): the list keeps its shape (`FindingOut`: the
-gap id, the finding kind of the gap's kind, the question as text, `open` for open, answered and applying gaps and
-`resolved` for resolved ones, `refers_to` empty) and its `status` (`open`, `resolved`, `all`; `dismissed` lists none:
-a dismissed gap is gone), `node` (the `about` filter) and `after` (the cursor); `resolve` and `dismiss` both dismiss
-the open gap with the note as reason (`Resolved` or `Dismissed` without one) and answer the closed finding and the
-number of tasks released; `404 finding_not_found`, `409 finding_closed`, `409 plan_applying` (the plan refused to
-release the gap's tasks during a persist: nothing changed, retry), `503 gap_unavailable`. `POST .../gaps/{gap_id}/dismiss`
-answers `409 plan_applying` the same way: `dismiss_gap` releases the holds before it deletes the gap.
+An invalid cursor answers `400 invalid_cursor`, arguments that do not fit together `400 invalid_arguments` (`details`:
+`argument`, never its value). A non-member gets `404 project_not_found`, as on every project route. Every gap route
+answers `503 gap_unavailable` while the gap runner is not configured (no graph build settings, or `GAP_ENABLED` off).
 
 ## MCP tools
 
@@ -457,41 +431,25 @@ answers `409 plan_applying` the same way: `dismiss_gap` releases the holds befor
 |---|---|
 | `add_finding` | Kept with its arguments; mapped to `raise_gap` with origin `development` (a `note` to `add_note`) and a `site` run at once ([lifecycle.md](lifecycle.md) "Development gaps", as built); the answer keeps its shape, `finding_id` is the gap id and the author of a repeat is the gap's first reporter; the API answers `503 gap_unavailable` while gap runs are not configured (the tool reports `internal_error`) ([../../mcp-server/tools.md](../../mcp-server/tools.md) "add_finding") |
 | `list_gaps` (new, read-only) | Open gaps about a story's nodes (`story_id`, through `PlanService.story_nodes`) or about given spec ids (`spec_ids`, exactly one of the two): id, kind, severity, question, status, blocking, `ABOUT` ids, and the answer's text once a clarification exists (its text, else the chosen option's label, else a pointer's answering lines); `status` adds `resolved` gaps. Served by the agent route `GET /agent/gaps` over `GapService.list_gaps(about=...)`; an empty list while the gap runner is not configured ([../../mcp-server/tools.md](../../mcp-server/tools.md) "list_gaps") |
-| `browse_gaps` (new, read-only) | The gaps of the web Gaps screen as table rows (`list_gaps` with `route` `ask`, by default not resolved) with its filters: `status`, `kind`, `severity`, `assigned` (`me`, `unassigned`) or `assignee` (a member's name, resolved through the project's members), `story_id` (through `PlanService.story_nodes`); each row names its assignee. Served by `GET /agent/gap-inbox` ([../../mcp-server/tools.md](../../mcp-server/tools.md) "browse_gaps") |
-| `open_gap` (new, read-only) | One gap whole, in any status (`get_gap`), as the web card shows it: `ABOUT` and `IMPACTS` nodes, quoted lines, options with their stored edits, the clarification, history in words, follow-ups, reach and assignee, with a ready card and `web_url`. Served by `GET /agent/gap-detail` ([../../mcp-server/tools.md](../../mcp-server/tools.md) "open_gap") |
-| `answer_gap` (new, writes) | A person answers one open gap in the dialog their coding agent's client shows on the MCP server's request (elicitation); the agent sends only the gap id. Served by `GET /agent/gap-card` (`get_gap`, only an `open` gap) and `POST /agent/gap-answer` (`answer_gap` as the token's user with `AnswerInput.via` `elicitation`, kept in the `answered` event; the same checks and apply as the web route) ([../../mcp-server/tools.md](../../mcp-server/tools.md) "answer_gap") |
+| `browse_gaps` (new, read-only) | The gaps of route `ask` as table rows (`list_gaps`, by default not resolved) with the inbox's filters: `status`, `kind`, `severity`, `assigned` (`me`, `unassigned`) or `assignee` (a member's name, resolved through the project's members), `story_id` (through `PlanService.story_nodes`); each row names its assignee. Served by `GET /agent/gap-inbox` ([../../mcp-server/tools.md](../../mcp-server/tools.md) "browse_gaps") |
+| `open_gap` (new, read-only) | One gap whole, in any status (`get_gap`), as its card shows it: `ABOUT` and `IMPACTS` nodes, quoted lines, options with their stored edits, the clarification, history in words, follow-ups, reach and assignee, with a ready card and `web_url`. Served by `GET /agent/gap-detail` ([../../mcp-server/tools.md](../../mcp-server/tools.md) "open_gap") |
+| `answer_gap` (new, writes) | A person answers one open gap in the dialog their coding agent's client shows on the MCP server's request (elicitation); the agent sends only the gap id. Served by `GET /agent/gap-card` (`get_gap`, only an `open` gap) and `POST /agent/gap-answer` (`answer_gap` as the token's user with `AnswerInput.via` `elicitation`, kept in the `answered` event; the same checks and apply as the service's `answer_gap`) ([../../mcp-server/tools.md](../../mcp-server/tools.md) "answer_gap") |
 | `get_story_brief`, `get_task_brief`, `preview_story` | Unchanged calls; their findings now come from gaps through the plan's findings port (question, `ABOUT` ids, blocking first) and the host adds each gap's `severity`; `get_task_brief` gains `findings` (the open findings about the nodes the task implements), which the host reads through the same port because the plan's `TaskBrief` has none |
 | `get_node` | Lists open gaps about the node, with severity |
 | `claim_story` | Unchanged call; refused, naming the gap, when a task of the story is held by a blocker gap |
 
 ## User interface
 
+The canvas is the gaps' web surface (the V1 Gaps screens went with the V1 pages; their URLs answer 404). The Gaps hub
+opens a read-only dialog, and answering is not done on the web (D10): people answer in Slack or Jira, coding agents
+over MCP.
+
 | Screen or element | Content |
 |---|---|
-| Gaps screen, gap check line | Above every tab: "Waiting for the knowledge build" while the build runs, "Looking for gaps" with the step, its items ("n of m sites" while it investigates and records), the count of New rows listed so far and a progress bar while the gap run runs, then when the last check finished and what it found (new, updated, resolved gaps), or that it failed |
-| Gaps screen, inbox | Gaps with filters (status Open, Staged, Resolved or All; kind, severity, story, assigned) and the columns gap, kind, severity and assigned, sorted by severity and reach; development gaps that hold tasks first. Every new question of a run is listed (FR-GRTE-06), 50 a page with "Show more" for the next. In the header row beside the tabs: "Raise a gap" and "Resolve gaps" (the primary button, with the count of staged answers; disabled when none is staged; it confirms the list of staged answers, everyone's, then applies them in one rebuild). Staged = stored `answered` or `applying` (shown "Resolving…") |
-| Gaps screen, card | Title, question, why, chips for `ABOUT` and `IMPACTS` nodes, quoted witness lines with their source (document, section, lines), reach (stories, tasks), options with the recommended one marked, "Other" with free text and an edits preview, placement choice, "Not a gap" with a reason (open gaps), the history (events, follow-up chain); "Stage answer" (or "Answer and resolve" for a development gap that blocks a coding agent's task), "Change answer" and "Unstage" for a staged gap, a "Resolving…" tag while its rebuild runs, "Withdraw answer" for a resolved gap |
-| Gaps screen, answered by AI | AI answers with their basis and confidence; Revert per row |
-| Gaps screen, noise report | Sections judged tracking or mixed, their signals, "Mark as not spec" and the noise rules (add, remove) |
-| Plan screens | Stories and tasks show open gaps and held tasks with a link to the card |
+| Gaps hub, states | "Waits for the gap run" while no run was ever made, "Looking for gaps" while one runs, then "N found · M answered" with a solid "N critical" pill |
+| Gaps hub, dialog | A read-only count of the open gaps of the latest run: a row per category, a column for each severity that occurs (and Total when there are two or more), the critical (blocker) ones called out (FR-GWEB-04) |
+| Canvas polling | The summary read (`GET .../gaps` with the summary query) and `GET .../gap/runs/latest` are read often while a gap run or a build is going on (or nothing is known yet), rarely otherwise |
 
-As built: the Gaps screen at `/projects/{pid}/gaps` (it replaced the Decisions screen) has the tabs Inbox, Answered by
-AI and Noise report (FR-GWEB-06 removed the Documents tab and the Origin and Document filters). The inbox lists gaps of route `ask` in the service's order
-(severity, reach, newest) with development gaps that hold tasks first, every new question of a run included
-(FR-GRTE-06): 50 a page, and "Show more" reads the next page with the cursor. The card answers through `edits_preview` and `answer` (with the gap's
-`updated_at` as read; `409 gap_stale` offers a reload), dismisses with a reason ("Not spec" also offers a section noise
-rule) and withdraws an answer through the revert route. The Assigned column assigns the gap in place (`PUT
-.../assignee`): a click opens a menu of Unassigned and the members; a resolved gap's cell has no menu. The Assigned
-filter lists All (the default), Unassigned (`none`) and each member of the project (`GET .../members`), whose names the
-Assigned column and the history also show. The plan
-screens read the open gaps once (status open, answered, applying; any route) and show on a task the gaps whose `ABOUT`
-ids meet the task's implemented spec ids, and on a story those of its tasks, each linking to the card (`?gap=<id>`).
-The gap check line reads `GET .../gap/runs/latest` and `GET .../graph_build` every 3 s while the build or the gap
-run runs and every 30 s otherwise. A run records each site's gaps when that site is done, so while it runs the
-inbox reads its loaded rows again each time the line shows another site recorded or a new step, without a reload or a
-loading state, keeping the rows, loaded pages, filters, the open card, focus and scroll; when the run ends the lists
-read again once more. A gap found by analysis since the latest run started carries "New" until the next run starts,
-and the line counts the New rows listed so far. "Mark as spec" for a noise section (no route yet) and a control that starts a full run are not on the screen. The old Decisions URL `/projects/{pid}/decisions`
-redirects to the Gaps screen (query kept). A task's gaps match its implemented ids against each `ABOUT` node's id or
-`aliases`. The Work tab's findings (the `/findings` alias routes) link each row to its gap card; `?gap=` takes a
-gap id or an alias (a migrated `FND::` id).
+A gap's `web_url` (cards, agent tools) is the project's canvas (`/projects/{pid}`): the gap-query deep link went with
+the card screen. The noise report ships inside the latest run's result; the chat channels and the agent routes carry
+answering and applying ([answers.md](answers.md)).

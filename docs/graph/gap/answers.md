@@ -104,10 +104,14 @@ looking.
 
 ## The question card
 
-The Gaps inbox shows one card per open gap with route `ask`, ordered by severity, then reach (the number of
-plan tasks behind the `ABOUT` and `IMPACTS` nodes), then age. Every new question of a run shows at once: no run
-holds any back (FR-GRTE-06). The inbox is paged (50 gaps a page; "Show more" reads the next page) and filtered
-(status, kind, severity, story, assignee).
+Every open gap of route `ask` reaches people as one card with the parts below. The chat channels render it in
+their own way — the Slack bot posts the question in the project's channel and takes the answer in its thread
+([../../slack/gap-answering.md](../../slack/gap-answering.md)), the Jira channel posts it as a comment on the plan's
+sub-task ([../../jira-sync/gaps.md](../../jira-sync/gaps.md)), the Linear channel as a sub-issue
+([../../linear/gaps.md](../../linear/gaps.md)) — and the MCP server serves it as the form of the `answer_gap`
+elicitation ([../../mcp-server/tools.md](../../mcp-server/tools.md) "answer_gap"). The channels take the questions
+in the service's order: severity, then reach (the number of plan tasks behind the `ABOUT` and `IMPACTS` nodes),
+then age. Every new question of a run shows at once: no run holds any back (FR-GRTE-06).
 
 | Part | Content | Source |
 |---|---|---|
@@ -120,7 +124,7 @@ holds any back (FR-GRTE-06). The inbox is paged (50 gaps a page; "Show more" rea
 | Options | 2 to 4 offered answers; exactly one marked **Recommended** and preselected for `major`; each with label, detail and a preview of its edits | `gap_option` rows |
 | Other | A free-text answer of the person's own | Always offered |
 | Placement | "Amend the source section" or "Clarifications document"; preset from the option's edits; the person may switch | Option edits |
-| Actions | Stage answer ("Answer and resolve" for a development gap that blocks a coding agent's task: applied at once); on a staged gap Change answer and Unstage; Not a gap (with a reason, open gaps only); Open in graph | |
+| Answer | An option (a channel reply names its letter) or the person's own text; a development gap that blocks a coding agent's task applies at once; a staged answer is replaced by answering again ("Changing an answer") | |
 
 A card never shows an option without edits, and never more than one recommendation. When the investigation
 of a development gap is still running, the card shows the agent's question with "Options are being
@@ -142,8 +146,8 @@ whether it is applied at once). `AnswerInput`:
 | `edits` | Optional: the edits confirmed in the preview; an option's own edits when absent; an own text without edits goes to the clarifications document as written (not for a `contradiction`: "Placement rules") |
 | `placement` | Optional override: `amend` or `document` |
 | `answered_by` | The user id, from the host's session; `ai` for AI answers |
-| `updated_at` | The gap's `updated_at` as the caller read it; a gap changed since then raises `StaleGapError` (the web route requires it) |
-| `via` | Where the person answered: `web` (the default, the web card), `elicitation` (the dialog of the MCP tool `answer_gap`, [../../mcp-server/tools.md](../../mcp-server/tools.md) "answer_gap"), `slack`, `jira` or `linear` (a reply in the project's channel on that app: [../../linear/gaps.md](../../linear/gaps.md) for `linear`); kept in the detail of the `answered` event |
+| `updated_at` | The gap's `updated_at` as the caller read it; a gap changed since then raises `StaleGapError` (the MCP dialog and the Slack form require it) |
+| `via` | Where the person answered: `web` (the default; the value the removed web card sent), `elicitation` (the dialog of the MCP tool `answer_gap`, [../../mcp-server/tools.md](../../mcp-server/tools.md) "answer_gap"), `slack`, `jira` or `linear` (a reply in the project's channel on that app: [../../linear/gaps.md](../../linear/gaps.md) for `linear`); kept in the detail of the `answered` event |
 
 Checks; nothing is written when one fails:
 
@@ -158,7 +162,7 @@ Checks; nothing is written when one fails:
 | An option without edits is answerable only on a reconcile follow-up ("Keep the upload", "Drop it"), where it resolves the gap at once without a build ([reconcile.md](reconcile.md) "Conflict follow-up", "Orphaned follow-up") | Elsewhere `AnswerInvalidError` (`edits`, `edits_count`) |
 | An answer to a follow-up replaces the answer it follows up when that one is `conflict`, `orphaned`, or `pending` and never grounded (`not_fixed`): when it is applied (or settled) the old clarification becomes `superseded` and its amendments `reverted` ([lifecycle.md](lifecycle.md) "Clarification transitions") | — |
 | A placement override fits ("Placement rules") | `AnswerInvalidError` (`placement`, `contradiction_amends` or `no_anchor`) |
-| An own answer to a `contradiction` has at least one `amend` edit: an own text without edits, or with only clarifications-document edits, is refused for every caller (web, MCP dialog). A reconcile follow-up takes an own answer as any gap ([reconcile.md](reconcile.md) "Conflict follow-up"); an option keeps the placement of its edits | `AnswerInvalidError` (`placement`, `contradiction_amends`) |
+| An own answer to a `contradiction` has at least one `amend` edit: an own text without edits, or with only clarifications-document edits, is refused for every caller (channels and MCP dialog alike). A reconcile follow-up takes an own answer as any gap ([reconcile.md](reconcile.md) "Conflict follow-up"); an option keeps the placement of its edits | `AnswerInvalidError` (`placement`, `contradiction_amends`) |
 | The caller is a member of the project (host check) | host error |
 
 ### Clarification
@@ -189,12 +193,13 @@ status and `updated_at`) in one transaction; when it fails the amendment rows ar
 An own answer is free text; the corpus needs edits. `GapService.preview_edits(project_id, gap_id, text,
 placement)` asks the gateway role `gap_edits` to turn the text into edits for this gap. The call sees the
 gap's question, why, the witness lines and the sections they are in (as untrusted data), and the text. It
-returns edits in the same shape as an option's edits. Code checks every edit ("Edits" below), and the card
-shows the result as a diff before the person submits. The person can change the placement, or go back to
-the text; nothing is stored until Stage answer.
+returns edits in the same shape as an option's edits. Code checks every edit ("Edits" below); the preview itself
+stores nothing. When the `gap_edits` call fails or its edits do not check, the answer falls back to the
+clarifications document placement with the text as written, which needs no anchor.
 
-When the `gap_edits` call fails or its edits do not check, the preview offers the clarifications document
-placement with the text as written, which needs no anchor.
+The V1 card showed the preview as a diff before the person submitted; it went with the card. The live channels take
+an own answer without a preview, so an own text goes to the clarifications document as written (a `contradiction`
+refuses it: "Answering").
 
 ### Changing an answer
 
@@ -295,15 +300,17 @@ the build's answered-elsewhere check then drops the question node, because anoth
 
 ## Applying answers
 
-An answer is staged: it is stored, and nothing reaches the spec until a person presses "Resolve gaps" in the Gaps
-screen. Every staged answer of the project, everyone's, is then applied in one update build. People see three
-statuses: Open (`open`), Staged (`answered`, and `applying` while the rebuild runs, shown "Resolving…") and Resolved
-(`resolved`).
+An answer is staged first: it is stored, and nothing reaches the spec until it is applied — every staged answer of
+the project, everyone's, in one update build. On the chat channels an answer applies as it is recorded: a Slack
+thread reply, a Jira comment reply and a Linear comment all record and apply in one step (`record_and_apply`), and
+the Slack form applies when its "Apply now" box is ticked. An answer through MCP is staged (unless the gap blocks a
+task); a later channel apply takes it too. People see three statuses: Open (`open`), Staged (`answered`, and
+`applying` while the rebuild runs) and Resolved (`resolved`).
 
 ```
 answer recorded (gap answered = staged, clarification pending)
-  -> "Resolve gaps" in the Gaps screen (POST /gaps/apply, GapService.apply_now),
-     or at once for a development gap that blocks a task (a coding agent waits on it)
+  -> applied at once: a chat answer (record_and_apply, GapService.apply_now; the Slack form's "Apply now"),
+     or a development gap that blocks a task (a coding agent waits on it)
   -> amendments active, clarifications document rebuilt
   -> BuildRequests.request_update_build(project_id, reason="gap_answers", immediate=...)
   -> every answered gap in the batch moves to applying
@@ -315,9 +322,9 @@ answer recorded (gap answered = staged, clarification pending)
 |---|---|
 | One build at a time | `BuildRequests` queues the request when a build of the project is running; one queued request covers every answer recorded before it starts. The host's build runner answers `started` or `queued` |
 | Order of writes | Amendments `pending` to `active` (and the superseded ones' to `reverted`) first, then the graph (`answered` to `applying`, `superseded` clarifications) in one transaction; when it fails the rows are set back. Then an `applying` event per clarification and the build request |
-| Staged answers | Wait without a timer until "Resolve gaps"; a person may change or unstage (withdraw) them before. "Resolve gaps" is enabled while at least one gap is `answered` and lists the staged answers, with who staged them, before it applies them |
-| `immediate` | Applies a blocking development answer without waiting for "Resolve gaps"; it never starts a second concurrent build |
-| A failed build | Gaps stay `applying`; the next successful update build settles them. After two failed builds the event log records "apply failed" and the inbox shows it |
+| Staged answers | Wait without a timer until the next apply; a person may change one before by answering again ("Changing an answer"). `apply_now` applies every staged answer of the project, everyone's, whoever calls it |
+| `immediate` | Applies a blocking development answer without waiting for a channel apply; it never starts a second concurrent build |
+| A failed build | Gaps stay `applying`; the next successful update build settles them. After two failed builds the event log records "apply failed" |
 | Answers recorded while a build runs | Wait for the next request |
 
 ### Restarts and failures
@@ -330,7 +337,7 @@ answer needs lives only in the process:
 | The API restarts, or the build request fails, after an apply | The clarifications carry `apply_requested_at`. When no build started at or after it finished and none runs, the host requests the update build again; when one finished but no gap run followed it, the host queues that `update` run |
 | A write after a committed answer, apply, revert or dismissal fails once | The event log, the deletion of a replaced answer's amendment rows and the build request are retried twice after short pauses (`graph.gap.retry`); a refusal of the callee (a `GraphError`) is not retried |
 | The deletion of a replaced answer's rows fails for good | `pending_answers` deletes `pending` rows whose clarification no longer exists |
-| "Resolve gaps" fails | Nothing is applied and the screen says so; the answers stay staged and the person presses it again |
+| An apply fails | Nothing is applied and the channel says so; the answers stay staged and the next apply takes them |
 
 ## AI answers
 
@@ -339,7 +346,7 @@ A gap routed `ai` is answered by the gap run that created it, with the recommend
 1. A clarification with mode `ai`, `answered_by` `ai`, the option label, the basis quotes and the second
    check's confidence.
 2. Its edits become amendments or a clarifications document section, as for a person's answer.
-3. The gap moves to `answered` (staged, listed under "Answered by AI"), then `applying` with the next "Resolve gaps";
+3. The gap moves to `answered` (staged), then `applying` with the next apply;
    AI answers never use `immediate`.
 
 As built: the record of the site writes the gap `answered` with route `ai` and its clarification (status `pending`,
@@ -347,18 +354,19 @@ placement by the edits as in "Placement rules", `ANSWERS`, `PLACED_IN` each sour
 transaction; the amendment rows (`pending`) go first through `Amendments` and are deleted again when the graph write
 fails. The gap's option rows are stored as for any gap, so a revert hands them to a person. The events are
 `created`, `routed` (gates and confidence) and `answered` (actor `ai`, mode `ai`). A run that recorded AI answers
-(run metric `ai_answered`) leaves them staged, as a person's answers are, until someone presses "Resolve gaps"; from
+(run metric `ai_answered`) leaves them staged, as a person's answers are, until the next apply; from
 there the apply, the update build and the close check are the same (resolution `ai_answered`). A gap that
 a run answered by AI and that is still `answered` is not part of the input hash of the sites on its nodes (as an open
 gap of origin `analysis` is not), so the next run on an unchanged graph investigates nothing again.
 
 ### Review list
 
-The inbox has a tab "Answered by AI" listing every clarification with mode `ai` or `pointer`: the gap's
-title, the answer, the basis quotes, the confidence and the build that applied it. Nothing waits for a
-review; the list exists so a person can check and undo. `GapService.ai_answers(project_id, *, limit=50)` reads it
-(`AiAnswerList`: per clarification the gap id, title, question and status, the `ClarificationView`, and for a
-reverted one the follow-up gap its revert opened), newest first, every status included.
+`GapService.ai_answers(project_id, *, limit=50)` reads the review list: every clarification with mode `ai` or
+`pointer` — the gap's title, the answer, the basis quotes, the confidence and the build that applied it — newest
+first, every status included (`AiAnswerList`: per clarification the gap id, title, question and status, the
+`ClarificationView`, and for a reverted one the follow-up gap its revert opened). Nothing waits for a review; the
+list exists so a person can check and undo. (The V1 inbox showed it as its "Answered by AI" tab; the read is a
+service call without a live surface in this release.)
 
 ### Revert
 
@@ -401,7 +409,8 @@ in its brief ([lifecycle.md](lifecycle.md) "Development gaps").
 
 ## Dismissing
 
-`GapService.dismiss_gap(project_id, gap_id, reason)` closes a gap a person judges not to be one:
+`GapService.dismiss_gap(project_id, gap_id, reason)` closes a gap a person judges not to be one (the V1 card's
+"Not a gap" action went with the card; the call has no live surface in this release):
 
 | Step | Effect |
 |---|---|
@@ -419,13 +428,14 @@ line. "Won't decide now" is a suppression too; the gap returns when its lines ch
 
 ## Who answers
 
-Any member of the project may answer, dismiss or revert a gap; the host checks membership. `answered_by`
+Any member of the project may answer a gap; the host checks membership. `answered_by`
 and every event record the user id. The owner and the collaborators of a project answer alike: no role limits who
 answers which gap in this release ([later.md](later.md)).
 
-A gap that is not resolved may have one assignee, the member who resolves it (FR-GWEB-06). Any member assigns a gap
-to any member of the project, or clears its assignee, on the gap's card (`PUT .../gaps/{gap_id}/assignee`,
-[api.md](api.md) "Web routes"). Assignment does not limit who answers: any member still answers any gap.
+A gap that is not resolved may have one assignee, the member who resolves it. Assignment follows the answer: when a
+member answers a gap in a channel and nobody holds it, the answerer becomes its assignee (`assign_answerer`, after
+a chat answer; an assigned gap keeps its assignee), and a follow-up gap takes the assignee of the gap it follows up.
+Assignment does not limit who answers: any member still answers any gap.
 
 | Rule | Effect |
 |---|---|
@@ -435,12 +445,13 @@ to any member of the project, or clears its assignee, on the gap's card (`PUT ..
 | Follow-up gap | Takes the assignee of the gap it follows up (event `assigned` with `from_gap`; the run or the member who withdrew the answer as actor) |
 | Dismissed or obsolete gap | Its assignment is deleted |
 | Member leaves or is removed | The database deletes their assignments with the membership; the gaps are unassigned (no event) |
-| Inbox | The "Assigned" column shows the assignee and changes it in place: a click opens a menu of Unassigned and the members. The "Assigned" filter lists All (the default), Unassigned and each member (`assigned_to=none` or a user id; the API also takes `me`, for the MCP tools). The question card has no assignee control |
+| Where it shows | The MCP inbox rows (`browse_gaps`) name each gap's assignee and filter by it (`assigned`: `me`, `unassigned`; `assignee`: a member's name); the gap's card and detail name it too. The list read (`GET .../gaps`) takes `assigned_to`: `me`, `none` or a member's user id |
 
 ## Raising a gap by hand
 
-`GapService.raise_gap(project_id, RaiseInput)` lets a person (origin `person`) or a coding agent (origin
-`development`, through MCP) open a gap: question, optional kind, the spec ids it is about, optional quoted
+`GapService.raise_gap(project_id, RaiseInput)` opens a gap by hand: a coding agent (origin `development`,
+through MCP, [../../mcp-server/tools.md](../../mcp-server/tools.md) "add_finding") or a person (origin `person`;
+the call has no live surface in this release) — question, optional kind, the spec ids it is about, optional quoted
 lines, and, for an agent, the task and whether it blocks. Code checks the ids and quotes as for a report;
 an investigation of the site starts at once and adds options, `IMPACTS` and a severity. Until it finishes,
 the gap is `open` with severity `major` (or the one given) and route `ask`.

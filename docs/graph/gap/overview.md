@@ -21,7 +21,8 @@ found in three steps:
    names, sprint items, ticket references) out of the structural checks.
 2. **Investigation**: one agent per entry point reads the graph around it, decides whether the gap is real,
    names every node it is about, and proposes two to four options with one recommended.
-3. **Routing**: code decides who answers. A person answers severe gaps in the Gaps inbox; AI answers
+3. **Routing**: code decides who answers. A person answers severe gaps — in the project's chat channel or
+   through MCP; AI answers
    simple ones with the recommended option (**advanced inference**). Both take the same path.
 
 An answer becomes a **Clarification**. Its text reaches the spec only as corpus text: an amendment that
@@ -74,7 +75,7 @@ coding agent reports is a gap with origin `development` ([lifecycle.md](lifecycl
 | Actor | What it does |
 |---|---|
 | Host | Runs a gap run after each build, before the plan run; owns the relational store, the corpus reader, the runner, web routes and MCP tools |
-| Person (project member) | Answers, dismisses or reverts gaps in the Gaps inbox; raises a gap by hand; reviews AI answers; reads the noise report |
+| Person (project member) | Answers gaps in the project's chat channel or through MCP; reads the run's noise report |
 | Coding agent (over MCP) | Reports a finding while building a story; reads open gaps and answers in briefs |
 | Investigator agent | Reads the graph around a site through the core LLM gateway and returns a report |
 | `graph.build` | Reads amended text and the clarifications document like any other corpus text; reports what changed |
