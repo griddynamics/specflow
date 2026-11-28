@@ -16,11 +16,7 @@ import { COPY } from "@/lib/copy";
 // FR-GDUI-0002
 export const EMAIL_LOADING = COPY.loadingEmail;
 export const EMAIL_UNAVAILABLE = "Drive access is not available right now. Try again later.";
-// FR-GDUI-0003
-export const COPY_FALLBACK_HINT = "Press Ctrl+C or Cmd+C to copy";
-export const COPIED_MS = 2000;
 // FR-GDUI-0007: the four steps; `{email}` marks the Drive account email in step 2.
-export const GUIDE_TOGGLE = "How to share a folder (4 steps)";
 export const GUIDE_STEPS: { text: string; image: string }[] = [
   { text: "In Google Drive, open the menu of the folder and choose Share → Share.", image: "1-share-with-us.png" },
   { text: "Add {email}, set the role to Viewer, and click Send.", image: "2-add-specflow-sa.png" },

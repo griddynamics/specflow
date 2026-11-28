@@ -299,11 +299,6 @@
       "path": "/projects/{pid}/gaps/clarifications/{clr_id}/revert"
     },
     {
-      "id": "list_answer_documents_api_v1_projects__pid__gaps_documents_get",
-      "method": "GET",
-      "path": "/projects/{pid}/gaps/documents"
-    },
-    {
       "id": "list_noise_rules_api_v1_projects__pid__gaps_noise_rules_get",
       "method": "GET",
       "path": "/projects/{pid}/gaps/noise_rules"

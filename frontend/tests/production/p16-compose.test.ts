@@ -71,7 +71,6 @@ const http: HttpPorts = {
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
-  work: { findings: never, close: never, claims: never, release: never },
   gaps: {
     list: never,
     get: never,
@@ -119,14 +118,13 @@ const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work, gaps, members, jira, slack, github, integrations, linear, box, dropbox", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1), FR-GWEB-04: http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, gaps, members, jira, slack, github, integrations, linear, box, dropbox", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
   assert.equal(ports.sources, http.sources);
   assert.equal(ports.knowledge, http.knowledge);
   assert.equal(ports.plan, http.plan);
-  assert.equal(ports.work, http.work);
   assert.equal(ports.gaps, http.gaps); // FR-GWEB-04: the Gaps screen reads the real gap routes (no unavailable port)
   assert.equal(ports.members, http.members);
   assert.equal(ports.jira, http.jira);
@@ -234,7 +232,6 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "projects",
       "slack",
       "sources",
-      "work",
     ],
   );
 });

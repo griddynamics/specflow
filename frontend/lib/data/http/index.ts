@@ -23,7 +23,6 @@ import type { JiraGapsPort } from "@/lib/domain/jira-gaps";
 import type { NotionConnectionPort } from "@/lib/domain/notion-connection";
 import type { NotionPlanPort } from "@/lib/domain/notion-plan";
 import type { SlackPort } from "@/lib/domain/slack";
-import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
 import { createHttpBox } from "./box";
 import { createHttpDropbox } from "./dropbox";
@@ -46,7 +45,6 @@ import { createHttpNotionConnection } from "./notion-connection";
 import { createHttpNotionPlan } from "./notion-plan";
 import { createHttpSlack } from "./slack";
 import { createHttpSources } from "./sources";
-import { createHttpWork } from "./work";
 
 export interface HttpPorts {
   people: Pick<PeoplePort, "me">;
@@ -57,7 +55,6 @@ export interface HttpPorts {
   sources: SourcesPort;
   knowledge: KnowledgePort;
   plan: PlanPort;
-  work: WorkPort;
   gaps: GapsPort;
   members: MembersPort;
   jira: JiraPort;
@@ -92,7 +89,6 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     }),
     knowledge,
     plan: createHttpPlan({ pollMs: opts?.planPollMs }),
-    work: createHttpWork(),
     gaps: createHttpGaps(),
     members: createHttpMembers(),
     jira: createHttpJira(),

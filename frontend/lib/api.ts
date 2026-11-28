@@ -10,16 +10,6 @@ export interface Project {
   created_at: string;
 }
 
-export interface DocumentSummary {
-  id: string;
-  original_filename: string;
-  size_bytes: number;
-  status: "uploaded" | "processing" | "parsed" | "failed";
-  error: string | null;
-  summarization_status: "none" | "running" | "succeeded" | "failed";
-  created_at: string;
-}
-
 export interface Page<T> {
   items: T[];
   next_cursor: string | null;
@@ -338,7 +328,7 @@ export const startBatch = (pid: string, expectedFiles: number, name?: string) =>
 /** Renames an upload batch: 200 with the source summary, 422 for a bad name, 404 `source_not_found`, 409 `source_not_renamable`. */
 export const renameSource = (pid: string, sid: string, name: string) =>
   httpPatch(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}`, json({ name })).then((r) => r.body);
-/** Same wire form as `uploadDocument`: the File is the raw body; the `Content-Type` is the canonical type of its extension. */
+/** The File is the raw body; the `Content-Type` is the canonical type of its extension. */
 export const addBatchFile = (pid: string, sid: string, file: File) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}/files?filename=${encodeURIComponent(file.name)}`, {
     headers: { "Content-Type": contentTypeFor(file.name) },
@@ -400,38 +390,6 @@ export const startPlan = (pid: string, replan: boolean) =>
 export const getPlanTasks = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/tasks`).then((r) => r.body);
 export const getPlanPreview = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/preview`).then((r) => r.body);
 
-/** `created` = a new document (201). `duplicate` = the project already has this content and nothing new happened; `retried` =
- * it had it in status `failed`, and the server started its parse again (both 200, with the existing document). */
-export type UploadOutcome = "created" | "duplicate" | "retried";
-
-/** AC-12.2: the File is the raw body, `Content-Type` = the canonical type of its extension (not `file.type`); no multipart. */
-export async function uploadDocument(pid: string, file: File): Promise<{ outcome: UploadOutcome; document: DocumentSummary }> {
-  const { status, body: raw } = await httpPost(`/projects/${encodeURIComponent(pid)}/documents?filename=${encodeURIComponent(file.name)}`, {
-    headers: { "Content-Type": contentTypeFor(file.name) },
-    body: file,
-  });
-  const body = raw as { outcome?: string; document: DocumentSummary };
-  let outcome: UploadOutcome = "created";
-  if (body.outcome === "retried") outcome = "retried";
-  else if (status === 200 || body.outcome === "duplicate") outcome = "duplicate";
-  return { outcome, document: body.document };
-}
-
-// Findings and claims of the Plan page (`/findings`, `/plan/claims`): people resolve or dismiss findings and force-release a story
-// claim. Bodies stay `unknown`; the work port (lib/data/http/work.ts) checks their shape.
-export const getFindings = (pid: string, status: string, node: string | undefined) => {
-  const query = new URLSearchParams({ limit: "200", status });
-  if (node !== undefined) query.set("node", node);
-  return httpGet(`/projects/${encodeURIComponent(pid)}/findings?${query.toString()}`).then((r) => r.body);
-};
-export const resolveFinding = (pid: string, fid: string, note: string | undefined) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/resolve`, json({ note: note ?? null })).then(
-    (r) => r.body,
-  );
-export const dismissFinding = (pid: string, fid: string, note: string | undefined) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/dismiss`, json({ note: note ?? null })).then(
-    (r) => r.body,
-  );
 // The Gaps screen (FR-GWEB-04, FR-GWEB-06): the gap list (`query` is the encoded `list_gaps` filters, never empty: the screens always
 // send a status; a list filter repeating its parameter), one gap, the latest gap run with its noise report, and the writes: edits
 // preview, answer, dismiss, assign, raise, apply now, the "Answered by AI" list and revert, and the noise rules. Bodies stay `unknown`;
@@ -465,6 +423,3 @@ export const removeNoiseRule = (pid: string, rid: string) =>
 /** Assigns a gap to a member, or clears it (`userId` null); resolves with the gap. */
 export const assignGap = (pid: string, gid: string, userId: string | null) =>
   httpPut(`/projects/${encodeURIComponent(pid)}/gaps/${encodeURIComponent(gid)}/assignee`, json({ user_id: userId })).then((r) => r.body);
-export const getClaims = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/claims`).then((r) => r.body);
-export const releaseClaim = (pid: string, sid: string) =>
-  httpPost(`/projects/${encodeURIComponent(pid)}/plan/claims/${encodeURIComponent(sid)}/release`).then((r) => r.body);

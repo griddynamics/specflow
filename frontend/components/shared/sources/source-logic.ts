@@ -1,8 +1,7 @@
 // sources-ux (FR-SRC-0001..0004, 0008..0011, 0018..0020, 0025; DATA-SRC-0001, NFR-USE-0003): the pure texts of the source card, the
 // details modal, the file rows and the toasts. No React. The texts are the units'
 // texts word for word, except the product name: the app writes "Specflow" (SD12, brand rule), the units spell it differently.
-import type { IconName } from "@/components/shared/ui/icon-map";
-import { finishedOf, fmtStamp, fullSourceName, isProblem, progressOf, sourceState } from "@/lib/domain/source-state";
+import { finishedOf, fmtStamp, fullSourceName, sourceState } from "@/lib/domain/source-state";
 import {
   CATEGORY_LABEL,
   type FileCategory,
@@ -11,12 +10,11 @@ import {
   type Source,
   type SourceFile,
   type SourceKind,
-  type SourceRef,
   type SourceState,
   type TooLargeFile,
   type UploadReport,
 } from "@/lib/domain/sources";
-import { driveReasonMessage, LISTING } from "./drive-logic";
+import { LISTING } from "./drive-logic";
 import { plural } from "./kb-logic";
 import { nonEmpty } from "@/components/shared/ui/utils";
 import { ACCEPTED_EXTENSIONS, FORMAT_LABELS, formatOf, limitsText, sizeText } from "@/lib/domain/upload-formats";
@@ -36,19 +34,6 @@ export const KIND_LINE: Record<Exclude<SourceKind, "upload">, string> = {
   notion: "Notion",
   drawio: "diagrams.net",
 };
-/** The small label above the name in the details modal. */
-export const KIND_LABEL = {
-  gdrive: "Google Drive",
-  github: "GitHub",
-  upload: "Upload",
-  confluence: "Confluence",
-  jira_epic: "Jira epic",
-  linear_project: "Linear project",
-  box: "Box",
-  dropbox: "Dropbox",
-  notion: "Notion",
-  drawio: "diagrams.net",
-} as const satisfies Record<SourceKind, string>;
 
 // ---- The card (FR-SRC-0001..0004, NFR-USE-0003) ----
 
@@ -102,67 +87,6 @@ export function cardView(s: Source): CardView {
   return { state, line2, countLine, warn: state === "done_with_problems", srText };
 }
 
-/** The ring's arc, 0..1 (FR-SRC-0002): the progress of a Processing source, nothing while it lists. */
-export const ringProgress = (s: Source): number => (sourceState(s) === "processing" ? progressOf(s) : 0);
-
-// ---- The details header (FR-SRC-0008) ----
-
-export interface HeaderText {
-  kind: (typeof KIND_LABEL)[SourceKind];
-  added: string;
-  /** "[finished] of [total] files finished", or "Listing files…". */
-  progress: string;
-  /** 0..100 for the bar. */
-  value: number;
-  /** The details-header message of DATA-SRC-0001 table 2 for a failed source; it replaces the bar. */
-  failure: string | null;
-}
-
-export function headerText(s: Source, driveEmail: string | null = null): HeaderText {
-  return {
-    kind: KIND_LABEL[s.kind],
-    added: `Added by ${s.addedBy.name} · ${fmtStamp(s.addedAt)}`,
-    progress: s.listing ? LISTING : `${String(finishedOf(s))} of ${files(s.total)} finished`,
-    value: Math.round(progressOf(s) * 100),
-    failure: s.failure ? driveReasonMessage(s.failure, driveEmail) : null,
-  };
-}
-
-// ---- The groups (FR-SRC-0009) ----
-
-export type GroupId = "attention" | "progress" | "done";
-export const GROUPS: readonly GroupId[] = ["attention", "progress", "done"];
-export const GROUP_LABEL: Record<GroupId, string> = { attention: "Needs attention", progress: "In progress", done: "Done" };
-
-export function groupIdOf(state: FileState): GroupId {
-  if (isProblem(state)) return "attention";
-  return state === "done" ? "done" : "progress";
-}
-
-/** The count in each group heading, for the whole source (also before all its files are loaded). */
-export function groupTotals(c: Source["counts"]): Record<GroupId, number> {
-  return { attention: problemCount(c), progress: c.processing + c.waiting, done: c.done };
-}
-
-export const heading = (g: GroupId, n: number): string => `${GROUP_LABEL[g]} · ${String(n)}`;
-
-/** True while an unfolded group has files that are not loaded yet; the list then asks for the next page. */
-export function wantsMore(
-  counts: Source["counts"],
-  items: readonly Pick<SourceFile, "state">[],
-  hasMore: boolean,
-  folded: Record<GroupId, boolean>,
-): boolean {
-  if (!hasMore) return false;
-  const total = groupTotals(counts);
-  const loaded: Record<GroupId, number> = { attention: 0, progress: 0, done: 0 };
-  for (const f of items) loaded[groupIdOf(f.state)] += 1;
-  return GROUPS.some((g) => !folded[g] && loaded[g] < total[g]);
-}
-
-export const EMPTY_SOURCE = "No files in this source.";
-export const LOAD_FAILED = "Could not load the files.";
-
 // ---- The file row (FR-SRC-0010, DATA-SRC-0001 table 1) ----
 
 export const STATE_LABEL: Record<FileState, string> = {
@@ -206,35 +130,6 @@ export function reasonText(f: Pick<SourceFile, "state" | "reason" | "category" |
   }
   return null; // a state this client does not know has no reason
 }
-
-/** Only glyphs of the design system's set exist (USAGE rule 7); there are no file-type glyphs for images or videos. */
-export function fileIcon(category: FileCategory): IconName {
-  if (category === "markdown") return "file-md";
-  return category === "videos" ? "play-circle" : "file-text";
-}
-
-// ---- Remove (FR-SRC-0015, 0018, 0019, 0023, 0025) ----
-
-export const REMOVE_TITLE = "Remove this source?";
-export const REMOVE_FAILED = "Specflow could not remove this source. Try again.";
-export const REMOVE_CUTOFF_MS = 60_000;
-
-/** FR-SRC-0015: the warning in three parts, so that the name can be set in bold; joined it is the unit's sentence. */
-export function removeWarning(s: Pick<Source, "total"> & SourceRef): [string, string, string] {
-  return ["This removes ", fullSourceName(s), ` and its ${files(s.total)} from the project. You cannot undo this.`];
-}
-export const removeLabel = (ref: SourceRef): string => `To confirm, type "${fullSourceName(ref)}"`;
-/** FR-SRC-0023: the exact full name, same case; spaces at both ends are ignored. */
-export const nameMatches = (typed: string, ref: SourceRef): boolean => typed.trim() === fullSourceName(ref);
-
-export const removedToast = (ref: SourceRef): { title: string; tone: "success" } => ({
-  title: `${fullSourceName(ref)} removed`,
-  tone: "success",
-});
-export const goneToast = (ref: SourceRef): { title: string; tone: "info" } => ({
-  title: `${fullSourceName(ref)} was removed`,
-  tone: "info",
-});
 
 // ---- The upload toast (FR-SRC-0020..0022; the texts for added, duplicate and retried files are the ones Add files always had) ----
 

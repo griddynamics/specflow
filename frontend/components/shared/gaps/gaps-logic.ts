@@ -4,7 +4,6 @@
 // sections, placements, history events and failures, the filters' options and the `list_gaps` query they make, the inbox order, which
 // gaps the latest run found ("New"), the card's answer button and the "Resolve gaps" button, the section noise-rule value, and which open
 // gaps belong to a plan task or story.
-import type { SeverityLevel } from "@/components/shared/ui/SeverityBadge";
 import { isDataError } from "@/lib/domain/errors";
 import {
   GAP_KINDS,
@@ -12,14 +11,12 @@ import {
   type AnswerResult,
   type ApplyResult,
   type ClarificationStatus,
-  type EditPlacement,
   type GapEvent,
   GAP_SEVERITIES,
   type Gap,
   type GapCheck,
   type GapClarification,
   type GapKind,
-  type GapOrigin,
   type GapQuery,
   type GapQuote,
   type GapSeverity,
@@ -39,25 +36,12 @@ export const KIND_LABEL: Record<GapKind, string> = {
 
 export const SEVERITY_LABEL: Record<GapSeverity, string> = { blocker: "Blocker", major: "Major", minor: "Minor" };
 
-/** The SeverityBadge level of a gap severity: a blocker carries the Critical icon; the word is the gap's own. */
-export const SEVERITY_LEVEL: Record<GapSeverity, SeverityLevel> = { blocker: "critical", major: "high", minor: "low" };
-
-/** Who raised the gap (answers.md "The question card", Chips). */
-export const ORIGIN_LABEL: Record<GapOrigin, string> = {
-  analysis: "Found by analysis",
-  development: "Reported by a coding agent",
-  person: "Raised by a person",
-};
-
 /** A gap's status in words: an answered gap is Staged (its answer waits for "Resolve gaps"), and so is one whose rebuild runs
  * (`applying`, shown with the "Resolving…" tag). */
 export const STATUS_LABEL: Record<GapStatus, string> = { open: "Open", answered: "Staged", applying: "Staged", resolved: "Resolved" };
 
 /** The tag of a gap whose rebuild runs (`applying`), beside its spinner. */
 export const RESOLVING_LABEL = "Resolving…";
-
-/** The tag of a gap the latest gap run found. */
-export const NEW_LABEL = "New";
 
 const STATUS_FILTERS = ["open", "staged", "resolved", "all"] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -99,8 +83,6 @@ export const STATUS_OPTIONS: Options = [
   { value: "resolved", label: "Resolved" },
   ALL,
 ];
-export const KIND_OPTIONS: Options = [ALL, ...Object.entries(KIND_LABEL).map(([value, label]) => ({ value, label }))];
-export const SEVERITY_OPTIONS: Options = [ALL, ...Object.entries(SEVERITY_LABEL).map(([value, label]) => ({ value, label }))];
 
 /** A member as the Gaps screen names them: the display name, else the email. */
 export const memberName = (m: Member): string => m.name ?? m.email;
@@ -131,11 +113,6 @@ export function assigneeChoices(members: readonly Member[], current: string | nu
 /** The names of the members by user id, for the history's words. */
 export function memberNames(members: readonly Member[]): Readonly<Record<string, string>> {
   return Object.fromEntries(members.map((m) => [m.userId, memberName(m)]));
-}
-
-/** "All" first, then the given items in their order. */
-export function withAll(items: { id: string; name: string }[]): Options {
-  return [ALL, ...items.map((i) => ({ value: i.id, label: i.name }))];
 }
 
 /** A value from a filter control; anything outside the vocabulary means the default. */
@@ -169,30 +146,11 @@ export function inboxOrder(gaps: Gap[]): Gap[] {
   return gaps.toSorted((a, b) => Number(holdsAgent(b)) - Number(holdsAgent(a)));
 }
 
-/** The row's second line: the question, after the status when the gap is not open. */
-export function rowSubtitle(g: Gap): string {
-  return g.status === "open" ? g.question : `${STATUS_LABEL[g.status]} · ${g.question}`;
-}
-
 /** The count line announced to assistive technology (aria-live). */
 export function countText(shown: number, more: boolean): string {
   const n = `${String(shown)}${more ? "+" : ""}`;
   return `${n} ${shown === 1 && !more ? "gap" : "gaps"}`;
 }
-
-/**
- * A gap the latest gap run found (FR-GRTE-06): a run's own gap (`analysis`, not one a person or a coding agent raised) created at or after
- * that run started. It stays New after the run ends, until the next run starts; before any run nothing is New.
- */
-export function isNewGap(g: Gap, check: GapCheck | null): boolean {
-  if (check?.startedAt === null || check?.startedAt === undefined || g.origin !== "analysis") return false;
-  const started = Date.parse(check.startedAt);
-  const created = Date.parse(g.createdAt);
-  return Number.isFinite(started) && Number.isFinite(created) && created >= started;
-}
-
-/** The running check's line about the New rows the inbox lists: "2 new gaps listed so far". */
-export const newListedText = (n: number): string => `${String(n)} new ${n === 1 ? "gap" : "gaps"} listed so far`;
 
 /**
  * Where a witness line is: "<document title or path> › <section path> · line N" when the gap read named its document, else its fragment
@@ -217,9 +175,6 @@ export function clarificationText(c: GapClarification): string {
   return c.text ?? c.optionLabel ?? "";
 }
 
-export const RELEVANCE_LABEL: Record<NoiseSection["relevance"], string> = { spec: "Spec", tracking: "Tracking", mixed: "Mixed" };
-export const DECIDED_BY_LABEL: Record<NoiseSection["by"], string> = { rules: "By rules", model: "By the model", person: "By a person" };
-
 /** "Meeting notes › 2026-03-02 sync"; a section without a heading reads as its document's top. */
 export function headingText(s: NoiseSection): string {
   return s.headingPath.length === 0 ? "Top of the document" : s.headingPath.join(" › ");
@@ -237,11 +192,6 @@ export function failureOf(e: unknown): "unavailable" | "failed" {
 
 // ---- answering ----
 
-export const PLACEMENT_LABEL: Record<EditPlacement, string> = {
-  amend: "Amend the source section",
-  document: "Clarifications document",
-};
-
 /**
  * The option preselected when the card opens (answers.md "The question card"): the recommended one for a `major` gap (blocker and minor
  * gaps wait for a deliberate choice); the recorded option of an answered gap wins.
@@ -253,9 +203,6 @@ export function preselectedOption(g: Gap): number | undefined {
   if (g.clarification !== null) return undefined;
   return g.severity === "major" ? g.options.find((o) => o.recommended)?.rank : undefined;
 }
-
-/** A gap can be answered while it is open or staged (`answered`: the staged answer is replaced). */
-export const answerable = (g: Gap): boolean => g.status === "open" || g.status === "answered";
 
 /** "Unstage" fits a staged answer (pending, gap answered), "Withdraw answer" an applied or absorbed one (gap resolved); a gap whose
  * rebuild runs (`applying`) is read-only. */
@@ -271,26 +218,6 @@ export function withdrawable(g: Gap): boolean {
 export function submitLabel(g: Gap): string {
   if (g.status === "answered") return "Change answer";
   return holdsAgent(g) ? "Answer and resolve" : "Stage answer";
-}
-
-/** The line under the answer of a gap a coding agent waits on. */
-export const AT_ONCE_TEXT =
-  "This answer applies at once because a coding agent waits on it, together with every staged answer of the project.";
-
-/** The answer's own text is 1..4000 characters (after trimming); null when it fits, else the words to show. */
-export function ownTextProblem(text: string): string | null {
-  const n = text.trim().length;
-  if (n === 0) return "Write your answer first.";
-  if (n > 4000) return `Your answer is ${String(n)} characters; keep it to 4,000.`;
-  return null;
-}
-
-const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-
-/** A timestamp in words ("12 Nov 2026, 14:05"); an unreadable one is shown as sent. */
-export function whenText(iso: string): string {
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? iso : WHEN.format(new Date(t));
 }
 
 /** What happens to a recorded answer: applied at once (a coding agent waits on it), or staged until someone presses "Resolve gaps". */
@@ -361,9 +288,6 @@ export function failureText(e: unknown): string {
   return "Something went wrong. Try again.";
 }
 
-/** True for `409 gap_stale`: the card shows "This gap changed since you opened it" with Reload. */
-export const isStale = (e: unknown): boolean => isDataError(e) && e.detail?.apiCode === "gap_stale";
-
 /** True for `409 gap_wrong_state` of "Resolve gaps": no staged answer waits. */
 export const isNothingStaged = (e: unknown): boolean => isDataError(e) && e.detail?.apiCode === "gap_wrong_state";
 
@@ -432,14 +356,6 @@ export const NOTHING_STAGED_TOAST = {
 
 // ---- dismissing and noise rules ----
 
-/** The reasons offered by "Not a gap" (answers.md "Dismissing"), sent as these words; "Other" sends the free text. */
-export const DISMISS_REASONS = [
-  { value: "not a gap", label: "Not a gap" },
-  { value: "not spec", label: "Not spec" },
-  { value: "duplicate", label: "Duplicate" },
-  { value: "won't decide now", label: "Won't decide now" },
-];
-
 /** A `section` noise rule's value (detection.md "Relevance filter"): the lineage and the heading path joined by " › ". */
 export function sectionRuleValue(lineage: string, headingPath: readonly string[]): string {
   return [lineage, ...headingPath].join(" › ");
@@ -453,12 +369,6 @@ export function witnessSection(g: Gap): { value: string; label: string } | null 
   const doc = nonEmptyText(w.documentTitle) ?? nonEmptyText(w.documentPath) ?? w.documentId;
   return { value: sectionRuleValue(w.documentId, heading), label: [doc, ...heading].join(" › ") };
 }
-
-export const SCOPE_LABEL: Record<"document" | "section" | "pattern", string> = {
-  document: "Document",
-  section: "Section",
-  pattern: "Pattern",
-};
 
 // ---- history ----
 
@@ -536,100 +446,9 @@ export const openGapsText = (n: number): string => `${String(n)} open ${n === 1 
 
 // ---- the gap check status line ----
 
-/** The gap run's steps in words (docs/graph/gap/how-it-works.md; `RUN_STEPS` of graph.gap). */
-export const GAP_STEP_LABEL: Readonly<Record<string, string>> = {
-  scope: "Reading what changed",
-  close: "Checking answered gaps",
-  relevance: "Separating specification from notes",
-  detect: "Looking for signals",
-  sites: "Grouping the signals",
-  investigate: "Investigating",
-  finish: "Finishing",
-};
-
-/**
- * What changes while a gap run records: its step and the sites done (a site's gaps are in the list once it counts as done). null when no
- * run runs. The inbox reads its rows again whenever it changes.
- */
-export function checkPulse(c: GapCheck | null): string | null {
-  if (c?.phase !== "running") return null;
-  return `${String(c.stepsDone)}|${c.step ?? ""}|${String(c.itemsDone ?? "")}`;
-}
-
-/** Whether the line must be read again soon: the build or the gap run is under way. */
-export const checkActive = (c: GapCheck): boolean => c.phase === "building" || c.phase === "queued" || c.phase === "running";
-
 /** How far the running gap run is, 0..100: its done steps plus the share of the current step's items. */
 export function checkProgress(c: GapCheck): number {
   if (c.stepsTotal <= 0) return 0;
   const part = c.itemsTotal !== null && c.itemsTotal > 0 && c.itemsDone !== null ? Math.min(c.itemsDone / c.itemsTotal, 1) : 0;
   return Math.min(100, Math.round(((Math.min(c.stepsDone, c.stepsTotal) + part) / c.stepsTotal) * 100));
-}
-
-/** What the items of a step are (graph.gap reports the sites of these steps); a step not named here shows bare counts. */
-const GAP_STEP_ITEMS: Readonly<Partial<Record<string, string>>> = { investigate: "sites" };
-
-/** The step the running gap run is on, in words, its items as the plan shows them: "Step 6 of 9: Investigating · 7 of 21 sites". */
-export function checkStepText(c: GapCheck): string {
-  const label = c.step === null ? "Starting" : (GAP_STEP_LABEL[c.step] ?? c.step);
-  const { itemsDone: done, itemsTotal: total } = c;
-  const noun = c.step === null ? undefined : GAP_STEP_ITEMS[c.step];
-  const what = noun === undefined ? "" : " " + noun;
-  const items = done !== null && total !== null && total > 0 ? ` · ${String(Math.min(done, total))} of ${String(total)}${what}` : "";
-  if (c.stepsTotal <= 0) return label + items;
-  const n = Math.min(c.stepsDone + 1, c.stepsTotal);
-  return `Step ${String(n)} of ${String(c.stepsTotal)}: ${label}${items}`;
-}
-
-/** "2 new gaps" / "1 new gap" / "no new gaps". */
-function newGapsText(n: number): string {
-  if (n === 0) return "no new gaps";
-  return `${String(n)} new ${n === 1 ? "gap" : "gaps"}`;
-}
-
-/** What the latest finished gap run found: "2 new gaps, 9 updated, 1 resolved", or "No new gaps". */
-export function checkFoundText(c: GapCheck): string {
-  const parts: string[] = [];
-  if (c.newGaps !== null) parts.push(newGapsText(c.newGaps));
-  if (c.updatedGaps !== null && c.updatedGaps > 0) parts.push(`${String(c.updatedGaps)} updated`);
-  if (c.resolvedGaps !== null && c.resolvedGaps > 0) parts.push(`${String(c.resolvedGaps)} resolved`);
-  const text = parts.join(", ");
-  return text === "" ? "" : text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-/** The words of a finished check: when it finished and what it found; a degraded one says some parts were not checked. */
-function finishedText(c: GapCheck): { title: string; detail: string } {
-  const when = c.finishedAt === null ? "" : ` ${whenText(c.finishedAt)}`;
-  const found = checkFoundText(c);
-  if (c.phase !== "degraded") return { title: `Gaps checked${when}`, detail: found };
-  const lead = found === "" ? "" : `${found}. `;
-  return {
-    title: `Gap check finished with problems${when}`,
-    detail: `${lead}Some parts could not be checked; the next build tries again.`,
-  };
-}
-
-/** The words of a failed check, with its error code when the API sent one. */
-function failedText(c: GapCheck): { title: string; detail: string } {
-  const code = c.errorCode === null ? "" : `Error code: ${c.errorCode}. `;
-  return { title: "The last gap check failed", detail: `${code}The gaps of earlier checks are still shown. The next build checks again.` };
-}
-
-/** The status line's title and detail for each phase. */
-export function checkText(c: GapCheck): { title: string; detail: string } {
-  switch (c.phase) {
-    case "building":
-      return { title: "Waiting for the knowledge build", detail: "Specflow looks for gaps as soon as the build finishes." };
-    case "queued":
-      return { title: "Gap check starting", detail: "It starts in a moment." };
-    case "running":
-      return { title: "Looking for gaps", detail: checkStepText(c) };
-    case "never":
-      return { title: "No gap check yet", detail: "Specflow looks for gaps after each knowledge build." };
-    case "failed":
-      return failedText(c);
-    case "done":
-    case "degraded":
-      return finishedText(c);
-  }
 }

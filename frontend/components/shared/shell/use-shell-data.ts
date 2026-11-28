@@ -1,10 +1,9 @@
 "use client";
 // FE-SHELL-02, FE-PPL-01, FE-DEMO-04 (TECH-SPECS §1.8, §2.3, §2.4): what the shell reads from the ports. Ports only, no fixtures.
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Person } from "@/lib/domain/people";
 import type { Project } from "@/lib/domain/projects";
-import { useCurrentProject, usePorts, useRoutes, useSetCurrentProject } from "@/lib/data/provider";
-import { gateOutcome } from "./shell-logic";
+import { usePorts } from "@/lib/data/provider";
 
 /** The active user (GET /me). null until the port answers. */
 export function useMe(): Person | null {
@@ -50,44 +49,4 @@ export function useProjectList(refreshKey?: string): Project[] | null {
     };
   }, [projects, refreshKey]);
   return list;
-}
-
-export type Gate = { id: string; status: "ok" | "error" } | null;
-
-/**
- * §1.8, PA27: asks `projects.get(projectId)` when a project-scoped route mounts. `onRedirect` runs for `not_found` or
- * `validation`; any other failure becomes `status: "error"`. The result belongs to the id it was asked for, so a route change
- * never shows the previous project's answer.
- */
-export function useProjectGate(projectId: string | undefined, onRedirect: () => void): Gate {
-  const { projects } = usePorts();
-  const [gate, setGate] = useState<Gate>(null);
-  const redirect = useEffectEvent(onRedirect);
-  useEffect(() => {
-    if (projectId === undefined) return;
-    let live = true;
-    projects.get(projectId).then(
-      () => {
-        if (live) setGate({ id: projectId, status: "ok" });
-      },
-      (e: unknown) => {
-        if (!live) return;
-        if (gateOutcome(e) === "redirect") redirect();
-        else setGate({ id: projectId, status: "error" });
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [projects, projectId]);
-  return gate;
-}
-
-/** The routes and the current project (with its setter), as the shell frame reads them. */
-export function useShellEnv() {
-  return {
-    routes: useRoutes(),
-    current: useCurrentProject(),
-    setCurrent: useSetCurrentProject(),
-  };
 }

@@ -1,7 +1,7 @@
 // Phase 1 Mission Control sources (DESIGN D4, D6-D9; owner redesign 2026-10-15; plans/connect-build-kg-button): the pure rules of the
 // screen: the build button on the header row (its state, the confirm estimate, the error report) and the source cards. No React.
 import { sourceState } from "@/lib/domain/source-state";
-import type { BuildFailure, Connection, ProjectSourcesStatus, ReasoningLevel } from "@/lib/domain/sources";
+import type { BuildFailure, ProjectSourcesStatus, ReasoningLevel } from "@/lib/domain/sources";
 import { importLock } from "./drive-logic";
 import { truthy } from "@/components/shared/ui/utils";
 
@@ -169,11 +169,3 @@ export function buildErrorReport(projectId: string, f: BuildFailure, page: strin
     `Page: ${page}`,
   ].join("\n");
 }
-
-// ---- Sources ----
-
-export const LOCAL_FILES = "Local files";
-
-/** GitHub (demo build): the repository can be synced when it is at rest; a failed Drive import is saved again, not synced. */
-export const canSyncNow = (c: Pick<Connection, "state" | "error"> & Partial<Pick<Connection, "failure">>): boolean =>
-  c.state === "synced" || (c.state === "error" && c.error !== "unsupported_url" && !c.failure);

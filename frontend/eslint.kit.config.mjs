@@ -8,17 +8,7 @@ import { defineKitConfig } from "../validation/typescript/lint/eslint.config.mjs
 
 const kit = defineKitConfig({
   root: path.dirname(fileURLToPath(import.meta.url)),
-  ignores: [
-    ".next/**",
-    "next-env.d.ts",
-    "playwright-report/**",
-    "test-results/**",
-    "logs/**",
-    "resources/**",
-    "public/**",
-    // Copy of the GD Liquid Glass design system: read-only, re-copied from docs/design-system.
-    "styles/ds/**",
-  ],
+  ignores: [".next/**", "next-env.d.ts", "playwright-report/**", "test-results/**", "logs/**", "resources/**", "public/**"],
 
   // Node scripts, .mjs libs and tests.
   node: { files: ["**/*.{js,mjs}"], cjs: ["**/*.cjs"] },
@@ -44,9 +34,8 @@ const kit = defineKitConfig({
       { type: "types", pattern: "types/**", allow: ["types"] },
     ],
 
-    // GD Liquid Glass primitives live in components/ui; tokens in styles/ds/tokens.css.
+    // lib/theme.ts is the app's one style module (the GD design system's copied folders are retired with the legacy tree).
     designSystem: {
-      primitives: "components/ui/**/*.{ts,tsx}",
       styleModules: ["lib/theme.ts"],
     },
   },

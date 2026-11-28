@@ -2,7 +2,7 @@ import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { packReporters } from "./playwright.reporter";
 
-// P17 (FE-BP-03, FE-BP-09, TECH-SPECS §10.4): browser runs for the PRODUCTION routes (`/`, `/login`, `/projects/...`, `/connections`)
+// P17 (FE-BP-03, FE-BP-09, TECH-SPECS §10.4): browser runs for the PRODUCTION routes (`/`, `/login`, `/projects/...`)
 // against the stub API, never the real backend: no model call. It starts the BUILT app through scripts/serve-production.mjs
 // (OIDC stub issuer, stub API, control port), so run `npm run build` first. The specs share one stub, so they run one at a time
 // (workers 1), in both viewports, with no retries.

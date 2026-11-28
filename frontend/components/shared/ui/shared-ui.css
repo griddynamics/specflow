@@ -1,10 +1,10 @@
 /*
- * The styling of the five shared UI atoms in the Graphico way (packages/ui; decision D14): flat
+ * The styling of the three shared UI atoms in the Graphico way (packages/ui; decision D14): flat
  * ink-on-paper surfaces, hard offset shadows, no glass, no transitions. Hand-written because
  * @graphico/ui ships no equivalent primitives; every colour is a `--gx-*` token of `.gx`. Fira Sans
- * and the 2px ink focus ring are inherited from `.gx` (packages/ui base.css). On screens without a
- * GraphicoRoot the tokens resolve to nothing: the legacy screens that still render these atoms lost
- * their look with the GD sheets and leave with Task 6.
+ * and the 2px ink focus ring are inherited from `.gx` (packages/ui base.css). The legacy screens
+ * that still rendered these atoms without a GraphicoRoot are gone (Task 6 removed them); the atoms
+ * now render only in the V2 screens, always under a GraphicoRoot.
  */
 
 /* GlassSurface: the surface every other component builds on. */
@@ -44,68 +44,6 @@
 .sui-icon {
   flex: none;
   display: block;
-}
-
-/* SearchField. */
-.sui-search {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 240px;
-  height: 40px;
-  padding: 0 8px 0 12px;
-  border: 1.5px solid var(--gx-ink);
-  border-radius: 10px; /* tokens-ok: the Graphico input radius (.gx-input); the palette declares no radius token */
-  background: var(--gx-paper);
-  color: var(--gx-ink-2);
-}
-.sui-search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  color: var(--gx-ink);
-  font: inherit;
-}
-.sui-search input::placeholder {
-  color: var(--gx-ink-3);
-}
-.sui-search input::-webkit-search-cancel-button {
-  display: none;
-}
-.sui-search__clear {
-  appearance: none;
-  border: 0;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px; /* tokens-ok: the Graphico pill; the palette declares no radius token */
-  background: var(--gx-wash);
-  color: var(--gx-ink-2);
-  cursor: pointer;
-}
-.sui-search__clear:hover {
-  background: var(--gx-rule);
-  color: var(--gx-ink);
-}
-
-/* SeverityBadge: the quiet badge. The palette is monochrome, so the icon marks Critical by its
-   shape while the word carries the level (never colour alone, PQ9). */
-.sui-sev {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-  color: var(--gx-ink);
-}
-.sui-sev__icon {
-  position: absolute;
-  inset-inline-end: 100%;
-  margin-inline-end: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--gx-ink);
 }
 
 /* Toast: the bottom-right stack inside the Graphico root; the surface is GlassSurface strong and

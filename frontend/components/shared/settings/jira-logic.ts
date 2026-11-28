@@ -3,18 +3,8 @@
 // Atlassian connection row, the acting account line and the `?atlassian=` toast.
 import { COPY } from "@/lib/copy";
 import { isDataError, type DataError } from "@/lib/domain/errors";
-import type {
-  AtlassianConnection,
-  JiraAccess,
-  JiraActing,
-  JiraAccessField,
-  JiraSettings,
-  JiraSyncProgress,
-  JiraSyncState,
-  JiraSyncStep,
-  JiraTarget,
-} from "@/lib/domain/jira";
-import { countText, SETTINGS_COPY } from "./settings-copy";
+import type { AtlassianConnection, JiraAccess, JiraAccessField, JiraSettings, JiraSyncState, JiraTarget } from "@/lib/domain/jira";
+import { SETTINGS_COPY } from "./settings-copy";
 
 /** The typed keys as the API reads them: trimmed, upper-cased, a blank Epic is none. */
 export function targetOf(project: string, epic: string): JiraTarget {
@@ -38,13 +28,6 @@ export function phaseOf(outcome: Outcome | null, busy: "check" | "save" | null):
   if (busy === "save") return "saving";
   return outcome?.kind === "ok" ? "save" : "check";
 }
-
-export const PHASE_LABEL: Record<Phase, string> = {
-  check: SETTINGS_COPY.checkAccess,
-  checking: SETTINGS_COPY.checking,
-  save: COPY.settingsSave,
-  saving: SETTINGS_COPY.saving,
-};
 
 const REASON_TEXT: Record<string, string> = {
   jira_auth_failed: COPY.jiraAuthFailed,
@@ -132,17 +115,6 @@ const STATUS_WORD: Record<JiraSyncState, string> = {
   skipped: SETTINGS_COPY.statusSkipped,
 };
 export const statusWord = (status: JiraSyncState): string => STATUS_WORD[status];
-
-export type StatusTone = "neutral" | "pending" | "success" | "warning" | "danger";
-const STATUS_TONE: Record<JiraSyncState, StatusTone> = {
-  idle: "neutral",
-  running: "pending",
-  succeeded: "success",
-  partial: "warning",
-  failed: "danger",
-  skipped: "neutral",
-};
-export const statusTone = (status: JiraSyncState): StatusTone => STATUS_TONE[status];
 
 /** The tab reloads while a pass runs (ui.md, status line). */
 export const POLL_MS = 5000;
@@ -272,56 +244,7 @@ export function tabReducer(st: TabState, a: TabAction): TabState {
   }
 }
 
-const STEP_TEXT: Record<JiraSyncStep, string> = {
-  issues: SETTINGS_COPY.stepIssues,
-  links: SETTINGS_COPY.stepLinks,
-  order: SETTINGS_COPY.stepOrder,
-};
-
-/** What a running pass shows: the step text, "23 of 60", and the bar's numbers (`done` clamped into 0..total; `total` 0 has no bar value). */
-export function progressView(p: JiraSyncProgress): { step: string; count: string; done: number; total: number } {
-  const done = Math.min(p.done, p.total);
-  return { step: STEP_TEXT[p.step], count: countText(done, p.total), done, total: p.total };
-}
-
 // ---- The Atlassian connection (docs/jira-sync/oauth.md#jira-tab) ----
-
-/** The caller's connection row: shown to owners in the `oauth` mode only (none = the tab as in the `token` mode). */
-export type ConnectRow = { kind: "connected"; name: string } | { kind: "expired" } | { kind: "none" };
-
-export function connectRowOf(settings: JiraSettings, atlassian: AtlassianConnection | null): ConnectRow | null {
-  if (!settings.editable || atlassian?.mode !== "oauth") return null;
-  if (atlassian.status === "active") return { kind: "connected", name: atlassian.accountName ?? "" };
-  return atlassian.status === "expired" ? { kind: "expired" } : { kind: "none" };
-}
-
-/** Why Check access, Save and the Sync switch are off for this owner (no active connection in the `oauth` mode), or null. */
-export function connectGate(row: ConnectRow | null): string | null {
-  if (row === null || row.kind === "connected") return null;
-  return row.kind === "expired" ? SETTINGS_COPY.needsReconnect : SETTINGS_COPY.needsConnect;
-}
-
-/** The acting account line under the target: who the sync acts as, and the warning when that connection is expired or missing. */
-export interface ActingLine {
-  text: string;
-  warning: string | null;
-}
-
-export function actingLineOf(acting: JiraActing | null, editable: boolean): ActingLine | null {
-  if (acting === null) return null;
-  const who = acting.connectedByMe ? SETTINGS_COPY.actingYou : (acting.connectedByName ?? "");
-  if (acting.status === "missing" || who === "") {
-    return { text: SETTINGS_COPY.actingNobody, warning: editable ? SETTINGS_COPY.actingSaveToSync : SETTINGS_COPY.actingOwnerSaves };
-  }
-  const text = `${SETTINGS_COPY.actingAs} ${who}`;
-  if (acting.status === "active") return { text, warning: null };
-  if (acting.connectedByMe) return { text, warning: SETTINGS_COPY.actingYouReconnect };
-  const takeOver = editable ? ` ${SETTINGS_COPY.actingSaveToSync}` : "";
-  return { text, warning: `${who} ${SETTINGS_COPY.actingMustReconnect}${takeOver}` };
-}
-
-/** True when an owner may save the unchanged target to take it over (it does not act as them, actively, yet). */
-export const canTakeOver = (acting: JiraActing | null): boolean => acting !== null && !(acting.connectedByMe && acting.status === "active");
 
 const ATLASSIAN_TOAST: Record<string, string> = {
   atlassian_consent_denied: COPY.atlassianConsentDenied,
@@ -337,6 +260,3 @@ export function atlassianToast(code: string): { title: string; tone: "success" |
   if (code === "connected") return { title: COPY.atlassianConnected, tone: "success" };
   return { title: Object.hasOwn(ATLASSIAN_TOAST, code) ? ATLASSIAN_TOAST[code] : COPY.atlassianUnexpected, tone: "danger" };
 }
-
-/** Atlassian's page of connected apps: 3LO has no revoke endpoint, so the user removes Specflow's grant there. */
-export const ATLASSIAN_GRANTS_URL = "https://id.atlassian.com/manage-profile/apps";

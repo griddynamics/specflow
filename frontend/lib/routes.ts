@@ -4,13 +4,7 @@ import { INTEGRATION_APPS, type IntegrationCardId } from "@/lib/domain/integrati
 import { isSameSitePath } from "@/lib/same-site-path";
 
 export type AppMode = "production";
-export type MissionControlView = "readme" | "business" | "architecture" | "files" | "sources"; // "sources": Phase 1 sources screen only
-export type PlanView = "plan" | "work" | "develop"; // P20 (Plan page, AUTO-17)
-export type SettingsTab = "general" | "jira" | "slack" | "github"; // the Settings tabs (docs/projects/ui.md#route-and-sidebar)
 export type RouteKey = "home" | "canvas" | "integrations";
-/** The Guides topics (MCP-M10): `/guides/{topic}`. Any other topic answers 404. */
-export const GUIDE_TOPICS = ["specflow-101", "best-practices", "mcp-server"] as const;
-export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
 /** Path templates WITHOUT the tree prefix; `{name}` marks a param. `trees` = where a page file must exist. */
 export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMode[] }> = {
@@ -19,43 +13,14 @@ export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMod
   integrations: { template: "/projects/{projectId}/integrations", trees: ["production"] }, // V2: ?github= | ?atlassian= | ?linear= | ?box= | ?dropbox= | ?next=
 };
 
-/**
- * The pre-V2 path templates (legacy-frontend removal, Task 3): those pages are gone — the URLs 404 — but the legacy builders below still
- * serve them to the callers that survive until Tasks 5/6 (`lib/markdown/links.ts`, the legacy shell's `sectionOf` matchers, the legacy
- * components, the legacy tests), all inside `next build`'s complete-project type check. Task 6's knip pass deletes the builders, the
- * parsers, `GUIDE_TOPICS`, the types and this bridge together. `ROUTES` above stays the one checked route table; this const is the bridge.
- */
-export const LEGACY_TEMPLATES = {
-  missionControl: "/projects/{projectId}/mission-control",
-  gaps: "/projects/{projectId}/gaps", // FR-GWEB-04: the Gaps screen (was Decisions)
-  plan: "/projects/{projectId}/plan", // P20
-  specbot: "/projects/{projectId}/specbot",
-  settings: "/projects/{projectId}/settings", // ?tab=general | jira | slack | github
-  connections: "/connections",
-  guides: "/guides", // + "/guides/{topic}"
-} as const;
-
 export const TREE_PREFIX: Record<AppMode, ""> = { production: "" };
 
 export interface RouteBuilder {
   home(): string;
   canvas(projectId: string, opts?: { add?: string }): string; // V2: the project's canvas; `add` = the connection form to open (back from Integrations)
   integrations(projectId: string, opts?: { setup?: IntegrationCardId; next?: string }): string; // V2: `setup` opens that app; `next` = a same-site path to return to after a connect
-  missionControl(projectId: string, opts?: { view?: MissionControlView }): string;
-  file(projectId: string, ref: { path: string; anchor?: string }): string; // view=files&file=...&section=...
-  gaps(projectId: string, opts?: { gapId?: string }): string; // `?gap=<id>` opens that gap's card
-  plan(projectId: string, opts?: { view?: PlanView }): string; // no `view` → clean path (Stage 2 opens on Plan)
-  specbot(projectId: string): string;
-  settings(projectId: string, opts?: { tab?: SettingsTab }): string; // no `tab` -> clean path (opens on General)
-  connections(): string;
-  guides(topic?: GuideTopic): string; // "/guides" or "/guides/{topic}"
   login(): string; // "/login"
-  asset(path: string): string; // "/ds/" + path
 }
-
-const VIEWS: readonly MissionControlView[] = ["readme", "business", "architecture", "files", "sources"];
-const PLAN_VIEWS: readonly PlanView[] = ["plan", "work", "develop"];
-const SETTINGS_TABS: readonly SettingsTab[] = ["general", "jira", "slack", "github"];
 
 function withQuery(path: string, params: Record<string, string | undefined>): string {
   const q = new URLSearchParams();
@@ -71,57 +36,12 @@ function fill(template: string, params: Record<string, string>): string {
 export function routesFor(mode: AppMode): RouteBuilder {
   const prefix = TREE_PREFIX[mode];
   const at = (key: RouteKey, params: Record<string, string> = {}) => prefix + fill(ROUTES[key].template, params);
-  const legacyAt = (template: string, params: Record<string, string> = {}) => prefix + fill(template, params);
   return {
     home: () => "/",
     canvas: (projectId, opts) => withQuery(at("canvas", { projectId }), { add: opts?.add }),
     integrations: (projectId, opts) => withQuery(at("integrations", { projectId }), { setup: opts?.setup, next: opts?.next }),
-    missionControl: (projectId, opts) => withQuery(legacyAt(LEGACY_TEMPLATES.missionControl, { projectId }), { view: opts?.view }),
-    file: (projectId, ref) => withQuery(legacyAt(LEGACY_TEMPLATES.missionControl, { projectId }), { view: "files", file: ref.path, section: ref.anchor }),
-    gaps: (projectId, opts) => withQuery(legacyAt(LEGACY_TEMPLATES.gaps, { projectId }), { gap: opts?.gapId }),
-    plan: (projectId, opts) => withQuery(legacyAt(LEGACY_TEMPLATES.plan, { projectId }), { view: opts?.view }),
-    specbot: (projectId) => legacyAt(LEGACY_TEMPLATES.specbot, { projectId }),
-    settings: (projectId, opts) => withQuery(legacyAt(LEGACY_TEMPLATES.settings, { projectId }), { tab: opts?.tab }),
-    connections: () => legacyAt(LEGACY_TEMPLATES.connections),
-    guides: (topic) => legacyAt(LEGACY_TEMPLATES.guides) + (topic === undefined ? "" : `/${encodeURIComponent(topic)}`),
     login: () => "/login",
-    asset: (path) => `/ds/${path.replace(/^\/+/, "")}`,
   };
-}
-
-export function parseMissionControlQuery(q: URLSearchParams): {
-  view: MissionControlView | null;
-  file: string | null;
-  section: string | null;
-} {
-  const v = q.get("view");
-  return {
-    view: VIEWS.includes(v as MissionControlView) ? (v as MissionControlView) : null,
-    file: q.get("file"),
-    section: q.get("section"),
-  };
-}
-
-/** FR-GWEB-04: `gap` of the Gaps route (the open card); missing -> null. */
-export function parseGapsQuery(q: URLSearchParams): { gapId: string | null } {
-  return { gapId: q.get("gap") };
-}
-
-/** FE-PLAN-05 (TECH-SPECS §1.1): `view` of the Plan route; missing or unknown -> null, never an error. */
-export function parsePlanQuery(q: URLSearchParams): { view: PlanView | null } {
-  const v = q.get("view");
-  return { view: PLAN_VIEWS.includes(v as PlanView) ? (v as PlanView) : null };
-}
-
-/** `tab` of the Settings route; missing or unknown -> `general`, never an error (docs/projects/ui.md#route-and-sidebar). */
-export function parseSettingsQuery(q: URLSearchParams): { tab: SettingsTab } {
-  const t = q.get("tab");
-  return { tab: SETTINGS_TABS.includes(t as SettingsTab) ? (t as SettingsTab) : "general" };
-}
-
-/** A `{topic}` path segment as a known Guides topic; anything else -> null (the page answers 404). */
-export function parseGuideTopic(topic: string): GuideTopic | null {
-  return (GUIDE_TOPICS as readonly string[]).includes(topic) ? (topic as GuideTopic) : null;
 }
 
 /**

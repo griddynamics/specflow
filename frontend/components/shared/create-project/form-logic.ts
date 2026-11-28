@@ -4,9 +4,6 @@ import type { CreateProjectInput } from "@/lib/domain/create-project";
 import { validateProjectName } from "@/lib/domain/projects";
 import { COPY } from "@/lib/copy";
 
-/** At most 50 people per project and the creator is one of them (docs/projects/api.md#create-with-collaborators). */
-export const COLLABORATOR_CHIPS_MAX = 49;
-
 export interface FormState {
   name: string;
   emails: string[]; // normalised (trimmed, lower-case), unique, in chip order
@@ -29,13 +26,6 @@ export function buildInput(f: FormState): CreateProjectInput | null {
   const v = validateProjectName(f.name);
   if (!v.ok) return null;
   return f.emails.length > 0 ? { name: v.name, collaboratorEmails: f.emails } : { name: v.name };
-}
-
-/** The text under the Collaborators field for a typed text the picker refused. */
-export function rejectText(reason: "invalid" | "duplicate" | "full"): string {
-  if (reason === "invalid") return COPY.emailInvalid;
-  if (reason === "duplicate") return COPY.alreadyCollaborator;
-  return COPY.memberLimit;
 }
 
 const CHIP_TEXT: Record<string, string> = {

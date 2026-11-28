@@ -15,12 +15,6 @@ export function githubRowOf(c: GitHubConnection): GitHubRow {
   return c.status === "expired" ? { kind: "expired" } : { kind: "none" };
 }
 
-/** Why an owner cannot add a repository now (no active connection), or null when they can. */
-export function addGate(row: GitHubRow): string | null {
-  if (row.kind === "connected") return null;
-  return row.kind === "expired" ? SETTINGS_COPY.reposNeedReconnect : SETTINGS_COPY.reposNeedConnect;
-}
-
 export type Tone = "neutral" | "pending" | "success" | "danger";
 
 const CLONE_WORD: Record<CloneState, string> = {
@@ -94,12 +88,6 @@ export function cloneViewOf(r: ProjectRepository): CloneView {
     facts: r.cloneState === "failed" && facts !== "" ? `${SETTINGS_COPY.lastGood}: ${facts}` : facts,
     reason: r.cloneState === "failed" ? failureText(r.failureCode ?? "") : null,
   };
-}
-
-/** Who added the repository, for its sub line. */
-export function addedByText(r: ProjectRepository): string | null {
-  if (r.addedByMe) return SETTINGS_COPY.addedByYou;
-  return r.addedByName === null ? null : `${SETTINGS_COPY.addedBy} ${r.addedByName}`;
 }
 
 /** True while a clone check waits or runs: the tab reloads the list then. */
